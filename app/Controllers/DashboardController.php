@@ -161,6 +161,22 @@ public function guardarEtiquetas()
     // ============================================================
     // API → TRAE 50 PEDIDOS SIEMPRE
     // ============================================================
+    public function pedidos()
+{
+    $pedidoModel = new \App\Models\PedidoModel();
+
+    // Número de registros por página
+    $perPage = 50;
+
+    // Recupera los pedidos con paginación
+    $data['pedidos'] = $pedidoModel->paginate($perPage);
+
+    // Renderiza los links de paginación
+    $data['pager'] = $pedidoModel->pager;
+
+    return view('admin/pedidos', $data);
+}
+
     public function filter($range = "todos", $page = 1)
     {
         $limit = 50;

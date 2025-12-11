@@ -45,6 +45,12 @@
 
                 <tbody id="tablaPedidos" class="text-gray-800"></tbody>
             </table>
+            <!-- 📌 Links de paginación -->
+<div class="pagination-container">
+    <?= $pager->links() ?>
+</div>
+<?= $pager->links('default', 'tailwind') ?>
+
         </div>
 
         <!-- Paginación -->
