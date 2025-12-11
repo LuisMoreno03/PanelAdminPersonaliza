@@ -52,7 +52,6 @@
         <!-- Paginación -->
         <div class="flex justify-between mt-4">
 
-            <!-- Shopify no permite "anterior" sin historial, por ahora se desactiva -->
             <button id="btnAnterior"
                 disabled
                 class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg opacity-50 cursor-not-allowed">
@@ -68,78 +67,11 @@
 
     </div>
 
-    <script>
-        // ================================
-        // PAGINACIÓN SHOPIFY
-        // ================================
-        let nextPageInfo = null;
+    <!-- MODALES -->
+    <?= view('layouts/modales_estados') ?>
 
-        function cargarPedidos(pageInfo = null) {
-
-            let url = "/dashboard/filter";
-
-            if (pageInfo) {
-                url += "?page_info=" + pageInfo;
-            }
-
-            fetch(url)
-                .then(res => res.json())
-                .then(data => {
-
-                    nextPageInfo = data.next_page_info;
-
-                    actualizarTabla(data.orders);
-
-
-                    document.getElementById("btnSiguiente").disabled = !nextPageInfo;
-
-                    document.getElementById("total-pedidos").textContent = data.count;
-                });
-        }
-
-        function paginaSiguiente() {
-            if (nextPageInfo) {
-                cargarPedidos(nextPageInfo);
-            }
-        }
-
-        // ================================
-        // LLENAR TABLA
-        // ================================
-        function llenarTabla(orders) {
-            const tbody = document.getElementById("tablaPedidos");
-            tbody.innerHTML = "";
-
-            orders.forEach(o => {
-                const row = `
-                    <tr class="border-b">
-                        <td class="py-3 px-4">${o.numero}</td>
-                        <td class="py-3 px-4">${o.fecha}</td>
-                        <td class="py-3 px-4">${o.cliente}</td>
-                        <td class="py-3 px-4">${o.total}</td>
-                        <td class="py-3 px-4">${o.estado}</td>
-                        <td class="py-3 px-4">${o.etiquetas}</td>
-                        <td class="py-3 px-4">${o.articulos}</td>
-                        <td class="py-3 px-4">${o.estado_envio}</td>
-                        <td class="py-3 px-4">${o.forma_envio}</td>
-                    </tr>
-                `;
-                tbody.innerHTML += row;
-            });
-        }
-
-        // ================================
-        // CARGA INICIAL
-        // ================================
-        cargarPedidos();
-    </script>
-
-
-<!-- =========================== -->
-<!-- MODALES (se dejan como estaban) -->
-<!-- =========================== -->
-<?= view('layouts/modales_estados') ?>
-<script src="<?= base_url('js/dashboard.js') ?>"></script>
+    <!-- ÚNICO SCRIPT PERMITIDO -->
+    <script src="<?= base_url('js/dashboard.js') ?>"></script>
 
 </body>
 </html>
