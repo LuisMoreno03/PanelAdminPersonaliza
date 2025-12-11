@@ -139,6 +139,7 @@
 <!-- MODALES (se dejan como estaban) -->
 <!-- =========================== -->
 <?= view('layouts/modales_estados') ?>
+<script src="<?= base_url('js/dashboard.js') ?>"></script>
 
 </body>
 </html>
