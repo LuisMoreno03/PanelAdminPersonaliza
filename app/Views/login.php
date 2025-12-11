@@ -30,7 +30,7 @@
             </div>
         <?php endif; ?>
 
-        <form action="http://localhost:8080/index.php/auth/login" method="POST" class="space-y-5">
+        <form action="https://paneladministrativopersonaliza.com/auth/login" method="POST" class="space-y-5">
 
             <!-- Email -->
             <div>
