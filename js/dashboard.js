@@ -1,16 +1,8 @@
-// =======================================
-// VARIABLES GLOBALES
-// =======================================
 let nextPageInfo = null;
-let previousPages = [];
 
-document.addEventListener("DOMContentLoaded", () => {
-    cargarPedidos(null);
-});
-
-// =======================================
-// CARGAR PEDIDOS DESDE BACKEND
-// =======================================
+// ===============================
+// CARGAR PEDIDOS
+// ===============================
 function cargarPedidos(pageInfo = null) {
 
     let url = "/dashboard/filter";
@@ -23,59 +15,28 @@ function cargarPedidos(pageInfo = null) {
         .then(res => res.json())
         .then(data => {
 
-            if (!data.orders) {
-                console.error("Respuesta inválida:", data);
-                return;
-            }
+            nextPageInfo = data.next_page_info;
 
-            // Guardar next page
-            nextPageInfo = data.next_page_info ?? null;
-
-            // Llenar tabla
             actualizarTabla(data.orders);
 
-            // Botones
-            document.getElementById("btnAnterior").disabled = previousPages.length === 0;
+            // Shopify no permite retroceder, así que lo desactivamos
+            document.getElementById("btnAnterior").disabled = true;
             document.getElementById("btnSiguiente").disabled = !nextPageInfo;
-
-            // Total
-            document.getElementById("total-pedidos").textContent = data.count;
         });
 }
 
-// =======================================
-// SIGUIENTE
-// =======================================
-function paginaSiguiente() {
-    if (nextPageInfo) {
-        previousPages.push(nextPageInfo);
-        cargarPedidos(nextPageInfo);
-    }
-}
+cargarPedidos();
 
-// =======================================
-// ANTERIOR
-// =======================================
-function paginaAnterior() {
-    previousPages.pop();
 
-    if (previousPages.length === 0) {
-        cargarPedidos(null);
-        return;
-    }
-
-    let prev = previousPages[previousPages.length - 1];
-    cargarPedidos(prev);
-}
-
-// =======================================
-// CONSTRUIR TABLA
-// =======================================
+// ===============================
+// RELLENA TABLA
+// ===============================
 function actualizarTabla(pedidos) {
+
     const tbody = document.getElementById("tablaPedidos");
     tbody.innerHTML = "";
 
-    if (!Array.isArray(pedidos) || pedidos.length === 0) {
+    if (!pedidos || pedidos.length === 0) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="9" class="text-center text-gray-500 py-4">
@@ -109,13 +70,15 @@ function actualizarTabla(pedidos) {
                 <td class="py-2 px-4">${p.articulos ?? "-"}</td>
                 <td class="py-2 px-4">${p.estado_envio ?? "-"}</td>
                 <td class="py-2 px-4">${p.forma_envio ?? "-"}</td>
-            </tr>`;
+            </tr>
+        `;
     });
 }
 
-// =======================================
+
+// =============================
 // MODAL ESTADO
-// =======================================
+// =============================
 function abrirModal(orderId) {
     document.getElementById("modalOrderId").value = orderId;
     document.getElementById("modalEstado").classList.remove("hidden");
@@ -125,11 +88,15 @@ function cerrarModal() {
     document.getElementById("modalEstado").classList.add("hidden");
 }
 
+
+// =============================
 // GUARDAR ESTADO
+// =============================
 async function guardarEstado(nuevoEstado) {
+
     let orderId = document.getElementById("modalOrderId").value;
 
-    let response = await fetch(`/api/estado/guardar`, {
+    let response = await fetch(`/index.php/api/estado/guardar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: orderId, estado: nuevoEstado })
@@ -139,15 +106,14 @@ async function guardarEstado(nuevoEstado) {
 
     if (data.success) {
         cerrarModal();
-        cargarPedidos(null);
-    } else {
-        alert("Error guardando estado");
+        cargarPedidos();
     }
 }
 
-// =======================================
+
+// =============================
 // MODAL ETIQUETAS
-// =======================================
+// =============================
 function abrirModalEtiquetas(orderId, etiquetas) {
     document.getElementById("modalTagOrderId").value = orderId;
     document.getElementById("modalTagInput").value = etiquetas || "";
@@ -158,12 +124,16 @@ function cerrarModalEtiquetas() {
     document.getElementById("modalEtiquetas").classList.add("hidden");
 }
 
+
+// =============================
 // GUARDAR ETIQUETAS
+// =============================
 async function guardarEtiquetas() {
+
     let orderId = document.getElementById("modalTagOrderId").value;
     let tags = document.getElementById("modalTagInput").value;
 
-    let response = await fetch(`/api/estado/etiquetas/guardar`, {
+    let response = await fetch(`/index.php/api/estado/etiquetas/guardar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: orderId, tags: tags })
@@ -173,8 +143,16 @@ async function guardarEtiquetas() {
 
     if (data.success) {
         cerrarModalEtiquetas();
-        cargarPedidos(null);
-    } else {
-        alert("Error guardando etiquetas");
+        cargarPedidos();
+    }
+}
+
+
+// ===============================
+// PAGINACIÓN — SOLO SIGUIENTE
+// ===============================
+function paginaSiguiente() {
+    if (nextPageInfo) {
+        cargarPedidos(nextPageInfo);
     }
 }
