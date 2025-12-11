@@ -1,15 +1,16 @@
-let paginaActual = 1;
-let filtroActual = "todos";
+// =======================================
+// VARIABLES GLOBALES
+// =======================================
+let nextPageInfo = null;
+let previousPages = [];
 
 document.addEventListener("DOMContentLoaded", () => {
-    cargarPedidos("todos", 1);
+    cargarPedidos(null);
 });
 
-// ===============================
-// CARGAR PEDIDOS
-// ===============================
-let nextPageInfo = null;
-
+// =======================================
+// CARGAR PEDIDOS DESDE BACKEND
+// =======================================
 function cargarPedidos(pageInfo = null) {
 
     let url = "/dashboard/filter";
@@ -22,33 +23,59 @@ function cargarPedidos(pageInfo = null) {
         .then(res => res.json())
         .then(data => {
 
-            nextPageInfo = data.next_page_info;
+            if (!data.orders) {
+                console.error("Respuesta inválida:", data);
+                return;
+            }
 
-            llenarTabla(data.orders);
+            // Guardar next page
+            nextPageInfo = data.next_page_info ?? null;
 
-            // Deshabilitar botones
-            document.getElementById("btnAnterior").disabled = true; // Shopify no permite retroceder sin guardar el historial
+            // Llenar tabla
+            actualizarTabla(data.orders);
+
+            // Botones
+            document.getElementById("btnAnterior").disabled = previousPages.length === 0;
             document.getElementById("btnSiguiente").disabled = !nextPageInfo;
+
+            // Total
+            document.getElementById("total-pedidos").textContent = data.count;
         });
 }
 
+// =======================================
+// SIGUIENTE
+// =======================================
 function paginaSiguiente() {
     if (nextPageInfo) {
+        previousPages.push(nextPageInfo);
         cargarPedidos(nextPageInfo);
     }
 }
 
-cargarPedidos();
+// =======================================
+// ANTERIOR
+// =======================================
+function paginaAnterior() {
+    previousPages.pop();
 
+    if (previousPages.length === 0) {
+        cargarPedidos(null);
+        return;
+    }
 
-// ===============================
-// RELLENA TABLA
-// ===============================
-function actualizarTabla(pedidos) {
+    let prev = previousPages[previousPages.length - 1];
+    cargarPedidos(prev);
+}
+
+// =======================================
+// CONSTRUIR TABLA
+// =======================================
+function actualizarTabla(orders) {
     const tbody = document.getElementById("tablaPedidos");
     tbody.innerHTML = "";
 
-    if (!Array.isArray(pedidos) || pedidos.length === 0) {
+    if (!Array.isArray(orders) || orders.length === 0) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="9" class="text-center text-gray-500 py-4">
@@ -58,47 +85,38 @@ function actualizarTabla(pedidos) {
         return;
     }
 
-    pedidos.forEach(p => {
+    orders.forEach(p => {
         tbody.innerHTML += `
             <tr class="border-b">
                 <td class="py-2 px-4">${p.numero}</td>
                 <td class="py-2 px-4">${p.fecha}</td>
                 <td class="py-2 px-4">${p.cliente}</td>
                 <td class="py-2 px-4">${p.total}</td>
-                <td>
+
+                <td class="py-2 px-4">
                     <button onclick="abrirModal(${p.id})" class="w-full text-left">
                         ${p.estado}
                     </button>
                 </td>
-                <td>
+
+                <td class="py-2 px-4">
                     <button onclick="abrirModalEtiquetas(${p.id}, '${p.etiquetas ?? ""}')"
                         class="text-blue-600 font-semibold underline">
                         ${p.etiquetas || "Agregar etiquetas"}
                     </button>
                 </td>
 
-                <td class="py-2 px-4">${p.articulos ?? "-"}</td>
-                <td class="py-2 px-4">${p.estado_envio ?? "-"}</td>
-                <td class="py-2 px-4">${p.forma_envio ?? "-"}</td>
+                <td class="py-2 px-4">${p.articulos}</td>
+                <td class="py-2 px-4">${p.estado_envio}</td>
+                <td class="py-2 px-4">${p.forma_envio}</td>
             </tr>
         `;
     });
 }
 
-function getBadgeColor(estado) {
-    switch (estadp.toLowerCase()) {
-        case "preparado": return "bg-green-600";
-        case "por preparar": return "bg-yellow-500";
-        case "enviado": return "bg-blue-600";
-        case "entregado": return "bg-indigo-600";
-        case "cancelado": return "bg-red-600";
-        case "devuelto": return "bg-purple-600";
-        default: return "bg-gray-500";
-    }
-}
-// =============================
-// MODAL
-// =============================
+// =======================================
+// MODAL ESTADO
+// =======================================
 function abrirModal(orderId) {
     document.getElementById("modalOrderId").value = orderId;
     document.getElementById("modalEstado").classList.remove("hidden");
@@ -108,38 +126,29 @@ function cerrarModal() {
     document.getElementById("modalEstado").classList.add("hidden");
 }
 
-
-// =============================
-// GUARDAR ESTADO EN SERVIDOR
-// =============================
+// GUARDAR ESTADO
 async function guardarEstado(nuevoEstado) {
     let orderId = document.getElementById("modalOrderId").value;
 
-    try {
-        let response = await fetch(`/index.php/api/estado/guardar`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: orderId, estado: nuevoEstado })
-        });
+    let response = await fetch(`/api/estado/guardar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: orderId, estado: nuevoEstado })
+    });
 
-        let data = await response.json();
+    let data = await response.json();
 
-        if (data.success) {
-            cerrarModal();
-            cargarPedidos(1); // ← refresca la tabla sin perder estados
-        } else {
-            alert("Error guardando estado");
-        }
-
-    } catch (e) {
-        console.error("Error:", e);
+    if (data.success) {
+        cerrarModal();
+        cargarPedidos(null);
+    } else {
+        alert("Error guardando estado");
     }
 }
 
-
-// =============================
-// MODAL DE ETIQUETAS
-// =============================
+// =======================================
+// MODAL ETIQUETAS
+// =======================================
 function abrirModalEtiquetas(orderId, etiquetas) {
     document.getElementById("modalTagOrderId").value = orderId;
     document.getElementById("modalTagInput").value = etiquetas || "";
@@ -150,48 +159,23 @@ function cerrarModalEtiquetas() {
     document.getElementById("modalEtiquetas").classList.add("hidden");
 }
 
-
-// =============================
-// GUARDAR ETIQUETAS EN SHOPIFY
-// =============================
+// GUARDAR ETIQUETAS
 async function guardarEtiquetas() {
     let orderId = document.getElementById("modalTagOrderId").value;
     let tags = document.getElementById("modalTagInput").value;
 
-    try {
-        let response = await fetch(`/index.php/api/estado/etiquetas/guardar`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: orderId, tags: tags })
-        });
+    let response = await fetch(`/api/estado/etiquetas/guardar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: orderId, tags: tags })
+    });
 
-        let data = await response.json();
+    let data = await response.json();
 
-        if (data.success) {
-            cerrarModalEtiquetas();
-            cargarPedidos(1); // refresca tabla
-        } else {
-            alert("Error guardando etiquetas");
-        }
-
-    } catch (e) {
-        console.error(e);
+    if (data.success) {
+        cerrarModalEtiquetas();
+        cargarPedidos(null);
+    } else {
+        alert("Error guardando etiquetas");
     }
-}
-
-
-// ===============================
-// PAGINACIÓN
-// ===============================
-function actualizarPaginacion(total) {
-    document.getElementById("btnAnterior").disabled = paginaActual <= 1;
-    document.getElementById("btnSiguiente").disabled = total < 50;
-}
-
-function paginaAnterior() {
-    if (paginaActual > 1) cargarPedidos(filtroActual, paginaActual - 1);
-}
-
-function paginaSiguiente() {
-    cargarPedidos(filtroActual, paginaActual + 1);
 }
