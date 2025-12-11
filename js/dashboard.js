@@ -71,11 +71,11 @@ function paginaAnterior() {
 // =======================================
 // CONSTRUIR TABLA
 // =======================================
-function actualizarTabla(orders) {
+function actualizarTabla(pedidos) {
     const tbody = document.getElementById("tablaPedidos");
     tbody.innerHTML = "";
 
-    if (!Array.isArray(orders) || orders.length === 0) {
+    if (!Array.isArray(pedidos) || pedidos.length === 0) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="9" class="text-center text-gray-500 py-4">
@@ -85,7 +85,7 @@ function actualizarTabla(orders) {
         return;
     }
 
-    orders.forEach(p => {
+    pedidos.forEach(p => {
         tbody.innerHTML += `
             <tr class="border-b">
                 <td class="py-2 px-4">${p.numero}</td>
@@ -93,24 +93,23 @@ function actualizarTabla(orders) {
                 <td class="py-2 px-4">${p.cliente}</td>
                 <td class="py-2 px-4">${p.total}</td>
 
-                <td class="py-2 px-4">
+                <td>
                     <button onclick="abrirModal(${p.id})" class="w-full text-left">
                         ${p.estado}
                     </button>
                 </td>
 
-                <td class="py-2 px-4">
+                <td>
                     <button onclick="abrirModalEtiquetas(${p.id}, '${p.etiquetas ?? ""}')"
                         class="text-blue-600 font-semibold underline">
                         ${p.etiquetas || "Agregar etiquetas"}
                     </button>
                 </td>
 
-                <td class="py-2 px-4">${p.articulos}</td>
-                <td class="py-2 px-4">${p.estado_envio}</td>
-                <td class="py-2 px-4">${p.forma_envio}</td>
-            </tr>
-        `;
+                <td class="py-2 px-4">${p.articulos ?? "-"}</td>
+                <td class="py-2 px-4">${p.estado_envio ?? "-"}</td>
+                <td class="py-2 px-4">${p.forma_envio ?? "-"}</td>
+            </tr>`;
     });
 }
 
