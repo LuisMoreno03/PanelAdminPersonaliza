@@ -88,7 +88,8 @@
 
                     nextPageInfo = data.next_page_info;
 
-                    llenarTabla(data.orders);
+                    actualizarTabla(data.orders);
+
 
                     document.getElementById("btnSiguiente").disabled = !nextPageInfo;
 
