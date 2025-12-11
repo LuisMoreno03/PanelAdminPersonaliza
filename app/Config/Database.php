@@ -26,7 +26,7 @@ class Database extends Config
      */
     public array $default = [
         'DSN'          => '',
-        'hostname'     => 'localhost',
+        'hostname'     => 'auth-db2072.hostgtr.io',
         'username'     => '',
         'password'     => '',
         'database'     => '',
@@ -44,6 +44,10 @@ class Database extends Config
         'port'         => 3306,
         'numberNative' => false,
         'foundRows'    => false,
+        'options'  => [
+            PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8",
+            PDO::ATTR_PERSISTENT => false,
+        ],
         'dateFormat'   => [
             'date'     => 'Y-m-d',
             'datetime' => 'Y-m-d H:i:s',
