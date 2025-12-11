@@ -26,7 +26,7 @@ class Database extends Config
      */
     public array $default = [
         'DSN'          => '',
-        'hostname'     => 'auth-db2072.hostgtr.io',
+        'hostname'     => 'https://auth-db2072.hstgr.io/',
         'username'     => '',
         'password'     => '',
         'database'     => '',
