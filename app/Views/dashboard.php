@@ -46,12 +46,12 @@
                 <tbody id="tablaPedidos" class="text-gray-800"></tbody>
             </table>
             <!-- 📌 Links de paginación -->
-<div class="pagination-container">
-    <?= $pager->links() ?>
-</div>
-<?= $pager->links('default', 'tailwind') ?>
+<button id="btnSiguiente"
+    onclick="paginaSiguiente()"
+    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40">
+    Siguiente
+</button>
 
-        </div>
 
         <!-- Paginación -->
         <div class="flex justify-between mt-4">

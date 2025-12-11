@@ -8,29 +8,38 @@ document.addEventListener("DOMContentLoaded", () => {
 // ===============================
 // CARGAR PEDIDOS
 // ===============================
-async function cargarPedidos(filtro = "todos", pagina = 1) {
+let nextPageInfo = null;
 
-    filtroActual = filtro;
-    paginaActual = pagina;
+function cargarPedidos(pageInfo = null) {
 
-    try {
-        const url = `/index.php/dashboard/filter/${filtro}/${pagina}`;
-        console.log("Solicitando →", url);
+    let url = "/dashboard/filter";
 
-        const response = await fetch(url);
-        const data = await response.json();
+    if (pageInfo) {
+        url += "?page_info=" + pageInfo;
+    }
 
-        console.log("Respuesta Shopify:", data);
+    fetch(url)
+        .then(res => res.json())
+        .then(data => {
 
-        actualizarTabla(data.orders);
-        actualizarPaginacion(data.count);
+            nextPageInfo = data.next_page_info;
 
-        document.getElementById("total-pedidos").innerText = data.count;
+            llenarTabla(data.orders);
 
-    } catch (e) {
-        console.error("⚠ Error cargando pedidos:", e);
+            // Deshabilitar botones
+            document.getElementById("btnAnterior").disabled = true; // Shopify no permite retroceder sin guardar el historial
+            document.getElementById("btnSiguiente").disabled = !nextPageInfo;
+        });
+}
+
+function paginaSiguiente() {
+    if (nextPageInfo) {
+        cargarPedidos(nextPageInfo);
     }
 }
+
+cargarPedidos();
+
 
 // ===============================
 // RELLENA TABLA

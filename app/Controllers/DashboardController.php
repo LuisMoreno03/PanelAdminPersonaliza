@@ -174,54 +174,62 @@ public function guardarEtiquetas()
 }
 
 
-    public function filter($range = "todos", $page = 1)
-    {
-        $limit = 50;
+    public function filter($range = "todos")
+{
+    $pageInfo = $this->request->getGet("page_info") ?? null;
 
-        // Siempre traer lo más reciente
+    $limit = 50;
+
+    // Primera página
+    if (!$pageInfo) {
         $params = "limit=$limit&status=any&order=created_at%20desc";
+    } 
+    else {
+        $params = "limit=$limit&page_info=$pageInfo";
+    }
 
-        $response = $this->queryShopify($params);
+    $response = $this->queryShopify($params);
 
-        if (!isset($response["orders"])) {
-            return $this->response->setJSON([
-                "success"      => false,
-                "message"      => "Shopify devolvió error",
-                "shopify_raw"  => $response
-            ]);
-        }
-
-        // ============================================================
-        // TRANSFORMAR PEDIDOS PARA EL FRONTEND
-        // ============================================================
-        $resultado = [];
-
-        foreach ($response["orders"] as $o) {
-
-            $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
-            $badge         = $this->badgeEstado($estadoInterno);
-
-            $resultado[] = [
-                "id"           => $o["id"],
-                "numero"       => $o["name"],
-                "fecha"        => substr($o["created_at"], 0, 10),
-                "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
-                "total"        => $o["total_price"] . " €",
-                "estado"       => $badge,
-                "estado_raw"   => $estadoInterno,
-                "etiquetas"    => is_array($o["tags"]) ? implode(", ", $o["tags"]) : ($o["tags"] ?? "-"),
-                "articulos"    => count($o["line_items"] ?? []),
-                "estado_envio" => $o["fulfillment_status"] ?? "-",
-                "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
-            ];
-        }
-
+    if (!isset($response["orders"])) {
         return $this->response->setJSON([
-            "success" => true,
-            "orders"  => $resultado,
-            "count"   => count($resultado),
-            "page"    => $page
+            "success" => false,
+            "message" => "Error obteniendo pedidos",
+            "raw" => $response
         ]);
     }
+
+    // Next page cursor
+    $next = $response["next_page_info"] ?? null;
+
+    $resultado = [];
+
+    foreach ($response["orders"] as $o) {
+
+        $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
+        $badge         = $this->badgeEstado($estadoInterno);
+
+        $resultado[] = [
+            "id"           => $o["id"],
+            "numero"       => $o["name"],
+            "fecha"        => substr($o["created_at"], 0, 10),
+            "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
+            "total"        => $o["total_price"] . " €",
+            "estado"       => $badge,
+            "estado_raw"   => $estadoInterno,
+            "etiquetas"    => is_array($o["tags"]) ? implode(", ", $o["tags"]) : ($o["tags"] ?? "-"),
+            "articulos"    => count($o["line_items"] ?? []),
+            "estado_envio" => $o["fulfillment_status"] ?? "-",
+            "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
+        ];
+    }
+
+    return $this->response->setJSON([
+        "success"   => true,
+        "orders"    => $resultado,
+        "next_page_info" => $next,
+        "count"     => count($resultado)
+    ]);
+}
+
 }
 
