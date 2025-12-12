@@ -7,7 +7,7 @@ function cargarPedidos(pageInfo = null) {
     if (cargando) return;
     cargando = true;
 
-    let url = "/index.php/dashboard/filter";
+    let url = DASHBOARD_FILTER_URL;
     if (pageInfo) {
         url += "?page_info=" + pageInfo;
     }
