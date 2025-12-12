@@ -42,15 +42,16 @@ class DashboardController extends Controller
         return $row ? $row->estado : "Por preparar";
     }
 
-    private function getPedidosShopify50()
+   private function obtenerPedidosShopify()
 {
-    $url = "https://{$this->shop}/admin/api/2024-01/orders.json?limit=50&status=any&order=created_at desc";
+    $url = "https://TU_TIENDA.myshopify.com/admin/api/2024-01/orders.json"
+         . "?limit=50&status=any&order=created_at desc";
 
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER => [
-            "X-Shopify-Access-Token: {$this->token}",
+            "X-Shopify-Access-Token: TU_TOKEN",
             "Content-Type: application/json"
         ]
     ]);
@@ -62,6 +63,7 @@ class DashboardController extends Controller
 
     return $data['orders'] ?? [];
 }
+
 
 private function guardarPedidosBD(array $orders)
 {
@@ -89,52 +91,7 @@ private function guardarPedidosBD(array $orders)
     // ============================================================
     // QUERY SHOPIFY (GENÉRICA)
     // ============================================================
-    private function queryShopify(string $params): array
-    {
-        $url = "https://{$this->shop}/admin/api/2024-01/orders.json?$params";
-
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_HTTPHEADER => [
-                "X-Shopify-Access-Token: {$this->token}",
-                "Content-Type: application/json"
-            ],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HEADER         => true,
-            CURLOPT_TIMEOUT        => 30
-        ]);
-
-        $response   = curl_exec($ch);
-        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-        curl_close($ch);
-
-        $headers = substr($response, 0, $headerSize);
-        $body    = substr($response, $headerSize);
-
-        $data = json_decode($body, true);
-
-        preg_match('/<([^>]+)>; rel="next"/', $headers, $next);
-        preg_match('/<([^>]+)>; rel="previous"/', $headers, $prev);
-
-        $nextPage = null;
-        $prevPage = null;
-
-        if (!empty($next[1])) {
-            parse_str(parse_url($next[1], PHP_URL_QUERY), $p);
-            $nextPage = $p['page_info'] ?? null;
-        }
-
-        if (!empty($prev[1])) {
-            parse_str(parse_url($prev[1], PHP_URL_QUERY), $p);
-            $prevPage = $p['page_info'] ?? null;
-        }
-
-        return [
-            "orders"   => $data["orders"] ?? [],
-            "next"     => $nextPage,
-            "previous" => $prevPage
-        ];
-    }
+    
 
     // ============================================================
     // QUERY BASE SHOPIFY (UNIFICADA)
@@ -161,14 +118,23 @@ private function guardarPedidosBD(array $orders)
     // ============================================================
     public function syncPedidos()
 {
-    $orders = $this->getPedidosShopify50();
-    $this->guardarPedidosBD($orders);
+    $orders = $this->obtenerPedidosShopify();
+
+    if (empty($orders)) {
+        return $this->response->setJSON([
+            'success' => true,
+            'message' => 'No hay pedidos nuevos'
+        ]);
+    }
+
+    $this->guardarPedidos($orders);
 
     return $this->response->setJSON([
         'success' => true,
         'guardados' => count($orders)
     ]);
 }
+
 
     // ============================================================
     // DASHBOARD AJAX (SHOPIFY DIRECTO)
