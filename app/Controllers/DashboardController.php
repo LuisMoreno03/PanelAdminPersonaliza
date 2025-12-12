@@ -220,45 +220,56 @@ class DashboardController extends Controller
     // AJAX DASHBOARD (SIGUE USANDO SHOPIFY)
     // ============================================================
     public function filter()
-    {
-        if (!$this->request->isAJAX()) return $this->response->setStatusCode(403);
-
-        $pageInfo = $this->request->getGet("page_info");
-        $limit = 250;
-
-        $params = "limit=$limit&status=any&order=created_at desc";
-
-        if ($pageInfo) {
-            $params .= "&page_info=$pageInfo";
-        }
-
-
-        $response = $this->queryShopify($params);
-        $resultado = [];
-
-        foreach ($response["orders"] as $o) {
-            $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
-            $resultado[] = [
-                "id"           => $o["id"],
-                "numero"       => $o["name"],
-                "fecha"        => substr($o["created_at"], 0, 10),
-                "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
-                "total"        => $o["total_price"] . " €",
-                "estado"       => $this->badgeEstado($estadoInterno),
-                "estado_raw"   => $estadoInterno,
-                "etiquetas"    => $o["tags"] ?? "-",
-                "articulos"    => count($o["line_items"] ?? []),
-                "estado_envio" => $o["fulfillment_status"] ?? "-",
-                "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
-            ];
-        }
-
-        return $this->response->setJSON([
-            "success"        => true,
-            "orders"         => $resultado,
-            "next_page_info" => $response["next"],
-            "prev_page_info" => $response["previous"],
-            "count"          => count($resultado)
-        ]);
+{
+    if (!$this->request->isAJAX()) {
+        return $this->response->setStatusCode(403);
     }
+
+    $pageInfo = $this->request->getGet("page_info");
+
+    $query = [
+        'limit'  => 250,
+        'status' => 'any',
+        'order'  => 'created_at desc'
+    ];
+
+    if ($pageInfo) {
+        $query['page_info'] = $pageInfo;
+    }
+
+    $params = http_build_query($query);
+
+    $response = $this->queryShopify($params);
+
+    $resultado = [];
+
+    foreach ($response["orders"] as $o) {
+
+        $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
+        $badge = $this->badgeEstado($estadoInterno);
+
+        $resultado[] = [
+            "id"           => $o["id"],
+            "numero"       => $o["name"],
+            "fecha"        => substr($o["created_at"], 0, 10),
+            "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
+            "total"        => $o["total_price"] . " €",
+            "estado"       => $badge,
+            "estado_raw"   => $estadoInterno,
+            "etiquetas"    => $o["tags"] ?? "-",
+            "articulos"    => count($o["line_items"] ?? []),
+            "estado_envio" => $o["fulfillment_status"] ?? "-",
+            "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
+        ];
+    }
+
+    return $this->response->setJSON([
+        "success"        => true,
+        "orders"         => $resultado,
+        "next_page_info" => $response["next"],
+        "prev_page_info" => $response["previous"],
+        "count"          => count($resultado)
+    ]);
+}
+
 }
