@@ -123,14 +123,14 @@ function abrirModalEtiquetas(orderId, etiquetas) {
 function cerrarModalEtiquetas() {
     document.getElementById("modalEtiquetas").classList.add("hidden");
 }
+ 
 
-
-// =============================
+// ============================= 
 // GUARDAR ETIQUETAS
 // =============================
 async function guardarEtiquetas() {
 
-    let orderId = document.getElementById("modalTagOrderId").value;
+    let orderId = document.getElementById("modalTagOrderId").value; 
     let tags = document.getElementById("modalTagInput").value;
 
     let response = await fetch(`/index.php/api/estado/etiquetas/guardar`, {
