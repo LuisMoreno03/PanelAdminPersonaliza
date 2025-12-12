@@ -71,10 +71,12 @@
     <!-- MODALES -->
     <?= view('layouts/modales_estados') ?>
 
-    <!-- ÚNICO SCRIPT PERMITIDO -->
     <script>
     const DASHBOARD_FILTER_URL = "<?= base_url('dashboard/filter') ?>";
 </script>
+
+<script src="<?= base_url('js/dashboard.js') ?>"></script>
+
 
 
 </body>
