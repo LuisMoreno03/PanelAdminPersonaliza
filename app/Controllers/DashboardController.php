@@ -236,12 +236,15 @@ public function guardarEtiquetas()
     }
 
     return $this->response->setJSON([
-        "success"        => true,
-        "orders"         => $resultado,
-        "next_page_info" => $response["next"],
-        "prev_page_info" => $response["previous"],
-        "count"          => count($resultado)
-    ]);
+    "success"        => true,
+    "orders"         => $resultado,
+    "next_page_info" => $response["next"],
+    "prev_page_info" => $response["previous"],
+    "debug_next"     => $response["next"] ? "HAY NEXT" : "NO NEXT",
+    "debug_prev"     => $response["previous"] ? "HAY PREV" : "NO PREV",
+    "count"          => count($resultado)
+]);
+
 }
 
 

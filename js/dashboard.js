@@ -76,20 +76,28 @@ function cargarPedidos(pageInfo = null) {
             nextPageInfo = data.next_page_info;
             prevPageInfo = data.prev_page_info;
 
+          // ===== BOTÓN ANTERIOR =====
             const btnPrev = document.getElementById("btn-prev");
-            const btnNext = document.getElementById("btn-next");
-
             if (btnPrev) {
-                prevPageInfo
-                    ? (btnPrev.classList.remove("hidden"), btnPrev.onclick = () => cargarPedidos(prevPageInfo))
-                    : btnPrev.classList.add("hidden");
+                if (data.prev_page_info) {
+                    btnPrev.classList.remove("hidden");
+                    btnPrev.onclick = () => cargarPedidos(data.prev_page_info);
+                } else {
+                    btnPrev.classList.add("hidden");
+                }
             }
 
+            // ===== BOTÓN SIGUIENTE =====
+            const btnNext = document.getElementById("btn-next");
             if (btnNext) {
-                nextPageInfo
-                    ? (btnNext.classList.remove("hidden"), btnNext.onclick = () => cargarPedidos(nextPageInfo))
-                    : btnNext.classList.add("hidden");
+                if (data.next_page_info) {
+                    btnNext.classList.remove("hidden");
+                    btnNext.onclick = () => cargarPedidos(data.next_page_info);
+                } else {
+                    btnNext.classList.add("hidden");
+                }
             }
+
 
             cargando = false;
         })

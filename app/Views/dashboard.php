@@ -54,25 +54,15 @@
             </table>
 
             <!-- PAGINACIÓN -->
-            <div class="flex justify-between items-center mt-6 px-2">
-                <button
-                    id="btn-prev"
-                    class="px-5 py-2 rounded-lg bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300 hidden"
-                >
-                    ⬅ Anterior
+            <button id="btn-prev"
+              class="px-5 py-2 rounded-lg bg-gray-200 hidden">
+                ⬅ Anterior
                 </button>
 
-                <span id="contador-pedidos" class="text-sm text-gray-500">
-                    Mostrando 0 pedidos
-                </span>
-
-                <button
-                    id="btn-next"
-                    class="px-5 py-2 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 hidden"
-                >
-                    Siguiente ➡
+                <button id="btn-next"
+                class="px-5 py-2 rounded-lg bg-indigo-600 text-white hidden">
+                Siguiente ➡
                 </button>
-            </div>
 
         </div>
 
