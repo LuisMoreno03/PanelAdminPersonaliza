@@ -2,6 +2,9 @@ let nextPageInfo = null;
 let prevPageInfo = null;
 let cargando = false;
 
+// ===============================
+// CARGAR PEDIDOS
+// ===============================
 function cargarPedidos(pageInfo = null) {
 
     if (cargando) return;
@@ -15,6 +18,7 @@ function cargarPedidos(pageInfo = null) {
     const tbody = document.getElementById("tablaPedidos");
     if (!tbody) {
         console.error("No existe #tablaPedidos");
+        cargando = false;
         return;
     }
 
@@ -26,7 +30,9 @@ function cargarPedidos(pageInfo = null) {
         </tr>
     `;
 
-    fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } })
+    fetch(url, {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
+    })
         .then(r => r.json())
         .then(data => {
 
@@ -44,11 +50,33 @@ function cargarPedidos(pageInfo = null) {
                 return;
             }
 
-            document.getElementById("total-pedidos").innerText = data.count;
-            document.getElementById("contador-pedidos").innerText =
-                `Mostrando ${data.count} pedidos`;
+            // Total pedidos (si existe el elemento)
+            const totalEl = document.getElementById("total-pedidos");
+            if (totalEl) totalEl.innerText = data.count;
 
+            const contadorEl = document.getElementById("contador-pedidos");
+            if (contadorEl) {
+                contadorEl.innerText = `Mostrando ${data.count} pedidos`;
+            }
+
+            if (!data.orders || !data.orders.length) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9" class="text-center py-10 text-gray-400">
+                            No hay pedidos para mostrar
+                        </td>
+                    </tr>
+                `;
+                cargando = false;
+                return;
+            }
+
+            // Render filas
             data.orders.forEach(o => {
+                const etiquetasSafe = (o.etiquetas || "")
+                    .replace(/'/g, "\\'")
+                    .replace(/"/g, "&quot;");
+
                 tbody.innerHTML += `
                     <tr class="border-b hover:bg-gray-50">
                         <td class="py-3 px-4 font-semibold">${o.numero}</td>
@@ -62,7 +90,7 @@ function cargarPedidos(pageInfo = null) {
                         </td>
 
                         <td class="py-3 px-4 cursor-pointer"
-                            onclick="abrirModalEtiquetas(${o.id}, '${(o.etiquetas || "").replace(/'/g, "\\'")}')">
+                            onclick="abrirModalEtiquetas(${o.id}, '${etiquetasSafe}')">
                             ${o.etiquetas || "-"}
                         </td>
 
@@ -73,15 +101,16 @@ function cargarPedidos(pageInfo = null) {
                 `;
             });
 
-            nextPageInfo = data.next_page_info;
-            prevPageInfo = data.prev_page_info;
+            // Guardar page_info
+            nextPageInfo = data.next_page_info || null;
+            prevPageInfo = data.prev_page_info || null;
 
-          // ===== BOTÓN ANTERIOR =====
+            // ===== BOTÓN ANTERIOR =====
             const btnPrev = document.getElementById("btn-prev");
             if (btnPrev) {
-                if (data.prev_page_info) {
+                if (prevPageInfo) {
                     btnPrev.classList.remove("hidden");
-                    btnPrev.onclick = () => cargarPedidos(data.prev_page_info);
+                    btnPrev.onclick = () => cargarPedidos(prevPageInfo);
                 } else {
                     btnPrev.classList.add("hidden");
                 }
@@ -90,23 +119,25 @@ function cargarPedidos(pageInfo = null) {
             // ===== BOTÓN SIGUIENTE =====
             const btnNext = document.getElementById("btn-next");
             if (btnNext) {
-                if (data.next_page_info) {
+                if (nextPageInfo) {
                     btnNext.classList.remove("hidden");
-                    btnNext.onclick = () => cargarPedidos(data.next_page_info);
+                    btnNext.onclick = () => cargarPedidos(nextPageInfo);
                 } else {
                     btnNext.classList.add("hidden");
                 }
             }
 
-
             cargando = false;
         })
         .catch(err => {
-            console.error(err);
+            console.error("Error AJAX:", err);
             cargando = false;
         });
 }
 
+// ===============================
+// INIT
+// ===============================
 document.addEventListener("DOMContentLoaded", () => {
     cargarPedidos();
 });
