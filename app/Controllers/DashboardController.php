@@ -52,7 +52,8 @@ class DashboardController extends Controller
     // ============================================================
     // LLAMAR A SHOPIFY
     // ============================================================
-    private function queryShopify($params = "")
+    
+private function queryShopify($params = "")
 {
     $url = "https://{$this->shop}/admin/api/2024-01/orders.json?$params";
 
@@ -64,8 +65,8 @@ class DashboardController extends Controller
             "Content-Type: application/json"
         ],
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HEADER         => true, // 🔥 IMPORTANTE
-        CURLOPT_TIMEOUT        => 15
+        CURLOPT_HEADER         => true,   // 🔥 CLAVE
+        CURLOPT_TIMEOUT        => 30,
     ]);
 
     $response = curl_exec($ch);
@@ -77,7 +78,7 @@ class DashboardController extends Controller
 
     $data = json_decode($body, true);
 
-    // 🔹 Extraer cursores
+    // 🔎 Extraer page_info de headers
     preg_match('/<([^>]+)>; rel="next"/', $headers, $next);
     preg_match('/<([^>]+)>; rel="previous"/', $headers, $prev);
 
@@ -240,10 +241,9 @@ public function guardarEtiquetas()
     "orders"         => $resultado,
     "next_page_info" => $response["next"],
     "prev_page_info" => $response["previous"],
-    "debug_next"     => $response["next"] ? "HAY NEXT" : "NO NEXT",
-    "debug_prev"     => $response["previous"] ? "HAY PREV" : "NO PREV",
     "count"          => count($resultado)
 ]);
+
 
 }
 
