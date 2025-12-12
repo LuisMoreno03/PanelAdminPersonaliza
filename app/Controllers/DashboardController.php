@@ -95,7 +95,12 @@ class DashboardController extends Controller
     private function getPedidosShopify($pageInfo = null)
     {
         $limit  = 250;
-        $params = "limit=$limit&status=any&order=created_at desc";
+        $params = http_build_query([
+    'limit'  => 250,
+    'status' => 'any',
+    'order'  => 'created_at desc'
+]);
+
 
         if ($pageInfo) {
             $params .= "&page_info=$pageInfo";
