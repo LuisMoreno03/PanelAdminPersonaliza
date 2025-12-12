@@ -42,6 +42,50 @@ class DashboardController extends Controller
         return $row ? $row->estado : "Por preparar";
     }
 
+    private function getPedidosShopify50()
+{
+    $url = "https://{$this->shop}/admin/api/2024-01/orders.json?limit=50&status=any&order=created_at desc";
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            "X-Shopify-Access-Token: {$this->token}",
+            "Content-Type: application/json"
+        ]
+    ]);
+
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    $data = json_decode($response, true);
+
+    return $data['orders'] ?? [];
+}
+
+private function guardarPedidosBD(array $orders)
+{
+    $db = \Config\Database::connect();
+    $builder = $db->table('pedidos');
+
+    foreach ($orders as $o) {
+        $builder->replace([
+            'id'           => $o['id'],
+            'numero'       => $o['name'],
+            'fecha'        => substr($o['created_at'], 0, 10),
+            'cliente'      => $o['customer']['first_name'] ?? 'Desconocido',
+            'total'        => $o['total_price'],
+            'estado_envio' => $o['fulfillment_status'] ?? '-',
+            'forma_envio'  => $o['shipping_lines'][0]['title'] ?? '-',
+            'etiquetas'    => $o['tags'] ?? '',
+            'articulos'    => count($o['line_items'] ?? []),
+            'created_at'   => date('Y-m-d H:i:s', strtotime($o['created_at'])),
+            'synced_at'    => date('Y-m-d H:i:s')
+        ]);
+    }
+}
+
+
     // ============================================================
     // QUERY SHOPIFY (GENÉRICA)
     // ============================================================
@@ -116,29 +160,15 @@ class DashboardController extends Controller
     // SYNC 250 x 250 → BD
     // ============================================================
     public function syncPedidos()
-    {
-        $pageInfo = null;
-        $total = 0;
+{
+    $orders = $this->getPedidosShopify50();
+    $this->guardarPedidosBD($orders);
 
-        do {
-            $params   = $this->buildShopifyQuery($pageInfo);
-            $response = $this->queryShopify($params);
-
-            if (!empty($response["orders"])) {
-                $this->guardarPedidos($response["orders"]);
-                $total += count($response["orders"]);
-            }
-
-            $pageInfo = $response["next"];
-            usleep(600000);
-
-        } while ($pageInfo);
-
-        return $this->response->setJSON([
-            "success" => true,
-            "total_guardados" => $total
-        ]);
-    }
+    return $this->response->setJSON([
+        'success' => true,
+        'guardados' => count($orders)
+    ]);
+}
 
     // ============================================================
     // DASHBOARD AJAX (SHOPIFY DIRECTO)
