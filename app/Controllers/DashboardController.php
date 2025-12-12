@@ -51,7 +51,7 @@ class DashboardController extends Controller
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_HTTPHEADER => [
-            "X-Shopify-Access-Token: TU_TOKEN",
+            "X-Shopify-Access-Token: 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",
             "Content-Type: application/json"
         ]
     ]);
