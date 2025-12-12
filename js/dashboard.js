@@ -17,7 +17,7 @@ function cargarPedidos(pageInfo = null) {
 
             nextPageInfo = data.next_page_info;
 
-            actualizarTabla(data.orders);
+            
 
             // Shopify no permite retroceder, así que lo desactivamos
             document.getElementById("btnAnterior").disabled = true;

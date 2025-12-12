@@ -184,7 +184,7 @@
                     // manejo botón anterior
                     document.getElementById("btnAnterior").disabled = previousPages.length === 0;
 
-                    actualizarTabla(data.orders);
+                   
 
 
                     document.getElementById("total-pedidos").textContent = data.count;
