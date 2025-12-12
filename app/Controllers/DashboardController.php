@@ -44,8 +44,8 @@ class DashboardController extends Controller
 
    private function obtenerPedidosShopify()
 {
-    $url = "https://TU_TIENDA.myshopify.com/admin/api/2024-01/orders.json"
-         . "?limit=50&status=any&order=created_at desc";
+    $url = "https://962f2d.myshopify.com/admin/api/2024-01/orders.json"
+         . "?limit=100&status=any&order=created_at desc";
 
     $ch = curl_init($url);
     curl_setopt_array($ch, [
