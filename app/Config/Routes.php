@@ -21,3 +21,4 @@ $routes->post('api/estado/etiquetas/guardar', 'DashboardController::guardarEtiqu
 $routes->get('dashboard/sync', 'DashboardController::syncPedidos');
 
 
+
