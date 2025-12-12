@@ -1,7 +1,6 @@
 <?php
 
 namespace App\Controllers;
-use App\Controllers\DashboardController;
 
 use CodeIgniter\Controller;
 
