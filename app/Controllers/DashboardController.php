@@ -53,32 +53,54 @@ class DashboardController extends Controller
     // LLAMAR A SHOPIFY
     // ============================================================
     private function queryShopify($params = "")
-    {
-        $url = "https://{$this->shop}/admin/api/2024-01/orders.json?$params";
+{
+    $url = "https://{$this->shop}/admin/api/2024-01/orders.json?$params";
 
-        $headers = [
-            "Content-Type: application/json",
-            "X-Shopify-Access-Token: {$this->token}"
-        ];
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $url,
+        CURLOPT_HTTPHEADER     => [
+            "X-Shopify-Access-Token: {$this->token}",
+            "Content-Type: application/json"
+        ],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HEADER         => true, // 🔥 IMPORTANTE
+        CURLOPT_TIMEOUT        => 15
+    ]);
 
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => $url,
-            CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 15
-        ]);
+    $response = curl_exec($ch);
+    $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    curl_close($ch);
 
-        $response = curl_exec($ch);
+    $headers = substr($response, 0, $headerSize);
+    $body    = substr($response, $headerSize);
 
-        if (curl_errno($ch)) {
-            return ["success" => false, "message" => curl_error($ch)];
-        }
+    $data = json_decode($body, true);
 
-        curl_close($ch);
+    // 🔹 Extraer cursores
+    preg_match('/<([^>]+)>; rel="next"/', $headers, $next);
+    preg_match('/<([^>]+)>; rel="previous"/', $headers, $prev);
 
-        return json_decode($response, true);
+    $nextPage = null;
+    $prevPage = null;
+
+    if (!empty($next[1])) {
+        parse_str(parse_url($next[1], PHP_URL_QUERY), $params);
+        $nextPage = $params['page_info'] ?? null;
     }
+
+    if (!empty($prev[1])) {
+        parse_str(parse_url($prev[1], PHP_URL_QUERY), $params);
+        $prevPage = $params['page_info'] ?? null;
+    }
+
+    return [
+        "orders"   => $data["orders"] ?? [],
+        "next"     => $nextPage,
+        "previous" => $prevPage
+    ];
+}
+
 
 
     // ============================================================
@@ -176,30 +198,20 @@ public function guardarEtiquetas()
 
     public function filter($range = "todos")
 {
-    $pageInfo = $this->request->getGet("page_info") ?? null;
+    if (!$this->request->isAJAX()) {
+        return $this->response->setStatusCode(403);
+    }
 
+    $pageInfo = $this->request->getGet("page_info");
     $limit = 50;
 
-    // Primera página
-    if (!$pageInfo) {
-        $params = "limit=$limit&status=any&order=created_at%20desc";
-    } 
-    else {
-        $params = "limit=$limit&page_info=$pageInfo";
+    $params = "limit=$limit&status=any&order=created_at desc";
+
+    if ($pageInfo) {
+        $params .= "&page_info=$pageInfo";
     }
 
     $response = $this->queryShopify($params);
-
-    if (!isset($response["orders"])) {
-        return $this->response->setJSON([
-            "success" => false,
-            "message" => "Error obteniendo pedidos",
-            "raw" => $response
-        ]);
-    }
-
-    // Next page cursor
-    $next = $response["next_page_info"] ?? null;
 
     $resultado = [];
 
@@ -216,7 +228,7 @@ public function guardarEtiquetas()
             "total"        => $o["total_price"] . " €",
             "estado"       => $badge,
             "estado_raw"   => $estadoInterno,
-            "etiquetas"    => is_array($o["tags"]) ? implode(", ", $o["tags"]) : ($o["tags"] ?? "-"),
+            "etiquetas"    => $o["tags"] ?? "-",
             "articulos"    => count($o["line_items"] ?? []),
             "estado_envio" => $o["fulfillment_status"] ?? "-",
             "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
@@ -224,12 +236,14 @@ public function guardarEtiquetas()
     }
 
     return $this->response->setJSON([
-        "success"   => true,
-        "orders"    => $resultado,
-        "next_page_info" => $next,
-        "count"     => count($resultado)
+        "success"        => true,
+        "orders"         => $resultado,
+        "next_page_info" => $response["next"],
+        "prev_page_info" => $response["previous"],
+        "count"          => count($resultado)
     ]);
 }
+
 
 }
 
