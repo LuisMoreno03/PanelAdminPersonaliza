@@ -204,7 +204,7 @@ public function guardarEtiquetas()
     }
 
     $pageInfo = $this->request->getGet("page_info");
-    $limit = 50;
+    $limit = 5000;
 
     $params = "limit=$limit&status=any&order=created_at desc";
 
