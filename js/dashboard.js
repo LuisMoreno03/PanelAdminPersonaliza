@@ -68,7 +68,7 @@ function cargarPedidos(pageInfo = null) {
                     </td>
 
                     <td class="py-3 px-4 cursor-pointer"
-                        onclick="abrirModalEtiquetas(${o.id}, '${o.etiquetas.replace(/'/g, "\\'")}')">
+                        onclick="abrirModalEtiquetas(${o.id}, '${(o.etiquetas || "").replace(/'/g, "\\'")}')">
                         ${o.etiquetas || '-'}
                     </td>
 
