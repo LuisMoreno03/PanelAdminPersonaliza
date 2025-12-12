@@ -14,7 +14,7 @@ function cargarPedidos(pageInfo = null) {
     if (cargando) return;
     cargando = true;
 
-    let url = "/dashboard/filter";
+    let url = "/index.php/dashboard/filter";
     if (pageInfo) {
         url += "?page_info=" + pageInfo;
     }
@@ -53,7 +53,7 @@ function cargarPedidos(pageInfo = null) {
         document.getElementById("contador-pedidos").innerText =
             `Mostrando ${data.count} pedidos`;
 
-        // Render tabla
+        // Render tabla 
         data.orders.forEach(o => {
             tbody.innerHTML += `
                 <tr class="border-b hover:bg-gray-50">
