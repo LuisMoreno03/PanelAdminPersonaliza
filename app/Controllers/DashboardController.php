@@ -188,7 +188,7 @@ public function guardarEtiquetas()
 {
     $pedidoModel = new \App\Models\PedidoModel();
 
-    $perPage = 5000;
+    $perPage = 500;
 
     $data['pedidos'] = $pedidoModel->paginate($perPage);
     $data['pager']   = $pedidoModel->pager;   // 🔥 ESTA LÍNEA ES CLAVE
@@ -204,7 +204,7 @@ public function guardarEtiquetas()
     }
 
     $pageInfo = $this->request->getGet("page_info");
-    $limit = 5000;
+    $limit = 500;
 
     $params = "limit=$limit&status=any&order=created_at desc";
 
