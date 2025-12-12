@@ -49,22 +49,7 @@
 
         </div>
 
-        <!-- Paginación -->
-        <div class="flex justify-between mt-4">
-
-            <button id="btnAnterior"
-                disabled
-                class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg opacity-50 cursor-not-allowed">
-                Anterior
-            </button>
-
-            <button id="btnSiguiente"
-                onclick="paginaSiguiente()"
-                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40">
-                Siguiente
-            </button>
-        </div>
-
+    
     </div>
 
     <!-- MODALES -->
