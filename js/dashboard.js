@@ -139,5 +139,5 @@ function cargarPedidos(pageInfo = null) {
 // INIT
 // ===============================
 document.addEventListener("DOMContentLoaded", () => {
-    cargarPedidos();
+    cargarPedidos(null);
 });

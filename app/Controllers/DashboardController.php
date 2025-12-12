@@ -222,7 +222,11 @@ class DashboardController extends Controller
         $limit = 250;
 
         $params = "limit=$limit&status=any&order=created_at desc";
-        if ($pageInfo) $params .= "&page_info=$pageInfo";
+
+        if ($pageInfo) {
+            $params .= "&page_info=$pageInfo";
+        }
+
 
         $response = $this->queryShopify($params);
         $resultado = [];
