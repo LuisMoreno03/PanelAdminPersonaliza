@@ -237,7 +237,14 @@ class DashboardController extends Controller
         $query['page_info'] = $pageInfo;
     }
 
-    $params = http_build_query($query);
+    $params = http_build_query([
+    'limit'              => 250,
+    'status'             => 'any',
+    'financial_status'   => 'any',
+    'fulfillment_status' => 'any',
+    'order'              => 'created_at desc'
+]);
+
 
     $response = $this->queryShopify($params);
 
