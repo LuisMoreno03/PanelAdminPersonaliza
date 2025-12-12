@@ -116,16 +116,7 @@ private function guardarPedidos(array $orders)
     // ============================================================
     // SYNC 250 x 250 → BD
     // ============================================================
-   public function syncPedidos()
-{
-    $orders = $this->obtenerPedidosShopify();
-    $this->guardarPedidos($orders);
-
-    return $this->response->setJSON([
-        'success'   => true,
-        'guardados' => count($orders)
-    ]);
-}
+  
 
 
 
@@ -186,4 +177,16 @@ private function guardarPedidos(array $orders)
     {
         return view('dashboard');
     }
+
+    public function sync()
+{
+    $orders = $this->obtenerPedidosShopify();
+    $this->guardarPedidos($orders);
+
+    return $this->response->setJSON([
+        'success'   => true,
+        'guardados' => count($orders)
+    ]);
 }
+}
+ 

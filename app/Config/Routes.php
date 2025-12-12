@@ -14,7 +14,7 @@ $routes->post('auth/login', 'Auth::login');
 $routes->get('dashboard', 'DashboardController::index');
 $routes->get('dashboard/filter', 'DashboardController::filter');
 $routes->get('dashboard/filter/(:any)', 'DashboardController::filter/$1');
-$routes->get('dashboard/sync', 'DashboardController::syncPedidos');
+$routes->get('dashboard/sync', 'DashboardController::sync');
 
 /* API */
 $routes->post('api/estado/guardar', 'DashboardController::guardarEstado');
