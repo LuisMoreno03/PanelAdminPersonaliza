@@ -75,7 +75,7 @@
     const DASHBOARD_FILTER_URL = "<?= base_url('dashboard/filter') ?>";
 </script>
 
-<script src="<?= base_url('js/dashboard.js') ?>"></script>
+<script src="<?= base_url('dashboard.js') ?>"></script>
 
 
 
