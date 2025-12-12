@@ -219,7 +219,7 @@ class DashboardController extends Controller
         if (!$this->request->isAJAX()) return $this->response->setStatusCode(403);
 
         $pageInfo = $this->request->getGet("page_info");
-        $limit = 250;
+        $limit = 20;
 
         $params = "limit=$limit&status=any&order=created_at desc";
         if ($pageInfo) $params .= "&page_info=$pageInfo";
