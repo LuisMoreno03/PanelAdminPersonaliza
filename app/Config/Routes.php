@@ -10,11 +10,10 @@ use App\Controllers\DashboardController;
 $routes->get('/', 'Auth::index');
 $routes->post('auth/login', 'Auth::login');
 
-/* DASHBOARD */
+
 $routes->get('dashboard', 'DashboardController::index');
-$routes->get('dashboard/filter', 'DashboardController::filter');
-$routes->get('dashboard/filter/(:any)', 'DashboardController::filter/$1');
 $routes->get('dashboard/sync', 'DashboardController::sync');
+$routes->get('dashboard/filter', 'DashboardController::filter');
 
 /* API */
 $routes->post('api/estado/guardar', 'DashboardController::guardarEstado');

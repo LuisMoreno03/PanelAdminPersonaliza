@@ -7,11 +7,11 @@ use CodeIgniter\Controller;
 class DashboardController extends Controller
 {
     private $shop  = "962f2d.myshopify.com";
-    private $token = "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"; // ⚠️ no expongas el token en prod
+    private $token = "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"; // ⚠️ mover a .env en prod
 
-    // ============================================================
-    // BADGE VISUAL DEL ESTADO
-    // ============================================================
+    /* ============================================================
+       BADGE VISUAL
+    ============================================================ */
     private function badgeEstado(string $estado): string
     {
         $estilos = [
@@ -28,9 +28,9 @@ class DashboardController extends Controller
         return "<span class='px-3 py-1 rounded-full text-xs font-bold {$clase}'>{$estado}</span>";
     }
 
-    // ============================================================
-    // ESTADO INTERNO
-    // ============================================================
+    /* ============================================================
+       ESTADO INTERNO
+    ============================================================ */
     private function obtenerEstadoInterno($orderId): string
     {
         $row = \Config\Database::connect()
@@ -42,151 +42,126 @@ class DashboardController extends Controller
         return $row ? $row->estado : "Por preparar";
     }
 
-   private function obtenerPedidosShopify()
-{
-    $url = "https://962f2d.myshopify.com/admin/api/2024-01/orders.json"
-         . "?limit=100&status=any&order=created_at desc";
+    /* ============================================================
+       OBTENER PEDIDOS SHOPIFY (50)
+    ============================================================ */
+    private function obtenerPedidosShopify(): array
+    {
+        $url = "https://{$this->shop}/admin/api/2024-01/orders.json"
+             . "?limit=50&status=any&order=created_at desc";
 
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER => [
-            "X-Shopify-Access-Token: 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",
-            "Content-Type: application/json"
-        ]
-    ]);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => [
+                "X-Shopify-Access-Token: {$this->token}",
+                "Content-Type: application/json"
+            ]
+        ]);
 
-    $response = curl_exec($ch);
-    curl_close($ch);
+        $response = curl_exec($ch);
+        curl_close($ch);
 
-    $data = json_decode($response, true);
+        $data = json_decode($response, true);
+        return $data['orders'] ?? [];
+    }
 
-    return $data['orders'] ?? [];
-}
+    /* ============================================================
+       GUARDAR PEDIDOS EN BD
+    ============================================================ */
+    private function guardarPedidos(array $orders): void
+    {
+        $db = \Config\Database::connect();
+        $builder = $db->table('pedidos');
 
+        foreach ($orders as $o) {
+            $builder->replace([
+                'id'                 => $o['id'],
+                'numero'             => $o['name'],
+                'cliente'            => $o['customer']['first_name'] ?? 'Desconocido',
+                'total'              => $o['total_price'],
+                'currency'           => $o['currency'],
+                'financial_status'   => $o['financial_status'],
+                'fulfillment_status' => $o['fulfillment_status'],
+                'tags'               => $o['tags'] ?? '',
+                'articulos'          => count($o['line_items'] ?? []),
+                'forma_envio'        => $o['shipping_lines'][0]['title'] ?? '-',
+                'created_at'         => date('Y-m-d H:i:s', strtotime($o['created_at'])),
+                'updated_at'         => date('Y-m-d H:i:s', strtotime($o['updated_at'])),
+                'synced_at'          => date('Y-m-d H:i:s'),
+            ]);
+        }
+    }
 
-private function guardarPedidos(array $orders)
-{
-    $db = \Config\Database::connect();
-    $builder = $db->table('pedidos');
+    /* ============================================================
+       SYNC MANUAL / AUTOMÁTICO
+    ============================================================ */
+    public function sync()
+    {
+        $orders = $this->obtenerPedidosShopify();
+        $this->guardarPedidos($orders);
 
-    foreach ($orders as $o) {
-        $builder->replace([
-            'id'           => $o['id'],
-            'numero'       => $o['name'],
-            'fecha'        => substr($o['created_at'], 0, 10),
-            'cliente'      => $o['customer']['first_name'] ?? 'Desconocido',
-            'total'        => $o['total_price'],
-            'estado_envio' => $o['fulfillment_status'] ?? '-',
-            'forma_envio'  => $o['shipping_lines'][0]['title'] ?? '-',
-            'etiquetas'    => $o['tags'] ?? '',
-            'articulos'    => count($o['line_items'] ?? []),
-            'created_at'   => date('Y-m-d H:i:s', strtotime($o['created_at'])),
-            'synced_at'    => date('Y-m-d H:i:s'),
+        return $this->response->setJSON([
+            'success'   => true,
+            'guardados' => count($orders)
         ]);
     }
-}
 
-
-    // ============================================================
-    // QUERY SHOPIFY (GENÉRICA)
-    // ============================================================
-    
-
-    // ============================================================
-    // QUERY BASE SHOPIFY (UNIFICADA)
-    // ============================================================
-    private function buildShopifyQuery(?string $pageInfo = null): string
+    /* ============================================================
+       DASHBOARD AJAX (DESDE BD)
+    ============================================================ */
+    public function filter()
     {
-        $query = [
-            'limit'              => 250,
-            'status'             => 'any',
-            'financial_status'   => 'any',
-            'fulfillment_status' => 'any',
-            'order'              => 'created_at desc'
-        ];
-
-        if ($pageInfo) {
-            $query['page_info'] = $pageInfo;
+        if (!$this->request->isAJAX()) {
+            return $this->response->setStatusCode(403);
         }
 
-        return http_build_query($query);
+        $page    = (int) ($this->request->getGet('page') ?? 1);
+        $perPage = 50;
+        $offset  = ($page - 1) * $perPage;
+
+        $db = \Config\Database::connect();
+
+        $orders = $db->table('pedidos')
+            ->orderBy('created_at', 'DESC')
+            ->limit($perPage, $offset)
+            ->get()
+            ->getResultArray();
+
+        $total = $db->table('pedidos')->countAll();
+
+        $resultado = [];
+
+        foreach ($orders as $o) {
+            $estadoInterno = $this->obtenerEstadoInterno($o['id']);
+
+            $resultado[] = [
+                "id"           => $o['id'],
+                "numero"       => $o['numero'],
+                "fecha"        => substr($o['created_at'], 0, 10),
+                "cliente"      => $o['cliente'],
+                "total"        => $o['total'] . " €",
+                "estado"       => $this->badgeEstado($estadoInterno),
+                "estado_raw"   => $estadoInterno,
+                "etiquetas"    => $o['tags'] ?: "-",
+                "articulos"    => $o['articulos'],
+                "estado_envio" => $o['fulfillment_status'] ?? "-",
+                "forma_envio"  => $o['forma_envio']
+            ];
+        }
+
+        return $this->response->setJSON([
+            "success" => true,
+            "orders"  => $resultado,
+            "total"   => $total
+        ]);
     }
 
-    // ============================================================
-    // SYNC 250 x 250 → BD
-    // ============================================================
-  
-
-
-
-    // ============================================================
-    // DASHBOARD AJAX (SHOPIFY DIRECTO)
-    // ============================================================
-   public function filter()
-{
-    if (!$this->request->isAJAX()) {
-        return $this->response->setStatusCode(403);
-    }
-
-    $page = (int) ($this->request->getGet('page') ?? 1);
-    $perPage = 50;
-    $offset = ($page - 1) * $perPage;
-
-    $db = \Config\Database::connect();
-
-    $orders = $db->table('pedidos')
-        ->orderBy('created_at', 'DESC')
-        ->limit($perPage, $offset)
-        ->get()
-        ->getResultArray();
-
-    $total = $db->table('pedidos')->countAll();
-
-    $resultado = [];
-
-    foreach ($orders as $o) {
-        $estadoInterno = $this->obtenerEstadoInterno($o['id']);
-        $resultado[] = [
-            "id"           => $o['id'],
-            "numero"       => $o['numero'],
-            "fecha"        => substr($o['created_at'], 0, 10),
-            "cliente"      => $o['cliente'],
-            "total"        => $o['total'] . " €",
-            "estado"       => $this->badgeEstado($estadoInterno),
-            "estado_raw"   => $estadoInterno,
-            "etiquetas"    => $o['tags'] ?: "-",
-            "articulos"    => $o['articulos'],
-            "estado_envio" => $o['fulfillment_status'] ?? "-",
-            "forma_envio"  => $o['forma_envio']
-        ];
-    }
-
-    return $this->response->setJSON([
-        "success" => true,
-        "orders"  => $resultado,
-        "total"   => $total
-    ]);
-}
-
-
-    // ============================================================
-    // VISTA
-    // ============================================================
+    /* ============================================================
+       VISTA
+    ============================================================ */
     public function index()
     {
         return view('dashboard');
     }
-
-    public function sync()
-{
-    $orders = $this->obtenerPedidosShopify();
-    $this->guardarPedidos($orders);
-
-    return $this->response->setJSON([
-        'success'   => true,
-        'guardados' => count($orders)
-    ]);
 }
-}
- 
