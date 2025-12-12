@@ -188,7 +188,7 @@ public function guardarEtiquetas()
 {
     $pedidoModel = new \App\Models\PedidoModel();
 
-    $perPage = 50;
+    $perPage = 5000;
 
     $data['pedidos'] = $pedidoModel->paginate($perPage);
     $data['pager']   = $pedidoModel->pager;   // 🔥 ESTA LÍNEA ES CLAVE
