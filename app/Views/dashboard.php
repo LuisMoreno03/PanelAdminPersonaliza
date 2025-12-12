@@ -68,16 +68,14 @@
 
     </div>
 
-    <!-- MODALES -->
-    <?= view('layouts/modales_estados') ?>
+   <!-- MODALES -->
+<?= view('layouts/modales_estados') ?>
 
-    <script>
+<script>
     const DASHBOARD_FILTER_URL = "<?= base_url('dashboard/filter') ?>";
 </script>
 
-<script src="<?= base_url('dashboard.js') ?>"></script>
-
-
+<script src="<?= base_url('js/dashboard.js') ?>"></script>
 
 </body>
 </html>
