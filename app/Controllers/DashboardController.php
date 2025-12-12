@@ -137,7 +137,7 @@ class DashboardController extends Controller
     public function syncPedidos()
     {
         $pageInfo = null;
-        $total = 0;
+        $total = 250;
 
         do {
             $response = $this->getPedidosShopify($pageInfo);
@@ -219,7 +219,7 @@ class DashboardController extends Controller
         if (!$this->request->isAJAX()) return $this->response->setStatusCode(403);
 
         $pageInfo = $this->request->getGet("page_info");
-        $limit = 20;
+        $limit = 250;
 
         $params = "limit=$limit&status=any&order=created_at desc";
         if ($pageInfo) $params .= "&page_info=$pageInfo";
