@@ -1,4 +1,4 @@
-let nextPageInfo = null;
+
 
 // ===============================
 // CARGAR PEDIDOS
@@ -11,18 +11,7 @@ function cargarPedidos(pageInfo = null) {
         url += "?page_info=" + pageInfo;
     }
 
-    fetch(url)
-        .then(res => res.json())
-        .then(data => {
-
-            nextPageInfo = data.next_page_info;
-
-            
-
-            // Shopify no permite retroceder, así que lo desactivamos
-            document.getElementById("btnAnterior").disabled = true;
-            document.getElementById("btnSiguiente").disabled = !nextPageInfo;
-        });
+    
 }
 
 cargarPedidos();
@@ -106,11 +95,3 @@ async function guardarEtiquetas() {
 }
 
 
-// ===============================
-// PAGINACIÓN — SOLO SIGUIENTE
-// ===============================
-function paginaSiguiente() {
-    if (nextPageInfo) {
-        cargarPedidos(nextPageInfo);
-    }
-}

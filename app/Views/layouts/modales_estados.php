@@ -160,7 +160,7 @@
     <!-- SCRIPT JS -->
     <!-- ============================================================== -->
     <script>
-        let nextPageInfo = null;
+        
         let previousPages = []; // para botón "anterior"
 
         function cargarPedidos(pageInfo = null) {
@@ -175,14 +175,6 @@
                 .then(res => res.json())
                 .then(data => {
 
-                    // guardar siguiente page_info
-                    nextPageInfo = data.next_page_info;
-
-                    // manejo botón siguiente
-                    document.getElementById("btnSiguiente").disabled = !nextPageInfo;
-
-                    // manejo botón anterior
-                    document.getElementById("btnAnterior").disabled = previousPages.length === 0;
 
                    
 
@@ -191,26 +183,7 @@
                 });
         }
 
-        // SIGUIENTE
-        function paginaSiguiente() {
-            if (nextPageInfo) {
-                previousPages.push(nextPageInfo);
-                cargarPedidos(nextPageInfo);
-            }
-        }
-
-        // ANTERIOR
-        function paginaAnterior() {
-            if (previousPages.length > 1) {
-                previousPages.pop(); 
-                let prev = previousPages[previousPages.length - 1];
-                cargarPedidos(prev);
-            } else {
-                previousPages = [];
-                cargarPedidos(null);
-            }
-        }
-
+      
         // LLENA TABLA
         function llenarTabla(orders) {
             const tbody = document.getElementById("tablaPedidos");
