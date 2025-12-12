@@ -1,6 +1,7 @@
 <?php
 
 use CodeIgniter\Router\RouteCollection;
+use App\Controllers\DashboardController;
 
 /**
  * @var RouteCollection $routes
