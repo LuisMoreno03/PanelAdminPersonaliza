@@ -19,13 +19,5 @@ $routes->get('dashboard/filter/(:any)', 'DashboardController::filter/$1');
 $routes->post('api/estado/guardar', 'DashboardController::guardarEstado');
 $routes->post('api/estado/etiquetas/guardar', 'DashboardController::guardarEtiquetas');
 $routes->get('dashboard/sync', 'DashboardController::syncPedidos');
-$routes->get('test', function () {
-    return 'ROUTES OK';
-});
-
-
-
-$routes->setAutoRoute(false);
-
 
 

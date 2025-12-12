@@ -174,44 +174,26 @@ private function guardarPedidosBD(array $orders)
     // DASHBOARD AJAX (SHOPIFY DIRECTO)
     // ============================================================
     public function filter()
-    {
-        if (!$this->request->isAJAX()) {
-            return $this->response->setStatusCode(403);
-        }
-
-        $pageInfo = $this->request->getGet("page_info");
-
-        $params   = $this->buildShopifyQuery($pageInfo);
-        $response = $this->queryShopify($params);
-
-        $resultado = [];
-
-        foreach ($response["orders"] as $o) {
-            $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
-
-            $resultado[] = [
-                "id"           => $o["id"],
-                "numero"       => $o["name"],
-                "fecha"        => substr($o["created_at"], 0, 10),
-                "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
-                "total"        => $o["total_price"] . " €",
-                "estado"       => $this->badgeEstado($estadoInterno),
-                "estado_raw"   => $estadoInterno,
-                "etiquetas"    => $o["tags"] ?? "-",
-                "articulos"    => count($o["line_items"] ?? []),
-                "estado_envio" => $o["fulfillment_status"] ?? "-",
-                "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
-            ];
-        }
-
-        return $this->response->setJSON([
-            "success"        => true,
-            "orders"         => $resultado,
-            "next_page_info" => $response["next"],
-            "prev_page_info" => $response["previous"],
-            "count"          => count($resultado)
-        ]);
+{
+    if (!$this->request->isAJAX()) {
+        return $this->response->setStatusCode(403);
     }
+
+    $db = \Config\Database::connect();
+
+    $pedidos = $db->table('pedidos')
+        ->orderBy('created_at', 'DESC')
+        ->limit(50)
+        ->get()
+        ->getResultArray();
+
+    return $this->response->setJSON([
+        'success' => true,
+        'orders'  => $pedidos,
+        'count'   => count($pedidos)
+    ]);
+}
+
 
     // ============================================================
     // VISTA
