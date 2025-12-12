@@ -7,7 +7,7 @@ use CodeIgniter\Controller;
 class DashboardController extends Controller
 {
     private $shop  = "962f2d.myshopify.com";
-    private $token = "shpat_XXXXXXXXXXXX"; // ⚠️ no expongas el token en prod
+    private $token = "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"; // ⚠️ no expongas el token en prod
 
     // ============================================================
     // BADGE VISUAL DEL ESTADO
