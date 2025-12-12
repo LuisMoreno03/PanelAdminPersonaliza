@@ -76,49 +76,29 @@ class DashboardController extends Controller
 
         foreach ($orders as $o) {
             $builder->replace([
-                'id'                 => $o['id'],
-                'numero'             => $o['name'],
-                'cliente'            => $o['customer']['first_name'] ?? 'Desconocido',
-                'total'              => $o['total_price'],
-                'currency'           => $o['currency'],
-                'financial_status'   => $o['financial_status'],
-                'fulfillment_status' => $o['fulfillment_status'],
-                'tags'               => $o['tags'] ?? '',
-                'articulos'          => count($o['line_items'] ?? []),
-                'forma_envio'        => $o['shipping_lines'][0]['title'] ?? '-',
-                'created_at'         => date('Y-m-d H:i:s', strtotime($o['created_at'])),
-                'updated_at'         => date('Y-m-d H:i:s', strtotime($o['updated_at'])),
-                'synced_at'          => date('Y-m-d H:i:s'),
+                'id'          => $o['id'],
+                'numero'      => $o['name'],
+                'cliente'     => $o['customer']['first_name'] ?? 'Desconocido',
+                'total'       => $o['total_price'],
+                'estado_envio'=> $o['fulfillment_status'] ?? '-',
+                'forma_envio' => $o['shipping_lines'][0]['title'] ?? '-',
+                'etiquetas'   => $o['tags'] ?? '',
+                'articulos'   => count($o['line_items'] ?? []),
+                'created_at'  => date('Y-m-d H:i:s', strtotime($o['created_at'])),
+                'synced_at'   => date('Y-m-d H:i:s')
             ]);
         }
     }
 
-    /* ============================================================
-       SYNC MANUAL / AUTOMÁTICO
-    ============================================================ */
-    public function sync()
-    {
-        $orders = $this->obtenerPedidosShopify();
-        $this->guardarPedidos($orders);
-
-        return $this->response->setJSON([
-            'success'   => true,
-            'guardados' => count($orders)
-        ]);
-    }
-
+    
     /* ============================================================
        DASHBOARD AJAX (DESDE BD)
     ============================================================ */
-    public function filter()
+     public function filter()
     {
-        if (!$this->request->isAJAX()) {
-            return $this->response->setStatusCode(403);
-        }
-
         $page    = (int) ($this->request->getGet('page') ?? 1);
         $perPage = 50;
-        $offset  = ($page - 1) * $perPage;
+        $offset = ($page - 1) * $perPage;
 
         $db = \Config\Database::connect();
 
@@ -130,30 +110,23 @@ class DashboardController extends Controller
 
         $total = $db->table('pedidos')->countAll();
 
-        $resultado = [];
-
-        foreach ($orders as $o) {
-            $estadoInterno = $this->obtenerEstadoInterno($o['id']);
-
-            $resultado[] = [
-                "id"           => $o['id'],
-                "numero"       => $o['numero'],
-                "fecha"        => substr($o['created_at'], 0, 10),
-                "cliente"      => $o['cliente'],
-                "total"        => $o['total'] . " €",
-                "estado"       => $this->badgeEstado($estadoInterno),
-                "estado_raw"   => $estadoInterno,
-                "etiquetas"    => $o['tags'] ?: "-",
-                "articulos"    => $o['articulos'],
-                "estado_envio" => $o['fulfillment_status'] ?? "-",
-                "forma_envio"  => $o['forma_envio']
-            ];
-        }
+        return $this->response->setJSON([
+            'success' => true,
+            'orders'  => $orders,
+            'total'   => $total
+        ]);
+    }
+/* ============================================================
+       SYNC MANUAL / AUTOMÁTICO
+    ============================================================ */
+    public function sync()
+    {
+        $orders = $this->obtenerPedidosShopify();
+        $this->guardarPedidos($orders);
 
         return $this->response->setJSON([
-            "success" => true,
-            "orders"  => $resultado,
-            "total"   => $total
+            'success'   => true,
+            'guardados' => count($orders)
         ]);
     }
 
