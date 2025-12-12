@@ -31,49 +31,7 @@ cargarPedidos();
 // ===============================
 // RELLENA TABLA
 // ===============================
-function actualizarTabla(pedidos) {
 
-    const tbody = document.getElementById("tablaPedidos");
-    tbody.innerHTML = "";
-
-    if (!pedidos || pedidos.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="9" class="text-center text-gray-500 py-4">
-                    No se encontraron pedidos
-                </td>
-            </tr>`;
-        return;
-    }
-
-    pedidos.forEach(p => {
-        tbody.innerHTML += `
-            <tr class="border-b">
-                <td class="py-2 px-4">${p.numero}</td>
-                <td class="py-2 px-4">${p.fecha}</td>
-                <td class="py-2 px-4">${p.cliente}</td>
-                <td class="py-2 px-4">${p.total}</td>
-
-                <td>
-                    <button onclick="abrirModal(${p.id})" class="w-full text-left">
-                        ${p.estado}
-                    </button>
-                </td>
-
-                <td>
-                    <button onclick="abrirModalEtiquetas(${p.id}, '${p.etiquetas ?? ""}')"
-                        class="text-blue-600 font-semibold underline">
-                        ${p.etiquetas || "Agregar etiquetas"}
-                    </button>
-                </td>
-
-                <td class="py-2 px-4">${p.articulos ?? "-"}</td>
-                <td class="py-2 px-4">${p.estado_envio ?? "-"}</td>
-                <td class="py-2 px-4">${p.forma_envio ?? "-"}</td>
-            </tr>
-        `;
-    });
-}
 
 
 // =============================
