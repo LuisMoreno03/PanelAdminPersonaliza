@@ -138,20 +138,46 @@ private function guardarPedidos(array $orders)
         return $this->response->setStatusCode(403);
     }
 
+    $page = (int) ($this->request->getGet('page') ?? 1);
+    $perPage = 50;
+    $offset = ($page - 1) * $perPage;
+
     $db = \Config\Database::connect();
 
-    $pedidos = $db->table('pedidos')
+    $orders = $db->table('pedidos')
         ->orderBy('created_at', 'DESC')
-        ->limit(50)
+        ->limit($perPage, $offset)
         ->get()
         ->getResultArray();
 
+    $total = $db->table('pedidos')->countAll();
+
+    $resultado = [];
+
+    foreach ($orders as $o) {
+        $estadoInterno = $this->obtenerEstadoInterno($o['id']);
+        $resultado[] = [
+            "id"           => $o['id'],
+            "numero"       => $o['numero'],
+            "fecha"        => substr($o['created_at'], 0, 10),
+            "cliente"      => $o['cliente'],
+            "total"        => $o['total'] . " €",
+            "estado"       => $this->badgeEstado($estadoInterno),
+            "estado_raw"   => $estadoInterno,
+            "etiquetas"    => $o['tags'] ?: "-",
+            "articulos"    => $o['articulos'],
+            "estado_envio" => $o['fulfillment_status'] ?? "-",
+            "forma_envio"  => $o['forma_envio']
+        ];
+    }
+
     return $this->response->setJSON([
-        'success' => true,
-        'orders'  => $pedidos,
-        'count'   => count($pedidos)
+        "success" => true,
+        "orders"  => $resultado,
+        "total"   => $total
     ]);
 }
+
 
     // ============================================================
     // VISTA

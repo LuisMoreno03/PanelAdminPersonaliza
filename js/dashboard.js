@@ -5,14 +5,14 @@ let cargando = false;
 // ===============================
 // CARGAR PEDIDOS
 // ===============================
-function cargarPedidos() {
-    fetch('/dashboard/filter', {
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+function cargarPedidos(page = 1) {
+    fetch(`${DASHBOARD_FILTER_URL}?page=${page}`, {
+        headers: { "X-Requested-With": "XMLHttpRequest" }
     })
     .then(r => r.json())
     .then(data => {
-        const tbody = document.getElementById('tablaPedidos');
-        tbody.innerHTML = '';
+        const tbody = document.getElementById("tablaPedidos");
+        tbody.innerHTML = "";
 
         data.orders.forEach(o => {
             tbody.innerHTML += `
@@ -20,8 +20,9 @@ function cargarPedidos() {
                     <td>${o.numero}</td>
                     <td>${o.fecha}</td>
                     <td>${o.cliente}</td>
-                    <td>${o.total} €</td>
-                    <td>${o.etiquetas || '-'}</td>
+                    <td>${o.total}</td>
+                    <td>${o.estado}</td>
+                    <td>${o.etiquetas}</td>
                     <td>${o.articulos}</td>
                     <td>${o.estado_envio}</td>
                     <td>${o.forma_envio}</td>
@@ -31,15 +32,10 @@ function cargarPedidos() {
     });
 }
 
-document.addEventListener('DOMContentLoaded', cargarPedidos);
-
-
-document.addEventListener('DOMContentLoaded', cargarPedidos);
+document.addEventListener("DOMContentLoaded", () => cargarPedidos(1));
 
 
 // ===============================
 // INIT
 // ===============================
-document.addEventListener("DOMContentLoaded", () => {
-    cargarPedidos(null);
-});
+
