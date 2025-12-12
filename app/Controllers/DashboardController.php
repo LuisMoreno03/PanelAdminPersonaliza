@@ -65,7 +65,7 @@ class DashboardController extends Controller
 }
 
 
-private function guardarPedidosBD(array $orders)
+private function guardarPedidos(array $orders)
 {
     $db = \Config\Database::connect();
     $builder = $db->table('pedidos');
@@ -82,7 +82,7 @@ private function guardarPedidosBD(array $orders)
             'etiquetas'    => $o['tags'] ?? '',
             'articulos'    => count($o['line_items'] ?? []),
             'created_at'   => date('Y-m-d H:i:s', strtotime($o['created_at'])),
-            'synced_at'    => date('Y-m-d H:i:s')
+            'synced_at'    => date('Y-m-d H:i:s'),
         ]);
     }
 }
@@ -116,30 +116,23 @@ private function guardarPedidosBD(array $orders)
     // ============================================================
     // SYNC 250 x 250 → BD
     // ============================================================
-    public function syncPedidos()
+   public function syncPedidos()
 {
     $orders = $this->obtenerPedidosShopify();
-
-    if (empty($orders)) {
-        return $this->response->setJSON([
-            'success' => true,
-            'message' => 'No hay pedidos nuevos'
-        ]);
-    }
-
     $this->guardarPedidos($orders);
 
     return $this->response->setJSON([
-        'success' => true,
+        'success'   => true,
         'guardados' => count($orders)
     ]);
 }
 
 
+
     // ============================================================
     // DASHBOARD AJAX (SHOPIFY DIRECTO)
     // ============================================================
-    public function filter()
+   public function filter()
 {
     if (!$this->request->isAJAX()) {
         return $this->response->setStatusCode(403);
@@ -159,7 +152,6 @@ private function guardarPedidosBD(array $orders)
         'count'   => count($pedidos)
     ]);
 }
-
 
     // ============================================================
     // VISTA

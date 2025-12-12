@@ -34,6 +34,9 @@ function cargarPedidos() {
 document.addEventListener('DOMContentLoaded', cargarPedidos);
 
 
+document.addEventListener('DOMContentLoaded', cargarPedidos);
+
+
 // ===============================
 // INIT
 // ===============================
