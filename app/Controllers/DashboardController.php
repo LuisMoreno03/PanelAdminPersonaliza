@@ -81,63 +81,65 @@ class DashboardController extends Controller
     // CARGAR PEDIDOS (Paginación Shopify con page_info)
     // ============================================================
     public function filter()
-    {
-        $pageInfo = $this->request->getGet("page_info");
-        $limit = 250;
+{
+    $limit = 250; // 🔥 AHORA SON 250 POR PÁGINA
 
-        // Construcción del endpoint
-        $endpoint = "orders.json?limit=$limit&status=any&order=created_at%20desc";
+    $pageInfo = $this->request->getGet('page_info');
 
-        if ($pageInfo) {
-            $endpoint .= "&page_info=" . urlencode($pageInfo);
-        }
+    $params = "limit={$limit}&status=any&order=created_at%20desc";
 
-        // Llamada a Shopify
-        $response = $this->shopifyRequest($endpoint);
+    if (!empty($pageInfo)) {
+        $params .= "&page_info=" . urlencode($pageInfo);
+    }
 
-        if (!isset($response["orders"])) {
-            return $this->response->setJSON([
-                "success" => false,
-                "message" => "Error cargando pedidos",
-                "raw"     => $response
-            ]);
-        }
+    $response = $this->queryShopify($params);
 
-        // Shopify envía los links de paginación en headers
-        $nextPageInfo = null;
-
-        if (isset($response["next_page_info"])) {
-            $nextPageInfo = $response["next_page_info"];
-        }
-
-        // Convertir pedidos
-        $resultado = [];
-
-        foreach ($response["orders"] as $o) {
-            $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
-
-            $resultado[] = [
-                "id"           => $o["id"],
-                "numero"       => $o["name"],
-                "fecha"        => substr($o["created_at"], 0, 10),
-                "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
-                "total"        => $o["total_price"] . " €",
-                "estado"       => $this->badgeEstado($estadoInterno),
-                "estado_raw"   => $estadoInterno,
-                "etiquetas"    => $o["tags"] ?? "",
-                "articulos"    => count($o["line_items"] ?? []),
-                "estado_envio" => $o["fulfillment_status"] ?? "-",
-                "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
-            ];
-        }
-
+    if (!isset($response["orders"])) {
         return $this->response->setJSON([
-            "success"        => true,
-            "orders"         => $resultado,
-            "count"          => count($resultado),
-            "next_page_info" => $nextPageInfo
+            "success" => false,
+            "message" => "Error al obtener pedidos desde Shopify",
+            "raw"     => $response
         ]);
     }
+
+    // Convertimos Shopify → Frontend
+    $resultado = [];
+
+    foreach ($response["orders"] as $o) {
+
+        $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
+        $badge         = $this->badgeEstado($estadoInterno);
+
+        $resultado[] = [
+            "id"           => $o["id"],
+            "numero"       => $o["name"],
+            "fecha"        => substr($o["created_at"], 0, 10),
+            "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
+            "total"        => $o["total_price"] . " €",
+            "estado"       => $badge,
+            "etiquetas"    => $o["tags"] ?? "-",
+            "articulos"    => count($o["line_items"] ?? []),
+            "estado_envio" => $o["fulfillment_status"] ?? "-",
+            "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
+        ];
+    }
+
+    // EXTRAEMOS page_info DEL HEADER
+    $nextPage = null;
+
+    if (!empty($response["link"])) { 
+        if (preg_match('/page_info=([^&>]+)/', $response["link"], $match)) {
+            $nextPage = $match[1];
+        }
+    }
+
+    return $this->response->setJSON([
+        "success"        => true,
+        "orders"         => $resultado,
+        "count"          => count($resultado),
+        "next_page_info" => $nextPage
+    ]);
+}
 
     // ============================================================
     // GUARDAR ESTADO INTERNO
