@@ -70,104 +70,99 @@ class DashboardController extends Controller
        DASHBOARD → TRAER MUCHOS PEDIDOS (GRAPHQL)
     ============================================================ */
     public function filter()
-    {
-        if (!$this->request->isAJAX()) {
-            return $this->response->setStatusCode(403);
-        }
+{
+    $after = $this->request->getGet('after'); // cursor
+    $first = 50;
 
-        $maxPedidos = 200; // puedes subir a 500 o más
-        $todos = [];
-        $cursor = null;
-
-        $query = <<<'GRAPHQL'
-query ($cursor: String) {
-  orders(
-    first: 100,
-    after: $cursor,
-    query: "status:any"
-  ) {
-    edges {
-      cursor
-      node {
-        id
-        name
-        createdAt
-        fulfillmentStatus
-        tags
-        customer {
-          firstName
-        }
-        totalPriceSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
-        shippingLines(first: 1) {
-          edges {
-            node {
-              title
-            }
-          }
-        }
-        lineItems(first: 100) {
-          edges {
-            node {
-              id
-            }
-          }
-        }
-      }
-    }
-    pageInfo {
-      hasNextPage
-    }
-  }
-}
-GRAPHQL;
-
-        do {
-            $res = $this->shopifyGraphQL($query, ['cursor' => $cursor]);
-            $edges = $res['data']['orders']['edges'] ?? [];
-
-            foreach ($edges as $edge) {
-                $o = $edge['node'];
-
-                $estadoInterno = $this->obtenerEstadoInterno($o['id']);
-
-                $todos[] = [
-                    "id"           => $o['id'],
-                    "numero"       => $o['name'],
-                    "fecha"        => substr($o['createdAt'], 0, 10),
-                    "cliente"      => $o['customer']['firstName'] ?? "Desconocido",
-                    "total"        => $o['totalPriceSet']['shopMoney']['amount'] . " " .
-                                      $o['totalPriceSet']['shopMoney']['currencyCode'],
-                    "estado"       => $this->badgeEstado($estadoInterno),
-                    "estado_raw"   => $estadoInterno,
-                    "etiquetas"    => $o['tags'] ?: "-",
-                    "articulos"    => count($o['lineItems']['edges']),
-                    "estado_envio" => $o['fulfillmentStatus'] ?? "-",
-                    "forma_envio"  => $o['shippingLines']['edges'][0]['node']['title'] ?? "-"
-                ];
-
-                $cursor = $edge['cursor'];
-
-                if (count($todos) >= $maxPedidos) {
-                    break 2;
+    $query = [
+        "query" => '
+        query ($first: Int!, $after: String) {
+          orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true) {
+            edges {
+              cursor
+              node {
+                id
+                name
+                createdAt
+                totalPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
                 }
+                customer {
+                  firstName
+                }
+                tags
+                lineItems(first: 50) {
+                  edges {
+                    node { id }
+                  }
+                }
+                fulfillmentStatus
+                shippingLines(first: 1) {
+                  edges {
+                    node {
+                      title
+                    }
+                  }
+                }
+              }
             }
+            pageInfo {
+              hasNextPage
+            }
+          }
+        }',
+        "variables" => [
+            "first" => $first,
+            "after" => $after
+        ]
+    ];
 
-            $hasNext = $res['data']['orders']['pageInfo']['hasNextPage'] ?? false;
-            usleep(300000); // proteger rate limit
+    $ch = curl_init("https://{$this->shop}/admin/api/2024-01/graphql.json");
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            "Content-Type: application/json",
+            "X-Shopify-Access-Token: {$this->token}"
+        ],
+        CURLOPT_POSTFIELDS => json_encode($query)
+    ]);
 
-        } while ($hasNext);
+    $response = curl_exec($ch);
+    curl_close($ch);
 
-        return $this->response->setJSON([
-            'success' => true,
-            'count'   => count($todos),
-            'orders'  => $todos
-        ]);
+    $data = json_decode($response, true);
+
+    $orders = [];
+    $edges = $data['data']['orders']['edges'] ?? [];
+
+    foreach ($edges as $edge) {
+        $o = $edge['node'];
+
+        $orders[] = [
+            "id" => $o['id'],
+            "numero" => $o['name'],
+            "fecha" => substr($o['createdAt'], 0, 10),
+            "cliente" => $o['customer']['firstName'] ?? 'Desconocido',
+            "total" => $o['totalPriceSet']['shopMoney']['amount'] . " " . $o['totalPriceSet']['shopMoney']['currencyCode'],
+            "articulos" => count($o['lineItems']['edges']),
+            "estado_envio" => $o['fulfillmentStatus'] ?? '-',
+            "forma_envio" => $o['shippingLines']['edges'][0]['node']['title'] ?? '-',
+            "cursor" => $edge['cursor']
+        ];
     }
+
+    return $this->response->setJSON([
+        "success" => true,
+        "orders" => $orders,
+        "nextCursor" => end($edges)['cursor'] ?? null,
+        "hasNext" => $data['data']['orders']['pageInfo']['hasNextPage']
+    ]);
+}
+
 
     /* ============================================================
        VISTA
