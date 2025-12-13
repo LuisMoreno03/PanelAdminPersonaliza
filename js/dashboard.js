@@ -1,65 +1,57 @@
-let paginaActual = 1;
-const porPagina = 50;
+let nextCursor = null;
+let cargando = false;
 
-const btnPrev = document.getElementById("btn-prev");
-const btnNext = document.getElementById("btn-next");
+function cargarPedidos() {
+    if (cargando) return;
+    cargando = true;
 
-function cargarPedidos(pagina = 1) {
-    fetch(`${DASHBOARD_FILTER_URL}?page=${pagina}`, {
-        headers: { "X-Requested-With": "XMLHttpRequest" }
-    })
-    .then(r => r.json())
-    .then(data => {
+    let url = DASHBOARD_FILTER_URL;
+    if (nextCursor) {
+        url += `?after=${encodeURIComponent(nextCursor)}`;
+    }
 
-        const tbody = document.getElementById("tablaPedidos");
-        tbody.innerHTML = "";
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById("tablaPedidos");
 
-        if (!data.orders.length) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="9" class="text-center py-10 text-gray-400">
-                        No hay más pedidos
+            if (!data.orders.length && !nextCursor) {
+                tbody.innerHTML = `<tr>
+                    <td colspan="9" class="text-center py-12 text-gray-400">
+                        No hay pedidos
                     </td>
-                </tr>
-            `;
-        }
+                </tr>`;
+                return;
+            }
 
-        data.orders.forEach(o => {
-            tbody.innerHTML += `
-                <tr class="border-b">
-                    <td class="py-3 px-4">${o.numero}</td>
-                    <td class="py-3 px-4">${o.fecha}</td>
-                    <td class="py-3 px-4">${o.cliente}</td>
-                    <td class="py-3 px-4">${o.total}</td>
-                    <td class="py-3 px-4">${o.estado}</td>
-                    <td class="py-3 px-4">${o.etiquetas}</td>
-                    <td class="py-3 px-4">${o.articulos}</td>
-                    <td class="py-3 px-4">${o.estado_envio}</td>
-                    <td class="py-3 px-4">${o.forma_envio}</td>
-                </tr>
-            `;
+            data.orders.forEach(o => {
+                tbody.insertAdjacentHTML("beforeend", `
+                    <tr>
+                        <td>${o.numero}</td>
+                        <td>${o.fecha}</td>
+                        <td>${o.cliente}</td>
+                        <td>${o.total}</td>
+                        <td>Por preparar</td>
+                        <td>-</td>
+                        <td class="text-center">${o.articulos}</td>
+                        <td>${o.estado_envio}</td>
+                        <td>${o.forma_envio}</td>
+                    </tr>
+                `);
+            });
+
+            nextCursor = data.hasNext ? data.nextCursor : null;
+
+            document.getElementById("btn-next")
+                .classList.toggle("hidden", !data.hasNext);
+
+            cargando = false;
         });
-
-        // ---- BOTONES ----
-
-        // Anterior
-        if (pagina > 1) {
-            btnPrev.classList.remove("hidden");
-        } else {
-            btnPrev.classList.add("hidden");
-        }
-
-        // Siguiente
-        if (data.orders.length === porPagina) {
-            btnNext.classList.remove("hidden");
-        } else {
-            btnNext.classList.add("hidden");
-        }
-
-        // total pedidos
-        document.getElementById("total-pedidos").innerText = data.total;
-    });
 }
+
+document.getElementById("btn-next").addEventListener("click", cargarPedidos);
+document.addEventListener("DOMContentLoaded", cargarPedidos);
+
 
 // EVENTOS
 btnNext.addEventListener("click", () => {
