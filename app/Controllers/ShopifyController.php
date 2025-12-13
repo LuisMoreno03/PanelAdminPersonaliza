@@ -6,144 +6,155 @@ use CodeIgniter\Controller;
 
 class ShopifyController extends Controller
 {
-    private string $shop  = "962f2d.myshopify.com";
-    private string $token = "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"; // mover a .env
+    private $shop  = "962f2d.myshopify.com";
+    private $token = "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";
 
-    /* ============================================================
-       CLIENTE GRAPHQL SHOPIFY
-    ============================================================ */
-    private function graphQL(string $query, array $variables = []): array
+    // ============================================================
+    // 💡 MÉTODO GENERAL PARA TODAS LAS LLAMADAS A SHOPIFY
+    // ============================================================
+    private function request($method, $endpoint, $data = null)
     {
-        $ch = curl_init("https://{$this->shop}/admin/api/2024-01/graphql.json");
+        $url = "https://{$this->shop}/admin/api/2024-01/" . $endpoint;
 
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_HTTPHEADER     => [
-                "X-Shopify-Access-Token: {$this->token}",
-                "Content-Type: application/json"
-            ],
-            CURLOPT_POSTFIELDS     => json_encode([
-                'query'     => $query,
-                'variables' => $variables
-            ])
-        ]);
+        $headers = [
+            "Content-Type: application/json",
+            "X-Shopify-Access-Token: {$this->token}"
+        ];
 
-        $response = curl_exec($ch);
-        curl_close($ch);
+        $curl = curl_init($url);
 
-        return json_decode($response, true);
+        curl_setopt($curl, CURLOPT_CUSTOMREQUEST, strtoupper($method));
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+
+        if (!empty($data)) {
+            curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($data));
+        }
+
+        $response     = curl_exec($curl);
+        $error        = curl_error($curl);
+        $status_code  = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+
+        curl_close($curl);
+
+        return [
+            "success" => $error ? false : true,
+            "status"  => $status_code,
+            "error"   => $error,
+            "data"    => json_decode($response, true)
+        ];
     }
 
-    /* ============================================================
-       OBTENER MUCHOS PEDIDOS (GRAPHQL)
-       ?limit=200
-       ?status=unfulfilled
-    ============================================================ */
+    // ============================================================
+    // 🔍 GET: Obtener pedidos con límite / page_info / filtros
+    // ============================================================
     public function getOrders()
     {
-        $maxPedidos = (int) ($this->request->getGet('limit') ?? 250);
-        $status     = $this->request->getGet('status') ?? 'any';
+        $limit     = $this->request->getGet("limit") ?? 250;
+        $page_info = $this->request->getGet("page_info");
 
-        $todos  = [];
-        $cursor = null;
+        $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
 
-        // Filtro GraphQL
-        $queryFilter = match ($status) {
-            'unfulfilled' => 'fulfillment_status:unfulfilled',
-            'fulfilled'   => 'fulfillment_status:fulfilled',
-            default       => 'status:any'
-        };
+        if ($page_info) {
+            $endpoint .= "&page_info=" . urlencode($page_info);
+        }
 
-        $query = <<<'GRAPHQL'
-query ($cursor: String, $filter: String!) {
-  orders(
-    first: 250,
-    after: $cursor,
-    query: $filter
-  ) {
-    edges {
-      cursor
-      node {
-        id
-        name
-        createdAt
-        fulfillmentStatus
-        tags
-        customer {
-          firstName
-        }
-        totalPriceSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
-        shippingLines(first: 3) {
-          edges {
-            node {
-              title
-            }
-          }
-        }
-        lineItems(first: 250) {
-          edges {
-            node {
-              id
-            }
-          }
-        }
-      }
+        $response = $this->request("GET", $endpoint);
+
+        return $this->response->setJSON($response);
     }
-    pageInfo {
-      hasNextPage
+
+    // ============================================================
+    // 🛒 GET: Obtener un pedido por ID
+    // ============================================================
+    public function getOrder($id)
+    {
+        $response = $this->request("GET", "orders/{$id}.json");
+        return $this->response->setJSON($response);
     }
-  }
-}
-GRAPHQL;
 
-        do {
-            $res = $this->graphQL($query, [
-                'cursor' => $cursor,
-                'filter' => $queryFilter
-            ]);
+    // ============================================================
+    // ✏️ PUT: Actualizar etiquetas de un pedido
+    // ============================================================
+    public function updateOrderTags()
+    {
+        $json = $this->request->getJSON(true);
 
-            $edges = $res['data']['orders']['edges'] ?? [];
+        $orderId = $json["id"];
+        $tags    = $json["tags"];
 
-            foreach ($edges as $edge) {
-                $o = $edge['node'];
+        $payload = [
+            "order" => [
+                "id"   => $orderId,
+                "tags" => $tags
+            ]
+        ];
 
-                $todos[] = [
-                    'id'           => $o['id'],
-                    'numero'       => $o['name'],
-                    'fecha'        => substr($o['createdAt'], 0, 10),
-                    'cliente'      => $o['customer']['firstName'] ?? 'Desconocido',
-                    'total'        => $o['totalPriceSet']['shopMoney']['amount'] . ' ' .
-                                      $o['totalPriceSet']['shopMoney']['currencyCode'],
-                    'estado_envio' => $o['fulfillmentStatus'] ?? '-',
-                    'forma_envio'  => $o['shippingLines']['edges'][0]['node']['title'] ?? '-',
-                    'etiquetas'    => $o['tags'],
-                    'articulos'    => count($o['lineItems']['edges'])
-                ];
+        $response = $this->request("PUT", "orders/{$orderId}.json", $payload);
 
-                $cursor = $edge['cursor'];
+        return $this->response->setJSON($response);
+    }
 
-                if (count($todos) >= $maxPedidos) {
-                    break 2;
-                }
-            }
+    // ============================================================
+    // 📝 PUT: Cambiar cualquier propiedad del pedido
+    // ============================================================
+    public function updateOrder()
+    {
+        $json = $this->request->getJSON(true);
 
-            $hasNext = $res['data']['orders']['pageInfo']['hasNextPage'] ?? false;
+        $orderId = $json["id"];
+        $orderData = [
+            "order" => $json
+        ];
 
-            // proteger rate limit
-            usleep(300000);
+        $response = $this->request("PUT", "orders/{$orderId}.json", $orderData);
 
-        } while ($hasNext);
+        return $this->response->setJSON($response);
+    }
 
+    // ============================================================
+    // 🛍️ GET: Productos
+    // ============================================================
+    public function getProducts()
+    {
+        $limit = $this->request->getGet("limit") ?? 250;
+        $endpoint = "products.json?limit={$limit}";
+
+        $response = $this->request("GET", $endpoint);
+
+        return $this->response->setJSON($response);
+    }
+
+    // ============================================================
+    // 🔎 GET: Producto por ID
+    // ============================================================
+    public function getProduct($id)
+    {
+        $response = $this->request("GET", "products/{$id}.json");
+        return $this->response->setJSON($response);
+    }
+
+    // ============================================================
+    // 💰 GET: Clientes
+    // ============================================================
+    public function getCustomers()
+    {
+        $limit = $this->request->getGet("limit") ?? 250;
+        $endpoint = "customers.json?limit={$limit}";
+
+        $response = $this->request("GET", $endpoint);
+
+        return $this->response->setJSON($response);
+    }
+
+    // ============================================================
+    // 🔧 TEST: Ver si Shopify responde correctamente
+    // ============================================================
+    public function test()
+    {
         return $this->response->setJSON([
-            'success' => true,
-            'count'   => count($todos),
-            'orders'  => $todos
+            "message" => "Shopify API funcionando correctamente.",
+            "shop" => $this->shop
         ]);
     }
 }
