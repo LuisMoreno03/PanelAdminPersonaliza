@@ -50,7 +50,7 @@ class DashboardController extends Controller
         $pageInfo = $this->request->getGet('page_info');
         $limit = 100;
 
-        $params = "limit={100}&status=any&order=created_at desc";
+        $params = "limit=100&status=any&order=created_at desc";
         if ($pageInfo) {
             $params .= "&page_info={$pageInfo}";
         }
