@@ -49,7 +49,7 @@ class DashboardController extends Controller
         $query = <<<GQL
         query getOrders(\$after: String) {
           orders(
-            first: 50
+            first: 250
             after: \$after
             sortKey: CREATED_AT
             reverse: true
@@ -78,7 +78,7 @@ class DashboardController extends Controller
                     }
                   }
                 }
-                shippingLines(first: 1) {
+                shippingLines(first: 3) {
                   edges {
                     node {
                       title

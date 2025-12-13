@@ -42,7 +42,7 @@ class ShopifyController extends Controller
     ============================================================ */
     public function getOrders()
     {
-        $maxPedidos = (int) ($this->request->getGet('limit') ?? 200);
+        $maxPedidos = (int) ($this->request->getGet('limit') ?? 250);
         $status     = $this->request->getGet('status') ?? 'any';
 
         $todos  = [];
@@ -58,7 +58,7 @@ class ShopifyController extends Controller
         $query = <<<'GRAPHQL'
 query ($cursor: String, $filter: String!) {
   orders(
-    first: 100,
+    first: 250,
     after: $cursor,
     query: $filter
   ) {
@@ -79,14 +79,14 @@ query ($cursor: String, $filter: String!) {
             currencyCode
           }
         }
-        shippingLines(first: 1) {
+        shippingLines(first: 3) {
           edges {
             node {
               title
             }
           }
         }
-        lineItems(first: 100) {
+        lineItems(first: 250) {
           edges {
             node {
               id
