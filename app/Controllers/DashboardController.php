@@ -46,11 +46,16 @@ class DashboardController extends Controller
        OBTENER PEDIDOS SHOPIFY (50)
     ============================================================ */
      public function filter()
-    {
-        $pageInfo = $this->request->getGet('page_info');
-        $limit = 100;
+{
+    $maxPedidos = 200;
+    $limitPorLlamada = 50;
 
-        $params = "limit=100&status=any&order=created_at desc";
+    $todos = [];
+    $pageInfo = null;
+
+    while (count($todos) < $maxPedidos) {
+
+        $params = "limit={$limitPorLlamada}&status=any&order=created_at desc";
         if ($pageInfo) {
             $params .= "&page_info={$pageInfo}";
         }
@@ -60,8 +65,8 @@ class DashboardController extends Controller
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HEADER         => true,
-            CURLOPT_HTTPHEADER     => [
+            CURLOPT_HEADER => true,
+            CURLOPT_HTTPHEADER => [
                 "X-Shopify-Access-Token: {$this->token}",
                 "Content-Type: application/json"
             ]
@@ -76,30 +81,36 @@ class DashboardController extends Controller
 
         $data = json_decode($body, true);
 
-        // Extraer cursores
-        preg_match('/<([^>]+)>; rel="next"/', $headers, $next);
-        preg_match('/<([^>]+)>; rel="previous"/', $headers, $prev);
+        if (empty($data['orders'])) {
+            break;
+        }
 
-        $nextPage = null;
-        $prevPage = null;
+        $todos = array_merge($todos, $data['orders']);
+
+        // extraer next_page_info
+        preg_match('/<([^>]+)>; rel="next"/', $headers, $next);
 
         if (!empty($next[1])) {
             parse_str(parse_url($next[1], PHP_URL_QUERY), $q);
-            $nextPage = $q['page_info'] ?? null;
+            $pageInfo = $q['page_info'] ?? null;
+        } else {
+            break;
         }
 
-        if (!empty($prev[1])) {
-            parse_str(parse_url($prev[1], PHP_URL_QUERY), $q);
-            $prevPage = $q['page_info'] ?? null;
-        }
-
-        return $this->response->setJSON([
-            'success' => true,
-            'orders'  => $data['orders'] ?? [],
-            'next'    => $nextPage,
-            'prev'    => $prevPage
-        ]);
+        // evitar rate limit
+        usleep(400000);
     }
+
+    // cortar exacto a 200
+    $todos = array_slice($todos, 0, $maxPedidos);
+
+    return $this->response->setJSON([
+        'success' => true,
+        'count'   => count($todos),
+        'orders'  => $todos
+    ]);
+}
+
 /* ============================================================
        SYNC MANUAL / AUTOMÁTICO
     ============================================================ */
