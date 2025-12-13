@@ -17,6 +17,50 @@ class DashboardController extends Controller
     // ==============================
     // AJAX → CARGA DESDE BD
     // ==============================
+    public function iniciarBulkPedidos()
+{
+    $query = <<<GQL
+mutation {
+  bulkOperationRunQuery(
+    query: """
+    {
+      orders(query: "status:any", sortKey: CREATED_AT) {
+        edges {
+          node {
+            id
+            name
+            createdAt
+            totalPriceSet {
+              shopMoney {
+                amount
+              }
+            }
+            customer {
+              firstName
+            }
+            fulfillmentStatus
+            tags
+          }
+        }
+      }
+    }
+    """
+  ) {
+    bulkOperation {
+      id
+      status
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+GQL;
+
+    return $this->shopifyGraphQL($query);
+}
+
     public function filter()
     {
         $page = (int) ($this->request->getGet('page') ?? 1);
