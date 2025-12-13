@@ -165,7 +165,7 @@ public function guardarEtiquetas()
 {
     $pedidoModel = new \App\Models\PedidoModel();
 
-    $perPage = 1000;
+    $perPage = 250;
 
     $data['pedidos'] = $pedidoModel->paginate($perPage);
     $data['pager']   = $pedidoModel->pager;   // 🔥 ESTA LÍNEA ES CLAVE
@@ -178,7 +178,7 @@ public function guardarEtiquetas()
 {
     $pageInfo = $this->request->getGet("page_info") ?? null;
 
-    $limit = 1000;
+    $limit = 250;
 
     // Primera página
     if (!$pageInfo) {
