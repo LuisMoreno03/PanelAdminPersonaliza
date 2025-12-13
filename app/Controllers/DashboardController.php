@@ -9,24 +9,18 @@ class DashboardController extends Controller
     private string $shop  = '962f2d.myshopify.com';
     private string $token = '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';
 
-    /* ===============================
-       VISTA
-    =============================== */
     public function index()
     {
         return view('dashboard');
     }
 
-    /* ===============================
-       TRAER PEDIDOS (GRAPHQL)
-    =============================== */
     public function orders()
     {
         $cursor = $this->request->getGet('cursor');
 
         $query = <<<GQL
         query (\$cursor: String) {
-          orders(first: 250, after: \$cursor, reverse: true) {
+          orders(first: 250, after: \$cursor, sortKey: CREATED_AT, reverse: true) {
             edges {
               cursor
               node {
@@ -79,20 +73,20 @@ class DashboardController extends Controller
 
         $json = json_decode($response, true);
 
+        $edges = $json['data']['orders']['edges'] ?? [];
+
         $orders = [];
-        foreach ($json['data']['orders']['edges'] as $edge) {
+        foreach ($edges as $edge) {
             $o = $edge['node'];
             $orders[] = [
                 'pedido' => $o['name'],
                 'fecha' => substr($o['createdAt'], 0, 10),
                 'cliente' => $o['customer']['firstName'] ?? '—',
                 'total' => $o['totalPriceSet']['shopMoney']['amount']
-                           . ' ' . $o['totalPriceSet']['shopMoney']['currencyCode'],
+                         . ' ' . $o['totalPriceSet']['shopMoney']['currencyCode'],
                 'articulos' => count($o['lineItems']['edges']),
-                'estado_envio' => $o['fulfillmentStatus'] ?? '-',
                 'envio' =>
-                    $o['shippingLines']['edges'][0]['node']['title'] ?? '-',
-                'tags' => $o['tags'] ?: '-'
+                    $o['shippingLines']['edges'][0]['node']['title'] ?? '-'
             ];
         }
 

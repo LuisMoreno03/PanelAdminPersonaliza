@@ -7,7 +7,9 @@ function cargarPedidos() {
     loading = true;
 
     let url = ORDERS_URL;
-    if (cursor) url += '?cursor=' + encodeURIComponent(cursor);
+    if (cursor) {
+        url += '?cursor=' + encodeURIComponent(cursor);
+    }
 
     fetch(url)
         .then(r => r.json())
@@ -30,8 +32,7 @@ function cargarPedidos() {
             });
 
             cursor = data.next_cursor;
-            if (!data.has_next) finished = true;
-
+            finished = !data.has_next;
             loading = false;
         });
 }
