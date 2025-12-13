@@ -5,7 +5,6 @@
     <title>Dashboard - Panel</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/alpinejs" defer></script>
 
     <style>
         body { background: #f3f4f6; }
@@ -20,13 +19,21 @@
     <!-- Contenido -->
     <div class="flex-1 md:ml-64 p-8">
 
-        <h2 class="text-xl font-semibold text-gray-700 mb-4">
-            Pedidos: <span id="total-pedidos">0</span>
-        </h2>
+        <!-- HEADER -->
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h2 class="text-xl font-semibold text-gray-700">
+                    Pedidos: <span id="total-pedidos">0</span>
+                </h2>
+                <p class="text-sm text-gray-500">
+                    Mostrando pedidos desde Shopify (GraphQL)
+                </p>
+            </div>
+        </div>
 
         <h1 class="text-3xl font-bold mb-6 text-gray-800">Pedidos</h1>
 
-        <!-- Tabla -->
+        <!-- TABLA -->
         <div class="overflow-x-auto bg-white shadow-lg rounded-xl p-4">
 
             <table class="w-full text-left min-w-[1200px]">
@@ -38,7 +45,7 @@
                         <th class="py-3 px-4">Total</th>
                         <th class="py-3 px-4">Estado del pedido</th>
                         <th class="py-3 px-4">Etiquetas</th>
-                        <th class="py-3 px-4">Artículos</th>
+                        <th class="py-3 px-4 text-center">Artículos</th>
                         <th class="py-3 px-4">Estado de entrega</th>
                         <th class="py-3 px-4">Forma de entrega</th>
                     </tr>
@@ -46,36 +53,42 @@
 
                 <tbody id="tablaPedidos" class="text-gray-800">
                     <tr>
-                        <td colspan="9" class="text-center py-10 text-gray-400">
-                            Cargando pedidos...
+                        <td colspan="9" class="text-center py-12 text-gray-400">
+                            Cargando pedidos desde Shopify…
                         </td>
                     </tr>
                 </tbody>
             </table>
 
             <!-- PAGINACIÓN -->
-            <button id="btn-prev"
-              class="px-5 py-2 rounded-lg bg-gray-200 hidden">
-                ⬅ Anterior
+            <div class="flex items-center justify-between mt-6">
+
+                <button id="btn-prev"
+                    class="px-5 py-2 rounded-lg bg-gray-200 text-gray-700 font-medium hidden hover:bg-gray-300 transition">
+                    ⬅ Anterior
                 </button>
 
                 <button id="btn-next"
-                class="px-5 py-2 rounded-lg bg-indigo-600 text-white hidden">
-                Siguiente ➡
+                    class="px-5 py-2 rounded-lg bg-indigo-600 text-white font-medium hidden hover:bg-indigo-700 transition">
+                    Siguiente ➡
                 </button>
+
+            </div>
 
         </div>
 
     </div>
 
-   <!-- MODALES -->
-<?= view('layouts/modales_estados') ?>
+    <!-- MODALES -->
+    <?= view('layouts/modales_estados') ?>
 
-<script>
-    const DASHBOARD_FILTER_URL = "<?= base_url('dashboard/filter') ?>";
-</script>
+    <!-- URL AJAX -->
+    <script>
+        const DASHBOARD_FILTER_URL = "<?= base_url('dashboard/filter') ?>";
+    </script>
 
-<script src="<?= base_url('js/dashboard.js') ?>"></script>
+    <!-- JS DASHBOARD -->
+    <script src="<?= base_url('js/dashboard.js') ?>"></script>
 
 </body>
 </html>
