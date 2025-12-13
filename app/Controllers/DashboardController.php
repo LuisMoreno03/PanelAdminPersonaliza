@@ -159,7 +159,7 @@ public function guardarEtiquetas()
 }
 
     // ============================================================
-    // API → TRAE 50 PEDIDOS SIEMPRE
+    // API → TRAE 250 PEDIDOS SIEMPRE
     // ============================================================
    public function dashboard()
 {
