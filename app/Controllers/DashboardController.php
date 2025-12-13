@@ -7,20 +7,20 @@ use CodeIgniter\Controller;
 class DashboardController extends Controller
 {
     private string $shop  = '962f2d.myshopify.com';
-    private string $token = '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'; // mover a .env luego
+    private string $token = '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';
 
-    /* ============================================================
+    /* ===============================
        VISTA
-    ============================================================ */
+    =============================== */
     public function index()
     {
         return view('dashboard');
     }
 
-    /* ============================================================
-       GRAPHQL – SCROLL INFINITO REAL
-    ============================================================ */
-    public function filter()
+    /* ===============================
+       TRAER PEDIDOS (GRAPHQL)
+    =============================== */
+    public function orders()
     {
         $cursor = $this->request->getGet('cursor');
 
@@ -35,9 +35,7 @@ class DashboardController extends Controller
                 createdAt
                 tags
                 fulfillmentStatus
-                customer {
-                  firstName
-                }
+                customer { firstName }
                 totalPriceSet {
                   shopMoney {
                     amount
@@ -48,9 +46,7 @@ class DashboardController extends Controller
                   edges { node { id } }
                 }
                 shippingLines(first: 1) {
-                  edges {
-                    node { title }
-                  }
+                  edges { node { title } }
                 }
               }
             }
@@ -64,9 +60,7 @@ class DashboardController extends Controller
 
         $payload = json_encode([
             'query' => $query,
-            'variables' => [
-                'cursor' => $cursor
-            ]
+            'variables' => ['cursor' => $cursor]
         ]);
 
         $ch = curl_init("https://{$this->shop}/admin/api/2024-01/graphql.json");
@@ -88,19 +82,17 @@ class DashboardController extends Controller
         $orders = [];
         foreach ($json['data']['orders']['edges'] as $edge) {
             $o = $edge['node'];
-
             $orders[] = [
-                'numero' => $o['name'],
+                'pedido' => $o['name'],
                 'fecha' => substr($o['createdAt'], 0, 10),
                 'cliente' => $o['customer']['firstName'] ?? '—',
-                'total' => $o['totalPriceSet']['shopMoney']['amount'] . ' ' .
-                           $o['totalPriceSet']['shopMoney']['currencyCode'],
-                'estado' => 'Por preparar',
-                'etiquetas' => $o['tags'] ?: '-',
+                'total' => $o['totalPriceSet']['shopMoney']['amount']
+                           . ' ' . $o['totalPriceSet']['shopMoney']['currencyCode'],
                 'articulos' => count($o['lineItems']['edges']),
                 'estado_envio' => $o['fulfillmentStatus'] ?? '-',
-                'forma_envio' =>
-                    $o['shippingLines']['edges'][0]['node']['title'] ?? '-'
+                'envio' =>
+                    $o['shippingLines']['edges'][0]['node']['title'] ?? '-',
+                'tags' => $o['tags'] ?: '-'
             ];
         }
 

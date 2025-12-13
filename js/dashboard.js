@@ -1,42 +1,38 @@
 let cursor = null;
-let cargando = false;
-let terminado = false;
+let loading = false;
+let finished = false;
 
 function cargarPedidos() {
-    if (cargando || terminado) return;
+    if (loading || finished) return;
+    loading = true;
 
-    cargando = true;
-
-    let url = DASHBOARD_FILTER_URL;
-    if (cursor) url += `?cursor=${encodeURIComponent(cursor)}`;
+    let url = ORDERS_URL;
+    if (cursor) url += '?cursor=' + encodeURIComponent(cursor);
 
     fetch(url)
         .then(r => r.json())
         .then(data => {
             const tbody = document.getElementById('tablaPedidos');
 
-            if (cursor === null) tbody.innerHTML = '';
+            if (!cursor) tbody.innerHTML = '';
 
             data.orders.forEach(o => {
                 tbody.insertAdjacentHTML('beforeend', `
                     <tr class="border-b">
-                        <td class="p-3">${o.numero}</td>
+                        <td class="p-3">${o.pedido}</td>
                         <td class="p-3">${o.fecha}</td>
                         <td class="p-3">${o.cliente}</td>
                         <td class="p-3">${o.total}</td>
-                        <td class="p-3">${o.estado}</td>
-                        <td class="p-3">${o.etiquetas}</td>
                         <td class="p-3 text-center">${o.articulos}</td>
-                        <td class="p-3">${o.estado_envio}</td>
-                        <td class="p-3">${o.forma_envio}</td>
+                        <td class="p-3">${o.envio}</td>
                     </tr>
                 `);
             });
 
             cursor = data.next_cursor;
-            if (!data.has_next) terminado = true;
+            if (!data.has_next) finished = true;
 
-            cargando = false;
+            loading = false;
         });
 }
 
