@@ -26,7 +26,7 @@
             Pedidos cargados: <span id="total-pedidos">0</span>
         </h2>
 
-        <h1 class="text-3xl font-bold mb-6 text-gray-800">Pedidos</h1>
+        <h1 class="text-3xl font-bold mb-6 text-gray-800">Pedidos</h1> 
 
         <!-- Tabla -->
         <div class="overflow-x-auto bg-white shadow-lg rounded-xl p-4">

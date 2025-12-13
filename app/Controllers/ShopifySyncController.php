@@ -88,7 +88,7 @@ class ShopifySyncController extends Controller
 
                 $total++;
             }
-
+ 
             $cursor = $json['data']['orders']['pageInfo']['endCursor'];
             $hasNext = $json['data']['orders']['pageInfo']['hasNextPage'];
 

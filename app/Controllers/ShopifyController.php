@@ -35,7 +35,7 @@ class ShopifyController extends Controller
         $error        = curl_error($curl);
         $status_code  = curl_getinfo($curl, CURLINFO_HTTP_CODE);
 
-        curl_close($curl);
+        curl_close($curl); 
 
         return [
             "success" => $error ? false : true,

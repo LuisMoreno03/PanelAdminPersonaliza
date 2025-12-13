@@ -164,7 +164,7 @@ public function guardarEtiquetas()
    public function dashboard()
 {
     $pedidoModel = new \App\Models\PedidoModel();
-
+ 
     $perPage = 250;
 
     $data['pedidos'] = $pedidoModel->paginate($perPage);

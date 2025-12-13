@@ -143,7 +143,7 @@ function abrirModalEtiquetas(orderId, etiquetas) {
     document.getElementById("modalEtiquetas").classList.remove("hidden");
 }
 
-function cerrarModalEtiquetas() {
+function cerrarModalEtiquetas() { 
     document.getElementById("modalEtiquetas").classList.add("hidden");
 }
 

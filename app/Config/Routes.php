@@ -8,7 +8,7 @@ use App\Controllers\DashboardController;
  */
 
 $routes->get('/', 'Auth::index');
-$routes->post('auth/login', 'Auth::login');
+$routes->post('auth/login', 'Auth::login'); 
 
 
 $routes->get('dashboard', 'DashboardController::index');
