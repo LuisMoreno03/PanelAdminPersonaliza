@@ -72,7 +72,7 @@ class DashboardController extends Controller
     public function filter()
 {
     $after = $this->request->getGet('after'); // cursor
-    $first = 50;
+    $first = 100;
 
     $query = [
         "query" => '
@@ -94,13 +94,13 @@ class DashboardController extends Controller
                   firstName
                 }
                 tags
-                lineItems(first: 50) {
+                lineItems(first: 100) {
                   edges {
                     node { id }
                   }
                 }
                 fulfillmentStatus
-                shippingLines(first: 1) {
+                shippingLines(first: 2) {
                   edges {
                     node {
                       title
