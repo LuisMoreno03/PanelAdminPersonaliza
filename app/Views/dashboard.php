@@ -71,7 +71,9 @@
    <!-- MODALES -->
 <?= view('layouts/modales_estados') ?>
 
-
+<script>
+    const DASHBOARD_FILTER_URL = "<?= base_url('dashboard/filter') ?>";
+</script>
 <script>
 let nextPage = null;
 let prevPage = null;

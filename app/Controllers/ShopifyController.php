@@ -12,7 +12,7 @@ class ShopifyController extends Controller
         $accessToken = "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";
 
         // Shopify Admin REST API endpoint
-        $url = "https://$shop/admin/api/2024-01/orders.json?status=any&limit=50";
+        $url = "https://$shop/admin/api/2024-01/orders.json?status=any&limit=100";
 
         $headers = [
             "Content-Type: application/json",
