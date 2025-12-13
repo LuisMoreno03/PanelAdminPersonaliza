@@ -71,7 +71,7 @@
 
     <!-- MODALES -->
     <?= view('layouts/modales_estados') ?>
-    <?= view('layouts/modales_etiquetas') ?>
+    
 
     <!-- ÚNICO script permitido -->
     <script src="<?= base_url('js/dashboard.js') ?>"></script>
