@@ -110,7 +110,7 @@ query ($cursor: String) {
             }
           }
         }
-        lineItems(first: 50) {
+        lineItems(first: 100) {
           edges {
             node {
               id
