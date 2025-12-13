@@ -1,87 +1,80 @@
-let pedidos = [];
 let paginaActual = 1;
 const porPagina = 50;
 
-// ===============================
-// CARGAR PEDIDOS DESDE SHOPIFY (GRAPHQL)
-// ===============================
-function cargarPedidos() {
-    fetch(DASHBOARD_FILTER_URL, {
+const btnPrev = document.getElementById("btn-prev");
+const btnNext = document.getElementById("btn-next");
+
+function cargarPedidos(pagina = 1) {
+    fetch(`${DASHBOARD_FILTER_URL}?page=${pagina}`, {
         headers: { "X-Requested-With": "XMLHttpRequest" }
     })
     .then(r => r.json())
     .then(data => {
-        if (!data.success) {
-            alert("Error cargando pedidos");
-            return;
+
+        const tbody = document.getElementById("tablaPedidos");
+        tbody.innerHTML = "";
+
+        if (!data.orders.length) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="9" class="text-center py-10 text-gray-400">
+                        No hay más pedidos
+                    </td>
+                </tr>
+            `;
         }
 
-        pedidos = data.orders;
-        paginaActual = 1;
-        renderTabla();
-        renderBotones();
-    })
-    .catch(err => console.error(err));
-}
+        data.orders.forEach(o => {
+            tbody.innerHTML += `
+                <tr class="border-b">
+                    <td class="py-3 px-4">${o.numero}</td>
+                    <td class="py-3 px-4">${o.fecha}</td>
+                    <td class="py-3 px-4">${o.cliente}</td>
+                    <td class="py-3 px-4">${o.total}</td>
+                    <td class="py-3 px-4">${o.estado}</td>
+                    <td class="py-3 px-4">${o.etiquetas}</td>
+                    <td class="py-3 px-4">${o.articulos}</td>
+                    <td class="py-3 px-4">${o.estado_envio}</td>
+                    <td class="py-3 px-4">${o.forma_envio}</td>
+                </tr>
+            `;
+        });
 
-// ===============================
-// RENDER TABLA (50 EN 50)
-// ===============================
-function renderTabla() {
-    const tbody = document.getElementById("tablaPedidos");
-    tbody.innerHTML = "";
+        // ---- BOTONES ----
 
-    const inicio = (paginaActual - 1) * porPagina;
-    const fin = inicio + porPagina;
-    const visibles = pedidos.slice(inicio, fin);
+        // Anterior
+        if (pagina > 1) {
+            btnPrev.classList.remove("hidden");
+        } else {
+            btnPrev.classList.add("hidden");
+        }
 
-    visibles.forEach(o => {
-        tbody.innerHTML += `
-            <tr class="border-b hover:bg-gray-50">
-                <td class="px-3 py-2 font-semibold">${o.numero}</td>
-                <td class="px-3 py-2">${o.fecha}</td>
-                <td class="px-3 py-2">${o.cliente}</td>
-                <td class="px-3 py-2">${o.total}</td>
-                <td class="px-3 py-2">${o.estado}</td>
-                <td class="px-3 py-2">${o.etiquetas}</td>
-                <td class="px-3 py-2 text-center">${o.articulos}</td>
-                <td class="px-3 py-2">${o.estado_envio}</td>
-                <td class="px-3 py-2">${o.forma_envio}</td>
-            </tr>
-        `;
+        // Siguiente
+        if (data.orders.length === porPagina) {
+            btnNext.classList.remove("hidden");
+        } else {
+            btnNext.classList.add("hidden");
+        }
+
+        // total pedidos
+        document.getElementById("total-pedidos").innerText = data.total;
     });
-
-    document.getElementById("total-pedidos").innerText = pedidos.length;
 }
 
-// ===============================
-// BOTONES SIGUIENTE / ANTERIOR
-// ===============================
-function renderBotones() {
-    const btnPrev = document.getElementById("btn-prev");
-    const btnNext = document.getElementById("btn-next");
+// EVENTOS
+btnNext.addEventListener("click", () => {
+    paginaActual++;
+    cargarPedidos(paginaActual);
+});
 
-    btnPrev.onclick = () => {
-        if (paginaActual > 1) {
-            paginaActual--;
-            renderTabla();
-            renderBotones();
-        }
-    };
+btnPrev.addEventListener("click", () => {
+    if (paginaActual > 1) {
+        paginaActual--;
+        cargarPedidos(paginaActual);
+    }
+});
 
-    btnNext.onclick = () => {
-        if (paginaActual * porPagina < pedidos.length) {
-            paginaActual++;
-            renderTabla();
-            renderBotones();
-        }
-    };
-
-    btnPrev.classList.toggle("hidden", paginaActual === 1);
-    btnNext.classList.toggle("hidden", paginaActual * porPagina >= pedidos.length);
-}
-
-// ===============================
 // INIT
-// ===============================
-document.addEventListener("DOMContentLoaded", cargarPedidos);
+document.addEventListener("DOMContentLoaded", () => {
+    cargarPedidos(1);
+});
