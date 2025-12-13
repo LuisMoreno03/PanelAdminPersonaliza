@@ -1,4 +1,4 @@
-let nextCursor = null;
+let cursor = null;
 let cargando = false;
 
 function cargarPedidos() {
@@ -6,67 +6,39 @@ function cargarPedidos() {
     cargando = true;
 
     let url = DASHBOARD_FILTER_URL;
-    if (nextCursor) {
-        url += `?after=${encodeURIComponent(nextCursor)}`;
-    }
+    if (cursor) url += `?cursor=${encodeURIComponent(cursor)}`;
 
-    fetch(url)
-        .then(r => r.json())
-        .then(data => {
-            const tbody = document.getElementById("tablaPedidos");
+    fetch(url, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(r => r.json())
+    .then(data => {
 
-            if (!data.orders.length && !nextCursor) {
-                tbody.innerHTML = `<tr>
-                    <td colspan="9" class="text-center py-12 text-gray-400">
-                        No hay pedidos
-                    </td>
-                </tr>`;
-                return;
-            }
+        const tbody = document.getElementById('tablaPedidos');
 
-            data.orders.forEach(o => {
-                tbody.insertAdjacentHTML("beforeend", `
-                    <tr>
-                        <td>${o.numero}</td>
-                        <td>${o.fecha}</td>
-                        <td>${o.cliente}</td>
-                        <td>${o.total}</td>
-                        <td>Por preparar</td>
-                        <td>-</td>
-                        <td class="text-center">${o.articulos}</td>
-                        <td>${o.estado_envio}</td>
-                        <td>${o.forma_envio}</td>
-                    </tr>
-                `);
-            });
-
-            nextCursor = data.hasNext ? data.nextCursor : null;
-
-            document.getElementById("btn-next")
-                .classList.toggle("hidden", !data.hasNext);
-
-            cargando = false;
+        data.orders.forEach(o => {
+            tbody.innerHTML += `
+                <tr class="border-b">
+                    <td>${o.numero}</td>
+                    <td>${o.fecha}</td>
+                    <td>${o.cliente}</td>
+                    <td>${o.total}</td>
+                    <td>${o.estado}</td>
+                    <td>${o.etiquetas || '-'}</td>
+                    <td class="text-center">${o.articulos}</td>
+                    <td>${o.forma_envio}</td>
+                </tr>
+            `;
         });
+
+        cursor = data.cursor;
+
+        document.getElementById('btn-next')
+            .classList.toggle('hidden', !data.hasNext);
+
+        cargando = false;
+    });
 }
 
-document.getElementById("btn-next").addEventListener("click", cargarPedidos);
-document.addEventListener("DOMContentLoaded", cargarPedidos);
-
-
-// EVENTOS
-btnNext.addEventListener("click", () => {
-    paginaActual++;
-    cargarPedidos(paginaActual);
-});
-
-btnPrev.addEventListener("click", () => {
-    if (paginaActual > 1) {
-        paginaActual--;
-        cargarPedidos(paginaActual);
-    }
-});
-
-// INIT
-document.addEventListener("DOMContentLoaded", () => {
-    cargarPedidos(1);
-});
+document.getElementById('btn-next').addEventListener('click', cargarPedidos);
+document.addEventListener('DOMContentLoaded', cargarPedidos);
