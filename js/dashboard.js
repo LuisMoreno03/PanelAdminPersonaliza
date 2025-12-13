@@ -2,6 +2,8 @@ let cursor = null;
 let loading = false;
 let finished = false;
 
+const DASHBOARD_FILTER_URL = "/dashboard/filter";
+
 function cargarPedidos() {
     if (loading || finished) return;
     loading = true;
@@ -11,7 +13,7 @@ function cargarPedidos() {
         url += '?cursor=' + encodeURIComponent(cursor);
     }
 
-    fetch(url)
+    fetch(`${DASHBOARD_FILTER_URL}?page=${page}`)
         .then(r => r.json())
         .then(data => {
             const tbody = document.getElementById('tablaPedidos');
