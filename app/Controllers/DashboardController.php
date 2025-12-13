@@ -6,8 +6,8 @@ use CodeIgniter\Controller;
 
 class DashboardController extends Controller
 {
-    private $shop  = "962f2d.myshopify.com";
-    private $token = "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"; // ⚠️ mover a .env en prod
+    private string $shop  = "962f2d.myshopify.com";
+    private string $token = "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"; // mover a .env en prod
 
     /* ============================================================
        BADGE VISUAL
@@ -24,12 +24,11 @@ class DashboardController extends Controller
         ];
 
         $clase = $estilos[$estado] ?? "bg-gray-100 text-gray-800 border border-gray-300";
-
         return "<span class='px-3 py-1 rounded-full text-xs font-bold {$clase}'>{$estado}</span>";
     }
 
     /* ============================================================
-       ESTADO INTERNO
+       ESTADO INTERNO (BD)
     ============================================================ */
     private function obtenerEstadoInterno($orderId): string
     {
@@ -43,85 +42,130 @@ class DashboardController extends Controller
     }
 
     /* ============================================================
-       OBTENER PEDIDOS SHOPIFY (50)
+       LLAMADA GRAPHQL A SHOPIFY
     ============================================================ */
-     public function filter()
-{
-    $maxPedidos = 200;
-    $limitPorLlamada = 50;
-
-    $todos = [];
-    $pageInfo = null;
-
-    while (count($todos) < $maxPedidos) {
-
-        $params = "limit={$limitPorLlamada}&status=any&order=created_at desc";
-        if ($pageInfo) {
-            $params .= "&page_info={$pageInfo}";
-        }
-
-        $url = "https://{$this->shop}/admin/api/2024-01/orders.json?{$params}";
-
-        $ch = curl_init($url);
+    private function shopifyGraphQL(string $query, array $variables = []): array
+    {
+        $ch = curl_init("https://{$this->shop}/admin/api/2024-01/graphql.json");
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HEADER => true,
+            CURLOPT_POST => true,
             CURLOPT_HTTPHEADER => [
                 "X-Shopify-Access-Token: {$this->token}",
                 "Content-Type: application/json"
-            ]
+            ],
+            CURLOPT_POSTFIELDS => json_encode([
+                'query'     => $query,
+                'variables' => $variables
+            ])
         ]);
 
         $response = curl_exec($ch);
-        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
         curl_close($ch);
 
-        $headers = substr($response, 0, $headerSize);
-        $body    = substr($response, $headerSize);
-
-        $data = json_decode($body, true);
-
-        if (empty($data['orders'])) {
-            break;
-        }
-
-        $todos = array_merge($todos, $data['orders']);
-
-        // extraer next_page_info
-        preg_match('/<([^>]+)>; rel="next"/', $headers, $next);
-
-        if (!empty($next[1])) {
-            parse_str(parse_url($next[1], PHP_URL_QUERY), $q);
-            $pageInfo = $q['page_info'] ?? null;
-        } else {
-            break;
-        }
-
-        // evitar rate limit
-        usleep(400000);
+        return json_decode($response, true);
     }
 
-    // cortar exacto a 200
-    $todos = array_slice($todos, 0, $maxPedidos);
-
-    return $this->response->setJSON([
-        'success' => true,
-        'count'   => count($todos),
-        'orders'  => $todos
-    ]);
-}
-
-/* ============================================================
-       SYNC MANUAL / AUTOMÁTICO
+    /* ============================================================
+       DASHBOARD → TRAER MUCHOS PEDIDOS (GRAPHQL)
     ============================================================ */
-    public function sync()
+    public function filter()
     {
-        $orders = $this->obtenerPedidosShopify();
-        $this->guardarPedidos($orders);
+        if (!$this->request->isAJAX()) {
+            return $this->response->setStatusCode(403);
+        }
+
+        $maxPedidos = 200; // puedes subir a 500 o más
+        $todos = [];
+        $cursor = null;
+
+        $query = <<<'GRAPHQL'
+query ($cursor: String) {
+  orders(
+    first: 100,
+    after: $cursor,
+    query: "status:any"
+  ) {
+    edges {
+      cursor
+      node {
+        id
+        name
+        createdAt
+        fulfillmentStatus
+        tags
+        customer {
+          firstName
+        }
+        totalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+        shippingLines(first: 1) {
+          edges {
+            node {
+              title
+            }
+          }
+        }
+        lineItems(first: 50) {
+          edges {
+            node {
+              id
+            }
+          }
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+    }
+  }
+}
+GRAPHQL;
+
+        do {
+            $res = $this->shopifyGraphQL($query, ['cursor' => $cursor]);
+            $edges = $res['data']['orders']['edges'] ?? [];
+
+            foreach ($edges as $edge) {
+                $o = $edge['node'];
+
+                $estadoInterno = $this->obtenerEstadoInterno($o['id']);
+
+                $todos[] = [
+                    "id"           => $o['id'],
+                    "numero"       => $o['name'],
+                    "fecha"        => substr($o['createdAt'], 0, 10),
+                    "cliente"      => $o['customer']['firstName'] ?? "Desconocido",
+                    "total"        => $o['totalPriceSet']['shopMoney']['amount'] . " " .
+                                      $o['totalPriceSet']['shopMoney']['currencyCode'],
+                    "estado"       => $this->badgeEstado($estadoInterno),
+                    "estado_raw"   => $estadoInterno,
+                    "etiquetas"    => $o['tags'] ?: "-",
+                    "articulos"    => count($o['lineItems']['edges']),
+                    "estado_envio" => $o['fulfillmentStatus'] ?? "-",
+                    "forma_envio"  => $o['shippingLines']['edges'][0]['node']['title'] ?? "-"
+                ];
+
+                $cursor = $edge['cursor'];
+
+                if (count($todos) >= $maxPedidos) {
+                    break 2;
+                }
+            }
+
+            $hasNext = $res['data']['orders']['pageInfo']['hasNextPage'] ?? false;
+            usleep(300000); // proteger rate limit
+
+        } while ($hasNext);
 
         return $this->response->setJSON([
-            'success'   => true,
-            'guardados' => count($orders)
+            'success' => true,
+            'count'   => count($todos),
+            'orders'  => $todos
         ]);
     }
 
