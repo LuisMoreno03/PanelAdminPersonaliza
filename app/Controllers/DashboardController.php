@@ -9,34 +9,9 @@ class DashboardController extends Controller
     private $shop  = "962f2d.myshopify.com";
     private $token = "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";
 
-    // ============================================================
-    // LLAMADA A SHOPIFY (GENÉRICA)
-    // ============================================================
-    private function shopifyRequest($endpoint)
-    {
-        $url = "https://{$this->shop}/admin/api/2024-01/$endpoint";
-
-        $headers = [
-            "Content-Type: application/json",
-            "X-Shopify-Access-Token: {$this->token}"
-        ];
-
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => $url,
-            CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 20
-        ]);
-
-        $response = curl_exec($ch);
-        curl_close($ch);
-
-        return json_decode($response, true);
-    }
 
     // ============================================================
-    // BADGES DE ESTADO
+    // BADGE VISUAL DEL ESTADO (MEJORADO / PROFESIONAL)
     // ============================================================
     private function badgeEstado($estado)
     {
@@ -51,11 +26,15 @@ class DashboardController extends Controller
 
         $clase = $estilos[$estado] ?? "bg-gray-100 text-gray-800 border border-gray-300";
 
-        return "<span class='px-3 py-1 rounded-full text-xs font-bold $clase'>$estado</span>";
+        return "
+        <span class='px-3 py-1 rounded-full text-xs font-bold tracking-wide {$clase}'>
+            {$estado}
+        </span>";
     }
 
+
     // ============================================================
-    // ESTADO INTERNO (BASE DE DATOS)
+    // OBTENER ESTADO INTERNO (BASE DE DATOS)
     // ============================================================
     private function obtenerEstadoInterno($orderId)
     {
@@ -69,6 +48,39 @@ class DashboardController extends Controller
         return $row ? $row->estado : "Por preparar";
     }
 
+
+    // ============================================================
+    // LLAMAR A SHOPIFY
+    // ============================================================
+    private function queryShopify($params = "")
+    {
+        $url = "https://{$this->shop}/admin/api/2024-01/orders.json?$params";
+
+        $headers = [
+            "Content-Type: application/json",
+            "X-Shopify-Access-Token: {$this->token}"
+        ];
+
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15
+        ]);
+
+        $response = curl_exec($ch);
+
+        if (curl_errno($ch)) {
+            return ["success" => false, "message" => curl_error($ch)];
+        }
+
+        curl_close($ch);
+
+        return json_decode($response, true);
+    }
+
+
     // ============================================================
     // VISTA PRINCIPAL
     // ============================================================
@@ -78,18 +90,102 @@ class DashboardController extends Controller
     }
 
     // ============================================================
-    // CARGAR PEDIDOS (Paginación Shopify con page_info)
+    // GUARDAR MODAL 
     // ============================================================
-    public function filter()
+    public function guardarEstado()
 {
-    $limit = 250; // 🔥 AHORA SON 250 POR PÁGINA
+    $json = $this->request->getJSON(true);
+    $id = $json["id"];
+    $estado = $json["estado"];
 
-    $pageInfo = $this->request->getGet('page_info');
+    $db = \Config\Database::connect();
 
-    $params = "limit={$limit}&status=any&order=created_at%20desc";
+    // Inserta o actualiza
+    $db->table("pedidos_estado")->replace([
+        "id" => $id,
+        "estado" => $estado
+    ]);
 
-    if (!empty($pageInfo)) {
-        $params .= "&page_info=" . urlencode($pageInfo);
+    return $this->response->setJSON([
+        "success" => true
+    ]);
+}
+public function guardarEtiquetas()
+{
+    $json = $this->request->getJSON(true);
+
+    $orderId = $json["id"];
+    $tags    = $json["tags"];
+
+    // 1. ACTUALIZAR EN SHOPIFY
+    $url = "https://{$this->shop}/admin/api/2024-01/orders/{$orderId}.json";
+
+    $data = [
+        "order" => [
+            "id"   => $orderId,
+            "tags" => $tags
+        ]
+    ];
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST  => "PUT",
+        CURLOPT_POSTFIELDS     => json_encode($data),
+        CURLOPT_HTTPHEADER     => [
+            "X-Shopify-Access-Token: {$this->token}",
+            "Content-Type: application/json"
+        ]
+    ]);
+
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    $decoded = json_decode($response, true);
+
+    if (!isset($decoded["order"])) {
+        return $this->response->setJSON([
+            "success" => false,
+            "message" => "Error actualizando etiquetas en Shopify",
+            "raw" => $response
+        ]);
+    }
+
+    // TODO OK
+    return $this->response->setJSON([
+        "success" => true,
+        "message" => "Etiquetas actualizadas correctamente"
+    ]);
+}
+
+    // ============================================================
+    // API → TRAE 50 PEDIDOS SIEMPRE
+    // ============================================================
+   public function dashboard()
+{
+    $pedidoModel = new \App\Models\PedidoModel();
+
+    $perPage = 1000;
+
+    $data['pedidos'] = $pedidoModel->paginate($perPage);
+    $data['pager']   = $pedidoModel->pager;   // 🔥 ESTA LÍNEA ES CLAVE
+
+    return view('dashboard', $data);
+}
+
+
+    public function filter($range = "todos")
+{
+    $pageInfo = $this->request->getGet("page_info") ?? null;
+
+    $limit = 1000;
+
+    // Primera página
+    if (!$pageInfo) {
+        $params = "limit=$limit&status=any&order=created_at%20desc";
+    } 
+    else {
+        $params = "limit=$limit&page_info=$pageInfo";
     }
 
     $response = $this->queryShopify($params);
@@ -97,12 +193,14 @@ class DashboardController extends Controller
     if (!isset($response["orders"])) {
         return $this->response->setJSON([
             "success" => false,
-            "message" => "Error al obtener pedidos desde Shopify",
-            "raw"     => $response
+            "message" => "Error obteniendo pedidos",
+            "raw" => $response
         ]);
     }
 
-    // Convertimos Shopify → Frontend
+    // Next page cursor
+    $next = $response["next_page_info"] ?? null;
+
     $resultado = [];
 
     foreach ($response["orders"] as $o) {
@@ -117,82 +215,21 @@ class DashboardController extends Controller
             "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
             "total"        => $o["total_price"] . " €",
             "estado"       => $badge,
-            "etiquetas"    => $o["tags"] ?? "-",
+            "estado_raw"   => $estadoInterno,
+            "etiquetas"    => is_array($o["tags"]) ? implode(", ", $o["tags"]) : ($o["tags"] ?? "-"),
             "articulos"    => count($o["line_items"] ?? []),
             "estado_envio" => $o["fulfillment_status"] ?? "-",
             "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
         ];
     }
 
-    // EXTRAEMOS page_info DEL HEADER
-    $nextPage = null;
-
-    if (!empty($response["link"])) { 
-        if (preg_match('/page_info=([^&>]+)/', $response["link"], $match)) {
-            $nextPage = $match[1];
-        }
-    }
-
     return $this->response->setJSON([
-        "success"        => true,
-        "orders"         => $resultado,
-        "count"          => count($resultado),
-        "next_page_info" => $nextPage
+        "success"   => true,
+        "orders"    => $resultado,
+        "next_page_info" => $next,
+        "count"     => count($resultado)
     ]);
 }
 
-    // ============================================================
-    // GUARDAR ESTADO INTERNO
-    // ============================================================
-    public function guardarEstado()
-    {
-        $json = $this->request->getJSON(true);
-
-        $db = \Config\Database::connect();
-
-        $db->table("pedidos_estado")->replace([
-            "id"     => $json["id"],
-            "estado" => $json["estado"]
-        ]);
-
-        return $this->response->setJSON(["success" => true]);
-    }
-
-    // ============================================================
-    // GUARDAR ETIQUETAS EN SHOPIFY
-    // ============================================================
-    public function guardarEtiquetas()
-    {
-        $json = $this->request->getJSON(true);
-
-        $orderId = $json["id"];
-        $tags    = $json["tags"];
-
-        $endpoint = "orders/$orderId.json";
-
-        $payload = [
-            "order" => [
-                "id"   => $orderId,
-                "tags" => $tags
-            ]
-        ];
-
-        $headers = [
-            "Content-Type: application/json",
-            "X-Shopify-Access-Token: {$this->token}"
-        ];
-
-        $ch = curl_init("https://{$this->shop}/admin/api/2024-01/$endpoint");
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CUSTOMREQUEST  => "PUT",
-            CURLOPT_POSTFIELDS     => json_encode($payload),
-            CURLOPT_HTTPHEADER     => $headers
-        ]);
-
-        $response = curl_exec($ch);
-        curl_close($ch);
-
-        return $this->response->setJSON(["success" => true]);
-    }
 }
+
