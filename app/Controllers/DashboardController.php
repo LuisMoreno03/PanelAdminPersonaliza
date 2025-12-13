@@ -45,75 +45,59 @@ class DashboardController extends Controller
     /* ============================================================
        OBTENER PEDIDOS SHOPIFY (50)
     ============================================================ */
-    private function obtenerPedidosShopify(): array
+     public function filter()
     {
-        $url = "https://{$this->shop}/admin/api/2024-01/orders.json"
-             . "?limit=50&status=any&order=created_at desc";
+        $pageInfo = $this->request->getGet('page_info');
+        $limit = 100;
+
+        $params = "limit={$limit}&status=any&order=created_at desc";
+        if ($pageInfo) {
+            $params .= "&page_info={$pageInfo}";
+        }
+
+        $url = "https://{$this->shop}/admin/api/2024-01/orders.json?{$params}";
 
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
+            CURLOPT_HEADER         => true,
+            CURLOPT_HTTPHEADER     => [
                 "X-Shopify-Access-Token: {$this->token}",
                 "Content-Type: application/json"
             ]
         ]);
 
         $response = curl_exec($ch);
+        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
         curl_close($ch);
 
-        $data = json_decode($response, true);
-        return $data['orders'] ?? [];
-    }
+        $headers = substr($response, 0, $headerSize);
+        $body    = substr($response, $headerSize);
 
-    /* ============================================================
-       GUARDAR PEDIDOS EN BD
-    ============================================================ */
-    private function guardarPedidos(array $orders): void
-    {
-        $db = \Config\Database::connect();
-        $builder = $db->table('pedidos');
+        $data = json_decode($body, true);
 
-        foreach ($orders as $o) {
-            $builder->replace([
-                'id'          => $o['id'],
-                'numero'      => $o['name'],
-                'cliente'     => $o['customer']['first_name'] ?? 'Desconocido',
-                'total'       => $o['total_price'],
-                'estado_envio'=> $o['fulfillment_status'] ?? '-',
-                'forma_envio' => $o['shipping_lines'][0]['title'] ?? '-',
-                'etiquetas'   => $o['tags'] ?? '',
-                'articulos'   => count($o['line_items'] ?? []),
-                'created_at'  => date('Y-m-d H:i:s', strtotime($o['created_at'])),
-                'synced_at'   => date('Y-m-d H:i:s')
-            ]);
+        // Extraer cursores
+        preg_match('/<([^>]+)>; rel="next"/', $headers, $next);
+        preg_match('/<([^>]+)>; rel="previous"/', $headers, $prev);
+
+        $nextPage = null;
+        $prevPage = null;
+
+        if (!empty($next[1])) {
+            parse_str(parse_url($next[1], PHP_URL_QUERY), $q);
+            $nextPage = $q['page_info'] ?? null;
         }
-    }
 
-    
-    /* ============================================================
-       DASHBOARD AJAX (DESDE BD)
-    ============================================================ */
-     public function filter()
-    {
-        $page    = (int) ($this->request->getGet('page') ?? 1);
-        $perPage = 50;
-        $offset = ($page - 1) * $perPage;
-
-        $db = \Config\Database::connect();
-
-        $orders = $db->table('pedidos')
-            ->orderBy('created_at', 'DESC')
-            ->limit($perPage, $offset)
-            ->get()
-            ->getResultArray();
-
-        $total = $db->table('pedidos')->countAll();
+        if (!empty($prev[1])) {
+            parse_str(parse_url($prev[1], PHP_URL_QUERY), $q);
+            $prevPage = $q['page_info'] ?? null;
+        }
 
         return $this->response->setJSON([
             'success' => true,
-            'orders'  => $orders,
-            'total'   => $total
+            'orders'  => $data['orders'] ?? [],
+            'next'    => $nextPage,
+            'prev'    => $prevPage
         ]);
     }
 /* ============================================================

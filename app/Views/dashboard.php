@@ -71,10 +71,47 @@
    <!-- MODALES -->
 <?= view('layouts/modales_estados') ?>
 
-<script>
-    const DASHBOARD_FILTER_URL = "<?= base_url('dashboard/filter') ?>";
-</script>
 
+<script>
+let nextPage = null;
+let prevPage = null;
+
+function cargarPedidos(pageInfo = null) {
+    let url = "/index.php/dashboard/filter";
+    if (pageInfo) {
+        url += "?page_info=" + pageInfo;
+    }
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById("tablaPedidos");
+            tbody.innerHTML = "";
+
+            data.orders.forEach(o => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${o.name}</td>
+                        <td>${o.created_at.substring(0,10)}</td>
+                        <td>${o.customer?.first_name ?? '-'}</td>
+                        <td>${o.total_price}</td>
+                    </tr>
+                `;
+            });
+
+            nextPage = data.next;
+            prevPage = data.prev;
+
+            document.getElementById("btnNext").classList.toggle("hidden", !nextPage);
+            document.getElementById("btnPrev").classList.toggle("hidden", !prevPage);
+        });
+}
+
+document.getElementById("btnNext").onclick = () => cargarPedidos(nextPage);
+document.getElementById("btnPrev").onclick = () => cargarPedidos(prevPage);
+
+cargarPedidos();
+</script>
 <script src="<?= base_url('js/dashboard.js') ?>"></script>
 
 </body>
