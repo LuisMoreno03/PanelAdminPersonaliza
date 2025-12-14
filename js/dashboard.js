@@ -103,10 +103,13 @@ function actualizarTabla(pedidos) {
                 <td class="py-2 px-4">${p.forma_envio}</td>
                 <td class="py-2 px-4 flex gap-2">
                     <!-- Botón info -->
-                    <button onclick="verDetalles(${p.id})" 
-                        class="px-2 py-1 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700">
-                        Info
-                    </button>
+                    <td class="py-2 px-4">
+                        <button onclick="verDetalles(${p.id})"
+                                class="text-blue-600 underline">
+                            Ver detalles
+                        </button>
+                    </td>
+
                 </td>
 
             </tr>
