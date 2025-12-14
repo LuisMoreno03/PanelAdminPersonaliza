@@ -88,10 +88,11 @@ function actualizarTabla(pedidos) {
                 </td>
 
                 <td class="py-2 px-4">
-                    <button onclick="abrirModalEtiquetas(${p.id}, '${(p.etiquetas || "").replace(/'/g, "\\'")}')"
+                    <button onclick="abrirModalEtiquetas(${p.id}, ${JSON.stringify(p.etiquetas || "")})"
                         class="text-blue-600 underline">
                         ${p.etiquetas || "Agregar"}
                     </button>
+
                 </td>
 
                 <td class="py-2 px-4">${p.articulos}</td>
@@ -142,6 +143,24 @@ function abrirModalEtiquetas(orderId, etiquetas) {
 
 function cerrarModalEtiquetas() {
     document.getElementById("modalEtiquetas").classList.add("hidden");
+}
+async function guardarEtiquetas() {
+
+    let orderId = document.getElementById("modalTagOrderId").value;
+    let tags    = document.getElementById("modalTagInput").value;
+
+    let response = await fetch("/api/estado/etiquetas/guardar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: orderId, tags: tags })
+    });
+
+    let data = await response.json();
+
+    if (data.success) {
+        cerrarModalEtiquetas();
+        cargarPedidos();
+    }
 }
 
 function agregarEtiqueta(tag) {
