@@ -234,20 +234,47 @@ function verDetalles(orderId) {
 function subirImagenProducto(orderId, index, input) {
 
     if (!input.files.length) return;
+    let file = input.files[0];
 
+    // Vista previa inmediata
     const reader = new FileReader();
-
     reader.onload = e => {
         document.getElementById(`preview_${orderId}_${index}`).innerHTML =
             `<img src="${e.target.result}" class="w-32 mt-2 rounded shadow">`;
+    };
+    reader.readAsDataURL(file);
 
+    // ========= SUBIR ARCHIVO AL BACKEND ========= //
+    let formData = new FormData();
+    formData.append("orderId", orderId);
+    formData.append("index", index);
+    formData.append("file", file);
+
+    fetch("/index.php/dashboard/subirImagenProducto", {
+        method: "POST",
+        body: formData
+    })
+    .then(r => r.json())
+    .then(res => {
+
+        if (!res.success) {
+            alert("Error subiendo imagen");
+            console.error(res);
+            return;
+        }
+
+        console.log("Imagen guardada:", res.url);
+
+        // Guardamos como cargada
         window.imagenesCargadas[index] = true;
 
+        // Validar estado final
         validarEstadoFinal(orderId);
-    };
 
-    reader.readAsDataURL(input.files[0]);
+    })
+    .catch(err => console.error("Error upload:", err));
 }
+
 
 function validarEstadoFinal(orderId) {
 

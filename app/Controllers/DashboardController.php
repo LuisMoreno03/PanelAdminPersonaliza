@@ -348,4 +348,38 @@ public function detalles($orderId)
             "count"  => count($resultado)
         ]);
     }
+
+    public function subirImagenProducto()
+    {
+        $orderId = $this->request->getPost("orderId");
+        $index = $this->request->getPost("index");
+        $file = $this->request->getFile("file");
+
+        if (!$file || !$file->isValid()) {
+            return $this->response->setJSON([
+                "success" => false,
+                "message" => "Archivo inválido"
+            ]);
+        }
+
+        // Crear carpeta
+        $path = WRITEPATH . "uploads/pedidos/$orderId/";
+        if (!is_dir($path)) mkdir($path, 0777, true);
+
+        // Nombre seguro
+        $newName = $index . "_" . time() . "." . $file->getExtension();
+        $file->move($path, $newName);
+
+        // URL pública
+        $publicUrl = base_url("writable/uploads/pedidos/$orderId/$newName");
+
+        // OPCIONAL: Guardar en Base de datos o Shopify metafields
+        // Ejemplo: saveImageToOrder($orderId, $index, $publicUrl);
+
+        return $this->response->setJSON([
+            "success" => true,
+            "url" => $publicUrl
+        ]);
+    }
+
 }
