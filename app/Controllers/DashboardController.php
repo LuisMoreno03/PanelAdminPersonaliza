@@ -82,44 +82,66 @@ class DashboardController extends Controller
 
 public function detalles($orderId)
 {
-    // Traer todos los campos
-    $params = "ids=$orderId&status=any&fields=*";
-    $response = $this->queryShopify($params);
+    // URL correcta para obtener 1 solo pedido
+    $url = "https://{$this->shop}/admin/api/2024-01/orders/{$orderId}.json";
 
-    if (!isset($response["orders"][0])) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            "Content-Type: application/json",
+            "X-Shopify-Access-Token: {$this->token}"
+        ]
+    ]);
+
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    if (!$response) {
         return $this->response->setJSON([
             "success" => false,
-            "message" => "Pedido no encontrado"
+            "message" => "No se recibió respuesta de Shopify"
         ]);
     }
 
-    $order = $response["orders"][0];
+    $data = json_decode($response, true);
 
-    // ================================
-    // Extraer imágenes de properties[]
-    // ================================
+    if (!isset($data["order"])) {
+        return $this->response->setJSON([
+            "success" => false,
+            "message" => "Shopify no devolvió el pedido",
+            "raw"     => $data
+        ]);
+    }
+
+    $order = $data["order"];
+
+    // Buscar imágenes cargadas desde properties
     $imagenes = [];
 
-    foreach ($order["line_items"] as $item) {
-        if (!empty($item["properties"])) {
-            foreach ($item["properties"] as $prop) {
-                if (
-                    isset($prop["name"]) &&
-                    (stripos($prop["name"], "imagen") !== false ||
-                     stripos($prop["name"], "image") !== false)
-                ) {
-                    $imagenes[] = $prop["value"];
+    if (isset($order["line_items"])) {
+        foreach ($order["line_items"] as $item) {
+            if (isset($item["properties"])) {
+                foreach ($item["properties"] as $prop) {
+                    if (
+                        isset($prop["name"]) &&
+                        (stripos($prop["name"], "imagen") !== false ||
+                         stripos($prop["name"], "image") !== false)
+                    ) {
+                        $imagenes[] = $prop["value"];
+                    }
                 }
             }
         }
     }
 
     return $this->response->setJSON([
-        "success"  => true,
-        "order"    => $order,
+        "success" => true,
+        "order" => $order,
         "imagenes" => $imagenes
     ]);
 }
+
 
 
 
