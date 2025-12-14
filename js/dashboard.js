@@ -15,6 +15,10 @@ document.addEventListener("DOMContentLoaded", () => {
     cargarPedidos();
 });
 
+function esImagen(url) {
+    if (!url) return false;
+    return url.match(/\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i);
+}
 
 // =====================================================
 // PETICIÓN PRINCIPAL → TRAE TODOS LOS PEDIDOS
@@ -201,20 +205,48 @@ function verDetalles(orderId) {
             let html = "";
 
             o.line_items.forEach(item => {
+
+                let propsHTML = "";
+
+                // Detectar automáticamente imágenes entre las propiedades
+                if (item.properties?.length) {
+                    propsHTML = `
+                        <div class="mt-2">
+                            <h5 class="font-semibold">Propiedades:</h5>
+                            <div class="space-y-1 mt-1">
+                                ${item.properties.map(p => {
+
+                                    // Si la propiedad es una URL de imagen
+                                    if (esImagen(p.value)) {
+                                        return `
+                                            <div>
+                                                <span class="text-sm font-semibold">${p.name}:</span><br>
+                                                <img src="${p.value}" class="w-32 mt-1 rounded-lg shadow border">
+                                            </div>`;
+                                    }
+
+                                    // Si NO es imagen → mostrar texto normal
+                                    return `
+                                        <p class="text-sm">
+                                            <span class="font-semibold">${p.name}:</span>
+                                            ${p.value}
+                                        </p>`;
+                                }).join("")}
+                            </div>
+                        </div>
+                    `;
+                }
+
                 html += `
                     <div class="p-4 border rounded-lg bg-white shadow-sm">
+                        
                         <h4 class="font-semibold">${item.title}</h4>
                         <p>Cantidad: ${item.quantity}</p>
                         <p>Precio: ${item.price} €</p>
 
-                        ${item.properties?.length ? `
-                            <h5 class="font-semibold mt-2">Propiedades:</h5>
-                            <ul class="list-disc ml-5 text-sm">
-                                ${item.properties.map(p => `<li>${p.name}:</li><img class="size-24" src="${p.value}"/>`).join("")}
-                            </ul>
-                        ` : ""}
+                        ${propsHTML}
 
-                        <!-- CARGAR IMAGEN -->
+                        <!-- CARGAR IMAGEN MANUAL -->
                         <div class="mt-3">
                             <label class="font-semibold text-sm">Cargar imagen:</label>
                             <input type="file" class="mt-1 block w-full border rounded-lg p-2">
@@ -224,6 +256,7 @@ function verDetalles(orderId) {
             });
 
             document.getElementById("detalleProductos").innerHTML = html;
+
         });
 }
 
