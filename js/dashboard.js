@@ -84,7 +84,7 @@ function actualizarTabla(pedidos) {
         tbody.innerHTML += `
             <tr class="border-b hover:bg-gray-50 transition">
                 <td class="py-2 px-4">${p.numero}</td>
-                <td class="py-2 px-4">${p.fecha}</td>
+                <td class="w-40 py-2 px-4">${p.fecha}</td>
                 <td class="py-2 px-4">${p.cliente}</td>
                 <td class="py-2 px-4">${p.total}</td>
 
@@ -101,6 +101,7 @@ function actualizarTabla(pedidos) {
                 <td class="py-2 px-4">${p.articulos}</td>
                 <td class="py-2 px-4">${p.estado_envio}</td>
                 <td class="py-2 px-4">${p.forma_envio}</td>
+                <td class="py-2 px-4">info  </td>
             </tr>
         `;
     });
