@@ -91,7 +91,7 @@ function actualizarTabla(pedidos) {
                 <td class="py-2 px-4">
                     <button onclick="abrirModalEtiquetas(${p.id}, '${p.etiquetas ?? ""}')"
                         class="text-blue-600 underline">
-                        ${p.etiquetas || "__"}
+                        ${p.etiquetas || "Agg"}
                     </button>
                 </td>
 
