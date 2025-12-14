@@ -4,7 +4,15 @@
 let nextPageInfo = null;
 let isLoading = false;
 let etiquetasSeleccionadas = [];
-window.imagenesCargadas = []; // Para validar carga de imágenes
+window.imagenesCargadas = [];
+
+// Loader global
+function showLoader() {
+    document.getElementById("globalLoader").classList.remove("hidden");
+}
+function hideLoader() {
+    document.getElementById("globalLoader").classList.add("hidden");
+}
 
 // =====================================================
 // INICIALIZAR
@@ -14,20 +22,17 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // =====================================================
-// DETECTAR SI UNA URL ES UNA IMAGEN REAL DE CDN
+// DETECTAR SI UNA URL ES UNA IMAGEN REAL
 // =====================================================
 function esImagen(url) {
     if (!url) return false;
-
     const esURL = url.startsWith("http://") || url.startsWith("https://");
     if (!esURL) return false;
-
-    // Detecta imágenes reales de Shopify CDN
-    return url.match(/cdn.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i);
+    return url.match(/\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i);
 }
 
 // =====================================================
-// PETICIÓN DE PEDIDOS
+// CARGAR PEDIDOS
 // =====================================================
 function cargarPedidos(pageInfo = null) {
     if (isLoading) return;
@@ -39,16 +44,11 @@ function cargarPedidos(pageInfo = null) {
     fetch(url)
         .then(res => res.json())
         .then(data => {
-
-            if (!data.success) {
-                console.error("Error cargando pedidos:", data);
-                return;
-            }
+            if (!data.success) return;
 
             nextPageInfo = data.next_page_info ?? null;
 
             actualizarTabla(data.orders);
-
             document.getElementById("btnSiguiente").disabled = !nextPageInfo;
             document.getElementById("total-pedidos").textContent = data.count;
         })
@@ -71,11 +71,9 @@ function actualizarTabla(pedidos) {
 
     if (!pedidos.length) {
         tbody.innerHTML = `
-            <tr>
-                <td colspan="10" class="text-center text-gray-500 py-4">
-                    No se encontraron pedidos
-                </td>
-            </tr>`;
+            <tr><td colspan="10" class="py-4 text-center text-gray-500">
+                No se encontraron pedidos
+            </td></tr>`;
         return;
     }
 
@@ -104,13 +102,12 @@ function actualizarTabla(pedidos) {
                         Ver detalles
                     </button>
                 </td>
-            </tr>
-        `;
+            </tr>`;
     });
 }
 
 // =====================================================
-// FORMATO DE ETIQUETAS
+// FORMATO ETIQUETAS
 // =====================================================
 function formatearEtiquetas(etiquetas, orderId) {
     if (!etiquetas) {
@@ -118,7 +115,7 @@ function formatearEtiquetas(etiquetas, orderId) {
                 class="text-blue-600 underline">Agregar</button>`;
     }
 
-    let lista = etiquetas.split(",").map(e => e.trim());
+    let lista = etiquetas.split(",").map(t => t.trim());
 
     return `
         <div class="flex flex-wrap gap-2">
@@ -126,28 +123,26 @@ function formatearEtiquetas(etiquetas, orderId) {
                 <span class="px-2 py-1 rounded-full text-xs font-semibold ${colorEtiqueta(tag)}">
                     ${tag}
                 </span>`).join("")}
-
             <button onclick="abrirModalEtiquetas(${orderId}, '${etiquetas}')"
                     class="text-blue-600 underline text-xs ml-2">
                 Editar
             </button>
-        </div>
-    `;
+        </div>`;
 }
 
 // =====================================================
-// ABRIR DETALLES DEL PEDIDO
+// VER DETALLES DEL PEDIDO
 // =====================================================
 function verDetalles(orderId) {
 
     document.getElementById("modalDetalles").classList.remove("hidden");
 
-    // LIMPIAR
-    document.getElementById("detalleProductos").innerHTML = "Cargando productos...";
+    // Limpieza
+    document.getElementById("detalleProductos").innerHTML = "Cargando...";
     document.getElementById("detalleCliente").innerHTML = "";
     document.getElementById("detalleEnvio").innerHTML = "";
     document.getElementById("detalleTotales").innerHTML = "";
-    document.getElementById("tituloPedido").innerHTML = `Cargando...`;
+    document.getElementById("tituloPedido").innerHTML = "Cargando...";
 
     fetch(`/index.php/dashboard/detalles/${orderId}`)
         .then(r => r.json())
@@ -161,7 +156,6 @@ function verDetalles(orderId) {
 
             let o = data.order;
 
-            // TÍTULO CORRECTO
             document.getElementById("tituloPedido").innerHTML =
                 `Detalles del pedido ${o.name}`;
 
@@ -193,18 +187,22 @@ function verDetalles(orderId) {
             let html = "";
             o.line_items.forEach((item, index) => {
 
-                let propsHTML = item.properties?.length
-                    ? item.properties.map(p => {
+                let propsHTML = "";
+
+                if (item.properties?.length) {
+                    propsHTML = item.properties.map(p => {
+
                         if (esImagen(p.value)) {
                             return `
                                 <div class="mt-2">
-                                    <span class="font-semibold text-sm">${p.name}:</span><br>
+                                    <span class="font-semibold">${p.name}</span><br>
                                     <img src="${p.value}" class="w-28 rounded shadow">
                                 </div>`;
                         }
+
                         return `<p><strong>${p.name}:</strong> ${p.value}</p>`;
-                    }).join("")
-                    : "";
+                    }).join("");
+                }
 
                 html += `
                     <div class="p-4 border rounded-lg shadow bg-white">
@@ -214,14 +212,13 @@ function verDetalles(orderId) {
 
                         ${propsHTML}
 
-                        <div class="mt-3">
-                            <label class="font-semibold text-sm">Subir imagen:</label>
-                            <input type="file" onchange="subirImagenProducto(${orderId}, ${index}, this)"
-                                class="mt-1 block w-full border rounded p-2">
-                            <div id="preview_${orderId}_${index}"></div>
-                        </div>
-                    </div>
-                `;
+                        <label class="font-semibold text-sm mt-3 block">Subir imagen:</label>
+                        <input type="file"
+                            onchange="subirImagenProducto(${orderId}, ${index}, this)"
+                            class="mt-1 w-full border rounded p-2">
+
+                        <div id="preview_${orderId}_${index}" class="mt-2"></div>
+                    </div>`;
             });
 
             document.getElementById("detalleProductos").innerHTML = html;
@@ -229,14 +226,14 @@ function verDetalles(orderId) {
 }
 
 // =====================================================
-// SUBIR IMAGEN Y CAMBIAR ESTADO AUTOMÁTICO
+// SUBIR IMAGEN
 // =====================================================
 function subirImagenProducto(orderId, index, input) {
 
     if (!input.files.length) return;
     let file = input.files[0];
 
-    // Vista previa inmediata
+    // Preview inmediata
     const reader = new FileReader();
     reader.onload = e => {
         document.getElementById(`preview_${orderId}_${index}`).innerHTML =
@@ -244,38 +241,39 @@ function subirImagenProducto(orderId, index, input) {
     };
     reader.readAsDataURL(file);
 
-    // ========= SUBIR ARCHIVO AL BACKEND ========= //
-    let formData = new FormData();
-    formData.append("orderId", orderId);
-    formData.append("index", index);
-    formData.append("file", file);
+    // Loader
+    showLoader();
+
+    // Subir archivo al servidor
+    let form = new FormData();
+    form.append("orderId", orderId);
+    form.append("index", index);
+    form.append("file", file);
 
     fetch("/index.php/dashboard/subirImagenProducto", {
         method: "POST",
-        body: formData
+        body: form
     })
     .then(r => r.json())
     .then(res => {
 
+        hideLoader();
+
         if (!res.success) {
             alert("Error subiendo imagen");
-            console.error(res);
             return;
         }
 
-        console.log("Imagen guardada:", res.url);
+        console.log("Imagen guardada en:", res.url);
 
-        // Guardamos como cargada
         window.imagenesCargadas[index] = true;
-
-        // Validar estado final
         validarEstadoFinal(orderId);
-
-    })
-    .catch(err => console.error("Error upload:", err));
+    });
 }
 
-
+// =====================================================
+// VALIDAR ESTADO FINAL
+// =====================================================
 function validarEstadoFinal(orderId) {
 
     const listo = window.imagenesCargadas.every(v => v === true);
@@ -287,13 +285,11 @@ function validarEstadoFinal(orderId) {
         body: JSON.stringify({ id: orderId, estado: nuevoEstado })
     })
     .then(r => r.json())
-    .then(d => {
-        if (d.success) cargarPedidos();
-    });
+    .then(() => cargarPedidos());
 }
 
 // =====================================================
-// CERRAR MODAL DETALLES
+// CERRAR MODAL
 // =====================================================
 function cerrarModalDetalles() {
     document.getElementById("modalDetalles").classList.add("hidden");
@@ -305,13 +301,12 @@ function cerrarModalDetalles() {
 function abrirPanelCliente() {
     document.getElementById("panelCliente").classList.remove("hidden");
 }
-
 function cerrarPanelCliente() {
     document.getElementById("panelCliente").classList.add("hidden");
 }
 
 // =====================================================
-// ESTADO DEL PEDIDO
+// ESTADO MANUAL
 // =====================================================
 function abrirModal(orderId) {
     document.getElementById("modalOrderId").value = orderId;
@@ -323,12 +318,12 @@ function cerrarModal() {
 }
 
 async function guardarEstado(nuevoEstado) {
-    let orderId = document.getElementById("modalOrderId").value;
+    let id = document.getElementById("modalOrderId").value;
 
     let r = await fetch("/api/estado/guardar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: orderId, estado: nuevoEstado })
+        body: JSON.stringify({ id, estado: nuevoEstado })
     });
 
     let d = await r.json();
@@ -346,7 +341,7 @@ function abrirModalEtiquetas(orderId, etiquetasTexto = "") {
     document.getElementById("modalTagOrderId").value = orderId;
 
     etiquetasSeleccionadas = etiquetasTexto
-        ? etiquetasTexto.split(",").map(t => t.trim())
+        ? etiquetasTexto.split(",").map(s => s.trim())
         : [];
 
     renderEtiquetasSeleccionadas();
@@ -383,16 +378,15 @@ function renderEtiquetasSeleccionadas() {
 
     etiquetasSeleccionadas.forEach((tag, index) => {
         cont.innerHTML += `
-            <span class="px-2 py-1 rounded-full text-xs font-semibold ${colorEtiqueta(tag)} flex items-center gap-1">
+            <span class="px-2 py-1 bg-gray-200 rounded-full text-xs">
                 ${tag}
-                <button onclick="eliminarEtiqueta(${index})" class="text-red-600 font-bold">×</button>
-            </span>
-        `;
+                <button onclick="eliminarEtiqueta(${index})" class="text-red-600 ml-1">×</button>
+            </span>`;
     });
 }
 
-function eliminarEtiqueta(index) {
-    etiquetasSeleccionadas.splice(index, 1);
+function eliminarEtiqueta(i) {
+    etiquetasSeleccionadas.splice(i, 1);
     renderEtiquetasSeleccionadas();
 }
 
@@ -403,7 +397,7 @@ function mostrarEtiquetasRapidas() {
     etiquetasPredeterminadas.forEach(tag => {
         cont.innerHTML += `
             <button onclick="agregarEtiqueta('${tag}')"
-                class="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm">
+                class="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm">
                 ${tag}
             </button>`;
     });
@@ -418,9 +412,7 @@ function agregarEtiqueta(tag) {
 
 function colorEtiqueta(tag) {
     tag = tag.toLowerCase().trim();
-
-    if (tag.startsWith("d.")) return "bg-green-200 text-green-900 border border-green-300";
-    if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900 border border-yellow-300";
-
-    return "bg-gray-200 text-gray-700 border border-gray-300";
+    if (tag.startsWith("d.")) return "bg-green-200 text-green-900";
+    if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900";
+    return "bg-gray-200 text-gray-700";
 }

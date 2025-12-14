@@ -348,12 +348,16 @@ public function detalles($orderId)
             "count"  => count($resultado)
         ]);
     }
-
+    // ============================================================
+    // SUBIR IMAGEN DE PRODUCTO DE UN PEDIDO
+    // ============================================================
     public function subirImagenProducto()
     {
+        helper(['form', 'filesystem']);
+
         $orderId = $this->request->getPost("orderId");
-        $index = $this->request->getPost("index");
-        $file = $this->request->getFile("file");
+        $index   = $this->request->getPost("index");
+        $file    = $this->request->getFile("file");
 
         if (!$file || !$file->isValid()) {
             return $this->response->setJSON([
@@ -362,23 +366,24 @@ public function detalles($orderId)
             ]);
         }
 
-        // Crear carpeta
-        $path = WRITEPATH . "uploads/pedidos/$orderId/";
-        if (!is_dir($path)) mkdir($path, 0777, true);
+        // Crear carpeta del pedido
+        $rutaBase = FCPATH . "uploads/pedidos/" . $orderId . "/";
+        if (!is_dir($rutaBase)) {
+            mkdir($rutaBase, 0777, true);
+        }
 
-        // Nombre seguro
-        $newName = $index . "_" . time() . "." . $file->getExtension();
-        $file->move($path, $newName);
+        // Nuevo nombre único
+        $newName = $orderId . "_" . $index . "_" . time() . "." . $file->getExtension();
+
+        // Guardar archivo
+        $file->move($rutaBase, $newName);
 
         // URL pública
-        $publicUrl = base_url("writable/uploads/pedidos/$orderId/$newName");
-
-        // OPCIONAL: Guardar en Base de datos o Shopify metafields
-        // Ejemplo: saveImageToOrder($orderId, $index, $publicUrl);
+        $publicURL = base_url("uploads/pedidos/$orderId/$newName");
 
         return $this->response->setJSON([
             "success" => true,
-            "url" => $publicUrl
+            "url" => $publicURL
         ]);
     }
 

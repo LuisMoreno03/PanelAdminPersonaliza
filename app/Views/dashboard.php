@@ -149,6 +149,18 @@
     <!-- =============================================================== -->
     <?= view('layouts/modales_estados', ['etiquetasPredeterminadas' => $etiquetasPredeterminadas]) ?>
 
+        <!-- =============================================================== -->
+        <!-- LOADER GLOBAL (Pantalla de carga) -->
+        <!-- =============================================================== -->
+        <div id="globalLoader"
+            class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[9999]">
+
+            <div class="bg-white p-6 rounded-xl shadow-xl text-center animate-fadeIn">
+                <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                <p class="mt-3 font-semibold text-gray-700">Cargando...</p>
+            </div>
+
+        </div>
 
     <!-- PASAR ETIQUETAS AL JS -->
     <script>
