@@ -20,7 +20,7 @@
             Panel Admin
         </div>
         <div>
-            <p>Usuario: <?php echo $_SESSION['user']; ?></p>
+            <p>Usuario: <?php echo $_SESSION['nombre']; ?></p>
         </div>
 
         <nav class="mt-6 space-y-2 px-4">
