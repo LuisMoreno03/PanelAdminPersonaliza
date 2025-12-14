@@ -130,10 +130,11 @@ function formatearEtiquetas(etiquetas, orderId) {
                 `)
                 .join("")}
 
-            <button onclick="abrirModalEtiquetas(${orderId}, ${JSON.stringify(etiquetas)})"
+            <button onclick="abrirModalEtiquetas(${orderId}, '${etiquetas}')"
                     class="text-blue-600 underline text-xs ml-2">
                 Editar
             </button>
+
         </div>
     `;
 }
