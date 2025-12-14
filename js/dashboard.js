@@ -5,11 +5,17 @@ let nextPageInfo = null;
 let isLoading = false;
 
 // =====================================================
+// INICIALIZAR AL CARGAR LA PÁGINA (SOLO UNA VEZ)
+// =====================================================
+document.addEventListener("DOMContentLoaded", () => {
+    cargarPedidos(); // SOLO AQUÍ, nunca más
+});
+
+// =====================================================
 // CARGAR PEDIDOS (PRINCIPAL)
 // =====================================================
 function cargarPedidos(pageInfo = null) {
     if (isLoading) return;
-
     isLoading = true;
 
     let url = "/dashboard/filter";
@@ -21,7 +27,6 @@ function cargarPedidos(pageInfo = null) {
     fetch(url)
         .then(res => res.json())
         .then(data => {
-
             if (!data.success) {
                 console.error("Error cargando pedidos:", data);
                 return;
@@ -32,9 +37,9 @@ function cargarPedidos(pageInfo = null) {
             actualizarTabla(data.orders);
 
             document.getElementById("btnSiguiente").disabled = !nextPageInfo;
-            document.getElementById("btnAnterior").disabled = true; // Shopify no permite ir atrás
-            document.getElementById("total-pedidos").textContent = data.count;
+            document.getElementById("btnAnterior").disabled = true;
 
+            document.getElementById("total-pedidos").textContent = data.count;
         })
         .catch(err => console.error(err))
         .finally(() => {
@@ -42,14 +47,14 @@ function cargarPedidos(pageInfo = null) {
         });
 }
 
-// Inicializar
-cargarPedidos();
-
-
 // =====================================================
 // SIGUIENTE PÁGINA
 // =====================================================
-
+function paginaSiguiente() {
+    if (nextPageInfo) {
+        cargarPedidos(nextPageInfo);
+    }
+}
 
 // =====================================================
 // TABLA DINÁMICA
@@ -64,8 +69,7 @@ function actualizarTabla(pedidos) {
                 <td colspan="9" class="text-center text-gray-500 py-4">
                     No se encontraron pedidos
                 </td>
-            </tr>
-        `;
+            </tr>`;
         return;
     }
 
@@ -84,9 +88,9 @@ function actualizarTabla(pedidos) {
                 </td>
 
                 <td class="py-2 px-4">
-                    <button onclick="abrirModalEtiquetas(${p.id}, '${p.etiquetas ?? ""}')"
+                    <button onclick="abrirModalEtiquetas(${p.id}, '${(p.etiquetas || "").replace(/'/g, "\\'")}')"
                         class="text-blue-600 underline">
-                        ${p.etiquetas || "Agg"}
+                        ${p.etiquetas || "Agregar"}
                     </button>
                 </td>
 
@@ -97,7 +101,6 @@ function actualizarTabla(pedidos) {
         `;
     });
 }
-
 
 // =====================================================
 // MODAL - ESTADO
@@ -128,7 +131,6 @@ async function guardarEstado(nuevoEstado) {
     }
 }
 
-
 // =====================================================
 // MODAL - ETIQUETAS
 // =====================================================
@@ -138,14 +140,16 @@ function abrirModalEtiquetas(orderId, etiquetas) {
     document.getElementById("modalEtiquetas").classList.remove("hidden");
 }
 
-function cerrarModalEtiquetas() { 
+function cerrarModalEtiquetas() {
     document.getElementById("modalEtiquetas").classList.add("hidden");
 }
 
 function agregarEtiqueta(tag) {
     let campo = document.getElementById("modalTagInput");
 
-    let etiquetas = campo.value.split(",").map(e => e.trim()).filter(Boolean);
+    let etiquetas = campo.value.split(",")
+        .map(e => e.trim())
+        .filter(Boolean);
 
     if (!etiquetas.includes(tag)) {
         etiquetas.push(tag);
@@ -153,4 +157,3 @@ function agregarEtiqueta(tag) {
 
     campo.value = etiquetas.join(", ");
 }
-
