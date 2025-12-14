@@ -22,6 +22,7 @@ function esImagen(url) {
     const esURL = url.startsWith("http://") || url.startsWith("https://");
     if (!esURL) return false;
 
+    // Detecta imágenes reales de Shopify CDN
     return url.match(/cdn.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i);
 }
 
@@ -146,10 +147,7 @@ function verDetalles(orderId) {
     document.getElementById("detalleCliente").innerHTML = "";
     document.getElementById("detalleEnvio").innerHTML = "";
     document.getElementById("detalleTotales").innerHTML = "";
-    document.getElementById("tituloPedido").innerHTML = `
-    Detalles del pedido ${o.name}
-`;
-
+    document.getElementById("tituloPedido").innerHTML = `Cargando...`;
 
     fetch(`/index.php/dashboard/detalles/${orderId}`)
         .then(r => r.json())
@@ -163,9 +161,9 @@ function verDetalles(orderId) {
 
             let o = data.order;
 
-            // TÍTULO
-            document.getElementById("idPedido").innerHTML =
-                `<h2 class="text-2xl font-bold">Pedido ${o.name}</h2>`;
+            // TÍTULO CORRECTO
+            document.getElementById("tituloPedido").innerHTML =
+                `Detalles del pedido ${o.name}`;
 
             // CLIENTE
             document.getElementById("detalleCliente").innerHTML = `
@@ -197,7 +195,6 @@ function verDetalles(orderId) {
 
                 let propsHTML = item.properties?.length
                     ? item.properties.map(p => {
-
                         if (esImagen(p.value)) {
                             return `
                                 <div class="mt-2">
@@ -205,9 +202,7 @@ function verDetalles(orderId) {
                                     <img src="${p.value}" class="w-28 rounded shadow">
                                 </div>`;
                         }
-
                         return `<p><strong>${p.name}:</strong> ${p.value}</p>`;
-
                     }).join("")
                     : "";
 
@@ -234,7 +229,7 @@ function verDetalles(orderId) {
 }
 
 // =====================================================
-// SUBIR IMAGEN Y ACTUALIZAR ESTADO AUTOMÁTICO
+// SUBIR IMAGEN Y CAMBIAR ESTADO AUTOMÁTICO
 // =====================================================
 function subirImagenProducto(orderId, index, input) {
 
@@ -247,6 +242,7 @@ function subirImagenProducto(orderId, index, input) {
             `<img src="${e.target.result}" class="w-32 mt-2 rounded shadow">`;
 
         window.imagenesCargadas[index] = true;
+
         validarEstadoFinal(orderId);
     };
 
