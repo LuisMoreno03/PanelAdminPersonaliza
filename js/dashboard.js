@@ -107,12 +107,6 @@ function actualizarTabla(pedidos) {
                         class="px-2 py-1 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700">
                         Info
                     </button>
-
-                    <!-- Botón editar estado -->
-                    <button onclick="abrirModal(${p.id})" 
-                        class="px-2 py-1 bg-gray-200 rounded-lg text-xs">
-                        Estado
-                    </button>
                 </td>
 
             </tr>

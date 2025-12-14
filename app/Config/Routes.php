@@ -31,3 +31,4 @@ $routes->get('shopify/products/(:num)', 'ShopifyController::getProduct/$1');
 $routes->get('shopify/customers', 'ShopifyController::getCustomers');
 
 $routes->get('shopify/test', 'ShopifyController::test');
+$routes->get('dashboard/detalles/(:num)', 'DashboardController::detalles/$1');

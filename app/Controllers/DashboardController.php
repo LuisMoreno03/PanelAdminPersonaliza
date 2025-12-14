@@ -79,7 +79,7 @@ class DashboardController extends Controller
 
     return ["General"];
 }
-    
+
 public function detalles($id)
 {
     $params = "ids=$id&status=any";
@@ -97,6 +97,7 @@ public function detalles($id)
         "order" => $response["orders"][0]
     ]);
 }
+    
 
 
     // ============================================================
