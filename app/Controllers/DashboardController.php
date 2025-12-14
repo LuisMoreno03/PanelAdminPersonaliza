@@ -9,25 +9,67 @@ class DashboardController extends Controller
     private $shop  = "962f2d.myshopify.com";
     private $token = "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";
 
-
-
-    private $etiquetasPorUsuario = [
-    "admin" => ["Urgente", "VIP", "Revisión pendiente"],
-    "empleado" => ["Nuevo", "En proceso"],
-    "logistica" => ["Listo para envío", "Empaquetado"],
-];
+    // ============================================================
+    // GENERAR ETIQUETAS SEGÚN ROL Y USUARIO
+    // ============================================================
     private function getEtiquetasUsuario()
     {
         $session = session();
 
-        // Ajusta esto según cómo guardas el usuario en sesión
-        $usuario = $session->get('usuario') ?? 'empleado'; 
+        $rol = strtolower($session->get('role') ?? 'produccion');
+        $nombre = ucfirst($session->get('nombre') ?? 'Usuario');
 
-     return $this->etiquetasPorUsuario[$usuario] ?? ["General"];
-}   
+        $db = \Config\Database::connect();
+
+        // ============================================================
+        // ✔ ROL CONFIRMACION → SOLO D.{nombre actual}
+        // ============================================================
+        if ($rol === "confirmacion") {
+            return ["D.$nombre"];
+        }
+
+        // ============================================================
+        // ✔ ROL PRODUCCION → D.{nombre}, P.{nombre}
+        // ============================================================
+        if ($rol === "produccion") {
+            return ["D.$nombre", "P.$nombre"];
+        }
+
+        // ============================================================
+        // ✔ ROL ADMIN → TODAS LAS ETIQUETAS DE TODOS LOS USUARIOS
+        // ============================================================
+        if ($rol === "admin") {
+
+            $usuarios = $db->table("users")->select("nombre, role")->get()->getResult();
+            $etiquetas = [];
+
+            foreach ($usuarios as $u) {
+                $n = ucfirst($u->nombre);
+                $r = strtolower($u->role);
+
+                if ($r === "confirmacion") {
+                    $etiquetas[] = "D.$n";
+                }
+                elseif ($r === "produccion") {
+                    $etiquetas[] = "D.$n";
+                    $etiquetas[] = "P.$n";
+                }
+                elseif ($r === "admin") {
+                    $etiquetas[] = "D.$n";
+                    $etiquetas[] = "P.$n";
+                }
+            }
+
+            return array_unique($etiquetas);
+        }
+
+        // fallback
+        return ["D.$nombre"];
+    }
+
 
     // ============================================================
-    // BADGE VISUAL DEL ESTADO (MEJORADO / PROFESIONAL)
+    // BADGE DEL ESTADO DEL PEDIDO
     // ============================================================
     private function badgeEstado($estado)
     {
@@ -42,15 +84,11 @@ class DashboardController extends Controller
 
         $clase = $estilos[$estado] ?? "bg-gray-100 text-gray-800 border border-gray-300";
 
-        return "
-        <span class='px-3 py-1 rounded-full text-xs font-bold tracking-wide {$clase}'>
-            {$estado}
-        </span>";
+        return "<span class='px-3 py-1 rounded-full text-xs font-bold tracking-wide $clase'>$estado</span>";
     }
 
-
     // ============================================================
-    // OBTENER ESTADO INTERNO (BASE DE DATOS)
+    // ESTADO INTERNO DEL PEDIDO (DB)
     // ============================================================
     private function obtenerEstadoInterno($orderId)
     {
@@ -61,12 +99,11 @@ class DashboardController extends Controller
                  ->get()
                  ->getRow();
 
-        return $row ? $row->estado : "Por preparar";
+        return $row->estado ?? "Por preparar";
     }
 
-
     // ============================================================
-    // LLAMAR A SHOPIFY
+    // CONSULTA A SHOPIFY
     // ============================================================
     private function queryShopify($params = "")
     {
@@ -82,7 +119,7 @@ class DashboardController extends Controller
             CURLOPT_URL            => $url,
             CURLOPT_HTTPHEADER     => $headers,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 15
+            CURLOPT_TIMEOUT        => 20
         ]);
 
         $response = curl_exec($ch);
@@ -92,7 +129,6 @@ class DashboardController extends Controller
         }
 
         curl_close($ch);
-
         return json_decode($response, true);
     }
 
@@ -107,154 +143,131 @@ class DashboardController extends Controller
         ]);
     }
 
+
     // ============================================================
-    // GUARDAR MODAL 
+    // GUARDAR ESTADO DEL PEDIDO
     // ============================================================
     public function guardarEstado()
-{
-    $json = $this->request->getJSON(true);
-    $id = $json["id"];
-    $estado = $json["estado"];
+    {
+        $json = $this->request->getJSON(true);
+        $id = $json["id"];
+        $estado = $json["estado"];
 
-    $db = \Config\Database::connect();
+        $db = \Config\Database::connect();
 
-    // Inserta o actualiza
-    $db->table("pedidos_estado")->replace([
-        "id" => $id,
-        "estado" => $estado
-    ]);
+        $db->table("pedidos_estado")->replace([
+            "id" => $id,
+            "estado" => $estado
+        ]);
 
-    return $this->response->setJSON([
-        "success" => true
-    ]);
-}
-public function guardarEtiquetas()
-{
-    $json = $this->request->getJSON(true);
+        return $this->response->setJSON(["success" => true]);
+    }
 
-    $orderId = $json["id"];
-    $tags    = $json["tags"];
+    // ============================================================
+    // GUARDAR ETIQUETAS EN SHOPIFY
+    // ============================================================
+    public function guardarEtiquetas()
+    {
+        $json = $this->request->getJSON(true);
 
-    // 1. ACTUALIZAR EN SHOPIFY
-    $url = "https://{$this->shop}/admin/api/2024-01/orders/{$orderId}.json";
+        $orderId = $json["id"];
+        $tags    = $json["tags"];
 
-    $data = [
-        "order" => [
-            "id"   => $orderId,
-            "tags" => $tags
-        ]
-    ];
+        $url = "https://{$this->shop}/admin/api/2024-01/orders/{$orderId}.json";
 
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CUSTOMREQUEST  => "PUT",
-        CURLOPT_POSTFIELDS     => json_encode($data),
-        CURLOPT_HTTPHEADER     => [
-            "X-Shopify-Access-Token: {$this->token}",
-            "Content-Type: application/json"
-        ]
-    ]);
+        $data = [
+            "order" => [
+                "id"   => $orderId,
+                "tags" => $tags
+            ]
+        ];
 
-    $response = curl_exec($ch);
-    curl_close($ch);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST  => "PUT",
+            CURLOPT_POSTFIELDS     => json_encode($data),
+            CURLOPT_HTTPHEADER     => [
+                "X-Shopify-Access-Token: {$this->token}",
+                "Content-Type: application/json"
+            ]
+        ]);
 
-    $decoded = json_decode($response, true);
+        $response = curl_exec($ch);
+        curl_close($ch);
 
-    if (!isset($decoded["order"])) {
+        $decoded = json_decode($response, true);
+
+        if (!isset($decoded["order"])) {
+            return $this->response->setJSON([
+                "success" => false,
+                "message" => "Error actualizando etiquetas",
+                "raw" => $response
+            ]);
+        }
+
         return $this->response->setJSON([
-            "success" => false,
-            "message" => "Error actualizando etiquetas en Shopify",
-            "raw" => $response
+            "success" => true,
+            "message" => "OK"
         ]);
     }
 
-    // TODO OK
-    return $this->response->setJSON([
-        "success" => true,
-        "message" => "Etiquetas actualizadas correctamente"
-    ]);
-}
 
     // ============================================================
-    // API → TRAE 250 PEDIDOS SIEMPRE
+    // TRAER TODOS LOS PEDIDOS (250 POR PÁGINA HASTA COMPLETAR)
     // ============================================================
-   public function dashboard()
-{
-    $pedidoModel = new \App\Models\PedidoModel();
- 
-    $perPage = 250;
-
-    $data['pedidos'] = $pedidoModel->paginate($perPage);
-    $data['pager']   = $pedidoModel->pager;   // 🔥 ESTA LÍNEA ES CLAVE
-
-    return view('dashboard', $data);
-}
-
-
     public function filter()
-{
-    $allOrders = [];
-    $limit = 250;
-    $pageInfo = null;
+    {
+        $allOrders = [];
+        $limit = 250;
+        $pageInfo = null;
 
-    do {
-        // Construir parámetros
-        $params = "limit=$limit&status=any&order=created_at%20desc";
+        do {
+            $params = "limit=$limit&status=any&order=created_at%20desc";
 
-        if ($pageInfo) {
-            $params .= "&page_info={$pageInfo}";
+            if ($pageInfo) {
+                $params .= "&page_info=$pageInfo";
+            }
+
+            $response = $this->queryShopify($params);
+
+            if (!isset($response["orders"])) break;
+
+            $allOrders = array_merge($allOrders, $response["orders"]);
+
+            $pageInfo = $response["next_page_info"] ?? null;
+
+        } while ($pageInfo);
+
+        // ============================================================
+        // FORMATEAR PEDIDOS
+        // ============================================================
+        $resultado = [];
+
+        foreach ($allOrders as $o) {
+
+            $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
+            $badge         = $this->badgeEstado($estadoInterno);
+
+            $resultado[] = [
+                "id"           => $o["id"],
+                "numero"       => $o["name"],
+                "fecha"        => substr($o["created_at"], 0, 10),
+                "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
+                "total"        => $o["total_price"] . " €",
+                "estado"       => $badge,
+                "estado_raw"   => $estadoInterno,
+                "etiquetas"    => $o["tags"] ?? "-",
+                "articulos"    => count($o["line_items"] ?? []),
+                "estado_envio" => $o["fulfillment_status"] ?? "-",
+                "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
+            ];
         }
 
-        // Solicitud a Shopify
-        $response = $this->queryShopify($params);
-
-        if (!isset($response["orders"])) {
-            break;
-        }
-
-        // Acumular pedidos
-        $allOrders = array_merge($allOrders, $response["orders"]);
-
-        // Obtener cursor de siguiente página
-        $pageInfo = $response["next_page_info"] ?? null;
-
-        // Si no hay siguiente página → terminamos
-    } while ($pageInfo);
-
-
-    // ================================
-    // FORMATEAR PEDIDOS PARA EL FRONT
-    // ================================
-    $resultado = [];
-
-    foreach ($allOrders as $o) {
-
-        $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
-        $badge         = $this->badgeEstado($estadoInterno);
-
-        $resultado[] = [
-            "id"           => $o["id"],
-            "numero"       => $o["name"],
-            "fecha"        => substr($o["created_at"], 0, 10),
-            "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
-            "total"        => $o["total_price"] . " €",
-            "estado"       => $badge,
-            "estado_raw"   => $estadoInterno,
-            "etiquetas"    => is_array($o["tags"]) ? implode(", ", $o["tags"]) : ($o["tags"] ?? "-"),
-            "articulos"    => count($o["line_items"] ?? []),
-            "estado_envio" => $o["fulfillment_status"] ?? "-",
-            "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
-        ];
+        return $this->response->setJSON([
+            "success" => true,
+            "orders" => $resultado,
+            "count"  => count($resultado)
+        ]);
     }
-
-    return $this->response->setJSON([
-        "success" => true,
-        "orders" => $resultado,
-        "count"  => count($resultado)
-    ]);
 }
-
-
-}
-

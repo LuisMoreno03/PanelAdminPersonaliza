@@ -112,9 +112,6 @@
 
         <label class="text-gray-700 font-semibold">Etiquetas:</label>
 
-        <textarea id="modalTagInput"
-                  class="w-full border border-gray-300 rounded-lg p-2 mt-2 h-28"></textarea>
-
         <div id="listaEtiquetasRapidas" class="flex flex-wrap gap-2 mt-4"></div>
 
         <button onclick="guardarEtiquetas()"

@@ -72,24 +72,24 @@
     <!-- MODALES -->
     <?= view('layouts/modales_estados', ['etiquetasPredeterminadas' => $etiquetasPredeterminadas]) ?>
     
+    <!-- Scripts de etiquetas rápidas -->
     <script>
         window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
 
         function mostrarEtiquetasRapidas() {
-            let contenedor = document.getElementById("listaEtiquetasRapidas");
-            contenedor.innerHTML = "";
+            let cont = document.getElementById("listaEtiquetasRapidas");
+            cont.innerHTML = "";
 
             etiquetasPredeterminadas.forEach(tag => {
-                contenedor.innerHTML += `
+                cont.innerHTML += `
                     <button onclick="agregarEtiqueta('${tag}')"
-                            class="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm">
+                            class="px-2 py-1 rounded-lg text-sm ${colorEtiqueta(tag)}">
                         ${tag}
                     </button>
                 `;
             });
         }
 
-        // Cuando se abre el modal, se cargan las etiquetas predeterminadas
         function abrirModalEtiquetas(orderId, etiquetas) {
             document.getElementById("modalTagOrderId").value = orderId;
             document.getElementById("modalTagInput").value = etiquetas || "";
@@ -99,7 +99,7 @@
         }
     </script>
 
-    <!-- ÚNICO script permitido -->
+    <!-- Script principal -->
     <script src="<?= base_url('js/dashboard.js') ?>"></script>
 
 </body>
