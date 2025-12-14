@@ -87,7 +87,7 @@ function actualizarTabla(pedidos) {
                     </button>
                 </td>
 
-                <td class="py-2 px-4">
+                <td class="py-2 px-2">
                     <button onclick="abrirModalEtiquetas(${p.id}, ${JSON.stringify(p.etiquetas || "")})"
                         class="text-blue-600 underline">
                         ${p.etiquetas || "Agregar"}
