@@ -145,76 +145,106 @@ function formatearEtiquetas(etiquetas, orderId) {
 }
 
 function verDetalles(orderId) {
+    document.getElementById("detalleContenido").innerHTML =
+        `<div class="text-center py-4">Cargando detalles...</div>`;
+    
     document.getElementById("modalDetalles").classList.remove("hidden");
 
-    fetch(`/dashboard/detalles/${orderId}`)
+    fetch(`/index.php/dashboard/detalles/${orderId}`)
         .then(res => res.json())
         .then(data => {
             if (!data.success) {
-                document.getElementById("detallesContenido").innerHTML =
+                document.getElementById("detalleContenido").innerHTML = 
                     "<p class='text-red-600'>Error cargando detalles</p>";
                 return;
             }
 
-            let o = data.order;
+            const o = data.order;
 
-            document.getElementById("detallesContenido").innerHTML = `
-                <div>
-                    <h3 class="font-bold text-lg mb-1">Información del pedido</h3>
-                    <p><b>Número:</b> ${o.name}</p>
-                    <p><b>Fecha:</b> ${o.created_at}</p>
-                    <p><b>Total:</b> ${o.total_price} €</p>
-                    <p><b>Método de pago:</b> ${o.gateway ?? "-"}</p>
+            // ==========================
+            // CABECERA DEL PEDIDO
+            // ==========================
+            let html = `
+                <div class="border-b pb-4 mb-4">
+                    <h3 class="text-xl font-semibold">#${o.name}</h3>
+                    <p class="text-gray-600">${o.created_at}</p>
                 </div>
-
-                <hr>
-
-                <div>
-                    <h3 class="font-bold text-lg mb-1">Cliente</h3>
-                    <p><b>Nombre:</b> ${o.customer?.first_name ?? "Sin nombre"}</p>
-                    <p><b>Email:</b> ${o.customer?.email ?? "-"}</p>
-                </div>
-
-                <hr>
-
-                <div>
-                    <h3 class="font-bold text-lg mb-1">Dirección de entrega</h3>
-                    <p>${o.shipping_address?.address1 ?? "-"}</p>
-                    <p>${o.shipping_address?.city ?? ""} ${o.shipping_address?.zip ?? ""}</p>
-                    <p>${o.shipping_address?.country ?? ""}</p>
-                </div>
-
-                <hr>
-
-                <div>
-                    <h3 class="font-bold text-lg mb-1">Productos</h3>
-                    ${o.line_items
-                        .map(i => `
-                            <div class="border p-2 rounded-lg mb-2">
-                                <p><b>${i.quantity}x</b> ${i.title}</p>
-                                <p class="text-gray-600 text-xs">${i.variant_title ?? ""}</p>
-                            </div>
-                        `)
-                        .join("")
-                    }
-                </div>
-
-                <hr>
-
-                <div>
-                    <h3 class="font-bold text-lg mb-1">Etiquetas</h3>
-                    <p>${o.tags || "-"}</p>
-                </div>
-
-                <hr>
-
-                <a href="https://${window.location.host.replace('/','')}/admin/orders/${orderId}"
-                    target="_blank"
-                    class="block mt-4 text-center bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700">
-                    Ver en Shopify
-                </a>
             `;
+
+            // ==========================
+            // LISTA DE PRODUCTOS
+            // ==========================
+            html += `<h3 class="font-bold text-lg mb-2">Productos</h3>`;
+
+            o.line_items.forEach(item => {
+                html += `
+                    <div class="border rounded-lg p-3 mb-3 bg-gray-50">
+                        <div class="flex gap-4">
+                            <img src="${item.image?.src ?? ''}" class="w-20 h-20 rounded object-cover border">
+
+                            <div>
+                                <p class="font-bold">${item.name}</p>
+                                <p class="text-sm">Cantidad: ${item.quantity}</p>
+                                <p class="text-sm">Precio: ${item.price} ${o.currency}</p>
+
+                                ${item.properties?.length ? `
+                                    <div class="mt-2 text-sm text-gray-700">
+                                        <b>Propiedades:</b><br>
+                                        ${item.properties
+                                            .map(p => `${p.name}: ${p.value}`)
+                                            .join("<br>")}
+                                    </div>
+                                ` : ""}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            // ==========================
+            // INFORMACIÓN DEL CLIENTE
+            // ==========================
+            const c = o.shipping_address ?? {};
+
+            html += `
+                <h3 class="font-bold text-lg mt-4 mb-2">Cliente</h3>
+                <div class="p-3 bg-gray-50 rounded-lg border">
+                    <p><b>${c.first_name ?? ""} ${c.last_name ?? ""}</b></p>
+                    <p>${o.email}</p>
+                    <p>${c.address1 ?? ""}, ${c.city ?? ""}</p>
+                    <p>${c.zip ?? ""}, ${c.country ?? ""}</p>
+                    <p>${c.phone ?? ""}</p>
+                </div>
+            `;
+
+            // ==========================
+            // TOTALES
+            // ==========================
+            html += `
+                <h3 class="font-bold text-lg mt-4 mb-2">Totales</h3>
+                <p>Subtotal: ${o.subtotal_price} €</p>
+                <p>Envío: ${o.total_shipping_price_set?.shop_money?.amount ?? "0"} €</p>
+                <p class="font-bold text-xl mt-2">Total: ${o.total_price} €</p>
+            `;
+
+            document.getElementById("detalleContenido").innerHTML = html;
+
+            // ==========================
+            // IMÁGENES PERSONALIZADAS
+            // ==========================
+            let imgDiv = document.getElementById("detalleImagenes");
+            imgDiv.innerHTML = "";
+
+            data.imagenes.forEach(url => {
+                imgDiv.innerHTML += `
+                    <img src="${url}" class="w-28 h-28 rounded shadow-lg border object-cover">
+                `;
+            });
         });
+}
+
+function cerrarDetalles() {
+    document.getElementById("modalDetalles").classList.add("hidden");
 }
 
 function cerrarModalDetalles() {

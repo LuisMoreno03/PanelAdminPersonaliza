@@ -80,9 +80,10 @@ class DashboardController extends Controller
     return ["General"];
 }
 
-public function detalles($id)
+public function detalles($orderId)
 {
-    $params = "ids=$id&status=any";
+    // Traer todos los campos
+    $params = "ids=$orderId&status=any&fields=*";
     $response = $this->queryShopify($params);
 
     if (!isset($response["orders"][0])) {
@@ -92,12 +93,35 @@ public function detalles($id)
         ]);
     }
 
+    $order = $response["orders"][0];
+
+    // ================================
+    // Extraer imágenes de properties[]
+    // ================================
+    $imagenes = [];
+
+    foreach ($order["line_items"] as $item) {
+        if (!empty($item["properties"])) {
+            foreach ($item["properties"] as $prop) {
+                if (
+                    isset($prop["name"]) &&
+                    (stripos($prop["name"], "imagen") !== false ||
+                     stripos($prop["name"], "image") !== false)
+                ) {
+                    $imagenes[] = $prop["value"];
+                }
+            }
+        }
+    }
+
     return $this->response->setJSON([
-        "success" => true,
-        "order" => $response["orders"][0]
+        "success"  => true,
+        "order"    => $order,
+        "imagenes" => $imagenes
     ]);
 }
-    
+
+
 
 
     // ============================================================
