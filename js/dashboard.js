@@ -4,9 +4,8 @@
 let nextPageInfo = null;
 let isLoading = false;
 
-// Etiquetas según el rol (las envías desde PHP)
+// Etiquetas ya seleccionadas para la orden
 let etiquetasSeleccionadas = [];
-
 
 
 // =====================================================
@@ -42,7 +41,6 @@ function cargarPedidos(pageInfo = null) {
 
             actualizarTabla(data.orders);
 
-            // Botones
             document.getElementById("btnSiguiente").disabled = !nextPageInfo;
             document.getElementById("btnAnterior").disabled = true;
 
@@ -110,7 +108,7 @@ function actualizarTabla(pedidos) {
 
 
 // =====================================================
-// FORMATEO DE ETIQUETAS COMO CHIPS
+// FORMATEAR ETIQUETAS COMO CHIPS
 // =====================================================
 function formatearEtiquetas(etiquetas, orderId) {
     if (!etiquetas || etiquetas.trim() === "") {
@@ -134,46 +132,25 @@ function formatearEtiquetas(etiquetas, orderId) {
                     class="text-blue-600 underline text-xs ml-2">
                 Editar
             </button>
-
         </div>
     `;
 }
 
-/* ============================================================
-   ABRIR MODAL ETIQUETAS
-   ============================================================ */
-function abrirModalEtiquetas(orderId, etiquetasTexto = "") {
-    document.getElementById("modalTagOrderId").value = orderId;
 
-    // Convertir etiquetas a arreglo
-    etiquetasSeleccionadas = etiquetasTexto
-        ? etiquetasTexto.split(",").map(t => t.trim()).filter(Boolean)
-        : [];
-
-    // Dibujamos etiquetas en chips
-    renderEtiquetasSeleccionadas();
-
-    // Cargamos etiquetas rápidas del usuario
-    mostrarEtiquetasRapidas();
-
-    // Abrir modal
-    document.getElementById("modalEtiquetas").classList.remove("hidden");
-}
 // =====================================================
-// COLORES DE ETIQUETAS
+// COLORES DE ETIQUETAS SEGÚN TIPO
 // =====================================================
 function colorEtiqueta(tag) {
     tag = tag.trim().toLowerCase();
 
     if (tag.startsWith("d.")) {
-        return "bg-green-200 text-green-900 border border-green-300"; // Confirmación
+        return "bg-green-200 text-green-900 border border-green-300";
     }
-
     if (tag.startsWith("p.")) {
-        return "bg-yellow-200 text-yellow-900 border border-yellow-300"; // Producción
+        return "bg-yellow-200 text-yellow-900 border border-yellow-300";
     }
 
-    return "bg-gray-200 text-gray-700 border border-gray-300"; // General
+    return "bg-gray-200 text-gray-700 border border-gray-300";
 }
 
 
@@ -208,13 +185,13 @@ async function guardarEstado(nuevoEstado) {
 
 
 // =====================================================
-// MODAL ETIQUETAS
+// MODAL ETIQUETAS (UNIFICADO, SIN DUPLICADOS)
 // =====================================================
-function abrirModalEtiquetas(orderId, etiquetasTexto) {
+function abrirModalEtiquetas(orderId, etiquetasTexto = "") {
     document.getElementById("modalTagOrderId").value = orderId;
 
     etiquetasSeleccionadas = etiquetasTexto
-        ? etiquetasTexto.split(",").map(t => t.trim())
+        ? etiquetasTexto.split(",").map(t => t.trim()).filter(Boolean)
         : [];
 
     renderEtiquetasSeleccionadas();
@@ -223,21 +200,23 @@ function abrirModalEtiquetas(orderId, etiquetasTexto) {
     document.getElementById("modalEtiquetas").classList.remove("hidden");
 }
 
-
 function cerrarModalEtiquetas() {
     document.getElementById("modalEtiquetas").classList.add("hidden");
 }
 
 
+// =====================================================
+// GUARDAR ETIQUETAS
+// =====================================================
 async function guardarEtiquetas() {
 
     let orderId = document.getElementById("modalTagOrderId").value;
-    let tags    = etiquetasSeleccionadas.join(", ");
+    let tags = etiquetasSeleccionadas.join(", ");
 
     let response = await fetch("/api/estado/etiquetas/guardar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: orderId, tags: tags })
+        body: JSON.stringify({ id: orderId, tags })
     });
 
     let data = await response.json();
@@ -248,6 +227,10 @@ async function guardarEtiquetas() {
     }
 }
 
+
+// =====================================================
+// RENDER DE ETIQUETAS SELECCIONADAS
+// =====================================================
 function renderEtiquetasSeleccionadas() {
     let cont = document.getElementById("etiquetasSeleccionadas");
     cont.innerHTML = "";
@@ -262,16 +245,15 @@ function renderEtiquetasSeleccionadas() {
     });
 }
 
-function agregarEtiqueta(tag) {
-    if (!etiquetasSeleccionadas.includes(tag)) {
-        etiquetasSeleccionadas.push(tag);
-        renderEtiquetasSeleccionadas();
-    }
-}
 function eliminarEtiqueta(index) {
     etiquetasSeleccionadas.splice(index, 1);
     renderEtiquetasSeleccionadas();
 }
+
+
+// =====================================================
+// ETIQUETAS RÁPIDAS SEGÚN EL ROL
+// =====================================================
 function mostrarEtiquetasRapidas() {
     let cont = document.getElementById("listaEtiquetasRapidas");
     cont.innerHTML = "";
@@ -286,3 +268,9 @@ function mostrarEtiquetasRapidas() {
     });
 }
 
+function agregarEtiqueta(tag) {
+    if (!etiquetasSeleccionadas.includes(tag)) {
+        etiquetasSeleccionadas.push(tag);
+        renderEtiquetasSeleccionadas();
+    }
+}
