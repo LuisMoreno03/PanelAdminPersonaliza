@@ -31,7 +31,7 @@
         <!-- Tabla -->
         <div class="overflow-x-auto bg-white shadow-lg rounded-xl p-4">
 
-            <table class="w-full text-left min-w-[1200px]">
+            <table class="w-full text-left min-w-[1400px]">
                 <thead class="bg-gray-100 text-gray-700 uppercase text-sm">
                     <tr>
                         <th class="py-3 px-4">Pedido</th>
