@@ -146,7 +146,10 @@ function verDetalles(orderId) {
     document.getElementById("detalleCliente").innerHTML = "";
     document.getElementById("detalleEnvio").innerHTML = "";
     document.getElementById("detalleTotales").innerHTML = "";
-    document.getElementById("idPedido").innerHTML = "";
+    document.getElementById("tituloPedido").innerHTML = `
+    Detalles del pedido ${o.name}
+`;
+
 
     fetch(`/index.php/dashboard/detalles/${orderId}`)
         .then(r => r.json())
@@ -398,4 +401,3 @@ function colorEtiqueta(tag) {
 
     return "bg-gray-200 text-gray-700 border border-gray-300";
 }
-    
