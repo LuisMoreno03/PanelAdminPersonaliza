@@ -19,6 +19,9 @@
         <div class="p-6 text-2xl font-bold border-b border-gray-700">
             Panel Admin
         </div>
+        <div>
+            <p>Usuario: <?php echo $_SESSION['user_id']; ?></p>
+        </div>
 
         <nav class="mt-6 space-y-2 px-4">
 
