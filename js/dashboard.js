@@ -210,7 +210,7 @@ function verDetalles(orderId) {
                         ${item.properties?.length ? `
                             <h5 class="font-semibold mt-2">Propiedades:</h5>
                             <ul class="list-disc ml-5 text-sm">
-                                ${item.properties.map(p => `<li>${p.name}:</li><img  src="${p.value}"/>`).join("")}
+                                ${item.properties.map(p => `<li>${p.name}:</li><img class="size-24" src="${p.value}"/>`).join("")}
                             </ul>
                         ` : ""}
 
