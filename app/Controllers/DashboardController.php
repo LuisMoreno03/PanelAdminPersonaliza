@@ -17,7 +17,7 @@ class DashboardController extends Controller
         $session = session();
 
         $rol = strtolower($session->get('role') ?? 'produccion');
-        $nombre = ucfirst($session->get('nombre') ?? 'Usuario');
+        $nombre = ucfirst($session->get('nombre') ?? 'nombre');
 
         $db = \Config\Database::connect();
 
