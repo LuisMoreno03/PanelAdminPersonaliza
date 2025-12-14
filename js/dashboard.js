@@ -17,8 +17,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function esImagen(url) {
     if (!url) return false;
+
+    // Debe comenzar con http:// o https://
+    const esURL = url.startsWith("http://") || url.startsWith("https://");
+    if (!esURL) return false;
+
+    // Validar extensiones de imagen
     return url.match(/\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i);
 }
+
 
 // =====================================================
 // PETICIÓN PRINCIPAL → TRAE TODOS LOS PEDIDOS
@@ -156,10 +163,10 @@ function verDetalles(orderId) {
 
     // LIMPIAR MODAL
     document.getElementById("detalleProductos").innerHTML = "Cargando productos...";
-    document.getElementById("detalleCliente").innerHTML = "";
+    document.getElementById("detalleCliente").innerHTML = ""; 
     document.getElementById("detalleEnvio").innerHTML = "";
     document.getElementById("detalleTotales").innerHTML = "";
-    
+    document.getElementById("idPedido").innerHTML = `<h2>${p.numero}</h2>`;
 
     fetch(`/index.php/dashboard/detalles/${orderId}`)
         .then(r => r.json())
@@ -171,7 +178,7 @@ function verDetalles(orderId) {
             }
 
             let o = data.order;
-            document.getElementById("idPedido").innerHTML = `<h2>${p.numero}</h2>`;
+            
             // =============================
             // 🟥 CLIENTE
             // =============================
