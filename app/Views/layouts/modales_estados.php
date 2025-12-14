@@ -51,29 +51,27 @@
 </div>
 
 
-<!-- =========================== -->
-<!-- MODAL EDITAR ETIQUETAS -->
-<!-- =========================== -->
+<!-- =============================================================== -->
+<!-- MODAL EDITAR ETIQUETAS (SIN TEXTAREA - SOLO CHIPS) -->
+<!-- =============================================================== -->
 <div id="modalEtiquetas"
      class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
 
-    <div class="bg-white w-96 p-6 rounded-xl shadow-xl border border-gray-200">
+    <div class="bg-white w-[430px] p-6 rounded-xl shadow-xl border border-gray-200">
 
-        <h2 class="text-xl font-bold text-gray-800 mb-4 text-center">
-            Editar etiquetas
-        </h2>
+        <h2 class="text-xl font-bold text-gray-800 mb-4 text-center">Editar etiquetas</h2>
 
         <input type="hidden" id="modalTagOrderId">
 
-        <!-- Etiquetas ya agregadas -->
+        <!-- Etiquetas actuales -->
         <label class="text-gray-700 font-semibold">Etiquetas del pedido:</label>
 
         <div id="etiquetasSeleccionadas"
-             class="flex flex-wrap gap-2 mt-2 min-h-[40px] p-2 border rounded-lg bg-gray-50">
+             class="flex flex-wrap gap-2 mt-2 min-h-[45px] p-3 border rounded-lg bg-gray-50">
         </div>
 
         <!-- Etiquetas rápidas -->
-        <label class="text-gray-700 font-semibold mt-4">Etiquetas rápidas:</label>
+        <label class="text-gray-700 font-semibold mt-4 block">Etiquetas rápidas:</label>
 
         <div id="listaEtiquetasRapidas" class="flex flex-wrap gap-2 mt-2"></div>
 
@@ -94,14 +92,14 @@
 
 <script>
 /* ============================================================
-   ETIQUETAS PREDETERMINADAS (VIENEN DEL CONTROLLER)
-   ============================================================ */
+   ETIQUETAS PREDETERMINADAS DESDE PHP
+============================================================ */
 window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
 
 
 /* ============================================================
-   MOSTRAR ETIQUETAS RÁPIDAS SEGÚN ROL
-   ============================================================ */
+   MOSTRAR ETIQUETAS RÁPIDAS
+============================================================ */
 function mostrarEtiquetasRapidas() {
     let cont = document.getElementById("listaEtiquetasRapidas");
     cont.innerHTML = "";
@@ -109,7 +107,7 @@ function mostrarEtiquetasRapidas() {
     etiquetasPredeterminadas.forEach(tag => {
         cont.innerHTML += `
             <button onclick="agregarEtiqueta('${tag}')"
-                    class="px-2 py-1 rounded-full bg-gray-200 hover:bg-gray-300 text-sm">
+                class="px-3 py-1 rounded-full text-sm font-semibold ${colorEtiqueta(tag)}">
                 ${tag}
             </button>
         `;
@@ -117,30 +115,23 @@ function mostrarEtiquetasRapidas() {
 }
 
 
-
-
-
-
 /* ============================================================
-   CERRAR MODAL ETIQUETAS
-   ============================================================ */
-function cerrarModalEtiquetas() {
-    document.getElementById("modalEtiquetas").classList.add("hidden");
+   COLORES DE ETIQUETA
+============================================================ */
+function colorEtiqueta(tag) {
+    tag = tag.toLowerCase();
+
+    if (tag.startsWith("d.")) return "bg-green-200 text-green-900 border border-green-300";
+    if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900 border border-yellow-300";
+
+    return "bg-gray-200 text-gray-700 border border-gray-300";
 }
 
 
 /* ============================================================
-   AGREGAR ETIQUETA RÁPIDA
-   ============================================================ */
-function agregarEtiqueta(tag) {
-    let campo = document.getElementById("modalTagInput");
-
-    let lista = campo.value.split(",")
-        .map(t => t.trim())
-        .filter(t => t.length > 0);
-
-    if (!lista.includes(tag)) lista.push(tag);
-
-    campo.value = lista.join(", ");
+   CERRAR MODAL ETIQUETAS
+============================================================ */
+function cerrarModalEtiquetas() {
+    document.getElementById("modalEtiquetas").classList.add("hidden");
 }
 </script>

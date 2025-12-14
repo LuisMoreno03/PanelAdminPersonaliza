@@ -21,12 +21,12 @@
     <!-- Contenido -->
     <div class="flex-1 md:ml-64 p-8">
 
-        <!-- Título superior -->
+        <!-- Encabezado -->
         <h2 class="text-xl font-semibold text-gray-700 mb-4">
             Pedidos cargados: <span id="total-pedidos">0</span>
         </h2>
 
-        <h1 class="text-3xl font-bold mb-6 text-gray-800">Pedidos</h1> 
+        <h1 class="text-3xl font-bold mb-6 text-gray-800">Pedidos</h1>
 
         <!-- Tabla -->
         <div class="overflow-x-auto bg-white shadow-lg rounded-xl p-4">
@@ -53,7 +53,6 @@
 
         <!-- Paginación -->
         <div class="flex justify-between mt-4">
-
             <button id="btnAnterior"
                 disabled
                 class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg opacity-50 cursor-not-allowed">
@@ -69,32 +68,24 @@
 
     </div>
 
-    <!-- MODALES -->
+
+    <!-- ===================================================================================== -->
+    <!-- MODALES (Estados + Etiquetas) -->
+    <!-- ===================================================================================== -->
     <?= view('layouts/modales_estados', ['etiquetasPredeterminadas' => $etiquetasPredeterminadas]) ?>
-    
-    <!-- Scripts de etiquetas rápidas -->
+
+
+    <!-- ===================================================================================== -->
+    <!-- PASAR ETIQUETAS PREDETERMINADAS DESDE PHP A JAVASCRIPT -->
+    <!-- ===================================================================================== -->
     <script>
         window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
-
-        function mostrarEtiquetasRapidas() {
-            let cont = document.getElementById("listaEtiquetasRapidas");
-            cont.innerHTML = "";
-
-            etiquetasPredeterminadas.forEach(tag => {
-                cont.innerHTML += `
-                    <button onclick="agregarEtiqueta('${tag}')"
-                            class="px-2 py-1 rounded-lg text-sm ${colorEtiqueta(tag)}">
-                        ${tag}
-                    </button>
-                `;
-            });
-        }
-
-       
-
     </script>
 
-    <!-- Script principal -->
+
+    <!-- ===================================================================================== -->
+    <!-- SCRIPT PRINCIPAL DEL DASHBOARD -->
+    <!-- ===================================================================================== -->
     <script src="<?= base_url('js/dashboard.js') ?>"></script>
 
 </body>
