@@ -87,13 +87,10 @@ function actualizarTabla(pedidos) {
                     </button>
                 </td>
 
-                <td class="py-2 px-2">
-                    <button onclick="abrirModalEtiquetas(${p.id}, ${JSON.stringify(p.etiquetas || "")})"
-                        class="text-blue-600 underline">
-                        ${p.etiquetas || "Agregar"}
-                    </button>
-
+                <td class="py-2 px-4">
+                    ${formatearEtiquetas(p.etiquetas, p.id)}
                 </td>
+
 
                 <td class="py-2 px-4">${p.articulos}</td>
                 <td class="py-2 px-4">${p.estado_envio}</td>
@@ -102,7 +99,43 @@ function actualizarTabla(pedidos) {
         `;
     });
 }
+function formatearEtiquetas(etiquetas, orderId) {
+    if (!etiquetas || etiquetas.trim() === "") {
+        return `<button onclick="abrirModalEtiquetas(${orderId}, '')"
+                    class="text-blue-600 underline">Agregar etiquetas</button>`;
+    }
 
+    let lista = etiquetas.split(",").map(e => e.trim());
+
+    return `
+        <div class="flex flex-wrap gap-2">
+            ${lista
+                .map(tag => `
+                    <span class="px-2 py-1 rounded-full text-xs font-semibold ${colorEtiqueta(tag)}">
+                        ${tag}
+                    </span>
+                `)
+                .join("")}
+            <button onclick="abrirModalEtiquetas(${orderId}, ${JSON.stringify(etiquetas)})"
+                    class="text-blue-600 underline text-xs ml-2">
+                Editar
+            </button>
+        </div>
+    `;
+}
+function colorEtiqueta(tag) {
+    tag = tag.toLowerCase();
+
+    if (tag.includes("urgente")) return "bg-red-100 text-red-700 border border-red-300";
+    if (tag.includes("vip")) return "bg-yellow-100 text-yellow-700 border border-yellow-300";
+    if (tag.includes("nuevo")) return "bg-green-100 text-green-700 border border-green-300";
+    if (tag.includes("en proceso")) return "bg-blue-100 text-blue-700 border border-blue-300";
+    if (tag.includes("revisión")) return "bg-purple-100 text-purple-700 border border-purple-300";
+    if (tag.includes("envío")) return "bg-indigo-100 text-indigo-700 border border-indigo-300";
+
+    return "bg-gray-100 text-gray-700 border border-gray-300"; // Genérico
+}
+    
 // =====================================================
 // MODAL - ESTADO
 // =====================================================
