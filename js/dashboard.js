@@ -9,12 +9,16 @@ let etiquetasSeleccionadas = [];
 
 
 // =====================================================
-// INICIALIZAR AL CARGAR LA PÁGINA
+// INICIALIZAR
 // =====================================================
 document.addEventListener("DOMContentLoaded", () => {
     cargarPedidos();
 });
 
+
+// =====================================================
+// VERIFICAR SI UNA URL ES IMAGEN REAL
+// =====================================================
 function esImagen(url) {
     if (!url) return false;
 
@@ -22,13 +26,13 @@ function esImagen(url) {
     const esURL = url.startsWith("http://") || url.startsWith("https://");
     if (!esURL) return false;
 
-    // Validar extensiones de imagen
+    // Debe tener extensión válida
     return url.match(/\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i);
 }
 
 
 // =====================================================
-// PETICIÓN PRINCIPAL → TRAE TODOS LOS PEDIDOS
+// PETICIÓN PRINCIPAL PEDIDOS
 // =====================================================
 function cargarPedidos(pageInfo = null) {
     if (isLoading) return;
@@ -36,9 +40,7 @@ function cargarPedidos(pageInfo = null) {
 
     let url = "/dashboard/filter";
 
-    if (pageInfo) {
-        url += "?page_info=" + encodeURIComponent(pageInfo);
-    }
+    if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
 
     fetch(url)
         .then(res => res.json())
@@ -57,7 +59,7 @@ function cargarPedidos(pageInfo = null) {
 
             document.getElementById("total-pedidos").textContent = data.count;
         })
-        .catch(err => console.error(err))
+        .catch(console.error)
         .finally(() => {
             isLoading = false;
         });
@@ -68,23 +70,21 @@ function cargarPedidos(pageInfo = null) {
 // SIGUIENTE PÁGINA
 // =====================================================
 function paginaSiguiente() {
-    if (nextPageInfo) {
-        cargarPedidos(nextPageInfo);
-    }
+    if (nextPageInfo) cargarPedidos(nextPageInfo);
 }
 
 
 // =====================================================
-// TABLA PRINCIPAL
+// TABLA DE PEDIDOS
 // =====================================================
 function actualizarTabla(pedidos) {
     const tbody = document.getElementById("tablaPedidos");
     tbody.innerHTML = "";
 
-    if (!pedidos || pedidos.length === 0) {
+    if (!pedidos.length) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="9" class="text-center text-gray-500 py-4">
+                <td colspan="10" class="text-center text-gray-500 py-4">
                     No se encontraron pedidos
                 </td>
             </tr>`;
@@ -95,34 +95,28 @@ function actualizarTabla(pedidos) {
         tbody.innerHTML += `
             <tr class="border-b hover:bg-gray-50 transition">
                 <td class="py-2 px-4">${p.numero}</td>
-                <td class="w-40 py-2 px-4">${p.fecha}</td>
+                <td class="py-2 px-4 w-40">${p.fecha}</td>
                 <td class="py-2 px-4">${p.cliente}</td>
                 <td class="py-2 px-4">${p.total}</td>
 
-                <td class="w-32 py-2 px-2">
+                <td class="py-2 px-2 w-32">
                     <button onclick="abrirModal(${p.id})" class="font-semibold text-gray-800">
                         ${p.estado}
                     </button>
                 </td>
 
-                <td class="py-2 px-4">
-                    ${formatearEtiquetas(p.etiquetas, p.id)}
-                </td>
+                <td class="py-2 px-4">${formatearEtiquetas(p.etiquetas, p.id)}</td>
 
                 <td class="py-2 px-4">${p.articulos}</td>
                 <td class="py-2 px-4">${p.estado_envio}</td>
                 <td class="py-2 px-4">${p.forma_envio}</td>
-                <td class="py-2 px-4 flex gap-2">
-                    <!-- Botón info -->
-                    <td class="py-2 px-4">
-                        <button onclick="verDetalles(${p.id})"
-                                class="text-blue-600 underline">
-                            Ver detalles
-                        </button>
-                    </td>
 
+                <td class="py-2 px-4">
+                    <button onclick="verDetalles(${p.id})"
+                            class="text-blue-600 underline">
+                        Ver detalles
+                    </button>
                 </td>
-
             </tr>
         `;
     });
@@ -130,7 +124,7 @@ function actualizarTabla(pedidos) {
 
 
 // =====================================================
-// FORMATEAR ETIQUETAS COMO CHIPS
+// ETIQUETAS - CHIPS
 // =====================================================
 function formatearEtiquetas(etiquetas, orderId) {
     if (!etiquetas || etiquetas.trim() === "") {
@@ -142,13 +136,10 @@ function formatearEtiquetas(etiquetas, orderId) {
 
     return `
         <div class="flex flex-wrap gap-2">
-            ${lista
-                .map(tag => `
-                    <span class="px-2 py-1 rounded-full text-xs font-semibold ${colorEtiqueta(tag)}">
-                        ${tag}
-                    </span>
-                `)
-                .join("")}
+            ${lista.map(tag => `
+                <span class="px-2 py-1 rounded-full text-xs font-semibold ${colorEtiqueta(tag)}">
+                    ${tag}
+                </span>`).join("")}
 
             <button onclick="abrirModalEtiquetas(${orderId}, '${etiquetas}')"
                     class="text-blue-600 underline text-xs ml-2">
@@ -158,39 +149,39 @@ function formatearEtiquetas(etiquetas, orderId) {
     `;
 }
 
+
+// =====================================================
+// MODAL DETALLES PEDIDO
+// =====================================================
 function verDetalles(orderId) {
+
     document.getElementById("modalDetalles").classList.remove("hidden");
 
-    // LIMPIAR MODAL
     document.getElementById("detalleProductos").innerHTML = "Cargando productos...";
-    document.getElementById("detalleCliente").innerHTML = ""; 
+    document.getElementById("detalleCliente").innerHTML = "";
     document.getElementById("detalleEnvio").innerHTML = "";
     document.getElementById("detalleTotales").innerHTML = "";
-    document.getElementById("idPedido").innerHTML = `<h2>${p.numero}</h2>`;
 
     fetch(`/index.php/dashboard/detalles/${orderId}`)
         .then(r => r.json())
         .then(data => {
+
             if (!data.success) {
                 document.getElementById("detalleProductos").innerHTML =
-                    "<p class='text-red-500'>Error al cargar detalles.</p>";
+                    "<p class='text-red-500'>Error cargando detalles.</p>";
                 return;
             }
 
             let o = data.order;
-            
-            // =============================
-            // 🟥 CLIENTE
-            // =============================
+
+            // CLIENTE
             document.getElementById("detalleCliente").innerHTML = `
                 <p><strong>${o.customer?.first_name ?? ""} ${o.customer?.last_name ?? ""}</strong></p>
                 <p>Email: ${o.email ?? "-"}</p>
                 <p>Teléfono: ${o.phone ?? "-"}</p>
             `;
 
-            // =============================
-            // 🟦 ENVÍO
-            // =============================
+            // ENVÍO
             let a = o.shipping_address ?? {};
             document.getElementById("detalleEnvio").innerHTML = `
                 <p>${a.address1 ?? ""}</p>
@@ -198,63 +189,48 @@ function verDetalles(orderId) {
                 <p>${a.country ?? ""}</p>
             `;
 
-            // =============================
-            // 🟩 TOTALES
-            // =============================
+            // TOTALES
             document.getElementById("detalleTotales").innerHTML = `
                 <p><strong>Subtotal:</strong> ${o.subtotal_price} €</p>
                 <p><strong>Envío:</strong> ${o.total_shipping_price_set?.shop_money?.amount ?? "0"} €</p>
                 <p><strong>Total:</strong> ${o.total_price} €</p>
             `;
 
-            // =============================
-            // 🟧 PRODUCTOS
-            // =============================
+            // PRODUCTOS
             let html = "";
 
             o.line_items.forEach(item => {
-
                 let propsHTML = "";
 
-                // Detectar automáticamente imágenes entre las propiedades
                 if (item.properties?.length) {
                     propsHTML = `
                         <div class="mt-2">
                             <h5 class="font-semibold">Propiedades:</h5>
-                            <div class="space-y-1 mt-1">
-                                ${item.properties.map(p => {
-
-                                    // Si la propiedad es una URL de imagen
-                                    if (esImagen(p.value)) {
-                                        return `
-                                            <div>
-                                                <span class="text-sm font-semibold">${p.name}:</span><br>
-                                                <img src="${p.value}" class="w-32 mt-1 rounded-lg shadow border">
-                                            </div>`;
-                                    }
-
-                                    // Si NO es imagen → mostrar texto normal
+                            ${item.properties.map(p => {
+                                if (esImagen(p.value)) {
                                     return `
-                                        <p class="text-sm">
-                                            <span class="font-semibold">${p.name}:</span>
-                                            ${p.value}
+                                        <div class="mt-2">
+                                            <span class="text-sm font-semibold">${p.name}:</span><br>
+                                            <img src="${p.value}" class="w-32 mt-1 rounded border shadow">
+                                        </div>`;
+                                }
+
+                                return `<p class='text-sm'>
+                                            <strong>${p.name}:</strong> ${p.value}
                                         </p>`;
-                                }).join("")}
-                            </div>
+                            }).join("")}
                         </div>
                     `;
                 }
 
                 html += `
                     <div class="p-4 border rounded-lg bg-white shadow-sm">
-                        
                         <h4 class="font-semibold">${item.title}</h4>
                         <p>Cantidad: ${item.quantity}</p>
                         <p>Precio: ${item.price} €</p>
 
                         ${propsHTML}
 
-                        <!-- CARGAR IMAGEN MANUAL -->
                         <div class="mt-3">
                             <label class="font-semibold text-sm">Cargar imagen:</label>
                             <input type="file" class="mt-1 block w-full border rounded-lg p-2">
@@ -264,7 +240,6 @@ function verDetalles(orderId) {
             });
 
             document.getElementById("detalleProductos").innerHTML = html;
-
         });
 }
 
@@ -273,29 +248,22 @@ function cerrarDetalles() {
     document.getElementById("modalDetalles").classList.add("hidden");
 }
 
-function cerrarModalDetalles() {
-    document.getElementById("modalDetalles").classList.add("hidden");
-}
 
 // =====================================================
-// COLORES DE ETIQUETAS SEGÚN TIPO
+// COLORES DE ETIQUETAS
 // =====================================================
 function colorEtiqueta(tag) {
-    tag = tag.trim().toLowerCase();
+    tag = tag.toLowerCase().trim();
 
-    if (tag.startsWith("d.")) {
-        return "bg-green-200 text-green-900 border border-green-300";
-    }
-    if (tag.startsWith("p.")) {
-        return "bg-yellow-200 text-yellow-900 border border-yellow-300";
-    }
+    if (tag.startsWith("d.")) return "bg-green-200 text-green-900 border border-green-300";
+    if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900 border border-yellow-300";
 
     return "bg-gray-200 text-gray-700 border border-gray-300";
 }
 
 
 // =====================================================
-// MODAL ESTADO DEL PEDIDO
+// MODAL ESTADO
 // =====================================================
 function abrirModal(orderId) {
     document.getElementById("modalOrderId").value = orderId;
@@ -307,17 +275,17 @@ function cerrarModal() {
 }
 
 async function guardarEstado(nuevoEstado) {
-    let orderId = document.getElementById("modalOrderId").value;
+    let id = document.getElementById("modalOrderId").value;
 
-    let res = await fetch("/api/estado/guardar", {
+    let r = await fetch("/api/estado/guardar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: orderId, estado: nuevoEstado })
+        body: JSON.stringify({ id, estado: nuevoEstado })
     });
 
-    let data = await res.json();
+    let d = await r.json();
 
-    if (data.success) {
+    if (d.success) {
         cerrarModal();
         cargarPedidos();
     }
@@ -325,13 +293,13 @@ async function guardarEstado(nuevoEstado) {
 
 
 // =====================================================
-// MODAL ETIQUETAS (UNIFICADO, SIN DUPLICADOS)
+// MODAL ETIQUETAS
 // =====================================================
 function abrirModalEtiquetas(orderId, etiquetasTexto = "") {
     document.getElementById("modalTagOrderId").value = orderId;
 
     etiquetasSeleccionadas = etiquetasTexto
-        ? etiquetasTexto.split(",").map(t => t.trim()).filter(Boolean)
+        ? etiquetasTexto.split(",").map(t => t.trim())
         : [];
 
     renderEtiquetasSeleccionadas();
@@ -344,24 +312,19 @@ function cerrarModalEtiquetas() {
     document.getElementById("modalEtiquetas").classList.add("hidden");
 }
 
-
-// =====================================================
-// GUARDAR ETIQUETAS
-// =====================================================
 async function guardarEtiquetas() {
-
-    let orderId = document.getElementById("modalTagOrderId").value;
+    let id = document.getElementById("modalTagOrderId").value;
     let tags = etiquetasSeleccionadas.join(", ");
 
-    let response = await fetch("/api/estado/etiquetas/guardar", {
+    let r = await fetch("/api/estado/etiquetas/guardar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: orderId, tags })
+        body: JSON.stringify({ id, tags })
     });
 
-    let data = await response.json();
+    let d = await r.json();
 
-    if (data.success) {
+    if (d.success) {
         cerrarModalEtiquetas();
         cargarPedidos();
     }
@@ -369,7 +332,7 @@ async function guardarEtiquetas() {
 
 
 // =====================================================
-// RENDER DE ETIQUETAS SELECCIONADAS
+// MANEJO DE ETIQUETAS
 // =====================================================
 function renderEtiquetasSeleccionadas() {
     let cont = document.getElementById("etiquetasSeleccionadas");
@@ -379,7 +342,7 @@ function renderEtiquetasSeleccionadas() {
         cont.innerHTML += `
             <span class="px-2 py-1 rounded-full text-xs font-semibold ${colorEtiqueta(tag)} flex items-center gap-1">
                 ${tag}
-                <button class="text-red-600 font-bold" onclick="eliminarEtiqueta(${index})">×</button>
+                <button onclick="eliminarEtiqueta(${index})" class="text-red-600 font-bold">×</button>
             </span>
         `;
     });
@@ -390,10 +353,6 @@ function eliminarEtiqueta(index) {
     renderEtiquetasSeleccionadas();
 }
 
-
-// =====================================================
-// ETIQUETAS RÁPIDAS SEGÚN EL ROL
-// =====================================================
 function mostrarEtiquetasRapidas() {
     let cont = document.getElementById("listaEtiquetasRapidas");
     cont.innerHTML = "";
@@ -403,8 +362,7 @@ function mostrarEtiquetasRapidas() {
             <button onclick="agregarEtiqueta('${tag}')"
                 class="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm">
                 ${tag}
-            </button>
-        `;
+            </button>`;
     });
 }
 
