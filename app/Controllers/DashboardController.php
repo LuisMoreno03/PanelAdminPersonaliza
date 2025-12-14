@@ -192,36 +192,43 @@ public function guardarEtiquetas()
 }
 
 
-    public function filter($range = "todos")
+    public function filter()
 {
-    $pageInfo = $this->request->getGet("page_info") ?? null;
-
+    $allOrders = [];
     $limit = 250;
+    $pageInfo = null;
 
-    // Primera página
-    if (!$pageInfo) {
+    do {
+        // Construir parámetros
         $params = "limit=$limit&status=any&order=created_at%20desc";
-    } 
-    else {
-        $params = "limit=$limit&page_info=$pageInfo";
-    }
 
-    $response = $this->queryShopify($params);
+        if ($pageInfo) {
+            $params .= "&page_info={$pageInfo}";
+        }
 
-    if (!isset($response["orders"])) {
-        return $this->response->setJSON([
-            "success" => false,
-            "message" => "Error obteniendo pedidos",
-            "raw" => $response
-        ]);
-    }
+        // Solicitud a Shopify
+        $response = $this->queryShopify($params);
 
-    // Next page cursor
-    $next = $response["next_page_info"] ?? null;
+        if (!isset($response["orders"])) {
+            break;
+        }
 
+        // Acumular pedidos
+        $allOrders = array_merge($allOrders, $response["orders"]);
+
+        // Obtener cursor de siguiente página
+        $pageInfo = $response["next_page_info"] ?? null;
+
+        // Si no hay siguiente página → terminamos
+    } while ($pageInfo);
+
+
+    // ================================
+    // FORMATEAR PEDIDOS PARA EL FRONT
+    // ================================
     $resultado = [];
 
-    foreach ($response["orders"] as $o) {
+    foreach ($allOrders as $o) {
 
         $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
         $badge         = $this->badgeEstado($estadoInterno);
@@ -242,12 +249,12 @@ public function guardarEtiquetas()
     }
 
     return $this->response->setJSON([
-        "success"   => true,
-        "orders"    => $resultado,
-        "next_page_info" => $next,
-        "count"     => count($resultado)
+        "success" => true,
+        "orders" => $resultado,
+        "count"  => count($resultado)
     ]);
 }
+
 
 }
 
