@@ -148,103 +148,85 @@ function formatearEtiquetas(etiquetas, orderId) {
 }
 
 function verDetalles(orderId) {
-    document.getElementById("detalleContenido").innerHTML =
-        `<div class="text-center py-4">Cargando detalles...</div>`;
-    
     document.getElementById("modalDetalles").classList.remove("hidden");
 
+    // LIMPIAR MODAL
+    document.getElementById("detalleProductos").innerHTML = "Cargando productos...";
+    document.getElementById("detalleCliente").innerHTML = "";
+    document.getElementById("detalleEnvio").innerHTML = "";
+    document.getElementById("detalleTotales").innerHTML = "";
+
     fetch(`/index.php/dashboard/detalles/${orderId}`)
-        .then(res => res.json())
+        .then(r => r.json())
         .then(data => {
             if (!data.success) {
-                document.getElementById("detalleContenido").innerHTML = 
-                    "<p class='text-red-600'>Error cargando detalles</p>";
+                document.getElementById("detalleProductos").innerHTML =
+                    "<p class='text-red-500'>Error al cargar detalles.</p>";
                 return;
             }
 
-            const o = data.order;
+            let o = data.order;
 
-            // ==========================
-            // CABECERA DEL PEDIDO
-            // ==========================
-            let html = `
-                <div class="border-b pb-4 mb-4">
-                    <h3 class="text-xl font-semibold">#${o.name}</h3>
-                    <p class="text-gray-600">${o.created_at}</p>
-                </div>
+            // =============================
+            // 🟥 CLIENTE
+            // =============================
+            document.getElementById("detalleCliente").innerHTML = `
+                <p><strong>${o.customer?.first_name ?? ""} ${o.customer?.last_name ?? ""}</strong></p>
+                <p>Email: ${o.email ?? "-"}</p>
+                <p>Teléfono: ${o.phone ?? "-"}</p>
             `;
 
-            // ==========================
-            // LISTA DE PRODUCTOS
-            // ==========================
-            html += `<h3 class="font-bold text-lg mb-2">Productos</h3>`;
+            // =============================
+            // 🟦 ENVÍO
+            // =============================
+            let a = o.shipping_address ?? {};
+            document.getElementById("detalleEnvio").innerHTML = `
+                <p>${a.address1 ?? ""}</p>
+                <p>${a.city ?? ""}, ${a.zip ?? ""}</p>
+                <p>${a.country ?? ""}</p>
+            `;
+
+            // =============================
+            // 🟩 TOTALES
+            // =============================
+            document.getElementById("detalleTotales").innerHTML = `
+                <p><strong>Subtotal:</strong> ${o.subtotal_price} €</p>
+                <p><strong>Envío:</strong> ${o.total_shipping_price_set?.shop_money?.amount ?? "0"} €</p>
+                <p><strong>Total:</strong> ${o.total_price} €</p>
+            `;
+
+            // =============================
+            // 🟧 PRODUCTOS
+            // =============================
+            let html = "";
 
             o.line_items.forEach(item => {
                 html += `
-                    <div class="border rounded-lg p-3 mb-3 bg-gray-50">
-                        <div class="flex gap-4">
-                            <img src="${item.image?.src ?? ''}" class="w-20 h-20 rounded object-cover border">
+                    <div class="p-4 border rounded-lg bg-white shadow-sm">
+                        <h4 class="font-semibold">${item.title}</h4>
+                        <p>Cantidad: ${item.quantity}</p>
+                        <p>Precio: ${item.price} €</p>
 
-                            <div>
-                                <p class="font-bold">${item.name}</p>
-                                <p class="text-sm">Cantidad: ${item.quantity}</p>
-                                <p class="text-sm">Precio: ${item.price} ${o.currency}</p>
+                        ${item.properties?.length ? `
+                            <h5 class="font-semibold mt-2">Propiedades:</h5>
+                            <ul class="list-disc ml-5 text-sm">
+                                ${item.properties.map(p => `<li>${p.name}: ${p.value}</li>`).join("")}
+                            </ul>
+                        ` : ""}
 
-                                ${item.properties?.length ? `
-                                    <div class="mt-2 text-sm text-gray-700">
-                                        <b>Propiedades:</b><br>
-                                        ${item.properties
-                                            .map(p => `${p.name}: ${p.value}`)
-                                            .join("<br>")}
-                                    </div>
-                                ` : ""}
-                            </div>
+                        <!-- CARGAR IMAGEN -->
+                        <div class="mt-3">
+                            <label class="font-semibold text-sm">Cargar imagen:</label>
+                            <input type="file" class="mt-1 block w-full border rounded-lg p-2">
                         </div>
                     </div>
                 `;
             });
 
-            // ==========================
-            // INFORMACIÓN DEL CLIENTE
-            // ==========================
-            const c = o.shipping_address ?? {};
-
-            html += `
-                <h3 class="font-bold text-lg mt-4 mb-2">Cliente</h3>
-                <div class="p-3 bg-gray-50 rounded-lg border">
-                    <p><b>${c.first_name ?? ""} ${c.last_name ?? ""}</b></p>
-                    <p>${o.email}</p>
-                    <p>${c.address1 ?? ""}, ${c.city ?? ""}</p>
-                    <p>${c.zip ?? ""}, ${c.country ?? ""}</p>
-                    <p>${c.phone ?? ""}</p>
-                </div>
-            `;
-
-            // ==========================
-            // TOTALES
-            // ==========================
-            html += `
-                <h3 class="font-bold text-lg mt-4 mb-2">Totales</h3>
-                <p>Subtotal: ${o.subtotal_price} €</p>
-                <p>Envío: ${o.total_shipping_price_set?.shop_money?.amount ?? "0"} €</p>
-                <p class="font-bold text-xl mt-2">Total: ${o.total_price} €</p>
-            `;
-
-            document.getElementById("detalleContenido").innerHTML = html;
-
-            // ==========================
-            // IMÁGENES PERSONALIZADAS
-            // ==========================
-            let imgDiv = document.getElementById("detalleImagenes");
-            imgDiv.innerHTML = "";
-
-            data.imagenes.forEach(url => {
-                imgDiv.innerHTML += `
-                    <img src="${url}" class="w-28 h-28 rounded shadow-lg border object-cover">
-                `;
-            });
+            document.getElementById("detalleProductos").innerHTML = html;
         });
 }
+
 
 function cerrarDetalles() {
     document.getElementById("modalDetalles").classList.add("hidden");

@@ -69,31 +69,73 @@
     </div>
 
     <!-- =============================================================== -->
-    <!-- MODAL DETALLES DEL PEDIDO -->
+    <!-- MODAL DETALLES SHOPIFY STYLE -->
     <!-- =============================================================== -->
     <div id="modalDetalles"
         class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
 
-        <div class="bg-white w-[600px] p-6 rounded-xl shadow-xl border border-gray-200">
+        <div class="bg-white w-[90%] max-w-5xl h-[90vh] rounded-xl shadow-xl overflow-hidden flex flex-col animate-fadeIn">
 
-            <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">
-                Detalles del pedido
-            </h2>
+            <!-- HEADER -->
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h2 class="text-2xl font-bold text-gray-800">Detalles del pedido</h2>
 
-            <input type="hidden" id="detalleOrderId">
-
-            <!-- CONTENIDO A RELLENAR DINÁMICAMENTE -->
-            <div id="detalleContenido" class="text-gray-800 text-sm space-y-3">
-                Cargando...
+                <button onclick="cerrarDetalles()"
+                        class="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-lg">
+                    ✕ Cerrar
+                </button>
             </div>
 
-            <button onclick="cerrarDetalles()"
-                    class="mt-6 w-full py-2 rounded-lg bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold">
-                Cerrar
-            </button>
+            <!-- CONTENIDO SCROLLEABLE -->
+            <div class="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
 
+                <!-- ===================================== -->
+                <!-- COLUMNA IZQUIERDA → PRODUCTOS -->
+                <!-- ===================================== -->
+                <div>
+                    <h3 class="text-xl font-semibold mb-3">Productos</h3>
+                    <div id="detalleProductos" class="space-y-4"></div>
+                </div>
+
+                <!-- ===================================== -->
+                <!-- COLUMNA DERECHA → CLIENTE / ENVÍO -->
+                <!-- ===================================== -->
+                <div class="space-y-6">
+
+                    <div>
+                        <h3 class="text-xl font-semibold mb-2">Cliente</h3>
+                        <div id="detalleCliente"
+                            class="p-4 border rounded-lg bg-gray-50 text-sm"></div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xl font-semibold mb-2">Dirección de envío</h3>
+                        <div id="detalleEnvio"
+                            class="p-4 border rounded-lg bg-gray-50 text-sm"></div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xl font-semibold mb-2">Totales</h3>
+                        <div id="detalleTotales"
+                            class="p-4 border rounded-lg bg-gray-50 text-sm"></div>
+                    </div>
+
+                </div>
+
+            </div>
         </div>
     </div>
+
+    <style>
+    @keyframes fadeIn {
+        from { opacity: 0; transform: scale(0.95); }
+        to   { opacity: 1; transform: scale(1); }
+    }
+    .animate-fadeIn {
+        animation: fadeIn .2s ease-out;
+    }
+    </style>
+
 
 
 
