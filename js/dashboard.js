@@ -208,7 +208,7 @@ function verDetalles(orderId) {
             =================================*/
             let html = "";
 
-            o.line_items.forEach(item => {
+            o.line_items.forEach((item, index) => {
 
                 let props = "";
 
@@ -231,15 +231,36 @@ function verDetalles(orderId) {
 
                 html += `
                     <div class="p-4 border rounded-xl bg-white shadow-sm">
+
                         <h4 class="font-bold text-gray-800">${item.title}</h4>
                         <p>Cantidad: ${item.quantity}</p>
                         <p>Precio: ${item.price} €</p>
 
                         ${props}
-                    </div>`;
+
+                        <!-- SUBIR DISEÑO → ÚNICO INPUT POR PRODUCTO -->
+                        <div class="mt-4">
+                            <label class="font-semibold text-sm">Subir diseño final:</label>
+                            <input type="file" 
+                                class="mt-1 block w-full border rounded-lg p-2" 
+                                accept="image/*"
+                                onchange="subirImagenProducto(${o.id}, ${index}, this)">
+                        </div>
+
+                        <!-- Vista previa -->
+                        <div id="preview_${o.id}_${index}" class="mt-2"></div>
+
+                    </div>
+                `;
             });
+            
 
             document.getElementById("detalleProductos").innerHTML = html;
+
+            // Guardamos cuántos productos hay para validar luego
+            window.productosTotales = o.line_items.length;
+            window.imagenesCargadas = new Array(o.line_items.length).fill(false);
+            window.orderIdActual = o.id;
 
             /* ================================
                TOTALES
@@ -399,3 +420,48 @@ function agregarEtiqueta(tag) {
         renderEtiquetasSeleccionadas();
     }
 }
+
+function subirImagenProducto(orderId, index, input) {
+
+    if (!input.files || input.files.length === 0) return;
+
+    let file = input.files[0];
+    let reader = new FileReader();
+
+    reader.onload = function(e) {
+        document.getElementById(`preview_${orderId}_${index}`).innerHTML = `
+            <img src="${e.target.result}" class="w-32 rounded-lg shadow mt-2">
+        `;
+
+        // Marcamos como cargada
+        window.imagenesCargadas[index] = true;
+
+        validarEstadoFinal(orderId);
+    };
+
+    reader.readAsDataURL(file);
+}
+
+function validarEstadoFinal(orderId) {
+
+    const todas = window.imagenesCargadas.every(v => v === true);
+
+    let nuevoEstado = todas ? "Producción" : "Faltan diseños";
+
+    console.log("Nuevo estado:", nuevoEstado);
+
+    // Guardar automáticamente el estado
+    fetch("/api/estado/guardar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: orderId, estado: nuevoEstado })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            console.log("Estado actualizado:", nuevoEstado);
+            cargarPedidos(); // refresca la tabla principal
+        }
+    });
+}
+
