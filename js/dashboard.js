@@ -49,11 +49,6 @@ cargarPedidos();
 // =====================================================
 // SIGUIENTE PÁGINA
 // =====================================================
-function paginaSiguiente() {
-    if (nextPageInfo) {
-        cargarPedidos(nextPageInfo);
-    }
-}
 
 
 // =====================================================
