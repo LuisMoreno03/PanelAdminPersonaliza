@@ -29,12 +29,12 @@
 
             <a href="<?= base_url('pedidos') ?>"
                 class="block px-4 py-3 rounded-lg hover:bg-gray-700 transition">
-                🛒 Pedidos
+                🛒 Produccion
             </a>
 
             <a href="<?= base_url('productos') ?>"
                 class="block px-4 py-3 rounded-lg hover:bg-gray-700 transition">
-                🎁 Productos
+                🎁 Placas
             </a>
 
             <a href="<?= base_url('usuarios') ?>"
@@ -42,7 +42,7 @@
                 👤 Usuarios
             </a>
 
-            <a href="<?= base_url('auth/logout') ?>"
+            <a href="<?= base_url('/logout') ?>"
                 class="block px-4 py-3 rounded-lg hover:bg-red-600 transition mt-10">
                 ❌ Cerrar sesión
             </a>
