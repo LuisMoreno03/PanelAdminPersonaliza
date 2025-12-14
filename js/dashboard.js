@@ -101,7 +101,20 @@ function actualizarTabla(pedidos) {
                 <td class="py-2 px-4">${p.articulos}</td>
                 <td class="py-2 px-4">${p.estado_envio}</td>
                 <td class="py-2 px-4">${p.forma_envio}</td>
-                <td class="py-2 px-4">info  </td>
+                <td class="py-2 px-4 flex gap-2">
+                    <!-- Botón info -->
+                    <button onclick="verDetalles(${p.id})" 
+                        class="px-2 py-1 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700">
+                        Info
+                    </button>
+
+                    <!-- Botón editar estado -->
+                    <button onclick="abrirModal(${p.id})" 
+                        class="px-2 py-1 bg-gray-200 rounded-lg text-xs">
+                        Estado
+                    </button>
+                </td>
+
             </tr>
         `;
     });
@@ -137,6 +150,82 @@ function formatearEtiquetas(etiquetas, orderId) {
     `;
 }
 
+function verDetalles(orderId) {
+    document.getElementById("modalDetalles").classList.remove("hidden");
+
+    fetch(`/dashboard/detalles/${orderId}`)
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) {
+                document.getElementById("detallesContenido").innerHTML =
+                    "<p class='text-red-600'>Error cargando detalles</p>";
+                return;
+            }
+
+            let o = data.order;
+
+            document.getElementById("detallesContenido").innerHTML = `
+                <div>
+                    <h3 class="font-bold text-lg mb-1">Información del pedido</h3>
+                    <p><b>Número:</b> ${o.name}</p>
+                    <p><b>Fecha:</b> ${o.created_at}</p>
+                    <p><b>Total:</b> ${o.total_price} €</p>
+                    <p><b>Método de pago:</b> ${o.gateway ?? "-"}</p>
+                </div>
+
+                <hr>
+
+                <div>
+                    <h3 class="font-bold text-lg mb-1">Cliente</h3>
+                    <p><b>Nombre:</b> ${o.customer?.first_name ?? "Sin nombre"}</p>
+                    <p><b>Email:</b> ${o.customer?.email ?? "-"}</p>
+                </div>
+
+                <hr>
+
+                <div>
+                    <h3 class="font-bold text-lg mb-1">Dirección de entrega</h3>
+                    <p>${o.shipping_address?.address1 ?? "-"}</p>
+                    <p>${o.shipping_address?.city ?? ""} ${o.shipping_address?.zip ?? ""}</p>
+                    <p>${o.shipping_address?.country ?? ""}</p>
+                </div>
+
+                <hr>
+
+                <div>
+                    <h3 class="font-bold text-lg mb-1">Productos</h3>
+                    ${o.line_items
+                        .map(i => `
+                            <div class="border p-2 rounded-lg mb-2">
+                                <p><b>${i.quantity}x</b> ${i.title}</p>
+                                <p class="text-gray-600 text-xs">${i.variant_title ?? ""}</p>
+                            </div>
+                        `)
+                        .join("")
+                    }
+                </div>
+
+                <hr>
+
+                <div>
+                    <h3 class="font-bold text-lg mb-1">Etiquetas</h3>
+                    <p>${o.tags || "-"}</p>
+                </div>
+
+                <hr>
+
+                <a href="https://${window.location.host.replace('/','')}/admin/orders/${orderId}"
+                    target="_blank"
+                    class="block mt-4 text-center bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700">
+                    Ver en Shopify
+                </a>
+            `;
+        });
+}
+
+function cerrarModalDetalles() {
+    document.getElementById("modalDetalles").classList.add("hidden");
+}
 
 // =====================================================
 // COLORES DE ETIQUETAS SEGÚN TIPO

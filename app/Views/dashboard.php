@@ -68,6 +68,30 @@
 
     </div>
 
+    <!-- =============================================================== -->
+    <!-- MODAL DETALLES DEL PEDIDO -->
+    <!-- =============================================================== -->
+    <div id="modalDetalles"
+        class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+
+        <div class="bg-white w-[600px] max-h-[80vh] overflow-y-auto p-6 rounded-xl shadow-xl border border-gray-200">
+
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">
+                Detalles del pedido
+            </h2>
+
+            <div id="detallesContenido" class="space-y-3 text-gray-700 text-sm">
+                Cargando...
+            </div>
+
+            <button onclick="cerrarModalDetalles()"
+                    class="mt-5 w-full py-2 rounded-lg bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold">
+                Cerrar
+            </button>
+
+        </div>
+    </div>
+
 
     <!-- ===================================================================================== -->
     <!-- MODALES (Estados + Etiquetas) -->

@@ -79,6 +79,24 @@ class DashboardController extends Controller
 
     return ["General"];
 }
+    
+public function detalles($id)
+{
+    $params = "ids=$id&status=any";
+    $response = $this->queryShopify($params);
+
+    if (!isset($response["orders"][0])) {
+        return $this->response->setJSON([
+            "success" => false,
+            "message" => "Pedido no encontrado"
+        ]);
+    }
+
+    return $this->response->setJSON([
+        "success" => true,
+        "order" => $response["orders"][0]
+    ]);
+}
 
 
     // ============================================================
