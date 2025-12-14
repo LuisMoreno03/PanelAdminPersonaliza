@@ -13,59 +13,72 @@ class DashboardController extends Controller
     // GENERAR ETIQUETAS SEGÚN ROL Y USUARIO
     // ============================================================
     private function getEtiquetasUsuario()
-    {
-        $session = session();
+{
+    $db = \Config\Database::connect();
+    $session = session();
 
-        $rol = strtolower($session->get('role') ?? 'produccion');
-        $nombre = ucfirst($session->get('nombre') ?? 'nombre');
+    // ID guardado en sesión cuando el usuario inicia sesión
+    $userId = $session->get('user_id');
 
-        $db = \Config\Database::connect();
+    if (!$userId) {
+        return ["Sin usuario"];
+    }
 
-        // ============================================================
-        // ✔ ROL CONFIRMACION → SOLO D.{nombre actual}
-        // ============================================================
-        if ($rol === "confirmacion") {
-            return ["D.$nombre"];
-        }
+    // Obtener usuario actual
+    $usuario = $db->table('users')->where('id', $userId)->get()->getRow();
 
-        // ============================================================
-        // ✔ ROL PRODUCCION → D.{nombre}, P.{nombre}
-        // ============================================================
-        if ($rol === "produccion") {
-            return ["D.$nombre", "P.$nombre"];
-        }
+    if (!$usuario) {
+        return ["Sin usuario"];
+    }
 
-        // ============================================================
-        // ✔ ROL ADMIN → TODAS LAS ETIQUETAS DE TODOS LOS USUARIOS
-        // ============================================================
-        if ($rol === "admin") {
+    $nombre = ucfirst($usuario->nombre);
+    $rol = strtolower($usuario->role);
 
-            $usuarios = $db->table("users")->select("nombre, role")->get()->getResult();
-            $etiquetas = [];
-
-            foreach ($usuarios as $u) {
-                $n = ucfirst($u->nombre);
-                $r = strtolower($u->role);
-
-                if ($r === "confirmacion") {
-                    $etiquetas[] = "D.$n";
-                }
-                elseif ($r === "produccion") {
-                    $etiquetas[] = "D.$n";
-                    $etiquetas[] = "P.$n";
-                }
-                elseif ($r === "admin") {
-                    $etiquetas[] = "D.$n";
-                    $etiquetas[] = "P.$n";
-                }
-            }
-
-            return array_unique($etiquetas);
-        }
-
-        // fallback
+    /* =====================================================
+        REGLA 1 — CONFIRMACIÓN
+    ===================================================== */
+    if ($rol === "confirmacion") {
         return ["D.$nombre"];
     }
+
+    /* =====================================================
+        REGLA 2 — PRODUCCIÓN
+    ===================================================== */
+    if ($rol === "produccion") {
+        return [
+            "D.$nombre",
+            "P.$nombre"
+        ];
+    }
+
+    /* =====================================================
+        REGLA 3 — ADMIN (VER TODAS LAS ETIQUETAS)
+    ===================================================== */
+    if ($rol === "admin") {
+
+        $usuarios = $db->table('users')->get()->getResult();
+        $etiquetas = [];
+
+        foreach ($usuarios as $u) {
+
+            $nombreU = ucfirst($u->nombre);
+            $rolU = strtolower($u->role);
+
+            if ($rolU === "confirmacion") {
+                $etiquetas[] = "D.$nombreU";
+            }
+
+            if ($rolU === "produccion") {
+                $etiquetas[] = "D.$nombreU";
+                $etiquetas[] = "P.$nombreU";
+            }
+        }
+
+        return $etiquetas;
+    }
+
+    return ["General"];
+}
 
 
     // ============================================================
