@@ -155,6 +155,7 @@ function formatearEtiquetas(etiquetas, orderId) {
 ============================================================ */
 function verDetalles(orderId) {
 
+    // Mostrar modal
     document.getElementById("modalDetalles").classList.remove("hidden");
 
     // LIMPIAR MODAL
@@ -164,6 +165,7 @@ function verDetalles(orderId) {
     document.getElementById("detalleTotales").innerHTML = "";
     document.getElementById("idPedido").innerHTML = "";
 
+    // Petición al backend
     fetch(`/index.php/dashboard/detalles/${orderId}`)
         .then(r => r.json())
         .then(data => {
@@ -195,7 +197,7 @@ function verDetalles(orderId) {
             // =============================
             // ENVÍO
             // =============================
-            let a = o.shipping_address ?? {};
+            const a = o.shipping_address ?? {};
             document.getElementById("detalleEnvio").innerHTML = `
                 <p>${a.address1 ?? ""}</p>
                 <p>${a.city ?? ""}, ${a.zip ?? ""}</p>
@@ -216,7 +218,7 @@ function verDetalles(orderId) {
             // =============================
             let html = "";
 
-            o.line_items.forEach((item, index) => {
+            o.line_items.forEach(item => {
 
                 let propsHTML = "";
 
@@ -227,16 +229,15 @@ function verDetalles(orderId) {
                             <div class="space-y-1 mt-1">
                                 ${item.properties.map(p => {
 
-                                    // Imagen válida Shopify
+                                    // esImagen lo detecta automáticamente
                                     if (esImagen(p.value)) {
                                         return `
-                                            <div>
+                                            <div class="mt-2">
                                                 <span class="text-sm font-semibold">${p.name}:</span><br>
-                                                <img src="${p.value}" class="w-32 mt-1 rounded-lg shadow border">
+                                                <img src="${p.value}" class="w-28 rounded-lg shadow border">
                                             </div>`;
                                     }
 
-                                    // Texto normal
                                     return `
                                         <p class="text-sm">
                                             <span class="font-semibold">${p.name}:</span>
@@ -250,41 +251,25 @@ function verDetalles(orderId) {
 
                 html += `
                     <div class="p-4 border rounded-lg bg-white shadow-sm">
-                        
                         <h4 class="font-semibold">${item.title}</h4>
                         <p>Cantidad: ${item.quantity}</p>
                         <p>Precio: ${item.price} €</p>
 
                         ${propsHTML}
 
-                        <!-- CARGAR IMAGEN -->
                         <div class="mt-3">
-                            <label class="font-semibold text-sm">Subir diseño final:</label>
-                            <input type="file" class="mt-1 block w-full border rounded-lg p-2"
-                                   accept="image/*"
-                                   onchange="subirImagenProducto(${o.id}, ${index}, this)">
+                            <label class="font-semibold text-sm">Subir imagen:</label>
+                            <input type="file" class="mt-1 block w-full border rounded-lg p-2">
                         </div>
-
-                        <div id="preview_${o.id}_${index}" class="mt-2"></div>
-
                     </div>
                 `;
             });
 
             document.getElementById("detalleProductos").innerHTML = html;
 
-            // Guardamos variables para validación
-            window.productosTotales = o.line_items.length;
-            window.imagenesCargadas = new Array(o.line_items.length).fill(false);
-            window.orderIdActual = o.id;
-
-        })
-        .catch(err => {
-            console.error(err);
-            document.getElementById("detalleProductos").innerHTML =
-                "<p class='text-red-500'>Error al obtener detalles.</p>";
         });
 }
+
 
 
 
