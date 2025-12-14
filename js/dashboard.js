@@ -3,10 +3,8 @@
 // =====================================================
 let nextPageInfo = null;
 let isLoading = false;
-
-// Etiquetas ya seleccionadas para la orden
 let etiquetasSeleccionadas = [];
-
+window.imagenesCargadas = []; // Para validar carga de imágenes
 
 // =====================================================
 // INICIALIZAR
@@ -15,36 +13,32 @@ document.addEventListener("DOMContentLoaded", () => {
     cargarPedidos();
 });
 
-
 // =====================================================
-// VERIFICAR SI UNA URL ES IMAGEN REAL
+// DETECTAR SI UNA URL ES UNA IMAGEN REAL DE CDN
 // =====================================================
 function esImagen(url) {
     if (!url) return false;
 
-    // Debe comenzar con http:// o https://
     const esURL = url.startsWith("http://") || url.startsWith("https://");
     if (!esURL) return false;
 
-    // Debe tener extensión válida
-    return url.match(/\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i);
+    return url.match(/cdn.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i);
 }
 
-
 // =====================================================
-// PETICIÓN PRINCIPAL PEDIDOS
+// PETICIÓN DE PEDIDOS
 // =====================================================
 function cargarPedidos(pageInfo = null) {
     if (isLoading) return;
     isLoading = true;
 
     let url = "/dashboard/filter";
-
     if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
 
     fetch(url)
         .then(res => res.json())
         .then(data => {
+
             if (!data.success) {
                 console.error("Error cargando pedidos:", data);
                 return;
@@ -55,16 +49,10 @@ function cargarPedidos(pageInfo = null) {
             actualizarTabla(data.orders);
 
             document.getElementById("btnSiguiente").disabled = !nextPageInfo;
-            document.getElementById("btnAnterior").disabled = true;
-
             document.getElementById("total-pedidos").textContent = data.count;
         })
-        .catch(console.error)
-        .finally(() => {
-            isLoading = false;
-        });
+        .finally(() => isLoading = false);
 }
-
 
 // =====================================================
 // SIGUIENTE PÁGINA
@@ -73,9 +61,8 @@ function paginaSiguiente() {
     if (nextPageInfo) cargarPedidos(nextPageInfo);
 }
 
-
 // =====================================================
-// TABLA DE PEDIDOS
+// TABLA PRINCIPAL
 // =====================================================
 function actualizarTabla(pedidos) {
     const tbody = document.getElementById("tablaPedidos");
@@ -95,18 +82,17 @@ function actualizarTabla(pedidos) {
         tbody.innerHTML += `
             <tr class="border-b hover:bg-gray-50 transition">
                 <td class="py-2 px-4">${p.numero}</td>
-                <td class="py-2 px-4 w-40">${p.fecha}</td>
+                <td class="py-2 px-4">${p.fecha}</td>
                 <td class="py-2 px-4">${p.cliente}</td>
                 <td class="py-2 px-4">${p.total}</td>
 
-                <td class="py-2 px-2 w-32">
-                    <button onclick="abrirModal(${p.id})" class="font-semibold text-gray-800">
+                <td class="py-2 px-2">
+                    <button onclick="abrirModal(${p.id})" class="font-semibold">
                         ${p.estado}
                     </button>
                 </td>
 
                 <td class="py-2 px-4">${formatearEtiquetas(p.etiquetas, p.id)}</td>
-
                 <td class="py-2 px-4">${p.articulos}</td>
                 <td class="py-2 px-4">${p.estado_envio}</td>
                 <td class="py-2 px-4">${p.forma_envio}</td>
@@ -122,14 +108,13 @@ function actualizarTabla(pedidos) {
     });
 }
 
-
 // =====================================================
-// ETIQUETAS - CHIPS
+// FORMATO DE ETIQUETAS
 // =====================================================
 function formatearEtiquetas(etiquetas, orderId) {
-    if (!etiquetas || etiquetas.trim() === "") {
+    if (!etiquetas) {
         return `<button onclick="abrirModalEtiquetas(${orderId}, '')"
-                    class="text-blue-600 underline">Agregar</button>`;
+                class="text-blue-600 underline">Agregar</button>`;
     }
 
     let lista = etiquetas.split(",").map(e => e.trim());
@@ -149,23 +134,20 @@ function formatearEtiquetas(etiquetas, orderId) {
     `;
 }
 
-
-/* ============================================================
-   ABRIR DETALLES DEL PEDIDO (MODAL GRANDE CENTRADO)
-============================================================ */
+// =====================================================
+// ABRIR DETALLES DEL PEDIDO
+// =====================================================
 function verDetalles(orderId) {
 
-    // Mostrar modal
     document.getElementById("modalDetalles").classList.remove("hidden");
 
-    // LIMPIAR MODAL
+    // LIMPIAR
     document.getElementById("detalleProductos").innerHTML = "Cargando productos...";
     document.getElementById("detalleCliente").innerHTML = "";
     document.getElementById("detalleEnvio").innerHTML = "";
     document.getElementById("detalleTotales").innerHTML = "";
     document.getElementById("idPedido").innerHTML = "";
 
-    // Petición al backend
     fetch(`/index.php/dashboard/detalles/${orderId}`)
         .then(r => r.json())
         .then(data => {
@@ -178,79 +160,56 @@ function verDetalles(orderId) {
 
             let o = data.order;
 
-            // =============================
-            // TITULO DEL PEDIDO
-            // =============================
-            document.getElementById("idPedido").innerHTML = `
-                <h2 class="text-2xl font-bold">Detalles del pedido ${o.name}</h2>
-            `;
+            // TÍTULO
+            document.getElementById("idPedido").innerHTML =
+                `<h2 class="text-2xl font-bold">Pedido ${o.name}</h2>`;
 
-            // =============================
             // CLIENTE
-            // =============================
             document.getElementById("detalleCliente").innerHTML = `
                 <p><strong>${o.customer?.first_name ?? ""} ${o.customer?.last_name ?? ""}</strong></p>
                 <p>Email: ${o.email ?? "-"}</p>
                 <p>Teléfono: ${o.phone ?? "-"}</p>
             `;
 
-            // =============================
             // ENVÍO
-            // =============================
-            const a = o.shipping_address ?? {};
+            let a = o.shipping_address ?? {};
             document.getElementById("detalleEnvio").innerHTML = `
                 <p>${a.address1 ?? ""}</p>
                 <p>${a.city ?? ""}, ${a.zip ?? ""}</p>
                 <p>${a.country ?? ""}</p>
             `;
 
-            // =============================
             // TOTALES
-            // =============================
             document.getElementById("detalleTotales").innerHTML = `
                 <p><strong>Subtotal:</strong> ${o.subtotal_price} €</p>
                 <p><strong>Envío:</strong> ${o.total_shipping_price_set?.shop_money?.amount ?? "0"} €</p>
                 <p><strong>Total:</strong> ${o.total_price} €</p>
             `;
 
-            // =============================
             // PRODUCTOS
-            // =============================
+            window.imagenesCargadas = new Array(o.line_items.length).fill(false);
+
             let html = "";
+            o.line_items.forEach((item, index) => {
 
-            o.line_items.forEach(item => {
+                let propsHTML = item.properties?.length
+                    ? item.properties.map(p => {
 
-                let propsHTML = "";
+                        if (esImagen(p.value)) {
+                            return `
+                                <div class="mt-2">
+                                    <span class="font-semibold text-sm">${p.name}:</span><br>
+                                    <img src="${p.value}" class="w-28 rounded shadow">
+                                </div>`;
+                        }
 
-                if (item.properties?.length) {
-                    propsHTML = `
-                        <div class="mt-2">
-                            <h5 class="font-semibold">Propiedades:</h5>
-                            <div class="space-y-1 mt-1">
-                                ${item.properties.map(p => {
+                        return `<p><strong>${p.name}:</strong> ${p.value}</p>`;
 
-                                    // esImagen lo detecta automáticamente
-                                    if (esImagen(p.value)) {
-                                        return `
-                                            <div class="mt-2">
-                                                <span class="text-sm font-semibold">${p.name}:</span><br>
-                                                <img src="${p.value}" class="w-28 rounded-lg shadow border">
-                                            </div>`;
-                                    }
-
-                                    return `
-                                        <p class="text-sm">
-                                            <span class="font-semibold">${p.name}:</span>
-                                            ${p.value}
-                                        </p>`;
-                                }).join("")}
-                            </div>
-                        </div>
-                    `;
-                }
+                    }).join("")
+                    : "";
 
                 html += `
-                    <div class="p-4 border rounded-lg bg-white shadow-sm">
+                    <div class="p-4 border rounded-lg shadow bg-white">
                         <h4 class="font-semibold">${item.title}</h4>
                         <p>Cantidad: ${item.quantity}</p>
                         <p>Precio: ${item.price} €</p>
@@ -259,30 +218,64 @@ function verDetalles(orderId) {
 
                         <div class="mt-3">
                             <label class="font-semibold text-sm">Subir imagen:</label>
-                            <input type="file" class="mt-1 block w-full border rounded-lg p-2">
+                            <input type="file" onchange="subirImagenProducto(${orderId}, ${index}, this)"
+                                class="mt-1 block w-full border rounded p-2">
+                            <div id="preview_${orderId}_${index}"></div>
                         </div>
                     </div>
                 `;
             });
 
             document.getElementById("detalleProductos").innerHTML = html;
-
         });
 }
 
+// =====================================================
+// SUBIR IMAGEN Y ACTUALIZAR ESTADO AUTOMÁTICO
+// =====================================================
+function subirImagenProducto(orderId, index, input) {
 
+    if (!input.files.length) return;
 
+    const reader = new FileReader();
 
-/* ============================================================
-   CERRAR MODAL PRINCIPAL
-============================================================ */
+    reader.onload = e => {
+        document.getElementById(`preview_${orderId}_${index}`).innerHTML =
+            `<img src="${e.target.result}" class="w-32 mt-2 rounded shadow">`;
+
+        window.imagenesCargadas[index] = true;
+        validarEstadoFinal(orderId);
+    };
+
+    reader.readAsDataURL(input.files[0]);
+}
+
+function validarEstadoFinal(orderId) {
+
+    const listo = window.imagenesCargadas.every(v => v === true);
+    const nuevoEstado = listo ? "Producción" : "Faltan diseños";
+
+    fetch("/api/estado/guardar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: orderId, estado: nuevoEstado })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) cargarPedidos();
+    });
+}
+
+// =====================================================
+// CERRAR MODAL DETALLES
+// =====================================================
 function cerrarModalDetalles() {
     document.getElementById("modalDetalles").classList.add("hidden");
 }
 
-/* ============================================================
-   PANEL LATERAL CLIENTE
-============================================================ */
+// =====================================================
+// PANEL CLIENTE
+// =====================================================
 function abrirPanelCliente() {
     document.getElementById("panelCliente").classList.remove("hidden");
 }
@@ -291,28 +284,8 @@ function cerrarPanelCliente() {
     document.getElementById("panelCliente").classList.add("hidden");
 }
 
-
-
-function cerrarDetalles() {
-    document.getElementById("modalDetalles").classList.add("hidden");
-}
-
-
 // =====================================================
-// COLORES DE ETIQUETAS
-// =====================================================
-function colorEtiqueta(tag) {
-    tag = tag.toLowerCase().trim();
-
-    if (tag.startsWith("d.")) return "bg-green-200 text-green-900 border border-green-300";
-    if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900 border border-yellow-300";
-
-    return "bg-gray-200 text-gray-700 border border-gray-300";
-}
-
-
-// =====================================================
-// MODAL ESTADO
+// ESTADO DEL PEDIDO
 // =====================================================
 function abrirModal(orderId) {
     document.getElementById("modalOrderId").value = orderId;
@@ -324,12 +297,12 @@ function cerrarModal() {
 }
 
 async function guardarEstado(nuevoEstado) {
-    let id = document.getElementById("modalOrderId").value;
+    let orderId = document.getElementById("modalOrderId").value;
 
     let r = await fetch("/api/estado/guardar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, estado: nuevoEstado })
+        body: JSON.stringify({ id: orderId, estado: nuevoEstado })
     });
 
     let d = await r.json();
@@ -340,9 +313,8 @@ async function guardarEstado(nuevoEstado) {
     }
 }
 
-
 // =====================================================
-// MODAL ETIQUETAS
+// ETIQUETAS
 // =====================================================
 function abrirModalEtiquetas(orderId, etiquetasTexto = "") {
     document.getElementById("modalTagOrderId").value = orderId;
@@ -379,10 +351,6 @@ async function guardarEtiquetas() {
     }
 }
 
-
-// =====================================================
-// MANEJO DE ETIQUETAS
-// =====================================================
 function renderEtiquetasSeleccionadas() {
     let cont = document.getElementById("etiquetasSeleccionadas");
     cont.innerHTML = "";
@@ -409,7 +377,7 @@ function mostrarEtiquetasRapidas() {
     etiquetasPredeterminadas.forEach(tag => {
         cont.innerHTML += `
             <button onclick="agregarEtiqueta('${tag}')"
-                class="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm">
+                class="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm">
                 ${tag}
             </button>`;
     });
@@ -422,47 +390,12 @@ function agregarEtiqueta(tag) {
     }
 }
 
-function subirImagenProducto(orderId, index, input) {
+function colorEtiqueta(tag) {
+    tag = tag.toLowerCase().trim();
 
-    if (!input.files || input.files.length === 0) return;
+    if (tag.startsWith("d.")) return "bg-green-200 text-green-900 border border-green-300";
+    if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900 border border-yellow-300";
 
-    let file = input.files[0];
-    let reader = new FileReader();
-
-    reader.onload = function(e) {
-        document.getElementById(`preview_${orderId}_${index}`).innerHTML = `
-            <img src="${e.target.result}" class="w-32 rounded-lg shadow mt-2">
-        `;
-
-        // Marcamos como cargada
-        window.imagenesCargadas[index] = true;
-
-        validarEstadoFinal(orderId);
-    };
-
-    reader.readAsDataURL(file);
+    return "bg-gray-200 text-gray-700 border border-gray-300";
 }
-
-function validarEstadoFinal(orderId) {
-
-    const todas = window.imagenesCargadas.every(v => v === true);
-
-    let nuevoEstado = todas ? "Producción" : "Faltan diseños";
-
-    console.log("Nuevo estado:", nuevoEstado);
-
-    // Guardar automáticamente el estado
-    fetch("/api/estado/guardar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: orderId, estado: nuevoEstado })
-    })
-    .then(r => r.json())
-    .then(d => {
-        if (d.success) {
-            console.log("Estado actualizado:", nuevoEstado);
-            cargarPedidos(); // refresca la tabla principal
-        }
-    });
-}
-
+    

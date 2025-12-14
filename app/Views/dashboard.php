@@ -10,6 +10,14 @@
 
     <style>
         body { background: #f3f4f6; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+        .animate-fadeIn {
+            animation: fadeIn .2s ease-out;
+        }
     </style>
 </head>
 
@@ -18,7 +26,7 @@
     <!-- Sidebar -->
     <?= view('layouts/menu') ?>
 
-    <!-- Contenido -->
+    <!-- Contenido principal -->
     <div class="flex-1 md:ml-64 p-8">
 
         <!-- Encabezado -->
@@ -28,9 +36,8 @@
 
         <h1 class="text-3xl font-bold mb-6 text-gray-800">Pedidos</h1>
 
-        <!-- Tabla -->
+        <!-- TABLA -->
         <div class="overflow-x-auto bg-white shadow-lg rounded-xl p-4">
-
             <table class="w-full text-left min-w-[1400px]">
                 <thead class="bg-gray-100 text-gray-700 uppercase text-sm">
                     <tr>
@@ -43,15 +50,15 @@
                         <th class="py-3 px-4">Artículos</th>
                         <th class="py-3 px-4">Estado entrega</th>
                         <th class="py-3 px-4">Forma entrega</th>
+                        <th class="py-3 px-4">Detalles</th>
                     </tr>
                 </thead>
 
                 <tbody id="tablaPedidos" class="text-gray-800"></tbody>
             </table>
-
         </div>
 
-        <!-- Paginación -->
+        <!-- PAGINACIÓN -->
         <div class="flex justify-between mt-4">
             <button id="btnAnterior"
                 disabled
@@ -61,20 +68,21 @@
 
             <button id="btnSiguiente"
                 onclick="paginaSiguiente()"
-                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40">
+                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                 Siguiente
             </button>
         </div>
 
     </div>
 
-    <!-- =============================================================== -->
-    <!-- MODAL DETALLES DEL PEDIDO (OPCIÓN A - GRANDE CENTRADO) -->
-    <!-- =============================================================== -->
-    <div id="modalDetalles" 
-        class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
 
-        <div class="bg-white w-[85%] h-[90%] rounded-2xl shadow-2xl p-6 overflow-hidden flex flex-col">
+    <!-- =============================================================== -->
+    <!-- 🟦 MODAL DETALLES DEL PEDIDO (ANCHO COMPLETO) -->
+    <!-- =============================================================== -->
+    <div id="modalDetalles"
+         class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+
+        <div class="bg-white w-[90%] h-[92%] rounded-2xl shadow-2xl p-6 overflow-hidden flex flex-col animate-fadeIn">
 
             <!-- HEADER -->
             <div class="flex justify-between items-center border-b pb-4">
@@ -95,15 +103,13 @@
                 </div>
             </div>
 
-            <!-- CONTENIDO PRINCIPAL DE PRODUCTOS -->
+            <!-- CONTENIDO PRINCIPAL (PRODUCTOS) -->
             <div id="detalleProductos"
-                class="flex-1 overflow-auto grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+                 class="flex-1 overflow-auto grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
             </div>
 
             <!-- TOTALES -->
-            <div id="detalleTotales"
-                class="border-t pt-4 text-lg font-semibold text-gray-800">
-            </div>
+            <div id="detalleTotales" class="border-t pt-4 text-lg font-semibold text-gray-800"></div>
 
         </div>
     </div>
@@ -111,12 +117,12 @@
 
 
     <!-- =============================================================== -->
-    <!-- PANEL LATERAL → INFORMACIÓN DEL CLIENTE -->
+    <!-- 🟩 PANEL LATERAL: INFORMACIÓN DEL CLIENTE -->
     <!-- =============================================================== -->
     <div id="panelCliente"
-        class="hidden fixed inset-0 flex justify-end bg-black/30 backdrop-blur-sm z-50">
+         class="hidden fixed inset-0 flex justify-end bg-black/30 backdrop-blur-sm z-50">
 
-        <div class="w-[380px] h-full bg-white shadow-xl p-6 overflow-y-auto">
+        <div class="w-[380px] h-full bg-white shadow-xl p-6 overflow-y-auto animate-fadeIn">
 
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-xl font-bold text-gray-800">Información del cliente</h3>
@@ -137,37 +143,19 @@
     </div>
 
 
-    <style>
-    @keyframes fadeIn {
-        from { opacity: 0; transform: scale(0.95); }
-        to   { opacity: 1; transform: scale(1); }
-    }
-    .animate-fadeIn {
-        animation: fadeIn .2s ease-out;
-    }
-    </style>
 
-
-
-
-
-    <!-- ===================================================================================== -->
-    <!-- MODALES (Estados + Etiquetas) -->
-    <!-- ===================================================================================== -->
+    <!-- =============================================================== -->
+    <!-- MODALES DE ESTADOS + ETIQUETAS -->
+    <!-- =============================================================== -->
     <?= view('layouts/modales_estados', ['etiquetasPredeterminadas' => $etiquetasPredeterminadas]) ?>
 
 
-    <!-- ===================================================================================== -->
-    <!-- PASAR ETIQUETAS PREDETERMINADAS DESDE PHP A JAVASCRIPT -->
-    <!-- ===================================================================================== -->
+    <!-- PASAR ETIQUETAS AL JS -->
     <script>
         window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
     </script>
 
-
-    <!-- ===================================================================================== -->
-    <!-- SCRIPT PRINCIPAL DEL DASHBOARD -->
-    <!-- ===================================================================================== -->
+    <!-- SCRIPT PRINCIPAL -->
     <script src="<?= base_url('js/dashboard.js') ?>"></script>
 
 </body>
