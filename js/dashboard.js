@@ -102,7 +102,7 @@ function actualizarTabla(pedidos) {
 function formatearEtiquetas(etiquetas, orderId) {
     if (!etiquetas || etiquetas.trim() === "") {
         return `<button onclick="abrirModalEtiquetas(${orderId}, '')"
-                    class="text-blue-600 underline">Agregar etiquetas</button>`;
+                    class="text-blue-600 underline">Agregar</button>`;
     }
 
     let lista = etiquetas.split(",").map(e => e.trim());
@@ -135,7 +135,7 @@ function colorEtiqueta(tag) {
 
     return "bg-gray-100 text-gray-700 border border-gray-300"; // Genérico
 }
-    
+
 // =====================================================
 // MODAL - ESTADO
 // =====================================================
