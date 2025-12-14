@@ -117,26 +117,7 @@ function mostrarEtiquetasRapidas() {
 }
 
 
-/* ============================================================
-   ABRIR MODAL ETIQUETAS
-   ============================================================ */
-function abrirModalEtiquetas(orderId, etiquetasTexto = "") {
-    document.getElementById("modalTagOrderId").value = orderId;
 
-    // Convertir etiquetas a arreglo
-    etiquetasSeleccionadas = etiquetasTexto
-        ? etiquetasTexto.split(",").map(t => t.trim()).filter(Boolean)
-        : [];
-
-    // Dibujamos etiquetas en chips
-    renderEtiquetasSeleccionadas();
-
-    // Cargamos etiquetas rápidas del usuario
-    mostrarEtiquetasRapidas();
-
-    // Abrir modal
-    document.getElementById("modalEtiquetas").classList.remove("hidden");
-}
 
 
 
