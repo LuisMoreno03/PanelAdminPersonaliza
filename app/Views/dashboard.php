@@ -78,7 +78,7 @@
 
             <!-- HEADER -->
             <div class="p-4 border-b flex justify-between items-center bg-gray-50">
-                <h2 class="text-2xl font-bold text-gray-800">Detalles del <?=${numero}?></h2>
+                <h2 class="text-2xl font-bold text-gray-800">Detalles del <?php echo ${p.numero}?></h2>
 
                 <button onclick="cerrarDetalles()"
                         class="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-lg">
