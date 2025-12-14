@@ -51,34 +51,40 @@
 </div>
 
 
-<!-- =============================================================== -->
-<!-- MODAL ETIQUETAS -->
-<!-- =============================================================== -->
+<!-- =========================== -->
+<!-- MODAL EDITAR ETIQUETAS -->
+<!-- =========================== -->
 <div id="modalEtiquetas"
      class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
 
     <div class="bg-white w-96 p-6 rounded-xl shadow-xl border border-gray-200">
 
-        <h2 class="text-xl font-bold text-gray-800 mb-4 text-center">Editar etiquetas</h2>
+        <h2 class="text-xl font-bold text-gray-800 mb-4 text-center">
+            Editar etiquetas
+        </h2>
 
         <input type="hidden" id="modalTagOrderId">
 
+        <!-- Etiquetas ya agregadas -->
         <label class="text-gray-700 font-semibold">Etiquetas del pedido:</label>
 
-        <textarea id="modalTagInput"
-            class="w-full border rounded-lg p-2 h-28 mt-2"></textarea>
+        <div id="etiquetasSeleccionadas"
+             class="flex flex-wrap gap-2 mt-2 min-h-[40px] p-2 border rounded-lg bg-gray-50">
+        </div>
 
-        <h3 class="text-gray-700 font-semibold mt-3">Etiquetas rápidas</h3>
+        <!-- Etiquetas rápidas -->
+        <label class="text-gray-700 font-semibold mt-4">Etiquetas rápidas:</label>
 
         <div id="listaEtiquetasRapidas" class="flex flex-wrap gap-2 mt-2"></div>
 
+        <!-- Botones -->
         <button onclick="guardarEtiquetas()"
-            class="mt-4 w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+                class="mt-5 w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
             Guardar cambios
         </button>
 
         <button onclick="cerrarModalEtiquetas()"
-            class="mt-3 w-full py-2 rounded-lg bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold">
+                class="mt-3 w-full py-2 rounded-lg bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold">
             Cerrar
         </button>
 

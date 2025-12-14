@@ -5,7 +5,8 @@ let nextPageInfo = null;
 let isLoading = false;
 
 // Etiquetas según el rol (las envías desde PHP)
-let etiquetasPredeterminadas = window.etiquetasPredeterminadas || [];
+let etiquetasSeleccionadas = [];
+
 
 
 // =====================================================
@@ -189,29 +190,37 @@ async function guardarEstado(nuevoEstado) {
 // =====================================================
 // MODAL ETIQUETAS
 // =====================================================
-function abrirModalEtiquetas(orderId, etiquetas) {
+function abrirModalEtiquetas(orderId, etiquetasTexto) {
     document.getElementById("modalTagOrderId").value = orderId;
-    document.getElementById("modalTagInput").value = etiquetas || "";
-    document.getElementById("modalEtiquetas").classList.remove("hidden");
 
+    etiquetasSeleccionadas = etiquetasTexto
+        ? etiquetasTexto.split(",").map(t => t.trim())
+        : [];
+
+    renderEtiquetasSeleccionadas();
     mostrarEtiquetasRapidas();
+
+    document.getElementById("modalEtiquetas").classList.remove("hidden");
 }
+
 
 function cerrarModalEtiquetas() {
     document.getElementById("modalEtiquetas").classList.add("hidden");
 }
 
-async function guardarEtiquetas() {
-    let orderId = document.getElementById("modalTagOrderId").value;
-    let tags = document.getElementById("modalTagInput").value;
 
-    let res = await fetch("/api/estado/etiquetas/guardar", {
+async function guardarEtiquetas() {
+
+    let orderId = document.getElementById("modalTagOrderId").value;
+    let tags    = etiquetasSeleccionadas.join(", ");
+
+    let response = await fetch("/api/estado/etiquetas/guardar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: orderId, tags })
+        body: JSON.stringify({ id: orderId, tags: tags })
     });
 
-    let data = await res.json();
+    let data = await response.json();
 
     if (data.success) {
         cerrarModalEtiquetas();
@@ -219,17 +228,41 @@ async function guardarEtiquetas() {
     }
 }
 
-function agregarEtiqueta(tag) {
-    let campo = document.getElementById("modalTagInput");
+function renderEtiquetasSeleccionadas() {
+    let cont = document.getElementById("etiquetasSeleccionadas");
+    cont.innerHTML = "";
 
-    let etiquetas = campo.value
-        .split(",")
-        .map(e => e.trim())
-        .filter(Boolean);
-
-    if (!etiquetas.includes(tag)) {
-        etiquetas.push(tag);
-    }
-
-    campo.value = etiquetas.join(", ");
+    etiquetasSeleccionadas.forEach((tag, index) => {
+        cont.innerHTML += `
+            <span class="px-2 py-1 rounded-full text-xs font-semibold ${colorEtiqueta(tag)} flex items-center gap-1">
+                ${tag}
+                <button class="text-red-600 font-bold" onclick="eliminarEtiqueta(${index})">×</button>
+            </span>
+        `;
+    });
 }
+
+function agregarEtiqueta(tag) {
+    if (!etiquetasSeleccionadas.includes(tag)) {
+        etiquetasSeleccionadas.push(tag);
+        renderEtiquetasSeleccionadas();
+    }
+}
+function eliminarEtiqueta(index) {
+    etiquetasSeleccionadas.splice(index, 1);
+    renderEtiquetasSeleccionadas();
+}
+function mostrarEtiquetasRapidas() {
+    let cont = document.getElementById("listaEtiquetasRapidas");
+    cont.innerHTML = "";
+
+    etiquetasPredeterminadas.forEach(tag => {
+        cont.innerHTML += `
+            <button onclick="agregarEtiqueta('${tag}')"
+                class="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm">
+                ${tag}
+            </button>
+        `;
+    });
+}
+
