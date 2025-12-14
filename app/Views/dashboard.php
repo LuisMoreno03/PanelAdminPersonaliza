@@ -68,24 +68,33 @@
 
     </div>
 
-    <!-- ======================================= -->
+    <!-- =============================================================== -->
     <!-- MODAL DETALLES DEL PEDIDO -->
-    <!-- ======================================= -->
-    <div id="modalDetalles" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-        <div class="bg-white w-[900px] max-h-[90vh] overflow-y-auto rounded-xl shadow-xl p-6">
+    <!-- =============================================================== -->
+    <div id="modalDetalles"
+        class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
 
-            <h2 class="text-2xl font-bold mb-4 text-gray-800">Detalles del pedido</h2>
+        <div class="bg-white w-[600px] p-6 rounded-xl shadow-xl border border-gray-200">
 
-            <div id="detalleContenido"></div>
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">
+                Detalles del pedido
+            </h2>
 
-            <div id="detalleImagenes" class="flex flex-wrap gap-4 mt-6"></div>
+            <input type="hidden" id="detalleOrderId">
 
-            <button onclick="cerrarDetalles()" 
-                    class="mt-6 w-full py-2 bg-gray-300 hover:bg-gray-400 rounded-lg font-semibold">
+            <!-- CONTENIDO A RELLENAR DINÁMICAMENTE -->
+            <div id="detalleContenido" class="text-gray-800 text-sm space-y-3">
+                Cargando...
+            </div>
+
+            <button onclick="cerrarDetalles()"
+                    class="mt-6 w-full py-2 rounded-lg bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold">
                 Cerrar
             </button>
+
         </div>
     </div>
+
 
 
 
