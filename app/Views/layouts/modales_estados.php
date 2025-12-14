@@ -124,9 +124,9 @@
         </div>
     </div>
 
-    <!-- =========================== -->
+   <!-- =========================== -->
 <!-- MODAL EDITAR ETIQUETAS      -->
-<!-- =========================== 
+<!-- =========================== -->
 <div id="modalEtiquetas"
      class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
 
@@ -143,7 +143,7 @@
         <textarea id="modalTagInput"
                   class="w-full border border-gray-300 rounded-lg p-2 mt-2 h-28"></textarea>
 
-        <!-- Etiquetas rápidas según usuario
+        <!-- Etiquetas rápidas según usuario -->
         <div id="listaEtiquetasRapidas" class="flex flex-wrap gap-2 mt-3"></div>
 
         <button onclick="guardarEtiquetas()"
@@ -158,7 +158,32 @@
 
     </div>
 </div>
--->
+<script>
+    window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
+
+    function mostrarEtiquetasRapidas() {
+        let contenedor = document.getElementById("listaEtiquetasRapidas");
+        contenedor.innerHTML = "";
+
+        etiquetasPredeterminadas.forEach(tag => {
+            contenedor.innerHTML += `
+                <button onclick="agregarEtiqueta('${tag}')"
+                        class="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm">
+                    ${tag}
+                </button>
+            `;
+        });
+    }
+
+    function abrirModalEtiquetas(orderId, etiquetas) {
+        document.getElementById("modalTagOrderId").value = orderId;
+        document.getElementById("modalTagInput").value = etiquetas || "";
+        document.getElementById("modalEtiquetas").classList.remove("hidden");
+
+        mostrarEtiquetasRapidas();
+    }
+</script>
+
 
     <!-- ============================================================== -->
     <!-- SCRIPT JS -->
