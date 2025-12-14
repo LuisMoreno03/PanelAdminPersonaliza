@@ -147,20 +147,15 @@ function cerrarModalEtiquetas() {
     document.getElementById("modalEtiquetas").classList.add("hidden");
 }
 
-async function guardarEtiquetas() {
-    let orderId = document.getElementById("modalTagOrderId").value;
-    let tags = document.getElementById("modalTagInput").value;
+function agregarEtiqueta(tag) {
+    let campo = document.getElementById("modalTagInput");
 
-    let response = await fetch("/api/estado/etiquetas/guardar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: orderId, tags: tags })
-    });
+    let etiquetas = campo.value.split(",").map(e => e.trim()).filter(Boolean);
 
-    let data = await response.json();
-
-    if (data.success) {
-        cerrarModalEtiquetas();
-        cargarPedidos();
+    if (!etiquetas.includes(tag)) {
+        etiquetas.push(tag);
     }
+
+    campo.value = etiquetas.join(", ");
 }
+

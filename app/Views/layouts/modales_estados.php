@@ -138,19 +138,18 @@
 
             <input type="hidden" id="modalTagOrderId">
 
-            <label class="text-gray-700 font-semibold">Etiquetas (separadas por coma)</label>
-            <textarea id="modalTagInput"
-                    class="w-full border border-gray-300 rounded-lg p-2 mt-2 h-28"></textarea>
+            <label class="font-semibold">Etiquetas rápidas</label>
 
-            <button onclick="guardarEtiquetas()"
-                class="mt-4 w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
-                Guardar
-            </button>
+            <div class="flex flex-wrap gap-2 mb-3">
+                <?php foreach ($etiquetasPredeterminadas as $tag): ?>
+                    <span 
+                        onclick="agregarEtiqueta('<?= $tag ?>')"
+                        class="px-2 py-1 bg-blue-100 text-blue-700 rounded cursor-pointer hover:bg-blue-200">
+                        <?= $tag ?>
+                    </span>
+                <?php endforeach; ?>
+            </div>
 
-            <button onclick="cerrarModalEtiquetas()"
-                class="mt-3 w-full py-2 rounded-lg bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold">
-                Cerrar
-            </button>
 
         </div>
     </div>

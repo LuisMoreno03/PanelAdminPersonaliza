@@ -70,7 +70,7 @@
     </div>
 
     <!-- MODALES -->
-    <?= view('layouts/modales_estados') ?>
+    <?= view('layouts/modales_estados', ['etiquetasPredeterminadas' => $etiquetasPredeterminadas]) ?>
     
 
     <!-- ÚNICO script permitido -->

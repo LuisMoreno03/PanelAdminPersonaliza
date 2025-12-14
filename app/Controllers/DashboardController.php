@@ -10,6 +10,22 @@ class DashboardController extends Controller
     private $token = "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";
 
 
+
+    private $etiquetasPorUsuario = [
+    "admin" => ["Urgente", "VIP", "Revisión pendiente"],
+    "empleado" => ["Nuevo", "En proceso"],
+    "logistica" => ["Listo para envío", "Empaquetado"],
+];
+    private function getEtiquetasUsuario()
+    {
+        $session = session();
+
+        // Ajusta esto según cómo guardas el usuario en sesión
+        $usuario = $session->get('usuario') ?? 'empleado'; 
+
+     return $this->etiquetasPorUsuario[$usuario] ?? ["General"];
+}   
+
     // ============================================================
     // BADGE VISUAL DEL ESTADO (MEJORADO / PROFESIONAL)
     // ============================================================
@@ -86,7 +102,9 @@ class DashboardController extends Controller
     // ============================================================
     public function index()
     {
-        return view('dashboard');
+        return view('dashboard', [
+            "etiquetasPredeterminadas" => $this->getEtiquetasUsuario(),
+        ]);
     }
 
     // ============================================================
