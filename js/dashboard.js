@@ -166,7 +166,8 @@ async function guardarEtiquetas() {
 function agregarEtiqueta(tag) {
     let campo = document.getElementById("modalTagInput");
 
-    let etiquetas = campo.value.split(",")
+    let etiquetas = campo.value
+        .split(",")
         .map(e => e.trim())
         .filter(Boolean);
 
