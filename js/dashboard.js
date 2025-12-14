@@ -159,7 +159,7 @@ function verDetalles(orderId) {
     document.getElementById("detalleCliente").innerHTML = "";
     document.getElementById("detalleEnvio").innerHTML = "";
     document.getElementById("detalleTotales").innerHTML = "";
-    document.getElementById("idPedido").innerHTML = `<h2>${p.numero}</h2>`;
+    
 
     fetch(`/index.php/dashboard/detalles/${orderId}`)
         .then(r => r.json())
@@ -171,7 +171,7 @@ function verDetalles(orderId) {
             }
 
             let o = data.order;
-
+            document.getElementById("idPedido").innerHTML = `<h2>${p.numero}</h2>`;
             // =============================
             // 🟥 CLIENTE
             // =============================
