@@ -69,62 +69,73 @@
     </div>
 
     <!-- =============================================================== -->
-    <!-- MODAL DETALLES SHOPIFY STYLE -->
+    <!-- MODAL DETALLES DEL PEDIDO (OPCIÓN A - GRANDE CENTRADO) -->
     <!-- =============================================================== -->
-    <div id="modalDetalles"
+    <div id="modalDetalles" 
         class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
 
-        <div class="bg-white w-[90%] max-w-5xl h-[90vh] rounded-xl shadow-xl overflow-hidden flex flex-col animate-fadeIn">
+        <div class="bg-white w-[85%] h-[90%] rounded-2xl shadow-2xl p-6 overflow-hidden flex flex-col">
 
             <!-- HEADER -->
-            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
-                <h2 class="text-2xl font-bold text-gray-800">Detalles del <div id="idPedido"></div> </h2>
+            <div class="flex justify-between items-center border-b pb-4">
+                <h2 id="tituloPedido" class="text-2xl font-bold text-gray-800">
+                    Detalles del pedido
+                </h2>
 
-                <button onclick="cerrarDetalles()"
-                        class="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded-lg">
-                    ✕ Cerrar
-                </button>
+                <div class="flex gap-3">
+                    <button onclick="abrirPanelCliente()"
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        Información del cliente
+                    </button>
+
+                    <button onclick="cerrarModalDetalles()"
+                            class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400">
+                        Cerrar
+                    </button>
+                </div>
             </div>
 
-            <!-- CONTENIDO SCROLLEABLE -->
-            <div class="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
-
-                <!-- ===================================== -->
-                <!-- COLUMNA IZQUIERDA → PRODUCTOS -->
-                <!-- ===================================== -->
-                <div>
-                    <h3 class="text-xl font-semibold mb-3">Productos</h3>
-                    <div id="detalleProductos" class="space-y-4"></div>
-                </div>
-
-                <!-- ===================================== -->
-                <!-- COLUMNA DERECHA → CLIENTE / ENVÍO -->
-                <!-- ===================================== -->
-                <div class="space-y-6">
-
-                    <div>
-                        <h3 class="text-xl font-semibold mb-2">Cliente</h3>
-                        <div id="detalleCliente"
-                            class="p-4 border rounded-lg bg-gray-50 text-sm"></div>
-                    </div>
-
-                    <div>
-                        <h3 class="text-xl font-semibold mb-2">Dirección de envío</h3>
-                        <div id="detalleEnvio"
-                            class="p-4 border rounded-lg bg-gray-50 text-sm"></div>
-                    </div>
-
-                    <div>
-                        <h3 class="text-xl font-semibold mb-2">Totales</h3>
-                        <div id="detalleTotales"
-                            class="p-4 border rounded-lg bg-gray-50 text-sm"></div>
-                    </div>
-
-                </div>
-
+            <!-- CONTENIDO PRINCIPAL DE PRODUCTOS -->
+            <div id="detalleProductos"
+                class="flex-1 overflow-auto grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
             </div>
+
+            <!-- TOTALES -->
+            <div id="detalleTotales"
+                class="border-t pt-4 text-lg font-semibold text-gray-800">
+            </div>
+
         </div>
     </div>
+
+
+
+    <!-- =============================================================== -->
+    <!-- PANEL LATERAL → INFORMACIÓN DEL CLIENTE -->
+    <!-- =============================================================== -->
+    <div id="panelCliente"
+        class="hidden fixed inset-0 flex justify-end bg-black/30 backdrop-blur-sm z-50">
+
+        <div class="w-[380px] h-full bg-white shadow-xl p-6 overflow-y-auto">
+
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-gray-800">Información del cliente</h3>
+
+                <button onclick="cerrarPanelCliente()"
+                        class="text-gray-600 hover:text-gray-900 text-2xl font-bold">×</button>
+            </div>
+
+            <div id="detalleCliente" class="space-y-2 mb-6"></div>
+
+            <h3 class="text-lg font-bold mt-6">Dirección de envío</h3>
+            <div id="detalleEnvio" class="space-y-1 mb-6"></div>
+
+            <h3 class="text-lg font-bold mt-6">Resumen del pedido</h3>
+            <div id="detalleResumen" class="space-y-1 mb-6"></div>
+
+        </div>
+    </div>
+
 
     <style>
     @keyframes fadeIn {

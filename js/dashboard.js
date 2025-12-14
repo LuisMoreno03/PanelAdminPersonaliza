@@ -150,17 +150,17 @@ function formatearEtiquetas(etiquetas, orderId) {
 }
 
 
-// =====================================================
-// MODAL DETALLES PEDIDO
-// =====================================================
+/* ============================================================
+   ABRIR DETALLES DEL PEDIDO (MODAL GRANDE CENTRADO)
+============================================================ */
 function verDetalles(orderId) {
 
     document.getElementById("modalDetalles").classList.remove("hidden");
-
-    document.getElementById("detalleProductos").innerHTML = "Cargando productos...";
+    document.getElementById("detalleProductos").innerHTML = "Cargando...";
+    document.getElementById("detalleTotales").innerHTML = "";
     document.getElementById("detalleCliente").innerHTML = "";
     document.getElementById("detalleEnvio").innerHTML = "";
-    document.getElementById("detalleTotales").innerHTML = "";
+    document.getElementById("detalleResumen").innerHTML = "";
 
     fetch(`/index.php/dashboard/detalles/${orderId}`)
         .then(r => r.json())
@@ -174,74 +174,101 @@ function verDetalles(orderId) {
 
             let o = data.order;
 
-            // CLIENTE
+            /* ================================
+               TITULO → Nº del pedido
+            =================================*/
+            document.getElementById("tituloPedido").textContent =
+                `Detalles del pedido ${o.name}`;
+
+            /* ================================
+               PANEL DEL CLIENTE (GUARDADO)
+            =================================*/
             document.getElementById("detalleCliente").innerHTML = `
                 <p><strong>${o.customer?.first_name ?? ""} ${o.customer?.last_name ?? ""}</strong></p>
                 <p>Email: ${o.email ?? "-"}</p>
-                <p>Teléfono: ${o.phone ?? "-"}</p>
+                <p>Teléfono: ${o.customer?.phone ?? "-"}</p>
             `;
 
-            // ENVÍO
             let a = o.shipping_address ?? {};
+
             document.getElementById("detalleEnvio").innerHTML = `
-                <p>${a.address1 ?? ""}</p>
-                <p>${a.city ?? ""}, ${a.zip ?? ""}</p>
+                <p>${a.address1 ?? "-"}</p>
+                <p>${a.zip ?? ""} ${a.city ?? ""}</p>
                 <p>${a.country ?? ""}</p>
             `;
 
-            // TOTALES
-            document.getElementById("detalleTotales").innerHTML = `
-                <p><strong>Subtotal:</strong> ${o.subtotal_price} €</p>
+            document.getElementById("detalleResumen").innerHTML = `
+                <p><strong>Artículos:</strong> ${o.line_items.length}</p>
+                <p><strong>Pagado:</strong> ${o.total_price} €</p>
                 <p><strong>Envío:</strong> ${o.total_shipping_price_set?.shop_money?.amount ?? "0"} €</p>
-                <p><strong>Total:</strong> ${o.total_price} €</p>
             `;
 
-            // PRODUCTOS
+            /* ================================
+               PRODUCTOS
+            =================================*/
             let html = "";
 
             o.line_items.forEach(item => {
-                let propsHTML = "";
 
-                if (item.properties?.length) {
-                    propsHTML = `
-                        <div class="mt-2">
-                            <h5 class="font-semibold">Propiedades:</h5>
-                            ${item.properties.map(p => {
-                                if (esImagen(p.value)) {
-                                    return `
-                                        <div class="mt-2">
-                                            <span class="text-sm font-semibold">${p.name}:</span><br>
-                                            <img src="${p.value}" class="w-32 mt-1 rounded border shadow">
-                                        </div>`;
-                                }
+                let props = "";
 
-                                return `<p class='text-sm'>
-                                            <strong>${p.name}:</strong> ${p.value}
-                                        </p>`;
-                            }).join("")}
-                        </div>
-                    `;
+                if (item.properties?.length > 0) {
+                    props = item.properties.map(p => {
+                        if (esImagen(p.value)) {
+                            return `
+                                <div class="mt-2">
+                                    <span class="font-bold">${p.name}:</span>
+                                    <img src="${p.value}" class="w-32 mt-1 rounded shadow">
+                                </div>`;
+                        }
+
+                        return `
+                            <p class="text-sm">
+                                <strong>${p.name}:</strong> ${p.value}
+                            </p>`;
+                    }).join("");
                 }
 
                 html += `
-                    <div class="p-4 border rounded-lg bg-white shadow-sm">
-                        <h4 class="font-semibold">${item.title}</h4>
+                    <div class="p-4 border rounded-xl bg-white shadow-sm">
+                        <h4 class="font-bold text-gray-800">${item.title}</h4>
                         <p>Cantidad: ${item.quantity}</p>
                         <p>Precio: ${item.price} €</p>
 
-                        ${propsHTML}
-
-                        <div class="mt-3">
-                            <label class="font-semibold text-sm">Cargar imagen:</label>
-                            <input type="file" class="mt-1 block w-full border rounded-lg p-2">
-                        </div>
-                    </div>
-                `;
+                        ${props}
+                    </div>`;
             });
 
             document.getElementById("detalleProductos").innerHTML = html;
+
+            /* ================================
+               TOTALES
+            =================================*/
+            document.getElementById("detalleTotales").innerHTML = `
+                Total: <strong>${o.total_price} €</strong>
+            `;
         });
 }
+
+
+/* ============================================================
+   CERRAR MODAL PRINCIPAL
+============================================================ */
+function cerrarModalDetalles() {
+    document.getElementById("modalDetalles").classList.add("hidden");
+}
+
+/* ============================================================
+   PANEL LATERAL CLIENTE
+============================================================ */
+function abrirPanelCliente() {
+    document.getElementById("panelCliente").classList.remove("hidden");
+}
+
+function cerrarPanelCliente() {
+    document.getElementById("panelCliente").classList.add("hidden");
+}
+
 
 
 function cerrarDetalles() {
