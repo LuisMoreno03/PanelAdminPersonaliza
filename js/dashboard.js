@@ -81,7 +81,7 @@ function actualizarTabla(pedidos) {
                 <td class="py-2 px-4">${p.cliente}</td>
                 <td class="py-2 px-4">${p.total}</td>
 
-                <td class="py-2 px-2">
+                <td class="py-2 px-6">
                     <button onclick="abrirModal(${p.id})" class="font-semibold text-gray-800">
                         ${p.estado}
                     </button>
