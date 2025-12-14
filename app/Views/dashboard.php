@@ -39,7 +39,7 @@
                         <th class="py-3 px-4">Cliente</th>
                         <th class="py-3 px-4">Total</th>
                         <th class="py-3 px-2">Estado</th>
-                        <th class="py-3 px-4">Etiquetas</th>
+                        <th class="py-3 px-2">Etiquetas</th>
                         <th class="py-3 px-4">Artículos</th>
                         <th class="py-3 px-4">Estado entrega</th>
                         <th class="py-3 px-4">Forma entrega</th>
