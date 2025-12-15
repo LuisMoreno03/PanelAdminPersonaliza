@@ -352,39 +352,27 @@ public function detalles($orderId)
     // SUBIR IMAGEN DE PRODUCTO DE UN PEDIDO
     // ============================================================
     public function subirImagenProducto()
-    {
-        helper(['form', 'filesystem']);
+{
+    $orderId = $this->request->getPost("orderId");
+    $index   = $this->request->getPost("index");
+    $file    = $this->request->getFile("file");
 
-        $orderId = $this->request->getPost("orderId");
-        $index   = $this->request->getPost("index");
-        $file    = $this->request->getFile("file");
-
-        if (!$file || !$file->isValid()) {
-            return $this->response->setJSON([
-                "success" => false,
-                "message" => "Archivo inválido"
-            ]);
-        }
-
-        // Crear carpeta del pedido
-        $rutaBase = FCPATH . "uploads/pedidos/" . $orderId . "/";
-        if (!is_dir($rutaBase)) {
-            mkdir($rutaBase, 0777, true);
-        }
-
-        // Nuevo nombre único
-        $newName = $orderId . "_" . $index . "_" . time() . "." . $file->getExtension();
-
-        // Guardar archivo
-        $file->move($rutaBase, $newName);
-
-        // URL pública
-        $publicURL = base_url("uploads/pedidos/$orderId/$newName");
-
+    if (!$file || !$file->isValid()) {
         return $this->response->setJSON([
-            "success" => true,
-            "url" => $publicURL
+            "success" => false,
+            "message" => "Archivo inválido"
         ]);
     }
+
+    // Carpeta de destino
+    $newName = $file->getRandomName();
+    $file->move(FCPATH . "uploads/pedidos/", $newName);
+
+    return $this->response->setJSON([
+        "success" => true,
+        "url" => base_url("uploads/pedidos/" . $newName)
+    ]);
+}
+
 
 }
