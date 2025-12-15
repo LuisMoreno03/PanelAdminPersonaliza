@@ -226,7 +226,7 @@ function verDetalles(orderId) {
 }
 
 // =====================================================
-// SUBIR IMAGEN
+// SUBIR IMAGEN AL SERVIDOR Y MOSTRARLA
 // =====================================================
 function subirImagenProducto(orderId, index, input) {
 
@@ -264,9 +264,12 @@ function subirImagenProducto(orderId, index, input) {
             return;
         }
 
-        console.log("Imagen guardada en:", res.url);
+        // Mostrar la imagen real guardada en el servidor
+        document.getElementById(`preview_${orderId}_${index}`).innerHTML =
+            `<img src="${res.url}" class="w-32 mt-2 rounded shadow">`;
 
         window.imagenesCargadas[index] = true;
+
         validarEstadoFinal(orderId);
     });
 }
@@ -337,11 +340,11 @@ async function guardarEstado(nuevoEstado) {
 // =====================================================
 // ETIQUETAS
 // =====================================================
-function abrirModalEtiquetas(orderId, etiquetasTexto = "") {
+function abrirModalEtiquetas(orderId, textos = "") {
     document.getElementById("modalTagOrderId").value = orderId;
 
-    etiquetasSeleccionadas = etiquetasTexto
-        ? etiquetasTexto.split(",").map(s => s.trim())
+    etiquetasSeleccionadas = textos
+        ? textos.split(",").map(s => s.trim())
         : [];
 
     renderEtiquetasSeleccionadas();
