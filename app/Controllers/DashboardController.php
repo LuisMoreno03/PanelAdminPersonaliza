@@ -352,27 +352,37 @@ public function detalles($orderId)
     // SUBIR IMAGEN DE PRODUCTO DE UN PEDIDO
     // ============================================================
     public function subirImagenProducto()
-{
-    $orderId = $this->request->getPost("orderId");
-    $index   = $this->request->getPost("index");
-    $file    = $this->request->getFile("file");
+    {
+        $orderId = $this->request->getPost("orderId");
+        $index   = $this->request->getPost("index");
+        $file    = $this->request->getFile("file");
 
-    if (!$file || !$file->isValid()) {
+        if (!$file || !$file->isValid()) {
+            return $this->response->setJSON([
+                "success" => false,
+                "message" => "Archivo inválido"
+            ]);
+        }
+
+        // Crear carpeta si no existe
+        $folder = FCPATH . "uploads/pedidos/$orderId/";
+        if (!is_dir($folder)) {
+            mkdir($folder, 0777, true);
+        }
+
+        // Nombre único
+        $newName = $file->getRandomName();
+
+        // Guardar archivo
+        $file->move($folder, $newName);
+
+        $url = base_url("uploads/pedidos/$orderId/$newName");
+
         return $this->response->setJSON([
-            "success" => false,
-            "message" => "Archivo inválido"
+            "success" => true,
+            "url" => $url
         ]);
     }
-
-    // Carpeta de destino
-    $newName = $file->getRandomName();
-    $file->move(FCPATH . "uploads/pedidos/", $newName);
-
-    return $this->response->setJSON([
-        "success" => true,
-        "url" => base_url("uploads/pedidos/" . $newName)
-    ]);
-}
 
 
 }
