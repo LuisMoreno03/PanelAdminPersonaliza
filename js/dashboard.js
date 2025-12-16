@@ -5,6 +5,7 @@ let nextPageInfo = null;
 let isLoading = false;
 let etiquetasSeleccionadas = [];
 window.imagenesCargadas = [];
+window.imagenesLocales = {}; // NUEVO: almacenará imágenes locales por índice
 
 // Loader global
 function showLoader() {
@@ -26,9 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
 // =====================================================
 function esImagen(url) {
     if (!url) return false;
-    const esURL = url.startsWith("http://") || url.startsWith("https://");
-    if (!esURL) return false;
-    return url.match(/\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i);
+    return url.match(/\.(jpeg|jpg|png|gif|webp|svg)$/i);
 }
 
 // =====================================================
@@ -137,7 +136,6 @@ function verDetalles(orderId) {
 
     document.getElementById("modalDetalles").classList.remove("hidden");
 
-    // Limpieza
     document.getElementById("detalleProductos").innerHTML = "Cargando...";
     document.getElementById("detalleCliente").innerHTML = "";
     document.getElementById("detalleEnvio").innerHTML = "";
@@ -155,6 +153,9 @@ function verDetalles(orderId) {
             }
 
             let o = data.order;
+
+            // NUEVO: guardar imágenes locales recibidas desde el backend
+            window.imagenesLocales = data.imagenes_locales ?? {};
 
             document.getElementById("tituloPedido").innerHTML =
                 `Detalles del pedido ${o.name}`;
@@ -204,6 +205,17 @@ function verDetalles(orderId) {
                     }).join("");
                 }
 
+                // NUEVO: Si la imagen local existe → mostrarla
+                let imagenLocalHTML = "";
+                if (window.imagenesLocales[index]) {
+                    imagenLocalHTML = `
+                        <div class="mt-3">
+                            <p class="font-semibold text-sm">Imagen cargada:</p>
+                            <img src="${window.imagenesLocales[index]}"
+                                 class="w-32 rounded shadow mt-1">
+                        </div>`;
+                }
+
                 html += `
                     <div class="p-4 border rounded-lg shadow bg-white">
                         <h4 class="font-semibold">${item.title}</h4>
@@ -212,7 +224,9 @@ function verDetalles(orderId) {
 
                         ${propsHTML}
 
-                        <label class="font-semibold text-sm mt-3 block">Subir imagen:</label>
+                        ${imagenLocalHTML}
+
+                        <label class="font-semibold text-sm mt-3 block">Subir nueva imagen:</label>
                         <input type="file"
                             onchange="subirImagenProducto(${orderId}, ${index}, this)"
                             class="mt-1 w-full border rounded p-2">
@@ -241,10 +255,8 @@ function subirImagenProducto(orderId, index, input) {
     };
     reader.readAsDataURL(file);
 
-    // Loader
     showLoader();
 
-    // Subir archivo al servidor
     let form = new FormData();
     form.append("orderId", orderId);
     form.append("index", index);
@@ -254,24 +266,27 @@ function subirImagenProducto(orderId, index, input) {
         method: "POST",
         body: form
     })
-    .then(r => r.json())
-    .then(res => {
+        .then(r => r.json())
+        .then(res => {
 
-        hideLoader();
+            hideLoader();
 
-        if (!res.success) {
-            alert("Error subiendo imagen");
-            return;
-        }
+            if (!res.success) {
+                alert("Error subiendo imagen");
+                return;
+            }
 
-        // Mostrar la imagen real guardada en el servidor
-        document.getElementById(`preview_${orderId}_${index}`).innerHTML =
-            `<img src="${res.url}" class="w-32 mt-2 rounded shadow">`;
+            // Mostrar imagen final guardada en el servidor
+            document.getElementById(`preview_${orderId}_${index}`).innerHTML =
+                `<img src="${res.url}" class="w-32 mt-2 rounded shadow">`;
 
-        window.imagenesCargadas[index] = true;
+            // Guardar en memoria local para próximas aperturas
+            window.imagenesLocales[index] = res.url;
 
-        validarEstadoFinal(orderId);
-    });
+            window.imagenesCargadas[index] = true;
+
+            validarEstadoFinal(orderId);
+        });
 }
 
 // =====================================================
@@ -287,12 +302,12 @@ function validarEstadoFinal(orderId) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: orderId, estado: nuevoEstado })
     })
-    .then(r => r.json())
-    .then(() => cargarPedidos());
+        .then(r => r.json())
+        .then(() => cargarPedidos());
 }
 
 // =====================================================
-// CERRAR MODAL
+// CERRAR MODALES
 // =====================================================
 function cerrarModalDetalles() {
     document.getElementById("modalDetalles").classList.add("hidden");

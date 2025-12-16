@@ -13,141 +13,127 @@ class DashboardController extends Controller
     // GENERAR ETIQUETAS SEGÚN ROL Y USUARIO
     // ============================================================
     private function getEtiquetasUsuario()
-{
-    $db = \Config\Database::connect();
-    $session = session();
+    {
+        $db = \Config\Database::connect();
+        $session = session();
 
-    // ID guardado en sesión cuando el usuario inicia sesión
-    $userId = $session->get('user_id');
+        $userId = $session->get('user_id');
 
-    if (!$userId) {
-        return ["Sin usuario"];
-    }
-
-    // Obtener usuario actual
-    $usuario = $db->table('users')->where('id', $userId)->get()->getRow();
-
-    if (!$usuario) {
-        return ["Sin usuario"];
-    }
-
-    $nombre = ucfirst($usuario->nombre);
-    $rol = strtolower($usuario->role);
-
-    /* =====================================================
-        REGLA 1 — CONFIRMACIÓN
-    ===================================================== */
-    if ($rol === "confirmacion") {
-        return ["D.$nombre"];
-    }
-
-    /* =====================================================
-        REGLA 2 — PRODUCCIÓN
-    ===================================================== */
-    if ($rol === "produccion") {
-        return [
-            "D.$nombre",
-            "P.$nombre"
-        ];
-    }
-
-    /* =====================================================
-        REGLA 3 — ADMIN (VER TODAS LAS ETIQUETAS)
-    ===================================================== */
-    if ($rol === "admin") {
-
-        $usuarios = $db->table('users')->get()->getResult();
-        $etiquetas = [];
-
-        foreach ($usuarios as $u) {
-
-            $nombreU = ucfirst($u->nombre);
-            $rolU = strtolower($u->role);
-
-            if ($rolU === "confirmacion") {
-                $etiquetas[] = "D.$nombreU";
-            }
-
-            if ($rolU === "produccion") {
-                $etiquetas[] = "D.$nombreU";
-                $etiquetas[] = "P.$nombreU";
-            }
+        if (!$userId) {
+            return ["Sin usuario"];
         }
 
-        return $etiquetas;
-    }
+        $usuario = $db->table('users')->where('id', $userId)->get()->getRow();
+        if (!$usuario) {
+            return ["Sin usuario"];
+        }
 
-    return ["General"];
-}
+        $nombre = ucfirst($usuario->nombre);
+        $rol = strtolower($usuario->role);
 
-public function detalles($orderId)
-{
-    // URL correcta para obtener 1 solo pedido
-    $url = "https://{$this->shop}/admin/api/2024-01/orders/{$orderId}.json";
+        if ($rol === "confirmacion") {
+            return ["D.$nombre"];
+        }
 
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER => [
-            "Content-Type: application/json",
-            "X-Shopify-Access-Token: {$this->token}"
-        ]
-    ]);
+        if ($rol === "produccion") {
+            return [
+                "D.$nombre",
+                "P.$nombre"
+            ];
+        }
 
-    $response = curl_exec($ch);
-    curl_close($ch);
+        if ($rol === "admin") {
+            $usuarios = $db->table('users')->get()->getResult();
+            $etiquetas = [];
 
-    if (!$response) {
-        return $this->response->setJSON([
-            "success" => false,
-            "message" => "No se recibió respuesta de Shopify"
-        ]);
-    }
+            foreach ($usuarios as $u) {
+                $nombreU = ucfirst($u->nombre);
+                $rolU = strtolower($u->role);
 
-    $data = json_decode($response, true);
-
-    if (!isset($data["order"])) {
-        return $this->response->setJSON([
-            "success" => false,
-            "message" => "Shopify no devolvió el pedido",
-            "raw"     => $data
-        ]);
-    }
-
-    $order = $data["order"];
-
-    // Buscar imágenes cargadas desde properties
-    $imagenes = [];
-
-    if (isset($order["line_items"])) {
-        foreach ($order["line_items"] as $item) {
-            if (isset($item["properties"])) {
-                foreach ($item["properties"] as $prop) {
-                    if (
-                        isset($prop["name"]) &&
-                        (stripos($prop["name"], "imagen") !== false ||
-                         stripos($prop["name"], "image") !== false)
-                    ) {
-                        $imagenes[] = $prop["value"];
-                    }
+                if ($rolU === "confirmacion") {
+                    $etiquetas[] = "D.$nombreU";
+                }
+                if ($rolU === "produccion") {
+                    $etiquetas[] = "D.$nombreU";
+                    $etiquetas[] = "P.$nombreU";
                 }
             }
+
+            return $etiquetas;
         }
+
+        return ["General"];
     }
 
-    return $this->response->setJSON([
-        "success" => true,
-        "order" => $order,
-        "imagenes" => $imagenes
-    ]);
-}
 
+    // ============================================================
+    // DETALLES DEL PEDIDO + IMÁGENES LOCALES
+    // ============================================================
+    public function detalles($orderId)
+    {
+        $url = "https://{$this->shop}/admin/api/2024-01/orders/{$orderId}.json";
 
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPHEADER => [
+                "Content-Type: application/json",
+                "X-Shopify-Access-Token: {$this->token}"
+            ]
+        ]);
+
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        if (!$response) {
+            return $this->response->setJSON([
+                "success" => false,
+                "message" => "No se recibió respuesta de Shopify"
+            ]);
+        }
+
+        $data = json_decode($response, true);
+
+        if (!isset($data["order"])) {
+            return $this->response->setJSON([
+                "success" => false,
+                "message" => "Shopify no devolvió el pedido",
+                "raw"     => $data
+            ]);
+        }
+
+        $order = $data["order"];
+
+        // ====================================================
+        // LEER IMÁGENES GUARDADAS LOCALMENTE
+        // ====================================================
+        $folder = FCPATH . "uploads/pedidos/$orderId/";
+        $imagenesLocales = [];
+
+        if (is_dir($folder)) {
+            foreach (scandir($folder) as $archivo) {
+
+                if ($archivo === "." || $archivo === "..") continue;
+
+                // archivo -> ejemplo: 0.jpg
+                $parts = explode(".", $archivo);
+                $index = intval($parts[0]);
+
+                $imagenesLocales[$index] = base_url("uploads/pedidos/$orderId/$archivo");
+            }
+        }
+
+        return $this->response->setJSON([
+            "success"          => true,
+            "order"            => $order,
+            "imagenes_locales" => $imagenesLocales
+        ]);
+    }
 
 
 
     // ============================================================
-    // BADGE DEL ESTADO DEL PEDIDO
+    // BADGE DEL ESTADO
     // ============================================================
     private function badgeEstado($estado)
     {
@@ -165,8 +151,9 @@ public function detalles($orderId)
         return "<span class='px-3 py-1 rounded-full text-xs font-bold tracking-wide $clase'>$estado</span>";
     }
 
+
     // ============================================================
-    // ESTADO INTERNO DEL PEDIDO (DB)
+    // ESTADO INTERNO
     // ============================================================
     private function obtenerEstadoInterno($orderId)
     {
@@ -180,8 +167,9 @@ public function detalles($orderId)
         return $row->estado ?? "Por preparar";
     }
 
+
     // ============================================================
-    // CONSULTA A SHOPIFY
+    // CONSULTAR SHOPIFY
     // ============================================================
     private function queryShopify($params = "")
     {
@@ -223,7 +211,7 @@ public function detalles($orderId)
 
 
     // ============================================================
-    // GUARDAR ESTADO DEL PEDIDO
+    // GUARDAR ESTADO
     // ============================================================
     public function guardarEstado()
     {
@@ -241,8 +229,9 @@ public function detalles($orderId)
         return $this->response->setJSON(["success" => true]);
     }
 
+
     // ============================================================
-    // GUARDAR ETIQUETAS EN SHOPIFY
+    // GUARDAR ETIQUETAS
     // ============================================================
     public function guardarEtiquetas()
     {
@@ -280,7 +269,7 @@ public function detalles($orderId)
             return $this->response->setJSON([
                 "success" => false,
                 "message" => "Error actualizando etiquetas",
-                "raw" => $response
+                "raw"     => $response
             ]);
         }
 
@@ -292,7 +281,7 @@ public function detalles($orderId)
 
 
     // ============================================================
-    // TRAER TODOS LOS PEDIDOS (250 POR PÁGINA HASTA COMPLETAR)
+    // LISTAR TODOS LOS PEDIDOS
     // ============================================================
     public function filter()
     {
@@ -317,9 +306,7 @@ public function detalles($orderId)
 
         } while ($pageInfo);
 
-        // ============================================================
-        // FORMATEAR PEDIDOS
-        // ============================================================
+
         $resultado = [];
 
         foreach ($allOrders as $o) {
@@ -344,12 +331,14 @@ public function detalles($orderId)
 
         return $this->response->setJSON([
             "success" => true,
-            "orders" => $resultado,
-            "count"  => count($resultado)
+            "orders"  => $resultado,
+            "count"   => count($resultado)
         ]);
     }
+
+
     // ============================================================
-    // SUBIR IMAGEN DE PRODUCTO DE UN PEDIDO
+    // SUBIR IMAGEN LOCAL DEL PRODUCTO
     // ============================================================
     public function subirImagenProducto()
     {
@@ -364,25 +353,27 @@ public function detalles($orderId)
             ]);
         }
 
-        // Crear carpeta si no existe
+        // Crear carpeta del pedido
         $folder = FCPATH . "uploads/pedidos/$orderId/";
         if (!is_dir($folder)) {
             mkdir($folder, 0777, true);
         }
 
-        // Nombre único
-        $newName = $file->getRandomName();
+        // Extensión real del archivo
+        $ext = $file->getExtension();
 
-        // Guardar archivo
-        $file->move($folder, $newName);
+        // Nombre fijo por índice del producto
+        $newName = $index . "." . $ext;
+
+        // Guardar / sobreescribir
+        $file->move($folder, $newName, true);
 
         $url = base_url("uploads/pedidos/$orderId/$newName");
 
         return $this->response->setJSON([
             "success" => true,
-            "url" => $url
+            "url"     => $url
         ]);
     }
-
-
 }
+
