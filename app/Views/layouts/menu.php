@@ -31,7 +31,7 @@
 
             <a href="<?= base_url('pedidos') ?>"
                 class="block ring-inset px-4 py-3 rounded-lg hover:bg-gray-700 transition">
-                🛒 Produccion
+                🛒 Produccion Adrian 
             </a>
 
             <a href="<?= base_url('productos') ?>"
