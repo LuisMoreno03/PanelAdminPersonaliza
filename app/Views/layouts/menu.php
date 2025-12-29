@@ -30,7 +30,7 @@
             </a>
 
             <a href="<?= base_url('pedidos') ?>"
-                class="block px-4 py-3 rounded-lg hover:bg-gray-700 transition">
+                class="block ring-inset px-4 py-3 rounded-lg hover:bg-gray-700 transition">
                 🛒 Produccion
             </a>
 
