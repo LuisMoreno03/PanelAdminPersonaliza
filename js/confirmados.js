@@ -101,16 +101,77 @@ function cargarPedidosPreparados(pageInfo = null) {
       const btnSig = document.getElementById("btnSiguiente");
       if (btnSig) btnSig.disabled = !nextPageInfo;
 
+      function cargarPedidosPreparados(pageInfo = null) {
+  if (isLoading) return;
+  isLoading = true;
+
+  showLoader();
+
+  let url = "/confirmados/filter";
+  if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
+
+  // ✅ AQUÍ VA PEGADO (reemplaza tu fetch anterior)
+  fetch(url, {
+    headers: { 
+      "Accept": "application/json",
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    credentials: "same-origin",
+  })
+    .then(async (res) => {
+      const text = await res.text();
+
+      console.log("URL:", url);
+      console.log("STATUS:", res.status);
+      console.log("RAW:", text.slice(0, 300));
+
+      if (text.trim().startsWith("<")) {
+        throw new Error("El endpoint devolvió HTML (no JSON). Revisa ruta/sesión/controlador.");
+      }
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error("Respuesta inválida: no se pudo parsear JSON.");
+      }
+
+      return data;
+    })
+    .then((data) => {
+      if (!data.success) {
+        actualizarTabla([]);
+        const total = document.getElementById("total-pedidos");
+        if (total) total.textContent = "0";
+        return;
+      }
+
+      nextPageInfo = data.next_page_info ?? null;
+
+      const preparados = (data.orders || []).filter((p) => {
+        const estado = (p.estado || p.status || "").trim().toLowerCase();
+        return estado === "preparado" || estado === "preparados";
+      });
+
+      actualizarTabla(preparados);
+
+      const btnSig = document.getElementById("btnSiguiente");
+      if (btnSig) btnSig.disabled = !nextPageInfo;
+
       const total = document.getElementById("total-pedidos");
       if (total) total.textContent = preparados.length;
-    };
-
-
-    (err) => console.error("Error cargando pedidos preparados:", err)
+    })
+    .catch((err) => {
+      console.error("ERROR:", err.message);
+      actualizarTabla([]);
+      const total = document.getElementById("total-pedidos");
+      if (total) total.textContent = "0";
+    })
     .finally(() => {
       hideLoader();
       isLoading = false;
-    })
+    });
+}
 
 
 function paginaSiguiente() {
