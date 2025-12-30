@@ -12,8 +12,8 @@ class ShopifyController extends Controller
 
     public function __construct()
     {
-        $this->shop  = env('SHOPIFY_SHOP');
-        $this->token = env('SHOPIFY_TOKEN');
+        $this->shop  = rtrim(env('SHOPIFY_SHOP'), '/');
+    $this->token = env('SHOPIFY_TOKEN');
     }
 
     // ============================================================
@@ -21,7 +21,9 @@ class ShopifyController extends Controller
     // ============================================================
     private function request($method, $endpoint, $data = null)
     {
-        $url = "https://{$this->shop}/admin/api/2024-01/" . $endpoint;
+        $endpoint = ltrim($endpoint, '/');
+
+        $url = "https://{$this->shop}/admin/api/2024-01/{$endpoint}";
 
         $headers = [
             "Content-Type: application/json",
@@ -287,7 +289,7 @@ class ShopifyController extends Controller
             "message" => "Shopify API funcionando correctamente.",
             "shop" => $this->shop
         ]);
-    }
+    }   
 
     public function ordersView()
 {
