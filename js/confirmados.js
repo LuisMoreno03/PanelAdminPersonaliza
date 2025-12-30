@@ -28,12 +28,67 @@ function cargarPedidosPreparados(pageInfo = null) {
   let url = "/confirmados/filter"; // 👈 usa la ruta REAL (case-insensitive normalmente)
   if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
 
-  fetch(url)
-    .then((res) => res.json())
-    .then((data) => {
-      if (!data.success) return;
+  fetch(url, {
+  headers: { "Accept": "application/json" },
+  credentials: "same-origin",
+})
+  .then(async (res) => {
+    const text = await res.text();
 
-      nextPageInfo = data.next_page_info ?? null;
+    console.log("URL:", url);
+    console.log("STATUS:", res.status);
+    console.log("RAW:", text.slice(0, 300)); // muestra los primeros 300 chars
+
+    // Si viene HTML (login/redirect), lo detectamos
+    if (text.trim().startsWith("<")) {
+      throw new Error("El endpoint devolvió HTML (no JSON). Revisa ruta/sesión/controlador.");
+    }
+
+    // Parse seguro
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      throw new Error("Respuesta inválida: no se pudo parsear JSON.");
+    }
+
+    return data;
+  })
+  .then((data) => {
+    if (!data.success) {
+      console.warn("API success=false:", data);
+      actualizarTabla([]);
+      const total = document.getElementById("total-pedidos");
+      if (total) total.textContent = "0";
+      return;
+    }
+
+    nextPageInfo = data.next_page_info ?? null;
+
+    const preparados = (data.orders || []).filter((p) => {
+      const estado = (p.estado || p.status || "").trim().toLowerCase();
+      return estado === "preparado" || estado === "preparados";
+    });
+
+    actualizarTabla(preparados);
+
+    const btnSig = document.getElementById("btnSiguiente");
+    if (btnSig) btnSig.disabled = !nextPageInfo;
+
+    const total = document.getElementById("total-pedidos");
+    if (total) total.textContent = preparados.length;
+  })
+  .catch((err) => {
+    console.error("ERROR:", err.message);
+    actualizarTabla([]);
+    const total = document.getElementById("total-pedidos");
+    if (total) total.textContent = "0";
+  })
+  .finally(() => {
+    hideLoader();
+    isLoading = false;
+  });
+
 
       // ✅ Filtrar SOLO preparados (singular o plural)
       const preparados = (data.orders || []).filter((p) => {
@@ -48,13 +103,15 @@ function cargarPedidosPreparados(pageInfo = null) {
 
       const total = document.getElementById("total-pedidos");
       if (total) total.textContent = preparados.length;
-    })
-    .catch((err) => console.error("Error cargando pedidos preparados:", err))
+    };
+
+
+    (err) => console.error("Error cargando pedidos preparados:", err)
     .finally(() => {
       hideLoader();
       isLoading = false;
-    });
-}
+    })
+
 
 function paginaSiguiente() {
   if (nextPageInfo) cargarPedidosPreparados(nextPageInfo);
