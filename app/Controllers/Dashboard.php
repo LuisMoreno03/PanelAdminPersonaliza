@@ -86,31 +86,41 @@ class Dashboard extends BaseController
         }
 
         // 3) Traer último cambio desde BD
-       // 3) Traer último cambio desde BD
-// 3) Traer último cambio desde BD
-    // 3) Traer último cambio desde BD
+        // 3) Traer último cambio desde BD (USANDO ID REAL)
         $db = Database::connect();
 
         foreach ($orders as &$ord) {
 
-            $shopifyId = $ord['id'] ?? null;
+            // ✅ ESTE es el ID correcto (Shopify ID)
+            $pedidoId = $ord['id'] ?? null;
 
-            if (!$shopifyId) {
+            if (!$pedidoId) {
                 $ord['last_status_change'] = null;
                 continue;
             }
 
             $row = $db->table('pedidos_estado')
-                ->select('created_at, estado')
-                ->where('id', $shopifyId) // ✅ MISMO ID que Shopify
+                ->select('created_at, user_id')
+                ->where('id', $pedidoId)   // 🔥 CLAVE CORRECTA
                 ->orderBy('created_at', 'DESC')
                 ->limit(1)
                 ->get()
                 ->getRowArray();
 
             if ($row) {
+                // buscar nombre del usuario
+                $userName = 'Sistema';
+                if (!empty($row['user_id'])) {
+                    $u = $db->table('users')
+                        ->select('nombre')
+                        ->where('id', $row['user_id'])
+                        ->get()
+                        ->getRowArray();
+                    $userName = $u['nombre'] ?? 'Usuario';
+                }
+
                 $ord['last_status_change'] = [
-                    'user_name'  => 'Sistema', // luego lo mejoramos
+                    'user_name'  => $userName,
                     'changed_at' => $row['created_at'],
                 ];
             } else {
@@ -118,6 +128,7 @@ class Dashboard extends BaseController
             }
         }
         unset($ord);
+
 
 
 
