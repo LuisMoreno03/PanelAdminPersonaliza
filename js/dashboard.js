@@ -442,3 +442,44 @@ function colorEtiqueta(tag) {
     if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900";
     return "bg-gray-200 text-gray-700";
 }
+function formatDateTime(dtStr) {
+  if (!dtStr) return '-';
+  const d = new Date(dtStr.replace(' ', 'T')); // soporta "YYYY-MM-DD HH:mm:ss"
+  if (isNaN(d)) return dtStr;
+  return d.toLocaleString('es-ES', { hour12: false });
+}
+
+function timeAgo(dtStr) {
+  if (!dtStr) return '';
+  const d = new Date(dtStr.replace(' ', 'T'));
+  if (isNaN(d)) return '';
+  const diffMs = Date.now() - d.getTime();
+  const sec = Math.floor(diffMs / 1000);
+  const min = Math.floor(sec / 60);
+  const hr  = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+
+  if (day > 0) return `${day}d ${hr % 24}h`;
+  if (hr > 0) return `${hr}h ${min % 60}m`;
+  if (min > 0) return `${min}m`;
+  return `${sec}s`;
+}
+function renderLastStatusChange(order) {
+  const info = order.last_status_change || null;
+
+  const user = info?.user_name || '—';
+  const changedAt = info?.changed_at || null;
+
+  if (!changedAt) {
+    return `<div class="text-sm text-gray-500">—</div>`;
+  }
+
+  return `
+    <div class="text-sm">
+      <div class="font-semibold text-gray-800">${user}</div>
+      <div class="text-gray-600">${formatDateTime(changedAt)}</div>
+      <div class="text-xs text-gray-500">Hace ${timeAgo(changedAt)}</div>
+    </div>
+  `;
+}
+
