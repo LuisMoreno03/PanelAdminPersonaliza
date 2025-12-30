@@ -34,4 +34,4 @@ $routes->get('shopify/customers', 'ShopifyController::getCustomers');
 $routes->get('shopify/test', 'ShopifyController::test');
 $routes->get('dashboard/detalles/(:num)', 'DashboardController::detalles/$1');
 $routes->post('dashboard/subirImagenProducto', 'DashboardController::subirImagenProducto');
-$routes->get('paneladministrativopersonaliza.com/confirmados')
+$routes->get('confirmados', 'DashboardController::confirmados');
