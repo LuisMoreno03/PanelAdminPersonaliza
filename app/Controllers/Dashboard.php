@@ -94,6 +94,7 @@ class Dashboard extends BaseController
                 'cliente'      => $cliente,
                 'total'        => $total,
                 'estado'       => ($o['tags'] ? 'Producción' : 'Por preparar'), // ejemplo
+                'renderLastChange'=> $id,
                 'etiquetas'    => $o['tags'] ?? '',
                 'articulos'    => $articulos,
                 'estado_envio' => $estado_envio ?: '-',
