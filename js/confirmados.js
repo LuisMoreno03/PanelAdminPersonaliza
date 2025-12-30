@@ -96,7 +96,7 @@ function actualizarTabla(pedidos) {
 
         <td class="py-2 px-2">
           <button onclick="abrirModal(${p.id})" class="font-semibold">
-            ${p.estado}
+            ${p.Preparado}
           </button>
         </td>
 
