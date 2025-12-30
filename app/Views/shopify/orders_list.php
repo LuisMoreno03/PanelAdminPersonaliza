@@ -65,6 +65,16 @@
                   <?= esc($o['currency'] ?? '') ?> <?= esc($o['total_price'] ?? '') ?>
                 </td>
                 <td><?= esc($o['fulfillment_status'] ?? 'Sin preparar') ?></td>
+                <td class="py-3 px-4">
+                  <div class="text-sm">
+                    <div class="font-semibold">${pedido.last_status_change.user_name}</div>
+                    <div class="text-gray-600">${formatDateTime(pedido.last_status_change.changed_at)}</div>
+                    <div class="text-xs text-gray-500">
+                      Hace ${timeAgo(pedido.last_status_change.changed_at)}
+                    </div>
+                  </div>
+                </td>
+
                 <td><?= esc($o['financial_status'] ?? '') ?></td>
                 <td><?= esc($o['created_at'] ?? '') ?></td>
               </tr>

@@ -21,7 +21,7 @@ class Orders extends Controller
 
             // 👇 AQUÍ MOSTRAMOS EL ESTADO INTERNO
             "estado"       => $this->obtenerEstadoInterno($order["id"]),
-
+            
             "etiquetas"    => implode(", ", $order["tags"] ?? []),
             "articulos"    => count($order["line_items"] ?? []),
             "estado_envio" => $order["fulfillment_status"] ?? "-",
