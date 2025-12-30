@@ -29,6 +29,11 @@
                 📊 Dashboard
             </a>
 
+            <a href="<?= base_url('confirmados') ?>"
+                class="block px-4 py-3 rounded-lg hover:bg-gray-700 transition">
+                🎁 Confirmados
+            </a>
+
             <a href="<?= base_url('pedidos') ?>"
                 class="block ring-inset px-4 btn-outline-secondary py-3 rounded-lg hover:bg-gray-700 transition">
                 🛒 Produccion 
