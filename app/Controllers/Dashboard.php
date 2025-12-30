@@ -9,22 +9,12 @@ class Dashboard extends BaseController
     public function index()
     {
         if (!session()->get('logged_in')) {
-            return redirect()->to('/dasboard'); // (ojo: parece typo, quizá era /dashboard/login)
+            return redirect()->to('/dasboard');
         }
 
         return view('dashboard');
     }
 
-    /**
-     * Endpoint que consume dashboard.js:
-     * GET /dashboard/filter?page_info=XXXX
-     *
-     * Devuelve:
-     * - success
-     * - orders (ya formateados para la tabla)
-     * - next_page_info
-     * - count
-     */
     public function filter()
     {
         if (!session()->get('logged_in')) {
@@ -36,11 +26,9 @@ class Dashboard extends BaseController
 
         $pageInfo = $this->request->getGet('page_info');
 
-        // ====== 1) Pedir a Shopify (vía tu ShopifyController) ======
-        // Puedes llamar al controller directamente (rápido y práctico en tu caso)
+        // 1) Pedir a Shopify
         $shopify = new \App\Controllers\ShopifyController();
 
-        // 50 por página para la vista
         $_GET['limit'] = 50;
         if ($pageInfo) $_GET['page_info'] = $pageInfo;
 
@@ -58,7 +46,7 @@ class Dashboard extends BaseController
         $ordersRaw = $payload['data']['orders'] ?? [];
         $nextPageInfo = $payload['next_page_info'] ?? null;
 
-        // ====== 2) Mapear a la estructura que tu tabla usa (p.numero, p.fecha, etc.) ======
+        // 2) Mapear al formato del dashboard
         $orders = [];
         foreach ($ordersRaw as $o) {
 
@@ -75,15 +63,8 @@ class Dashboard extends BaseController
 
             $total = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
 
-            // Tu estado viene de tu sistema (BD) o de Shopify?
-            // Por defecto uso financial_status/fulfillment_status como fallback:
-            $estado = $o['tags'] ?? '—'; // si en tu sistema lo devuelves de otra forma, ajusta aquí
-            // IMPORTANTE: si ya tienes estado propio en tu BD, lo ideal es traerlo desde la tabla pedidos.
-
-            // Artículos
             $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
 
-            // Estado/forma entrega (ajústalo a tu lógica real)
             $estado_envio = $o['fulfillment_status'] ?? '-';
             $forma_envio  = $o['shipping_lines'][0]['title'] ?? '-';
 
@@ -93,8 +74,7 @@ class Dashboard extends BaseController
                 'fecha'        => $fecha,
                 'cliente'      => $cliente,
                 'total'        => $total,
-                'estado'       => ($o['tags'] ? 'Producción' : 'Por preparar'), // ejemplo
-                'renderLastChange'=> $id,
+                'estado'       => (!empty($o['tags']) ? 'Producción' : 'Por preparar'),
                 'etiquetas'    => $o['tags'] ?? '',
                 'articulos'    => $articulos,
                 'estado_envio' => $estado_envio ?: '-',
@@ -103,14 +83,14 @@ class Dashboard extends BaseController
             ];
         }
 
-        // ====== 3) AQUÍ VA EL BLOQUE: traer último cambio desde BD ======
+        // 3) Traer último cambio desde BD
         $db = Database::connect();
 
-        foreach ($orders as &$o) {
-            $orderId = $o['id'] ?? null;
+        foreach ($orders as &$ord) {
+            $orderId = $ord['id'] ?? null;
 
             if (!$orderId) {
-                $o['last_status_change'] = null;
+                $ord['last_status_change'] = null;
                 continue;
             }
 
@@ -122,14 +102,14 @@ class Dashboard extends BaseController
                 ->get()
                 ->getRowArray();
 
-            $o['last_status_change'] = [
+            $ord['last_status_change'] = [
                 'user_name'  => $row['user_name'] ?? '—',
                 'changed_at' => $row['changed_at'] ?? null,
             ];
         }
-        unset($o);
+        unset($ord);
 
-        // ====== 4) Responder al frontend ======
+        // 4) Responder
         return $this->response->setJSON([
             'success'        => true,
             'orders'         => $orders,
