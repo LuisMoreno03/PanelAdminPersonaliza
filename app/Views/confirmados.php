@@ -175,6 +175,12 @@
 
     <!-- SCRIPT PRINCIPAL -->
     <script src="<?= base_url('js/confirmados.js') ?>"></script>
+  
+<script>
+  window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
+  window.estadoFiltro = "Preparado";
+</script>
+
 
 </body>
 </html>
