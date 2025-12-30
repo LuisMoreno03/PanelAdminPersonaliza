@@ -181,13 +181,8 @@
   window.estadoFiltro = "Preparado";
 </script>
 
+<script>
 
-</body>
-</html>
-
-<?php
-
-namespace App\Controllers;
 
 use App\Controllers\BaseController;
 
@@ -210,3 +205,7 @@ class Confirmados extends BaseController
         ]);
     }
 }
+</script>
+    <script src="<?= base_url('assets/js/confirmados.js') ?>"></script>
+</body>
+</html>
