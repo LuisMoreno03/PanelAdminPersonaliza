@@ -104,6 +104,14 @@ function actualizarTabla(pedidos) {
             </tr>`;
     });
 }
+function filtrarPreparados() {
+    pedidosFiltrados = pedidos.filter(pedido =>
+        pedido.estado === 'Preparado'
+    );
+
+    paginaActual = 1; // si usas paginación
+    renderTabla();
+}
 
 // =====================================================
 // FORMATO ETIQUETAS
