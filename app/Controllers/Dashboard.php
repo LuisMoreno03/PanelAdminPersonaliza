@@ -66,11 +66,13 @@ class Dashboard extends BaseController
             $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
 
             $estado_envio = $o['fulfillment_status'] ?? '-';
-            $forma_envio  = $o['shipping_lines'][0]['title'] ?? '-';
+            $forma_envio  = (!empty($o['shipping_lines'][0]['title']))
+                ? $o['shipping_lines'][0]['title']
+                : '-';
 
             $orders[] = [
                 'id'           => $orderId,
-                'numero'       => $numero,
+                'numero'       => $numero, // #PEDIDO10163
                 'fecha'        => $fecha,
                 'cliente'      => $cliente,
                 'total'        => $total,
@@ -87,9 +89,11 @@ class Dashboard extends BaseController
         $db = Database::connect();
 
         foreach ($orders as &$ord) {
-            $orderId = $ord['id'] ?? null;
 
-            if (!$orderId) {
+            // ✅ si en tu BD guardas #PEDIDO10163, usamos "numero"
+            $pedidoKey = $ord['numero'] ?? null;
+
+            if (!$pedidoKey) {
                 $ord['last_status_change'] = null;
                 continue;
             }
@@ -97,7 +101,7 @@ class Dashboard extends BaseController
             $row = $db->table('pedidos_estado pe')
                 ->select('pe.created_at as changed_at, u.nombre as user_name')
                 ->join('users u', 'u.id = pe.user_id', 'left')
-                ->where('pe.pedido_id', $orderId)
+                ->where('pe.pedido_id', $pedidoKey)
                 ->orderBy('pe.created_at', 'DESC')
                 ->get()
                 ->getRowArray();
