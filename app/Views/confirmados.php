@@ -154,10 +154,6 @@
 
 
 
-    <!-- =============================================================== -->
-    <!-- MODALES DE ESTADOS + ETIQUETAS -->
-    <!-- =============================================================== -->
-    <?= view('layouts/modales_estados', ['etiquetasPredeterminadas' => $etiquetasPredeterminadas]) ?>
 
         <!-- =============================================================== -->
         <!-- LOADER GLOBAL (Pantalla de carga) -->
@@ -174,7 +170,7 @@
 
     <!-- PASAR ETIQUETAS AL JS -->
     <script>
-        window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
+    
     </script>
 
     <!-- SCRIPT PRINCIPAL -->
