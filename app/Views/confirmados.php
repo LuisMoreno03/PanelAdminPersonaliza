@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard - Panel</title>
+    <title>Confirmados - Panel</title>
 
     <!-- Estilos -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -178,12 +178,7 @@
     </script>
 
     <!-- SCRIPT PRINCIPAL -->
-    <script src="<?= base_url('js/dashboard.js') ?>"></script>
+    <script src="<?= base_url('js/confirmados.js') ?>"></script>
 
 </body>
 </html>
-
-public function confirmados()
-{
-    return view('confirmados');
-}
