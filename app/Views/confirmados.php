@@ -184,6 +184,7 @@
 
 </body>
 </html>
+
 <?php
 
 namespace App\Controllers;
@@ -216,8 +217,3 @@ class Confirmados extends BaseController
         ]);
     }
 }
-
-<<<<<<< HEAD
-
-=======
->>>>>>> 5b7d69b5c59dc994a932f53f9524f33b97ed3254
