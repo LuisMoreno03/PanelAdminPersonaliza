@@ -12,7 +12,10 @@ class ShopifyController extends Controller
 
     public function __construct()
     {
-        
+        // Leer desde .env
+        $shop  = (string) env('SHOPIFY_SHOP');
+        $token = (string) env('SHOPIFY_TOKEN');
+
         // Normalizar SHOPIFY_SHOP por si el usuario puso https:// o /admin o trailing slash
         $shop = trim($shop);
         $shop = preg_replace('#^https?://#', '', $shop); // quita https://
