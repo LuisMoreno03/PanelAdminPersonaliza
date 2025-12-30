@@ -18,8 +18,8 @@ class ShopifyController extends Controller
 
         if (!empty(trim($envShop))) {
             $shop = trim($envShop);
-            $shop = preg_replace('#^https?://#', '', $shop); // quita https://
-            $shop = preg_replace('#/.*$#', '', $shop);       // quita cualquier /algo (ej /admin)
+            $shop = preg_replace('#^https?://#', '', $shop);
+            $shop = preg_replace('#/.*$#', '', $shop);
             $shop = rtrim($shop, '/');
             $this->shop = $shop;
         }
@@ -36,7 +36,7 @@ class ShopifyController extends Controller
     }
 
     // ============================================================
-    // 💡 MÉTODO GENERAL PARA TODAS LAS LLAMADAS A SHOPIFY (CON HEADERS)
+    // 💡 MÉTODO GENERAL PARA TODAS LAS LLAMADAS A SHOPIFY (CON HEADERS + ERROR REAL)
     // ============================================================
     private function request($method, $endpoint, $data = null): array
     {
@@ -46,13 +46,13 @@ class ShopifyController extends Controller
                 "status"  => 500,
                 "error"   => "Faltan credenciales Shopify (SHOPIFY_SHOP o SHOPIFY_TOKEN).",
                 "headers" => "",
+                "raw"     => null,
                 "data"    => null,
                 "url"     => null
             ];
         }
 
         $endpoint = ltrim((string) $endpoint, '/');
-
         $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/{$endpoint}";
 
         $headers = [
@@ -79,34 +79,49 @@ class ShopifyController extends Controller
             curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($data));
         }
 
-        $response     = curl_exec($curl);
-        $error        = curl_error($curl);
-        $status_code  = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-        $header_size  = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
+        $resp        = curl_exec($curl);
+        $curlError   = curl_error($curl);
+        $status_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
 
         curl_close($curl);
 
-        if ($response === false) {
+        if ($resp === false) {
             return [
                 "success" => false,
                 "status"  => $status_code ?: 0,
-                "error"   => $error ?: "Unknown cURL error",
+                "error"   => $curlError ?: "Unknown cURL error",
                 "headers" => "",
+                "raw"     => null,
                 "data"    => null,
                 "url"     => $url
             ];
         }
 
-        $raw_headers = substr($response, 0, $header_size);
-        $body        = substr($response, $header_size);
+        $raw_headers = substr($resp, 0, $header_size);
+        $raw_body    = substr($resp, $header_size);
 
-        $decoded = json_decode($body, true);
+        $decoded = json_decode($raw_body, true);
+
+        // ✅ Si Shopify devuelve 4xx/5xx, normalmente curlError viene vacío.
+        // Sacamos el error real del body.
+        $errorMsg = $curlError ?: null;
+        if ($status_code >= 400) {
+            if (is_array($decoded) && isset($decoded['errors'])) {
+                $errorMsg = is_array($decoded['errors'])
+                    ? json_encode($decoded['errors'], JSON_UNESCAPED_UNICODE)
+                    : (string) $decoded['errors'];
+            } else {
+                $errorMsg = $raw_body; // último recurso
+            }
+        }
 
         return [
-            "success" => $error ? false : true,
+            "success" => ($status_code >= 200 && $status_code < 300),
             "status"  => $status_code,
-            "error"   => $error,
+            "error"   => $errorMsg,
             "headers" => $raw_headers,
+            "raw"     => $raw_body,
             "data"    => $decoded,
             "url"     => $url
         ];
@@ -123,18 +138,18 @@ class ShopifyController extends Controller
 
         $linkLine = $m[1];
 
-        if (preg_match('/<([^>]+)>;\s*rel="next"/', $linkLine, $n)) {
-            $nextUrl = $n[1];
-
-            $parts = parse_url($nextUrl);
-            if (!isset($parts['query'])) return null;
-
-            parse_str($parts['query'], $qs);
-
-            return $qs['page_info'] ?? null;
+        if (!preg_match('/<([^>]+)>;\s*rel="next"/', $linkLine, $n)) {
+            return null;
         }
 
-        return null;
+        $nextUrl = $n[1];
+
+        $parts = parse_url($nextUrl);
+        if (!isset($parts['query'])) return null;
+
+        parse_str($parts['query'], $qs);
+
+        return $qs['page_info'] ?? null;
     }
 
     // ============================================================
@@ -163,6 +178,7 @@ class ShopifyController extends Controller
             "error"          => $response["error"],
             "next_page_info" => $nextPageInfo,
             "url"            => $response["url"] ?? null,
+            "raw"            => $response["raw"] ?? null,
             "data"           => $response["data"]
         ]);
     }
@@ -179,20 +195,23 @@ class ShopifyController extends Controller
         $loops = 0;
 
         do {
-            $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
-
+            // Para paginación cursor, en páginas siguientes conviene no mezclar filtros/order raros
+            $endpoint = "orders.json?limit={$limit}&status=any";
             if ($pageInfo) {
                 $endpoint .= "&page_info=" . urlencode($pageInfo);
+            } else {
+                $endpoint .= "&order=created_at%20desc";
             }
 
             $response = $this->request("GET", $endpoint);
 
-            if (!$response["success"] || $response["status"] >= 400) {
+            if (!$response["success"]) {
                 return $this->response->setJSON([
                     "success" => false,
                     "status"  => $response["status"],
                     "error"   => $response["error"],
                     "url"     => $response["url"] ?? null,
+                    "raw"     => $response["raw"] ?? null,
                     "data"    => $response["data"]
                 ]);
             }
@@ -303,7 +322,8 @@ class ShopifyController extends Controller
         return $this->response->setJSON([
             "message"  => "Shopify API funcionando correctamente.",
             "shop"     => $this->shop,
-            "hasToken" => !empty($this->token)
+            "hasToken" => !empty($this->token),
+            "apiVersion" => $this->apiVersion
         ]);
     }
 
@@ -315,18 +335,23 @@ class ShopifyController extends Controller
         $limit     = 50;
         $page_info = $this->request->getGet('page_info');
 
-        $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
+        // ✅ IMPORTANTE: con page_info es mejor NO cambiar filtros/order,
+        // por eso aplicamos order SOLO en la primera página
+        $endpoint = "orders.json?limit={$limit}&status=any";
 
         if ($page_info) {
             $endpoint .= "&page_info=" . urlencode($page_info);
+        } else {
+            $endpoint .= "&order=created_at%20desc";
         }
 
         $response = $this->request("GET", $endpoint);
 
-        if (!$response["success"] || $response["status"] >= 400) {
+        if (!$response["success"]) {
             return $this->response->setStatusCode(500)->setBody(
-                "Error Shopify: " . esc($response["error"] ?? 'Error desconocido') .
-                "<br>URL: " . esc($response["url"] ?? '')
+                "Error Shopify (HTTP {$response['status']}): " . esc((string)($response["error"] ?? '')) .
+                "<br><br><b>URL:</b> " . esc((string)($response["url"] ?? '')) .
+                "<br><br><b>RAW:</b> <pre style='white-space:pre-wrap'>" . esc((string)($response["raw"] ?? '')) . "</pre>"
             );
         }
 
