@@ -200,8 +200,8 @@ class Confirmados extends BaseController
 
     public function filter()
     {
-        // Ejemplo: devolver JSON (ajusta tu lógica)
-        $orders = []; // aquí metes tu consulta real
+        // ⚠️ Ajusta esto a tu origen real (BD / Shopify)
+        $orders = [];
 
         return $this->response->setJSON([
             'success' => true,
