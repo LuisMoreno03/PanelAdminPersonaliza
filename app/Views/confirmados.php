@@ -184,6 +184,39 @@
 
 </body>
 </html>
+<?php
+
+namespace App\Controllers;
+
+use App\Controllers\BaseController;
+
+class Confirmados extends BaseController
+{
+    public function filter()
+    {
+        // 🔒 Si hay login, devolver JSON, NO redirect
+        if (!session()->get('logged_in')) {
+            return $this->response
+                ->setStatusCode(401)
+                ->setJSON(['success' => false, 'message' => 'No autorizado']);
+        }
+
+        // 👉 EJEMPLO: obtener pedidos (AJUSTA ESTA PARTE)
+        $pedidoModel = new \App\Models\PedidoModel();
+
+        $orders = $pedidoModel
+            ->whereIn('estado', ['Preparado', 'Preparados'])
+            ->orderBy('fecha', 'DESC')
+            ->findAll();
+
+        return $this->response->setJSON([
+            'success' => true,
+            'orders' => $orders,
+            'next_page_info' => null
+        ]);
+    }
+}
+
 <<<<<<< HEAD
 
 =======
