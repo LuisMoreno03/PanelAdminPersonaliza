@@ -42,18 +42,18 @@ function cargarPedidosPreparados(pageInfo = null) {
       nextPageInfo = data.next_page_info ?? null;
 
       // ✅ Filtrar SOLO preparados
-      const pedidosPreparados = (data.orders || []).filter(
+      const Preparados = (data.orders || []).filter(
         (p) => (p.estado || "").trim().toLowerCase() === "preparado"
       );
 
-      actualizarTabla(pedidosPreparados);
+      actualizarTabla(Preparados);
 
       const btnSig = document.getElementById("btnSiguiente");
       if (btnSig) btnSig.disabled = !nextPageInfo;
 
       // ✅ contador mostrado (filtrado)
       const total = document.getElementById("total-pedidos");
-      if (total) total.textContent = pedidosPreparados.length;
+      if (total) total.textContent = Preparados.length;
     })
     .catch((err) => console.error("Error cargando pedidos preparados:", err))
     .finally(() => {
@@ -96,7 +96,7 @@ function actualizarTabla(pedidos) {
 
         <td class="py-2 px-2">
           <button onclick="abrirModal(${p.id})" class="font-semibold">
-            ${p.Preparado}
+            ${p.estado}
           </button>
         </td>
 
