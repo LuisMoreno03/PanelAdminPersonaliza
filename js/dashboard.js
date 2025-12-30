@@ -89,6 +89,9 @@ function actualizarTabla(pedidos) {
                         ${p.estado}
                     </button>
                 </td>
+                <td class="py-3 px-4" data-lastchange="${pedido.id}">
+                    ${renderLastChange(pedido)}
+                </td>
 
                 <td class="py-2 px-4">${formatearEtiquetas(p.etiquetas, p.id)}</td>
                 <td class="py-2 px-4">${p.articulos}</td>
@@ -442,44 +445,67 @@ function colorEtiqueta(tag) {
     if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900";
     return "bg-gray-200 text-gray-700";
 }
-function formatDateTime(dtStr) {
+function formatDateFull(dtStr) {
   if (!dtStr) return '-';
-  const d = new Date(dtStr.replace(' ', 'T')); // soporta "YYYY-MM-DD HH:mm:ss"
+  const d = new Date(dtStr.replace(' ', 'T'));
   if (isNaN(d)) return dtStr;
-  return d.toLocaleString('es-ES', { hour12: false });
+
+  const fecha = d.toLocaleDateString('es-ES', { weekday:'long', year:'numeric', month:'2-digit', day:'2-digit' });
+  const hora  = d.toLocaleTimeString('es-ES', { hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  return `${fecha} ${hora}`;
 }
 
 function timeAgo(dtStr) {
   if (!dtStr) return '';
   const d = new Date(dtStr.replace(' ', 'T'));
   if (isNaN(d)) return '';
-  const diffMs = Date.now() - d.getTime();
-  const sec = Math.floor(diffMs / 1000);
-  const min = Math.floor(sec / 60);
-  const hr  = Math.floor(min / 60);
-  const day = Math.floor(hr / 24);
-
-  if (day > 0) return `${day}d ${hr % 24}h`;
-  if (hr > 0) return `${hr}h ${min % 60}m`;
-  if (min > 0) return `${min}m`;
+  const diff = Date.now() - d.getTime();
+  const sec = Math.floor(diff/1000);
+  const min = Math.floor(sec/60);
+  const hr  = Math.floor(min/60);
+  const day = Math.floor(hr/24);
+  if (day>0) return `${day}d ${hr%24}h`;
+  if (hr>0) return `${hr}h ${min%60}m`;
+  if (min>0) return `${min}m`;
   return `${sec}s`;
 }
-function renderLastStatusChange(order) {
-  const info = order.last_status_change || null;
 
-  const user = info?.user_name || '—';
-  const changedAt = info?.changed_at || null;
-
-  if (!changedAt) {
-    return `<div class="text-sm text-gray-500">—</div>`;
-  }
+function renderLastChange(p) {
+  const info = p.last_status_change;
+  if (!info || !info.changed_at) return `<span class="text-gray-400 text-sm">—</span>`;
 
   return `
     <div class="text-sm">
-      <div class="font-semibold text-gray-800">${user}</div>
-      <div class="text-gray-600">${formatDateTime(changedAt)}</div>
-      <div class="text-xs text-gray-500">Hace ${timeAgo(changedAt)}</div>
+      <div class="font-semibold text-gray-800">${info.user_name || '—'}</div>
+      <div class="text-gray-600">${formatDateFull(info.changed_at)}</div>
+      <div class="text-xs text-gray-500">Hace ${timeAgo(info.changed_at)}</div>
     </div>
   `;
 }
+async function guardarCambioEstado(pedidoId, nuevoEstado) {
+  const res = await fetch('/pedidos/cambiar-estado', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pedido_id: pedidoId, estado: nuevoEstado })
+  });
+  const data = await res.json();
+
+  if (!data.success) {
+    alert(data.message || 'Error');
+    return;
+  }
+
+  // ✅ actualizar la fila en pantalla (sin recargar)
+  const cell = document.querySelector(`[data-lastchange="${pedidoId}"]`);
+  if (cell) {
+    const fakePedido = { last_status_change: data.last_status_change };
+    cell.innerHTML = renderLastChange(fakePedido);
+  }
+
+  // opcional: también actualizar el texto del estado en su celda
+}
+
+
+
+
 
