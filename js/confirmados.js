@@ -28,11 +28,11 @@ document.addEventListener("DOMContentLoaded", () => {
 function cargarPedidosPreparados(pageInfo = null) {
   if (isLoading) return;
   isLoading = true;
-  
+
 
   showLoader();
 
-  let url = "/dashboard/filter";
+  let url = "/Confirmados/filter";
   if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
 
   fetch(url)
@@ -43,11 +43,11 @@ function cargarPedidosPreparados(pageInfo = null) {
       nextPageInfo = data.next_page_info ?? null;
 
       // ✅ Filtrar SOLO preparados
-      const Preparados = (data.orders || []).filter(
-        (p) => (p.estado || "").trim().toLowerCase() === "preparado"
+      const Preparado = (data.orders || []).filter(
+        (p) => (p.estado || "").trim().toLowerCase() === "Preparado"
       );
 
-      actualizarTabla(Preparados);
+      actualizarTabla(Preparado);
 
       const btnSig = document.getElementById("btnSiguiente");
       if (btnSig) btnSig.disabled = !nextPageInfo;
