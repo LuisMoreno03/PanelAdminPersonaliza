@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Dashboard - Panel</title>
+    <title>Confirmados - Panel</title>
 
     <!-- Estilos -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -178,8 +178,11 @@
     </script>
 
     <!-- SCRIPT PRINCIPAL -->
-    <script src="<?= base_url('js/dashboard.js') ?>"></script>
+    <script src="<?= base_url('js/confirmados.js') ?>"></script>
 
 </body>
 </html>
+<<<<<<< HEAD
 
+=======
+>>>>>>> 5b7d69b5c59dc994a932f53f9524f33b97ed3254
