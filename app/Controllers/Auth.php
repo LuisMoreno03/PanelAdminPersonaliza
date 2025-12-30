@@ -57,14 +57,20 @@ class Auth extends BaseController
     }
 
     public function logout()
-{
-    $session = session();
-    $session->remove(['user_id', 'email', 'rol']);
-    $session->destroy();
-    $session->regenerate(true);
+    {
+        $session = session();
 
-    return redirect()->to('/');
-}
+        // Solo si hay sesión iniciada/variables
+        if ($session->get()) {
+            $session->regenerate(); // ✅ primero
+        }
+
+        $session->destroy(); // ✅ después
+
+        return redirect()->to('/login');
+    }
+
+
 
 
 }
