@@ -44,7 +44,7 @@
                 👤 Usuarios
             </a>
 
-            <a href="<?= base_url('/logout') ?>"
+            <a href="<?= base_url('logout') ?>"
                 class="block px-4 py-3 rounded-lg hover:bg-red-600 transition mt-10">
                 ❌ Cerrar sesión
             </a>

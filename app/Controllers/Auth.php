@@ -46,9 +46,25 @@ class Auth extends BaseController
         return redirect()->to('index.php/dashboard');
     }
 
-    public function logout()
+    
+    public function dashboard()
     {
-        session()->destroy();
-        return redirect()->to('');
+        if (!session()->get('user_id')) {
+            return redirect()->to('/login');
+        }
+
+        return view('dashboard');
     }
+
+    public function logout()
+{
+    $session = session();
+    $session->remove(['user_id', 'email', 'rol']);
+    $session->destroy();
+    $session->regenerate(true);
+
+    return redirect()->to('/login');
+}
+
+
 }
