@@ -30,17 +30,17 @@
             </a>
 
             <a href="<?= base_url('pedidos') ?>"
-                class="block ring-inset px-4 py-3 rounded-lg hover:bg-gray-700 transition">
+                class="block ring-inset px-4 btn-outline-secondary py-3 rounded-lg hover:bg-gray-700 transition">
                 🛒 Produccion 
             </a>
 
             <a href="<?= base_url('productos') ?>"
-                class="block px-4 py-3 rounded-lg hover:bg-gray-700 transition">
+                class="block px-4 py-3 rounded-lg btn-outline-secondary hover:bg-gray-700 transition">
                 🎁 Placas
             </a>
 
             <a href="<?= base_url('usuarios') ?>"
-                class="block px-4 py-3 rounded-lg hover:bg-gray-700 transition">
+                class="block px-4 py-3 rounded-lg btn-outline-secondary hover:bg-gray-700 transition">
                 👤 Usuarios
             </a>
 

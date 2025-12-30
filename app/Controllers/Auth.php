@@ -10,7 +10,7 @@ class Auth extends BaseController
     {
         // Si ya está logueado → mandar al dashboard
         if (session()->get('logged_in')) {
-            return redirect()->to('index.php/dashboard');
+            return redirect()->to('/dashboard');
         }
 
         return view('login');
@@ -50,7 +50,7 @@ class Auth extends BaseController
     public function dashboard()
     {
         if (!session()->get('user_id')) {
-            return redirect()->to('/login');
+            return redirect()->to('/');
         }
 
         return view('dashboard');

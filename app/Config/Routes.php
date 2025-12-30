@@ -15,12 +15,13 @@ $routes->get('logout', 'Auth::logout');
 $routes->get('dashboard', 'DashboardController::index');
 $routes->get('dashboard/sync', 'DashboardController::sync');
 $routes->get('dashboard/filter', 'DashboardController::filter');
+$routes->get('shopify/getOrders', 'ShopifyController::getOrders');
+$routes->get('shopify/getAllOrders', 'ShopifyController::getAllOrders');
+$routes->get('shopify/ordersView', 'ShopifyController::ordersView');
 
 /* API */
 $routes->post('api/estado/guardar', 'DashboardController::guardarEstado');
 $routes->post('api/estado/etiquetas/guardar', 'DashboardController::guardarEtiquetas');
-$routes->get('shopify/orders', 'ShopifyController::getOrders');
-$routes->get('shopify/orders/(:num)', 'ShopifyController::getOrder/$1');
 
 $routes->post('shopify/orders/update-tags', 'ShopifyController::updateOrderTags');
 $routes->post('shopify/orders/update', 'ShopifyController::updateOrder');
