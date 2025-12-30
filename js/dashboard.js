@@ -522,7 +522,7 @@ function renderLastChange(p) {
 
   return `
     <div class="text-sm">
-      <div class="font-semibold text-gray-800">${info.user_name || "—"}</div>
+      <div class="font-semibold text-gray-800">${info.user_name}</div>
       <div class="text-gray-600">${formatDateFull(info.changed_at)}</div>
       <div class="text-xs text-gray-500">Hace ${timeAgo(info.changed_at)}</div>
     </div>
