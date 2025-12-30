@@ -28,6 +28,10 @@ document.addEventListener("DOMContentLoaded", () => {
 function cargarPedidosPreparados(pageInfo = null) {
   if (isLoading) return;
   isLoading = true;
+  const Preparados = (data.orders || []).filter((p) => {
+  const estado = (p.estado || "").trim().toLowerCase();
+  return estado === "preparado" || estado === "preparados";
+});
 
   showLoader();
 
