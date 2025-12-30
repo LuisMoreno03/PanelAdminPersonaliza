@@ -2,15 +2,15 @@
 
 namespace App\Controllers;
 
-class Dashboard extends BaseController
+class Confirmados extends BaseController
 {
     public function index()
     {
         if (!session()->get('logged_in')) {
-            return redirect()->to('/dasboard');
+            return redirect()->to('/confirmados');
         }
 
-            return view('dashboard');
+            return view('confirmados');
     }
     
 
