@@ -67,7 +67,7 @@ class Auth extends BaseController
 
         $session->destroy(); // ✅ después
 
-        return redirect()->to('/login');
+        return redirect()->to('/');
     }
 
 
