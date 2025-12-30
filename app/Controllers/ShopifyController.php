@@ -288,4 +288,53 @@ class ShopifyController extends Controller
             "shop" => $this->shop
         ]);
     }
+
+    public function ordersView()
+{
+    $limit     = 50;
+    $page_info = $this->request->getGet('page_info');
+
+    $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
+
+    if ($page_info) {
+        $endpoint .= "&page_info=" . urlencode($page_info);
+    }
+
+    $response = $this->request("GET", $endpoint);
+
+    if (!$response["success"] || $response["status"] >= 400) {
+        return $this->response->setStatusCode(500)->setBody(
+            "Error Shopify: " . esc($response["error"] ?? 'Error desconocido')
+        );
+    }
+
+    $orders = $response["data"]["orders"] ?? [];
+    $nextPageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
+
+    // (Opcional) guardar historial para volver atrás
+    $history = session()->get('orders_page_history') ?? [];
+    if (!$page_info) {
+        $history = []; // si es primera página, resetea historial
+    } else {
+        // guarda la página actual en historial para "Anterior"
+        $history[] = $page_info;
+    }
+    session()->set('orders_page_history', $history);
+
+    // Para "Anterior": el anterior sería el penúltimo del historial
+    $prevPageInfo = null;
+    if (count($history) >= 2) {
+        $prevPageInfo = $history[count($history) - 2];
+    } elseif (count($history) === 1) {
+        $prevPageInfo = null; // desde la página 2, el “anterior” sería la primera (sin page_info)
+    }
+
+    return view('shopify/orders_list', [
+        'orders'       => $orders,
+        'nextPageInfo' => $nextPageInfo,
+        'prevPageInfo' => $prevPageInfo,
+        'isFirstPage'  => !$page_info
+    ]);
+}
+
 }
