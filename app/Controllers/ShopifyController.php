@@ -6,38 +6,68 @@ use CodeIgniter\Controller;
 
 class ShopifyController extends Controller
 {
-    // ✅ RECOMENDADO: mueve esto a .env (abajo te dejo ejemplo)
-   private $shop;
-    private $token;
+    private string $shop = '';
+    private string $token = '';
+    private string $apiVersion = '2024-01';
 
     public function __construct()
     {
-        $this->shop  = rtrim(env('SHOPIFY_SHOP'), '/');
-    $this->token = env('SHOPIFY_TOKEN');
+        // Leer desde .env
+        $shop  = (string) env('SHOPIFY_SHOP');
+        $token = (string) env('SHOPIFY_TOKEN');
+
+        // Normalizar SHOPIFY_SHOP por si el usuario puso https:// o /admin o trailing slash
+        $shop = trim($shop);
+        $shop = preg_replace('#^https?://#', '', $shop); // quita https://
+        $shop = preg_replace('#/.*$#', '', $shop);       // quita cualquier /algo (ej /admin)
+        $shop = rtrim($shop, '/');
+
+        $this->shop  = $shop;
+        $this->token = trim($token);
     }
 
     // ============================================================
     // 💡 MÉTODO GENERAL PARA TODAS LAS LLAMADAS A SHOPIFY (CON HEADERS)
     // ============================================================
-    private function request($method, $endpoint, $data = null)
+    private function request($method, $endpoint, $data = null): array
     {
-        $endpoint = ltrim($endpoint, '/');
+        // Validaciones básicas (si falta .env, te lo dice claro)
+        if (empty($this->shop) || empty($this->token)) {
+            return [
+                "success" => false,
+                "status"  => 500,
+                "error"   => "Faltan variables .env: SHOPIFY_SHOP o SHOPIFY_TOKEN",
+                "headers" => "",
+                "data"    => null,
+                "url"     => null
+            ];
+        }
 
-        $url = "https://{$this->shop}/admin/api/2024-01/{$endpoint}";
+        $endpoint = ltrim((string) $endpoint, '/');
+
+        // Construcción de URL segura
+        $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/{$endpoint}";
 
         $headers = [
             "Content-Type: application/json",
-            "X-Shopify-Access-Token: {$this->token}"
+            "X-Shopify-Access-Token: {$this->token}",
         ];
 
         $curl = curl_init($url);
 
-        curl_setopt($curl, CURLOPT_CUSTOMREQUEST, strtoupper($method));
+        curl_setopt($curl, CURLOPT_CUSTOMREQUEST, strtoupper((string) $method));
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
 
         // ✅ Capturar headers + body
         curl_setopt($curl, CURLOPT_HEADER, true);
+
+        // ✅ Algunos hostings fallan con HTTP/2
+        curl_setopt($curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+
+        // Timeout razonable
+        curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 15);
+        curl_setopt($curl, CURLOPT_TIMEOUT, 60);
 
         if (!empty($data)) {
             curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($data));
@@ -56,19 +86,23 @@ class ShopifyController extends Controller
                 "status"  => $status_code ?: 0,
                 "error"   => $error ?: "Unknown cURL error",
                 "headers" => "",
-                "data"    => null
+                "data"    => null,
+                "url"     => $url
             ];
         }
 
         $raw_headers = substr($response, 0, $header_size);
         $body        = substr($response, $header_size);
 
+        $decoded = json_decode($body, true);
+
         return [
             "success" => $error ? false : true,
             "status"  => $status_code,
             "error"   => $error,
             "headers" => $raw_headers,
-            "data"    => json_decode($body, true)
+            "data"    => $decoded,
+            "url"     => $url
         ];
     }
 
@@ -116,7 +150,6 @@ class ShopifyController extends Controller
 
         $response = $this->request("GET", $endpoint);
 
-        // devolver también next_page_info para que el front lo use
         $nextPageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
 
         return $this->response->setJSON([
@@ -124,6 +157,7 @@ class ShopifyController extends Controller
             "status"         => $response["status"],
             "error"          => $response["error"],
             "next_page_info" => $nextPageInfo,
+            "url"            => $response["url"] ?? null,
             "data"           => $response["data"]
         ]);
     }
@@ -154,6 +188,7 @@ class ShopifyController extends Controller
                     "success" => false,
                     "status"  => $response["status"],
                     "error"   => $response["error"],
+                    "url"     => $response["url"] ?? null,
                     "data"    => $response["data"]
                 ]);
             }
@@ -164,11 +199,8 @@ class ShopifyController extends Controller
             $pageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
 
             $loops++;
-
-            // freno de seguridad
             if ($loops > 2000) break;
 
-            // micro pausa por rate limit
             usleep(150000);
 
         } while ($pageInfo);
@@ -287,56 +319,59 @@ class ShopifyController extends Controller
     {
         return $this->response->setJSON([
             "message" => "Shopify API funcionando correctamente.",
-            "shop" => $this->shop
+            "shop"    => $this->shop,
+            "hasToken"=> !empty($this->token)
         ]);
-    }   
+    }
 
+    // ============================================================
+    // 👀 VISTA: Pedidos 50 en 50 (HTML)
+    // /shopify/ordersView
+    // ============================================================
     public function ordersView()
-{
-    $limit     = 50;
-    $page_info = $this->request->getGet('page_info');
+    {
+        $limit     = 50;
+        $page_info = $this->request->getGet('page_info');
 
-    $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
+        $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
 
-    if ($page_info) {
-        $endpoint .= "&page_info=" . urlencode($page_info);
+        if ($page_info) {
+            $endpoint .= "&page_info=" . urlencode($page_info);
+        }
+
+        $response = $this->request("GET", $endpoint);
+
+        if (!$response["success"] || $response["status"] >= 400) {
+            return $this->response->setStatusCode(500)->setBody(
+                "Error Shopify: " . esc($response["error"] ?? 'Error desconocido') .
+                "<br>URL: " . esc($response["url"] ?? '')
+            );
+        }
+
+        $orders = $response["data"]["orders"] ?? [];
+        $nextPageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
+
+        // Historial para botón "Anterior"
+        $history = session()->get('orders_page_history') ?? [];
+        if (!$page_info) {
+            $history = [];
+        } else {
+            $history[] = $page_info;
+        }
+        session()->set('orders_page_history', $history);
+
+        $prevPageInfo = null;
+        if (count($history) >= 2) {
+            $prevPageInfo = $history[count($history) - 2];
+        } elseif (count($history) === 1) {
+            $prevPageInfo = null;
+        }
+
+        return view('shopify/orders_list', [
+            'orders'       => $orders,
+            'nextPageInfo' => $nextPageInfo,
+            'prevPageInfo' => $prevPageInfo,
+            'isFirstPage'  => !$page_info
+        ]);
     }
-
-    $response = $this->request("GET", $endpoint);
-
-    if (!$response["success"] || $response["status"] >= 400) {
-        return $this->response->setStatusCode(500)->setBody(
-            "Error Shopify: " . esc($response["error"] ?? 'Error desconocido')
-        );
-    }
-
-    $orders = $response["data"]["orders"] ?? [];
-    $nextPageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
-
-    // (Opcional) guardar historial para volver atrás
-    $history = session()->get('orders_page_history') ?? [];
-    if (!$page_info) {
-        $history = []; // si es primera página, resetea historial
-    } else {
-        // guarda la página actual en historial para "Anterior"
-        $history[] = $page_info;
-    }
-    session()->set('orders_page_history', $history);
-
-    // Para "Anterior": el anterior sería el penúltimo del historial
-    $prevPageInfo = null;
-    if (count($history) >= 2) {
-        $prevPageInfo = $history[count($history) - 2];
-    } elseif (count($history) === 1) {
-        $prevPageInfo = null; // desde la página 2, el “anterior” sería la primera (sin page_info)
-    }
-
-    return view('shopify/orders_list', [
-        'orders'       => $orders,
-        'nextPageInfo' => $nextPageInfo,
-        'prevPageInfo' => $prevPageInfo,
-        'isFirstPage'  => !$page_info
-    ]);
-}
-
 }
