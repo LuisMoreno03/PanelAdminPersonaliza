@@ -186,54 +186,56 @@ class ShopifyController extends Controller
     // ============================================================
     // ✅ GET: Obtener TODOS los pedidos
     // ============================================================
-    public function getAllOrders()
-    {
-        $limit = 250;
-        $pageInfo = null;
+    public function getAllOrders50()
+{
+    $limit    = 50;      // tamaño de lote
+    $pageInfo = null;
+    $allOrders = [];
+    $loops     = 0;
 
-        $allOrders = [];
-        $loops = 0;
+    do {
+        if ($pageInfo) {
+            // Siguientes páginas: SOLO limit + page_info
+            $endpoint = "orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
+        } else {
+            // Primera página: con filtros/orden que quieras
+            $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
+        }
 
-        do {
-            // Para paginación cursor, en páginas siguientes conviene no mezclar filtros/order raros
-            $endpoint = "orders.json?limit={$limit}&status=any";
-            if ($pageInfo) {
-                $endpoint .= "&page_info=" . urlencode($pageInfo);
-            } else {
-                $endpoint .= "&order=created_at%20desc";
-            }
+        $response = $this->request("GET", $endpoint);
 
-            $response = $this->request("GET", $endpoint);
+        if (!$response["success"]) {
+            return $this->response->setJSON([
+                "success" => false,
+                "status"  => $response["status"],
+                "error"   => $response["error"],
+                "url"     => $response["url"] ?? null,
+                "raw"     => $response["raw"] ?? null,
+                "data"    => $response["data"]
+            ]);
+        }
 
-            if (!$response["success"]) {
-                return $this->response->setJSON([
-                    "success" => false,
-                    "status"  => $response["status"],
-                    "error"   => $response["error"],
-                    "url"     => $response["url"] ?? null,
-                    "raw"     => $response["raw"] ?? null,
-                    "data"    => $response["data"]
-                ]);
-            }
+        $orders    = $response["data"]["orders"] ?? [];
+        $allOrders = array_merge($allOrders, $orders);
 
-            $orders = $response["data"]["orders"] ?? [];
-            $allOrders = array_merge($allOrders, $orders);
+        // Siguiente cursor desde el header Link
+        $pageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
 
-            $pageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
+        $loops++;
+        if ($loops > 5000) { // seguridad
+            break;
+        }
 
-            $loops++;
-            if ($loops > 2000) break;
+        usleep(150000); // 150ms para no golpear límites de rate
+    } while ($pageInfo);
 
-            usleep(150000);
+    return $this->response->setJSON([
+        "success" => true,
+        "total"   => count($allOrders),
+        "orders"  => $allOrders
+    ]);
+}
 
-        } while ($pageInfo);
-
-        return $this->response->setJSON([
-            "success" => true,
-            "total"   => count($allOrders),
-            "orders"  => $allOrders
-        ]);
-    }
 
     public function getOrder($id)
     {
@@ -331,53 +333,51 @@ class ShopifyController extends Controller
     // 👀 VISTA: Pedidos 50 en 50 (HTML)
     // ============================================================
     public function ordersView()
-    {
-        $limit     = 50;
-        $page_info = $this->request->getGet('page_info');
+{
+    $limit     = 50;
+    $page_info = $this->request->getGet('page_info');
 
-        // ✅ IMPORTANTE: con page_info es mejor NO cambiar filtros/order,
-        // por eso aplicamos order SOLO en la primera página
-        $endpoint = "orders.json?limit={$limit}&status=any";
-
-        if ($page_info) {
-            $endpoint .= "&page_info=" . urlencode($page_info);
-        } else {
-            $endpoint .= "&order=created_at%20desc";
-        }
-
-        $response = $this->request("GET", $endpoint);
-
-        if (!$response["success"]) {
-            return $this->response->setStatusCode(500)->setBody(
-                "Error Shopify (HTTP {$response['status']}): " . esc((string)($response["error"] ?? '')) .
-                "<br><br><b>URL:</b> " . esc((string)($response["url"] ?? '')) .
-                "<br><br><b>RAW:</b> <pre style='white-space:pre-wrap'>" . esc((string)($response["raw"] ?? '')) . "</pre>"
-            );
-        }
-
-        $orders = $response["data"]["orders"] ?? [];
-        $nextPageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
-
-        $history = session()->get('orders_page_history') ?? [];
-        if (!$page_info) {
-            $history = [];
-        } else {
-            $history[] = $page_info;
-        }
-        session()->set('orders_page_history', $history);
-
-        $prevPageInfo = null;
-        if (count($history) >= 2) {
-            $prevPageInfo = $history[count($history) - 2];
-        } elseif (count($history) === 1) {
-            $prevPageInfo = null;
-        }
-
-        return view('shopify/orders_list', [
-            'orders'       => $orders,
-            'nextPageInfo' => $nextPageInfo,
-            'prevPageInfo' => $prevPageInfo,
-            'isFirstPage'  => !$page_info
-        ]);
+    // Primera página: puedes usar status/order.
+    // Páginas siguientes (cuando hay page_info): SOLO limit + page_info.
+    if ($page_info) {
+        $endpoint = "orders.json?limit={$limit}&page_info=" . urlencode($page_info);
+    } else {
+        $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
     }
+
+    $response = $this->request("GET", $endpoint);
+
+    if (!$response["success"]) {
+        return $this->response->setStatusCode(500)->setBody(
+            "Error Shopify (HTTP {$response['status']}): " . esc((string)($response["error"] ?? '')) .
+            "<br><br><b>URL:</b> " . esc((string)($response["url"] ?? '')) .
+            "<br><br><b>RAW:</b> <pre style='white-space:pre-wrap'>" . esc((string)($response["raw"] ?? '')) . "</pre>"
+        );
+    }
+
+    $orders       = $response["data"]["orders"] ?? [];
+    $nextPageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
+
+    // Historial para poder ir hacia atrás (opcional)
+    $history = session()->get('orders_page_history') ?? [];
+    if (!$page_info) {
+        $history = [];
+    } else {
+        $history[] = $page_info;
+    }
+    session()->set('orders_page_history', $history);
+
+    $prevPageInfo = null;
+    if (count($history) >= 2) {
+        $prevPageInfo = $history[count($history) - 2];
+    }
+
+    return view('shopify/orders_list', [
+        'orders'       => $orders,
+        'nextPageInfo' => $nextPageInfo,
+        'prevPageInfo' => $prevPageInfo,
+        'isFirstPage'  => !$page_info
+    ]);
+}
+
 }
