@@ -174,22 +174,14 @@
     </script>
 
     <!-- SCRIPT PRINCIPAL -->
-    <script src="<?= base_url('js/confirmados.js') ?>"></script>
-  
+    
+  <script src="<?= base_url('assets/js/confirmados.js') ?>"></script>
 <script>
   window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
   window.estadoFiltro = "Preparado";
 </script>
 
-
-</body>
-</html>
-
-<?php
-
-namespace App\Controllers;
-
-use App\Controllers\BaseController;
+<script>
 
 class Confirmados extends BaseController
 {
@@ -210,3 +202,7 @@ class Confirmados extends BaseController
         ]);
     }
 }
+</script>
+
+</body>
+</html>
