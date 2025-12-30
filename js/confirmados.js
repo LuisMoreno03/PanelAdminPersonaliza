@@ -5,7 +5,7 @@
 let nextPageInfo = null;
 let isLoading = false;
 
-// Loader global (si existe en la vista)
+
 function showLoader() {
   const el = document.getElementById("globalLoader");
   if (el) el.classList.remove("hidden");
@@ -13,6 +13,51 @@ function showLoader() {
 function hideLoader() {
   const el = document.getElementById("globalLoader");
   if (el) el.classList.add("hidden");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  cargarPedidosPreparados();
+});
+
+function cargarPedidosPreparados(pageInfo = null) {
+  if (isLoading) return;
+  isLoading = true;
+
+  showLoader();
+
+  let url = "/confirmados/filter"; // 👈 usa la ruta REAL (case-insensitive normalmente)
+  if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
+
+  fetch(url)
+    .then((res) => res.json())
+    .then((data) => {
+      if (!data.success) return;
+
+      nextPageInfo = data.next_page_info ?? null;
+
+      // ✅ Filtrar SOLO preparados (singular o plural)
+      const preparados = (data.orders || []).filter((p) => {
+        const estado = (p.estado || "").trim().toLowerCase();
+        return estado === "preparado" || estado === "preparados";
+      });
+
+      actualizarTabla(preparados);
+
+      const btnSig = document.getElementById("btnSiguiente");
+      if (btnSig) btnSig.disabled = !nextPageInfo;
+
+      const total = document.getElementById("total-pedidos");
+      if (total) total.textContent = preparados.length;
+    })
+    .catch((err) => console.error("Error cargando pedidos preparados:", err))
+    .finally(() => {
+      hideLoader();
+      isLoading = false;
+    });
+}
+
+function paginaSiguiente() {
+  if (nextPageInfo) cargarPedidosPreparados(nextPageInfo);
 }
 
 // =====================================================
@@ -43,8 +88,8 @@ function cargarPedidosPreparados(pageInfo = null) {
       nextPageInfo = data.next_page_info ?? null;
 
       // ✅ Filtrar SOLO preparados
-      const Preparado = (data.orders || []).filter(
-        (p) => (p.estado || "").trim().toLowerCase() === "Preparado"
+      const Preparado = (data.orders || []).filter
+        (p) = (p.estado === "Preparado"
       );
 
       actualizarTabla(Preparado);
