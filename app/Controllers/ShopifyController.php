@@ -12,18 +12,27 @@ class ShopifyController extends Controller
 
     public function __construct()
     {
-        // Leer desde .env
-        $shop  = (string) env('SHOPIFY_SHOP');
-        $token = (string) env('SHOPIFY_TOKEN');
+        // Leer desde .env (si existe). Si está vacío, NO pisa lo hardcodeado.
+        $envShop  = (string) env('SHOPIFY_SHOP');
+        $envToken = (string) env('SHOPIFY_TOKEN');
 
-        // Normalizar SHOPIFY_SHOP por si el usuario puso https:// o /admin o trailing slash
-        $shop = trim($shop);
-        $shop = preg_replace('#^https?://#', '', $shop); // quita https://
-        $shop = preg_replace('#/.*$#', '', $shop);       // quita cualquier /algo (ej /admin)
-        $shop = rtrim($shop, '/');
+        if (!empty(trim($envShop))) {
+            $shop = trim($envShop);
+            $shop = preg_replace('#^https?://#', '', $shop); // quita https://
+            $shop = preg_replace('#/.*$#', '', $shop);       // quita cualquier /algo (ej /admin)
+            $shop = rtrim($shop, '/');
+            $this->shop = $shop;
+        }
 
-        $this->shop  = $shop;
-        $this->token = trim($token);
+        if (!empty(trim($envToken))) {
+            $this->token = trim($envToken);
+        }
+
+        // Normalización final por si quedó raro el hardcodeado
+        $this->shop = trim($this->shop);
+        $this->shop = preg_replace('#^https?://#', '', $this->shop);
+        $this->shop = preg_replace('#/.*$#', '', $this->shop);
+        $this->shop = rtrim($this->shop, '/');
     }
 
     // ============================================================
@@ -31,12 +40,11 @@ class ShopifyController extends Controller
     // ============================================================
     private function request($method, $endpoint, $data = null): array
     {
-        // Validaciones básicas (si falta .env, te lo dice claro)
         if (empty($this->shop) || empty($this->token)) {
             return [
                 "success" => false,
                 "status"  => 500,
-                "error"   => "Faltan variables .env: SHOPIFY_SHOP o SHOPIFY_TOKEN",
+                "error"   => "Faltan credenciales Shopify (SHOPIFY_SHOP o SHOPIFY_TOKEN).",
                 "headers" => "",
                 "data"    => null,
                 "url"     => null
@@ -45,7 +53,6 @@ class ShopifyController extends Controller
 
         $endpoint = ltrim((string) $endpoint, '/');
 
-        // Construcción de URL segura
         $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/{$endpoint}";
 
         $headers = [
@@ -65,7 +72,6 @@ class ShopifyController extends Controller
         // ✅ Algunos hostings fallan con HTTP/2
         curl_setopt($curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
 
-        // Timeout razonable
         curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 15);
         curl_setopt($curl, CURLOPT_TIMEOUT, 60);
 
@@ -133,7 +139,6 @@ class ShopifyController extends Controller
 
     // ============================================================
     // 🔍 GET: Obtener pedidos paginados (1 página)
-    // /shopify/getOrders?limit=250&page_info=xxxx
     // ============================================================
     public function getOrders()
     {
@@ -163,8 +168,7 @@ class ShopifyController extends Controller
     }
 
     // ============================================================
-    // ✅ GET: Obtener TODOS los pedidos (sin límite de 250)
-    // /shopify/getAllOrders
+    // ✅ GET: Obtener TODOS los pedidos
     // ============================================================
     public function getAllOrders()
     {
@@ -212,18 +216,12 @@ class ShopifyController extends Controller
         ]);
     }
 
-    // ============================================================
-    // 🛒 GET: Obtener un pedido por ID
-    // ============================================================
     public function getOrder($id)
     {
         $response = $this->request("GET", "orders/{$id}.json");
         return $this->response->setJSON($response);
     }
 
-    // ============================================================
-    // ✏️ PUT: Actualizar etiquetas de un pedido
-    // ============================================================
     public function updateOrderTags()
     {
         $json = $this->request->getJSON(true);
@@ -250,9 +248,6 @@ class ShopifyController extends Controller
         return $this->response->setJSON($response);
     }
 
-    // ============================================================
-    // 📝 PUT: Cambiar cualquier propiedad del pedido
-    // ============================================================
     public function updateOrder()
     {
         $json = $this->request->getJSON(true);
@@ -275,9 +270,6 @@ class ShopifyController extends Controller
         return $this->response->setJSON($response);
     }
 
-    // ============================================================
-    // 🛍️ GET: Productos
-    // ============================================================
     public function getProducts()
     {
         $limit = (int) ($this->request->getGet("limit") ?? 250);
@@ -289,18 +281,12 @@ class ShopifyController extends Controller
         return $this->response->setJSON($response);
     }
 
-    // ============================================================
-    // 🔎 GET: Producto por ID
-    // ============================================================
     public function getProduct($id)
     {
         $response = $this->request("GET", "products/{$id}.json");
         return $this->response->setJSON($response);
     }
 
-    // ============================================================
-    // 💰 GET: Clientes
-    // ============================================================
     public function getCustomers()
     {
         $limit = (int) ($this->request->getGet("limit") ?? 250);
@@ -312,21 +298,17 @@ class ShopifyController extends Controller
         return $this->response->setJSON($response);
     }
 
-    // ============================================================
-    // 🔧 TEST: Ver si Shopify responde correctamente
-    // ============================================================
     public function test()
     {
         return $this->response->setJSON([
-            "message" => "Shopify API funcionando correctamente.",
-            "shop"    => $this->shop,
-            "hasToken"=> !empty($this->token)
+            "message"  => "Shopify API funcionando correctamente.",
+            "shop"     => $this->shop,
+            "hasToken" => !empty($this->token)
         ]);
     }
 
     // ============================================================
     // 👀 VISTA: Pedidos 50 en 50 (HTML)
-    // /shopify/ordersView
     // ============================================================
     public function ordersView()
     {
@@ -351,7 +333,6 @@ class ShopifyController extends Controller
         $orders = $response["data"]["orders"] ?? [];
         $nextPageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
 
-        // Historial para botón "Anterior"
         $history = session()->get('orders_page_history') ?? [];
         if (!$page_info) {
             $history = [];
