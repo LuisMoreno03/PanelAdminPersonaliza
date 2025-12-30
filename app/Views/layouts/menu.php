@@ -18,7 +18,7 @@
 
         <div class="p-6 text-2xl font-bold border-b border-gray-700">
             Panel Admin
-            <p class="text-base ">Usuario: <?php echo $_SESSION['nombre']; ?></p>
+            <p class="text-base ">Usuario: <?php echo session('nombre'); ?></p>
         </div>
         
 
