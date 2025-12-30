@@ -193,22 +193,15 @@ use App\Controllers\BaseController;
 
 class Confirmados extends BaseController
 {
+    public function index()
+    {
+        return view('confirmados');
+    }
+
     public function filter()
     {
-        // 🔒 Si hay login, devolver JSON, NO redirect
-        if (!session()->get('logged_in')) {
-            return $this->response
-                ->setStatusCode(401)
-                ->setJSON(['success' => false, 'message' => 'No autorizado']);
-        }
-
-        // 👉 EJEMPLO: obtener pedidos (AJUSTA ESTA PARTE)
-        $pedidoModel = new \App\Models\PedidoModel();
-
-        $orders = $pedidoModel
-            ->whereIn('estado', ['Preparado', 'Preparados'])
-            ->orderBy('fecha', 'DESC')
-            ->findAll();
+        // Ejemplo: devolver JSON (ajusta tu lógica)
+        $orders = []; // aquí metes tu consulta real
 
         return $this->response->setJSON([
             'success' => true,
