@@ -2,7 +2,7 @@
 
 namespace App\Controllers;
 
-use App\Controllers\BaseController;
+use App\Controllers\ConfirmadosController;
 
 class ConfirmadosController extends BaseController
 {
