@@ -40,3 +40,4 @@ $routes->post('pedidos/cambiar-estado', 'PedidosController::cambiarEstado');
 $routes->get('confirmados', 'ConfirmadosController::confirmados');
 $routes->get('confirmados', 'Confirmados::index');
 $routes->get('confirmados/filter', 'Confirmados::filter');
+$routes->post('api/estado/guardar', 'EstadoController::guardar');

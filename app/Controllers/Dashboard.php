@@ -88,34 +88,37 @@ class Dashboard extends BaseController
         // 3) Traer último cambio desde BD
        // 3) Traer último cambio desde BD
 // 3) Traer último cambio desde BD
-    $db = Database::connect();
+    // 3) Traer último cambio desde BD
+        $db = Database::connect();
 
-    foreach ($orders as &$ord) {
+        foreach ($orders as &$ord) {
 
-        $pedidoId = $ord['id'] ?? null;
+            $shopifyId = $ord['id'] ?? null;
 
-        if (!$pedidoId) {
-            $ord['last_status_change'] = null;
-            continue;
+            if (!$shopifyId) {
+                $ord['last_status_change'] = null;
+                continue;
+            }
+
+            $row = $db->table('pedidos_estado')
+                ->select('created_at, estado')
+                ->where('id', $shopifyId) // ✅ MISMO ID que Shopify
+                ->orderBy('created_at', 'DESC')
+                ->limit(1)
+                ->get()
+                ->getRowArray();
+
+            if ($row) {
+                $ord['last_status_change'] = [
+                    'user_name'  => 'Sistema', // luego lo mejoramos
+                    'changed_at' => $row['created_at'],
+                ];
+            } else {
+                $ord['last_status_change'] = null;
+            }
         }
+        unset($ord);
 
-        $row = $db->table('pedidos_estado')
-            ->select('created_at, estado')
-            ->where('id', $pedidoId) // 👈 id = ID de Shopify
-            ->orderBy('created_at', 'DESC')
-            ->get()
-            ->getRowArray();
-
-        if ($row) {
-            $ord['last_status_change'] = [
-                'user_name'  => 'Sistema', // por ahora
-                'changed_at' => $row['created_at'],
-            ];
-        } else {
-            $ord['last_status_change'] = null;
-        }
-    }
-    unset($ord);
 
 
         // 4) Responder
