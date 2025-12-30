@@ -184,7 +184,29 @@
 
 </body>
 </html>
-<<<<<<< HEAD
 
-=======
->>>>>>> 5b7d69b5c59dc994a932f53f9524f33b97ed3254
+<?php
+
+namespace App\Controllers;
+
+use App\Controllers\BaseController;
+
+class Confirmados extends BaseController
+{
+    public function index()
+    {
+        return view('confirmados');
+    }
+
+    public function filter()
+    {
+        // ⚠️ Ajusta esto a tu origen real (BD / Shopify)
+        $orders = [];
+
+        return $this->response->setJSON([
+            'success' => true,
+            'orders' => $orders,
+            'next_page_info' => null
+        ]);
+    }
+}

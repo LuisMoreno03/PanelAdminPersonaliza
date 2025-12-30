@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
   cargarPedidosPreparados();
 });
 
-function cargarPedidosPreparados(pageInfo = null) {
+function cargarPedidosPreparados(pageInfo = null) {}
   if (isLoading) return;
   isLoading = true;
 
