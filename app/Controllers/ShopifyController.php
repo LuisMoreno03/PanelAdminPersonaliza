@@ -6,8 +6,8 @@ use CodeIgniter\Controller;
 
 class ShopifyController extends Controller
 {
-    private string $shop = '';
-    private string $token = '';
+    private string $shop = '962f2d.myshopify.com';
+    private string $token = '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';
     private string $apiVersion = '2024-01';
 
     public function __construct()
