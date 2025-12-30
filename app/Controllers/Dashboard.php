@@ -10,6 +10,9 @@ class Dashboard extends BaseController
             return redirect()->to('/dasboard');
         }
 
-        return view('dashboard');
+            }return view('dashboard');
     }
-}
+
+ public function confirmados()
+{
+    return view('confirmados');}

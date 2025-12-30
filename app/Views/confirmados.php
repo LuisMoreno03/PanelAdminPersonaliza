@@ -182,3 +182,8 @@
 
 </body>
 </html>
+
+public function confirmados()
+{
+    return view('confirmados');
+}
