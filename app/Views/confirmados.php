@@ -170,7 +170,7 @@
 
     <!-- PASAR ETIQUETAS AL JS -->
     <script>
-        window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
+    
     </script>
 
     <!-- SCRIPT PRINCIPAL -->
