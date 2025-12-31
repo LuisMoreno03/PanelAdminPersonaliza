@@ -47,7 +47,8 @@ $routes->get('dashboard/ping', 'DashboardController::ping');
 $routes->get('dashboard/usuarios-estado', 'DashboardController::usuariosEstado');
 
 
-$routes->get('pedidos', 'PedidosController');
+$routes->get('pedidos', 'PedidosController::index');
+
 $routes->get('pedidos/filter', 'PedidosController::filter');
 $routes->get('api/pedidos', 'PedidosController::filter');
 $routes->get('pedidos', 'PedidosController::listarPedidos');
