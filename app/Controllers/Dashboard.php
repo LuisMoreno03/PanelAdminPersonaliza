@@ -2,114 +2,125 @@
 
 namespace App\Controllers;
 
-use CodeIgniter\Controller;
+use Config\Database;
 
-class ShopifyController extends Controller
+class Dashboard extends BaseController
 {
-    // Ajusta esto a tu config real
-    private string $shopDomain  = 'TU-TIENDA.myshopify.com';
-    private string $accessToken = 'TU_ADMIN_ACCESS_TOKEN';
-    private string $apiVersion  = '2024-10';
-
-    public function getOrders(int $limit = 50, ?string $pageInfo = null)
+    public function index()
     {
-        try {
-            $query = [
-                'status' => 'any',
-                'limit'  => $limit,
-                // IMPORTANTE: fields reduce payload y acelera
-                'fields' => 'id,name,order_number,created_at,total_price,tags,customer,line_items,fulfillment_status,shipping_lines',
+        if (!session()->get('logged_in')) {
+            return redirect()->to('/dasboard');
+        }
+
+        return view('dashboard');
+    }
+
+    public function filter()
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'No autenticado'
+        ])->setStatusCode(401);
+    }
+
+    $pageInfo = $this->request->getGet('page_info');
+
+    // 1) Pedir a Shopify
+    $shopify = new \App\Controllers\ShopifyController();
+
+    $_GET['limit'] = 50;
+    if ($pageInfo) $_GET['page_info'] = $pageInfo;
+
+    $shopifyResp = $shopify->getOrders();
+    $payload = json_decode($shopifyResp->getBody(), true);
+
+    if (!$payload || empty($payload['success'])) {
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => $payload['error'] ?? 'Error consultando Shopify',
+            'debug'   => $payload ?? null,
+        ])->setStatusCode(500);
+    }
+
+    $ordersRaw     = $payload['orders'] ?? [];
+    $nextPageInfo  = $payload['next_page_info'] ?? null;
+
+    // 2) Mapear al formato del dashboard
+    $orders = [];
+    foreach ($ordersRaw as $o) {
+        $orderId = $o['id'] ?? null;
+
+        $numero = $o['name'] ?? ('#' . ($o['order_number'] ?? $orderId));
+        $fecha  = isset($o['created_at']) ? substr($o['created_at'], 0, 10) : '-';
+
+        $cliente = '-';
+        if (!empty($o['customer'])) {
+            $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
+            if ($cliente === '') $cliente = '-';
+        }
+
+        $total = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
+        $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
+
+        $estado_envio = $o['fulfillment_status'] ?? '-';
+        $forma_envio  = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
+
+        $orders[] = [
+            'id'           => $orderId,
+            'numero'       => $numero,
+            'fecha'        => $fecha,
+            'cliente'      => $cliente,
+            'total'        => $total,
+            'estado'       => (!empty($o['tags']) ? 'Producción' : 'Por preparar'),
+            'etiquetas'    => $o['tags'] ?? '',
+            'articulos'    => $articulos,
+            'estado_envio' => $estado_envio ?: '-',
+            'forma_envio'  => $forma_envio ?: '-',
+            'last_status_change' => null, // se setea abajo
+        ];
+    }
+
+        // 3) Traer último cambio desde BD
+        $db = \Config\Database::connect();
+
+        foreach ($orders as &$ord) {
+
+            $orderId = $ord['id'] ?? null; // ID Shopify
+            if (!$orderId) {
+                $ord['last_status_change'] = null;
+                continue;
+            }
+
+            $row = $db->table('pedidos_estado')
+                ->select('created_at, user_id')
+                ->where('id', $orderId)   // 👈 CLAVE
+                ->orderBy('created_at', 'DESC')
+                ->limit(1)
+                ->get()
+                ->getRowArray();
+
+            $userName = 'Sistema';
+            if (!empty($row['user_id'])) {
+                $u = $db->table('users')->where('id', $row['user_id'])->get()->getRowArray();
+                if ($u) $userName = $u['nombre'];
+            }
+
+            $ord['last_status_change'] = [
+                'user_name'  => $userName,
+                'changed_at' => $row['created_at'] ?? null,
             ];
-
-            if ($pageInfo) {
-                // Para page_info NO mezcles otros filtros distintos (Shopify puede ignorar o fallar)
-                $query['page_info'] = $pageInfo;
-            }
-
-            $url = "https://{$this->shopDomain}/admin/api/{$this->apiVersion}/orders.json?" . http_build_query($query);
-
-            $ch = curl_init($url);
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_HEADER         => true,  // 👈 necesitamos headers para Link
-                CURLOPT_HTTPHEADER     => [
-                    "X-Shopify-Access-Token: {$this->accessToken}",
-                    "Content-Type: application/json",
-                ],
-                CURLOPT_TIMEOUT        => 30,
-            ]);
-
-            $raw = curl_exec($ch);
-
-            if ($raw === false) {
-                $err = curl_error($ch);
-                curl_close($ch);
-                return $this->response->setJSON([
-                    'success' => false,
-                    'error'   => "cURL error: {$err}"
-                ])->setStatusCode(500);
-            }
-
-            $status  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $hdrSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-            curl_close($ch);
-
-            $headerStr = substr($raw, 0, $hdrSize);
-            $bodyStr   = substr($raw, $hdrSize);
-
-            $body = json_decode($bodyStr, true);
-
-            if ($status < 200 || $status >= 300) {
-                return $this->response->setJSON([
-                    'success' => false,
-                    'error'   => $body['errors'] ?? 'Error Shopify',
-                    'status'  => $status,
-                ])->setStatusCode(500);
-            }
-
-            $nextPageInfo = $this->extractNextPageInfo($headerStr);
-
-            return $this->response->setJSON([
-                'success'        => true,
-                'orders'         => $body['orders'] ?? [],
-                'next_page_info' => $nextPageInfo,
-            ]);
-
-        } catch (\Throwable $e) {
-            return $this->response->setJSON([
-                'success' => false,
-                'error'   => $e->getMessage(),
-            ])->setStatusCode(500);
         }
-    }
+        unset($ord);
 
-    private function extractNextPageInfo(string $headers): ?string
-    {
-        // Busca el header Link: <...page_info=XYZ...>; rel="next"
-        // Shopify devuelve algo tipo:
-        // Link: <https://.../orders.json?limit=50&page_info=abcdef>; rel="next", <...>; rel="previous"
-        if (!preg_match('/^Link:\s*(.+)$/mi', $headers, $m)) {
-            return null;
-        }
 
-        $linkLine = $m[1];
+    // 4) Responder
+    return $this->response->setJSON([
+        'success'        => true,
+        'orders'         => $orders,
+        'next_page_info' => $nextPageInfo,
+        'count'          => count($orders),
+    ]);
+}
 
-        // Encuentra el segmento rel="next"
-        // Captura la URL dentro de < >
-        $parts = explode(',', $linkLine);
-        foreach ($parts as $p) {
-            if (stripos($p, 'rel="next"') !== false) {
-                if (preg_match('/<([^>]+)>/', $p, $u)) {
-                    $url = $u[1];
-                    $qs  = parse_url($url, PHP_URL_QUERY);
-                    if (!$qs) return null;
-
-                    parse_str($qs, $params);
-                    return $params['page_info'] ?? null;
-                }
-            }
-        }
-
-        return null;
-    }
 }
