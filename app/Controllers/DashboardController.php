@@ -149,7 +149,7 @@ class DashboardController extends Controller
 
         $clase = $estilos[$estado] ?? "bg-gray-100 text-gray-800 border border-gray-300";
 
-        return `<span class="px-3 py-1 rounded-full text-xs font-bold tracking-wide $clase">$estado</span>`;
+        return '<span class="px-3 py-1 rounded-full text-xs font-bold tracking-wide $clase">$estado</span>';
     }
 
 
