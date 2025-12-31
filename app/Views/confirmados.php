@@ -31,44 +31,97 @@
       Pedidos cargados: <span id="total-pedidos">0</span>
     </h2>
 
-    <h1 class="text-3xl font-bold mb-6 text-gray-800">Pedidos</h1>
+    <!-- ✅ CONTENEDOR TABLA MEJORADO -->
+<div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
 
-    <!-- TABLA -->
-    <div class="overflow-x-auto bg-white shadow-lg rounded-xl p-4">
-      <table class="w-full text-left min-w-[1400px]">
-        <thead class="bg-gray-100 text-gray-700 uppercase text-sm">
-          <tr>
-            <th class="py-3 px-4">Pedido</th>
-            <th class="py-3 px-4">Fecha</th>
-            <th class="py-3 px-4">Cliente</th>
-            <th class="py-3 px-4">Total</th>
-            <th class="py-3 px-2">Estado</th>
-            <th class="py-3 px-2">Etiquetas</th>
-            <th class="py-3 px-4">Artículos</th>
-            <th class="py-3 px-4">Estado entrega</th>
-            <th class="py-3 px-4">Forma entrega</th>
-            <th class="py-3 px-4">Detalles</th>
-          </tr>
-        </thead>
-        <tbody id="tablaPedidos" class="text-gray-800"></tbody>
-      </table>
+  <!-- Header de la tabla -->
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-5 border-b border-gray-200">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold text-gray-900">Confirmados</h1>
+      <p class="text-sm text-gray-500 mt-1">
+        Pedidos cargados: <span id="total-pedidos" class="font-semibold text-gray-800">0</span>
+      </p>
     </div>
 
-    <!-- PAGINACIÓN -->
-    <div class="flex justify-between mt-4">
+     <!-- Buscador -->
+    <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+      <div class="relative">
+        <input
+          id="inputBuscar"
+          type="text"
+          placeholder="Buscar pedido, cliente, etiqueta..."
+          class="w-[320px] max-w-full pl-10 pr-3 py-2 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+        />
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔎</span>
+      </div>
+
+      <button
+        id="btnLimpiarBusqueda"
+        class="px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition"
+      >
+        Limpiar
+      </button>
+    </div>
+
+    <!-- Paginación arriba -->
+    <div class="flex items-center gap-2">
       <button id="btnAnterior"
         disabled
-        class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg opacity-50 cursor-not-allowed">
+        class="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition">
         Anterior
       </button>
 
       <button id="btnSiguiente"
         onclick="paginaSiguiente()"
-        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+        class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition">
         Siguiente
       </button>
     </div>
   </div>
+
+  <!-- Tabla responsive -->
+  <div class="w-full overflow-x-auto">
+    <table class="min-w-[1400px] w-full text-sm">
+      <thead class="bg-gray-50 sticky top-0 z-10">
+        <tr class="text-left text-xs uppercase tracking-wider text-gray-500">
+          <th class="px-5 py-4">Pedido</th>
+          <th class="px-5 py-4">Fecha</th>
+          <th class="px-5 py-4">Cliente</th>
+          <th class="px-5 py-4">Total</th>
+          <th class="px-5 py-4">Estado</th>
+          <th class="px-5 py-4">Etiquetas</th>
+          <th class="px-5 py-4">Artículos</th>
+          <th class="px-5 py-4">Estado entrega</th>
+          <th class="px-5 py-4">Forma entrega</th>
+          <th class="px-5 py-4 text-right">Detalles</th>
+        </tr>
+      </thead>
+        <tbody id="tablaPedidos" class="text-gray-800"></tbody>
+      </table>
+    </div>
+
+    <!-- Footer de la tabla (paginación abajo) -->
+  <div class="flex items-center justify-between gap-2 p-4 border-t border-gray-200 bg-white">
+    <span class="text-xs text-gray-500">
+      ### Consejo: puedes desplazarte horizontalmente si hay muchas columnas. ###
+    </span>
+
+    <div class="flex items-center gap-2">
+      <button id="btnAnteriorBottom"
+        disabled
+        class="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+        onclick="paginaAnterior?.()">
+        Anterior
+      </button>
+
+      <button id="btnSiguienteBottom"
+        onclick="paginaSiguiente()"
+        class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition">
+        Siguiente
+      </button>
+    </div>
+  </div>
+</div>
 
   <!-- MODAL DETALLES -->
   <div id="modalDetalles"
@@ -149,3 +202,4 @@
 
 </body>
 </html>
+     

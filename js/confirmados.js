@@ -242,3 +242,4 @@ function stopAutoRefresh() {
     autoRefreshTimer = null;
   }
 }
+
