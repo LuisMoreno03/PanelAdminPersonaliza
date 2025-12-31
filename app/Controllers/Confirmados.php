@@ -13,11 +13,11 @@ class Confirmados extends BaseController
 
     public function filter()
 {
-    $pageInfo = $this->request->getGet('page_info');
+    $pageInfo = $this->request->getGet('page_info'); // cursor
     $limit = 50;
 
-    $shop = env('SHOPIFY_STORE_DOMAIN');
-    $token = env('SHOPIFY_ADMIN_TOKEN');
+    $shop  = getenv('SHOPIFY_STORE_DOMAIN') ?: env('SHOPIFY_STORE_DOMAIN');
+    $token = getenv('SHOPIFY_ADMIN_TOKEN') ?: env('SHOPIFY_ADMIN_TOKEN');
 
     if (!$shop || !$token) {
         return $this->response->setStatusCode(500)->setJSON([
@@ -26,28 +26,42 @@ class Confirmados extends BaseController
         ]);
     }
 
-    // ✅ Filtrar por etiqueta Preparado
-    $query = 'status:any (tag:Preparado OR tag:preparado OR tag:Preparados OR tag:PREPARADO)';
+    // ✅ Query de Shopify (búsqueda)
+    // Si tu tag real es otro, cambia aquí.
+    $searchQuery = 'status:any (tag:Preparado OR tag:Preparados OR tag:preparado OR tag:PREPARADO)';
 
+    $endpoint = "https://{$shop}/admin/api/2025-01/graphql.json";
 
-    // URL base (primera carga)
-    $url = "https://{$shop}/admin/api/2025-01/orders.json"
-        . "?limit={$limit}"
-        . "&status=any"
-        . "&fields=id,name,created_at,total_price,currency,fulfillment_status,tags,line_items,customer"
-        . "&query=" . urlencode($query);
+    $afterPart = $pageInfo ? ', after: "' . addslashes($pageInfo) . '"' : '';
 
-    // Paginación (cuando viene page_info)
-    if ($pageInfo) {
-        $url = "https://{$shop}/admin/api/2025-01/orders.json"
-            . "?limit={$limit}"
-            . "&page_info=" . urlencode($pageInfo);
+    $gql = <<<GQL
+    {
+      orders(first: {$limit}{$afterPart}, query: "{$searchQuery}") {
+        edges {
+          cursor
+          node {
+            id
+            name
+            createdAt
+            totalPriceSet { shopMoney { amount currencyCode } }
+            displayFulfillmentStatus
+            tags
+            lineItems(first: 1) { edges { node { id } } }
+            customer { firstName lastName }
+          }
+        }
+        pageInfo { hasNextPage }
+      }
     }
+    GQL;
 
-    $ch = curl_init($url);
+    $payload = json_encode(['query' => $gql]);
+
+    $ch = curl_init($endpoint);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HEADER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $payload,
         CURLOPT_HTTPHEADER => [
             "X-Shopify-Access-Token: {$token}",
             "Content-Type: application/json",
@@ -55,9 +69,8 @@ class Confirmados extends BaseController
         CURLOPT_TIMEOUT => 30,
     ]);
 
-    $resp = curl_exec($ch);
-
-    if ($resp === false) {
+    $raw = curl_exec($ch);
+    if ($raw === false) {
         $err = curl_error($ch);
         curl_close($ch);
         return $this->response->setStatusCode(500)->setJSON([
@@ -67,65 +80,66 @@ class Confirmados extends BaseController
         ]);
     }
 
-    $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-    $headersRaw = substr($resp, 0, $headerSize);
-    $bodyRaw = substr($resp, $headerSize);
     $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($status >= 400) {
+    $json = json_decode($raw, true);
+
+    if ($status >= 400 || !is_array($json)) {
         return $this->response->setStatusCode(500)->setJSON([
             'success' => false,
-            'error' => 'Error Shopify',
+            'error' => 'Error Shopify GraphQL',
             'status' => $status,
-            'body' => $bodyRaw,
+            'body' => substr($raw, 0, 1200),
         ]);
     }
 
-    $json = json_decode($bodyRaw, true);
-    if (!is_array($json)) {
+    if (!empty($json['errors'])) {
         return $this->response->setStatusCode(500)->setJSON([
             'success' => false,
-            'error' => 'Respuesta Shopify inválida (no JSON)',
-            'body' => substr($bodyRaw, 0, 500),
+            'error' => 'GraphQL errors',
+            'errors' => $json['errors'],
         ]);
     }
 
-    $ordersRaw = $json['orders'] ?? [];
+    $edges = $json['data']['orders']['edges'] ?? [];
+    $hasNext = $json['data']['orders']['pageInfo']['hasNextPage'] ?? false;
 
-    // next page_info
-    $nextPageInfo = null;
-    if (preg_match('/<[^>]*page_info=([^&>]*)[^>]*>; rel="next"/', $headersRaw, $m)) {
-        $nextPageInfo = urldecode($m[1]);
-    }
+    $orders = [];
+    $nextCursor = null;
 
-    $orders = array_map(function ($o) {
+    foreach ($edges as $edge) {
+        $node = $edge['node'] ?? [];
+        $nextCursor = $edge['cursor'] ?? $nextCursor;
+
         $cliente = '-';
-        if (!empty($o['customer'])) {
-            $fn = $o['customer']['first_name'] ?? '';
-            $ln = $o['customer']['last_name'] ?? '';
+        if (!empty($node['customer'])) {
+            $fn = $node['customer']['firstName'] ?? '';
+            $ln = $node['customer']['lastName'] ?? '';
             $cliente = trim($fn . ' ' . $ln) ?: '-';
         }
 
-        return [
-            'id' => $o['id'],
-            'numero' => $o['name'] ?? '-',
-            'fecha' => $o['created_at'] ?? '-',
+        $money = $node['totalPriceSet']['shopMoney'] ?? null;
+        $total = $money ? ($money['amount'] . ' ' . $money['currencyCode']) : '-';
+
+        $orders[] = [
+            'id' => $node['id'] ?? '',
+            'numero' => $node['name'] ?? '-',
+            'fecha' => $node['createdAt'] ?? '-',
             'cliente' => $cliente,
-            'total' => ($o['total_price'] ?? '-') . ' ' . ($o['currency'] ?? ''),
-            'estado' => $o['fulfillment_status'] ?? '-',
-            'etiquetas' => $o['tags'] ?? '',
-            'articulos' => isset($o['line_items']) ? count($o['line_items']) : 0,
-            'estado_envio' => $o['fulfillment_status'] ?? '',
+            'total' => $total,
+            'estado' => $node['displayFulfillmentStatus'] ?? '-',
+            'etiquetas' => !empty($node['tags']) ? implode(',', $node['tags']) : '',
+            'articulos' => 0, // si quieres conteo real, se puede pedir lineItems(first: 250) y contar
+            'estado_envio' => $node['displayFulfillmentStatus'] ?? '',
             'forma_envio' => '',
         ];
-    }, $ordersRaw);
+    }
 
     return $this->response->setJSON([
         'success' => true,
         'orders' => $orders,
-        'next_page_info' => $nextPageInfo,
+        'next_page_info' => ($hasNext ? $nextCursor : null),
     ]);
 }
-
 }
