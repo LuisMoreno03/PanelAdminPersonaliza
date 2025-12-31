@@ -86,7 +86,7 @@ class Dashboard extends BaseController
         }
 
         // 3) Traer último cambio desde BD
-        // 3) Traer último cambio desde BD (USANDO ID REAL)
+            
         $db = Database::connect();
 
         foreach ($orders as &$ord) {
@@ -128,6 +128,7 @@ class Dashboard extends BaseController
             }
         }
         unset($ord);
+
 
 
 
