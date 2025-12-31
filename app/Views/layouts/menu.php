@@ -129,10 +129,10 @@
         <span class="font-semibold">Confirmados</span>
       </a>
 
-      <a href="<?= base_url('pedidos') ?>"
+      <a href="<?= base_url('produccion') ?>"
          @click="close()"
          class="group flex items-center gap-3 px-4 py-3 rounded-2xl transition
-                <?= $isActive('pedidos') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
+                <?= $isActive('produccion') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
         <span class="text-white/90">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -142,10 +142,10 @@
         <span class="font-semibold">Producción</span>
       </a>
 
-      <a href="<?= base_url('productos') ?>"
+      <a href="<?= base_url('produccion') ?>"
          @click="close()"
          class="group flex items-center gap-3 px-4 py-3 rounded-2xl transition
-                <?= $isActive('productos') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
+                <?= $isActive('produccion') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
         <span class="text-white/90">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
