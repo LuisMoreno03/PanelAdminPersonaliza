@@ -17,110 +17,52 @@ class Dashboard extends BaseController
 
     public function filter()
 {
-    if (!session()->get('logged_in')) {
-        return $this->response->setJSON([
-            'success' => false,
-            'message' => 'No autenticado'
-        ])->setStatusCode(401);
-    }
+    $page  = (int)($this->request->getGet('page_info') ?? 1);
+    $limit = 50;
 
-    $pageInfo = $this->request->getGet('page_info');
+    $page = max(1, $page);
+    $offset = ($page - 1) * $limit;
 
-    // 1) Pedir a Shopify
-    $shopify = new \App\Controllers\ShopifyController();
+    $db = \Config\Database::connect();
 
-    $_GET['limit'] = 50;
-    if ($pageInfo) $_GET['page_info'] = $pageInfo;
+    $tablaPedidos = 'pedidos';
+    $campoEstado  = 'estado_pedido'; // ← CAMBIA AQUÍ al nombre REAL
+    $estadoObjetivo = 'Preparado';
 
-    $shopifyResp = $shopify->getOrders();
-    $payload = json_decode($shopifyResp->getBody(), true);
+    $builder = $db->table($tablaPedidos);
+    $builder->where($campoEstado, $estadoObjetivo);
 
-    if (!$payload || empty($payload['success'])) {
-        return $this->response->setJSON([
-            'success' => false,
-            'message' => $payload['error'] ?? 'Error consultando Shopify',
-            'debug'   => $payload ?? null,
-        ])->setStatusCode(500);
-    }
+    $total = (clone $builder)->countAllResults(false);
 
-    $ordersRaw     = $payload['data']['orders'] ?? [];
-    $nextPageInfo  = $payload['next_page_info'] ?? null;
+    $rows = $builder
+        ->orderBy('id', 'DESC')
+        ->limit($limit, $offset)
+        ->get()
+        ->getResultArray();
 
-    // 2) Mapear al formato del dashboard
-    $orders = [];
-    foreach ($ordersRaw as $o) {
-        $orderId = $o['id'] ?? null;
-
-        $numero = $o['name'] ?? ('#' . ($o['order_number'] ?? $orderId));
-        $fecha  = isset($o['created_at']) ? substr($o['created_at'], 0, 10) : '-';
-
-        $cliente = '-';
-        if (!empty($o['customer'])) {
-            $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
-            if ($cliente === '') $cliente = '-';
-        }
-
-        $total = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
-        $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
-
-        $estado_envio = $o['fulfillment_status'] ?? '-';
-        $forma_envio  = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
-
-        $orders[] = [
-            'id'           => $orderId,
-            'numero'       => $numero,
-            'fecha'        => $fecha,
-            'cliente'      => $cliente,
-            'total'        => $total,
-            'estado'       => (!empty($o['tags']) ? 'Producción' : 'Por preparar'),
-            'etiquetas'    => $o['tags'] ?? '',
-            'articulos'    => $articulos,
-            'estado_envio' => $estado_envio ?: '-',
-            'forma_envio'  => $forma_envio ?: '-',
-            'last_status_change' => null, // se setea abajo
+    $orders = array_map(function ($r) use ($campoEstado) {
+        return [
+            'id' => $r['id'],
+            'numero' => $r['numero'] ?? '-',
+            'fecha' => $r['created_at'] ?? '-',
+            'cliente' => $r['cliente'] ?? '-',
+            'total' => $r['total'] ?? '-',
+            'estado' => $r[$campoEstado],
+            'etiquetas' => $r['etiquetas'] ?? '',
+            'articulos' => $r['articulos'] ?? '',
+            'estado_envio' => '',
+            'forma_envio' => '',
         ];
-    }
+    }, $rows);
 
-        // 3) Traer último cambio desde BD
-        $db = \Config\Database::connect();
+    $hasNext = ($offset + $limit) < $total;
 
-        foreach ($orders as &$ord) {
-
-            $orderId = $ord['id'] ?? null; // ID Shopify
-            if (!$orderId) {
-                $ord['last_status_change'] = null;
-                continue;
-            }
-
-            $row = $db->table('pedidos_estado')
-                ->select('created_at, user_id')
-                ->where('id', $orderId)   // 👈 CLAVE
-                ->orderBy('created_at', 'DESC')
-                ->limit(1)
-                ->get()
-                ->getRowArray();
-
-            $userName = 'Sistema';
-            if (!empty($row['user_id'])) {
-                $u = $db->table('users')->where('id', $row['user_id'])->get()->getRowArray();
-                if ($u) $userName = $u['nombre'];
-            }
-
-            $ord['last_status_change'] = [
-                'user_name'  => $userName,
-                'changed_at' => $row['created_at'] ?? null,
-            ];
-        }
-        unset($ord);
-
-
-    // 4) Responder
     return $this->response->setJSON([
-        'success'        => true,
-        'orders'         => $orders,
-        'next_page_info' => $nextPageInfo,
-        'count'          => count($orders),
+        'success' => true,
+        'orders' => $orders,
+        'next_page_info' => $hasNext ? (string)($page + 1) : null,
     ]);
 }
+
 
 }
