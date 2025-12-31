@@ -81,30 +81,38 @@ class Dashboard extends BaseController
         ];
     }
 
-    // 3) Traer último cambio desde BD (CORREGIDO: pedidos_estado usa "id" como id del pedido)
-    $db = Database::connect();
+        // 3) Traer último cambio desde BD
+        $db = \Config\Database::connect();
 
-    foreach ($orders as &$ord) {
-        $orderId = $ord['id'] ?? null;
-        if (!$orderId) {
-            $ord['last_status_change'] = null;
-            continue;
+        foreach ($orders as &$ord) {
+
+            $orderId = $ord['id'] ?? null; // ID Shopify
+            if (!$orderId) {
+                $ord['last_status_change'] = null;
+                continue;
+            }
+
+            $row = $db->table('pedidos_estado')
+                ->select('created_at, user_id')
+                ->where('id', $orderId)   // 👈 CLAVE
+                ->orderBy('created_at', 'DESC')
+                ->limit(1)
+                ->get()
+                ->getRowArray();
+
+            $userName = 'Sistema';
+            if (!empty($row['user_id'])) {
+                $u = $db->table('users')->where('id', $row['user_id'])->get()->getRowArray();
+                if ($u) $userName = $u['nombre'];
+            }
+
+            $ord['last_status_change'] = [
+                'user_name'  => $userName,
+                'changed_at' => $row['created_at'] ?? null,
+            ];
         }
+        unset($ord);
 
-        $row = $db->table('pedidos_estado pe')
-            ->select('pe.created_at as changed_at, u.nombre as user_name')
-            ->join('users u', 'u.id = pe.user_id', 'left')
-            ->where('pe.id', $orderId)              // ✅ AQUÍ ESTÁ LA CLAVE
-            ->orderBy('pe.created_at', 'DESC')
-            ->get()
-            ->getRowArray();
-
-        $ord['last_status_change'] = [
-            'user_name'  => $row['user_name'] ?? '—',
-            'changed_at' => $row['changed_at'] ?? null,
-        ];
-    }
-    unset($ord);
 
     // 4) Responder
     return $this->response->setJSON([
