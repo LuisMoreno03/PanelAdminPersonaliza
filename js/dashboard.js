@@ -160,74 +160,150 @@ function paginaAnterior() {
 // =====================================================
 function actualizarTabla(pedidos) {
   const tbody = document.getElementById("tablaPedidos");
-  if (!tbody) return;
+  const cards = document.getElementById("cardsPedidos");
 
-  tbody.innerHTML = "";
+  // ==========================
+  // DESKTOP TABLE
+  // ==========================
+  if (tbody) {
+    tbody.innerHTML = "";
 
-  if (!pedidos.length) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="11" class="py-4 text-center text-gray-500">
-          No se encontraron pedidos
-        </td>
-      </tr>`;
-    return;
+    if (!pedidos.length) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="11" class="py-6 text-center text-gray-500">
+            No se encontraron pedidos
+          </td>
+        </tr>`;
+    } else {
+      const rows = pedidos.map((p) => {
+        const id = p.id ?? "";
+        return `
+          <tr class="border-b hover:bg-gray-50 transition">
+            <td class="py-2 px-4 font-semibold text-slate-900">${escapeHtml(p.numero ?? "-")}</td>
+            <td class="py-2 px-4">${escapeHtml(p.fecha ?? "-")}</td>
+            <td class="py-2 px-4">${escapeHtml(p.cliente ?? "-")}</td>
+            <td class="py-2 px-4 font-semibold">${escapeHtml(p.total ?? "-")}</td>
+
+            <td class="py-2 px-2">
+              <button onclick="abrirModal(${id})" class="font-semibold">
+                ${renderEstado(p.estado ?? "-")}
+              </button>
+            </td>
+
+            <td class="py-2 px-4" data-lastchange="${id}">
+              ${renderLastChange(p)}
+            </td>
+
+            <td class="py-2 px-4">${formatearEtiquetas(p.etiquetas ?? "", id)}</td>
+            <td class="py-2 px-4">${escapeHtml(p.articulos ?? "-")}</td>
+            <td class="py-2 px-4">${escapeHtml(p.estado_envio ?? "-")}</td>
+            <td class="py-2 px-4">${escapeHtml(p.forma_envio ?? "-")}</td>
+
+            <td class="py-2 px-4">
+              <button onclick="verDetalles(${id})" class="text-blue-600 underline">
+                Ver detalles
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      tbody.innerHTML = rows;
+    }
   }
 
-  const rows = pedidos
-    .map((p) => {
+  // ==========================
+  // MOBILE CARDS (NO SCROLL)
+  // ==========================
+  if (cards) {
+    cards.innerHTML = "";
+
+    if (!pedidos.length) {
+      cards.innerHTML = `
+        <div class="py-6 text-center text-slate-500">
+          No se encontraron pedidos
+        </div>`;
+      return;
+    }
+
+    const html = pedidos.map((p) => {
       const id = p.id ?? "";
+      const numero = escapeHtml(p.numero ?? "-");
+      const fecha = escapeHtml(p.fecha ?? "-");
+      const cliente = escapeHtml(p.cliente ?? "-");
+      const total = escapeHtml(p.total ?? "-");
+      const envio = escapeHtml(p.forma_envio ?? "-");
+      const estadoEnvio = escapeHtml(p.estado_envio ?? "-");
+      const articulos = escapeHtml(p.articulos ?? "0");
 
       return `
-      <tr class="border-b hover:bg-gray-50 transition">
-        <!-- 1 Pedido -->
-        <td class="py-2 px-4">${escapeHtml(p.numero ?? "-")}</td>
+        <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-sm font-extrabold text-slate-900">${numero}</div>
+                <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
+                <div class="text-sm text-slate-700 mt-1">${cliente}</div>
+              </div>
 
-        <!-- 2 Fecha -->
-        <td class="py-2 px-4">${escapeHtml(p.fecha ?? "-")}</td>
+              <div class="text-right">
+                <div class="text-sm font-extrabold text-slate-900">${total}</div>
+                <div class="text-xs text-slate-500 mt-0.5">${articulos} artículos</div>
+              </div>
+            </div>
 
-        <!-- 3 Cliente -->
-        <td class="py-2 px-4">${escapeHtml(p.cliente ?? "-")}</td>
+            <div class="mt-3 flex items-center justify-between gap-3">
+              <button onclick="abrirModal(${id})" class="text-left">
+                ${renderEstado(p.estado ?? "-")}
+              </button>
 
-        <!-- 4 Total -->
-        <td class="py-2 px-4">${escapeHtml(p.total ?? "-")}</td>
+              <button onclick="verDetalles(${id})"
+                      class="px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold">
+                Ver
+              </button>
+            </div>
 
-        <!-- 5 Estado (FIX: NO escapamos si viene badge HTML) -->
-        <td class="py-2 px-2">
-          <button onclick="abrirModal(${id})" class="font-semibold">
-            ${renderEstado(p.estado ?? "-")}
-          </button>
-        </td>
+            <div class="mt-3 text-sm">
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-slate-500">Entrega</span>
+                <span class="font-semibold text-slate-800">${estadoEnvio}</span>
+              </div>
+              <div class="flex items-center justify-between gap-3 mt-1">
+                <span class="text-slate-500">Forma</span>
+                <span class="font-semibold text-slate-800">${envio}</span>
+              </div>
+            </div>
 
-        <!-- 6 ÚLTIMO CAMBIO -->
-        <td class="py-2 px-4" data-lastchange="${id}">
-          ${renderLastChange(p)}
-        </td>
+            <div class="mt-3" data-lastchange="${id}">
+              ${renderLastChange(p)}
+            </div>
 
-        <!-- 7 Etiquetas -->
-        <td class="py-2 px-4">${formatearEtiquetas(p.etiquetas ?? "", id)}</td>
+            <div class="mt-3">
+              <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Etiquetas</div>
+              ${formatearEtiquetas(p.etiquetas ?? "", id)}
+            </div>
 
-        <!-- 8 Artículos -->
-        <td class="py-2 px-4">${escapeHtml(p.articulos ?? "-")}</td>
+            <details class="mt-3">
+              <summary class="cursor-pointer text-sm font-semibold text-slate-700 select-none">
+                Ver más
+              </summary>
+              <div class="mt-2 text-sm text-slate-600">
+                <div class="flex items-center justify-between">
+                  <span class="text-slate-500">ID</span>
+                  <span class="font-mono text-xs">${escapeHtml(String(id))}</span>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      `;
+    }).join("");
 
-        <!-- 9 Estado entrega -->
-        <td class="py-2 w-40 px-4">${escapeHtml(p.estado_envio ?? "-")}</td>
-
-        <!-- 10 Forma entrega -->
-        <td class="py-2 px-4">${escapeHtml(p.forma_envio ?? "-")}</td>
-
-        <!-- 11 Detalles -->
-        <td class="py-2 px-4">
-          <button onclick="verDetalles(${id})" class="text-blue-600 underline">
-            Ver detalles
-          </button>
-        </td>
-      </tr>`;
-    })
-    .join("");
-
-  tbody.innerHTML = rows;
+    cards.innerHTML = html;
+  }
 }
+
 
 // =====================================================
 // ETIQUETAS

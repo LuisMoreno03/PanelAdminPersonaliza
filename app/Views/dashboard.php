@@ -120,43 +120,54 @@
     </section>
 
     <!-- Tabla -->
-    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-      <!-- Cabecera tabla -->
-      <div class="px-4 sm:px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <div class="flex items-center gap-2">
-          <span class="inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
-          <p class="font-semibold text-slate-800">Listado de pedidos</p>
-        </div>
-        <p class="text-xs sm:text-sm text-slate-500">
-          En móvil: desliza horizontalmente → 
-        </p>
-      </div>
+    <!-- Tabla / Cards (responsive sin scroll horizontal) -->
+<section class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
 
-      <!-- Tabla scroll -->
-      <div class="overflow-x-auto soft-scroll">
-        <table class="w-full text-left min-w-[1550px]">
-          <thead class="text-[11px] uppercase tracking-wider text-slate-600">
-            <tr class="border-b border-slate-200">
-              <th class="py-3 px-4">Pedido</th>
-              <th class="py-3 px-4">Fecha</th>
-              <th class="py-3 px-4">Cliente</th>
-              <th class="py-3 px-4">Total</th>
-              <th class="py-3 px-2 w-44">Estado</th>
-              <th class="py-3 px-4">Último cambio</th>
-              <th class="py-3 px-2">Etiquetas</th>
-              <th class="py-3 px-4">Artículos</th>
-              <th class="py-3 px-4">Estado entrega</th>
-              <th class="py-3 px-4">Forma entrega</th>
-              <th class="py-3 px-4">Detalles</th>
-            </tr>
-          </thead>
+  <!-- Cabecera -->
+  <div class="px-4 sm:px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+    <div class="flex items-center gap-2">
+      <span class="inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
+      <p class="font-semibold text-slate-800">Listado de pedidos</p>
+    </div>
 
-          <tbody id="tablaPedidos"
-                 class="text-slate-800 text-sm leading-tight divide-y divide-slate-100">
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <!-- Solo se muestra en móvil -->
+    <p class="text-xs text-slate-500 md:hidden">
+      Vista compacta (sin scroll horizontal)
+    </p>
+  </div>
+
+  <!-- ✅ MOBILE: CARDS (sin scroll) -->
+  <div class="md:hidden p-3">
+    <div id="cardsPedidos" class="space-y-3"></div>
+  </div>
+
+  <!-- ✅ DESKTOP: TABLA -->
+  <div class="hidden md:block overflow-x-auto soft-scroll">
+    <table class="w-full text-left min-w-[1550px]">
+      <thead class="text-[11px] uppercase tracking-wider text-slate-600">
+        <tr class="border-b border-slate-200">
+          <th class="py-3 px-4">Pedido</th>
+          <th class="py-3 px-4">Fecha</th>
+          <th class="py-3 px-4">Cliente</th>
+          <th class="py-3 px-4">Total</th>
+          <th class="py-3 px-2 w-44">Estado</th>
+          <th class="py-3 px-4">Último cambio</th>
+          <th class="py-3 px-2">Etiquetas</th>
+          <th class="py-3 px-4">Artículos</th>
+          <th class="py-3 px-4">Estado entrega</th>
+          <th class="py-3 px-4">Forma entrega</th>
+          <th class="py-3 px-4">Detalles</th>
+        </tr>
+      </thead>
+
+      <tbody id="tablaPedidos"
+             class="text-slate-800 text-sm leading-tight divide-y divide-slate-100">
+      </tbody>
+    </table>
+  </div>
+
+</section>
+
 
     <!-- Paginación -->
     <section class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mt-5">
