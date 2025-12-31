@@ -1,34 +1,38 @@
 <?php
 
-public function listarPedidos()
+namespace App\Controllers;
+
+use Config\Database;
+
+class PedidosController extends BaseController
 {
-    // 1 Obtienes los pedidos (como ya lo haces hoy)
-    // EJEMPLO:
-    $pedidos = $this->obtenerPedidos(); 
-    // $pedidos debe ser un array de pedidos con ['id'] y ['created_at']
+    public function listarPedidos()
+    {
+        // 1) Obtienes los pedidos (como ya lo haces hoy)
+        $pedidos = $this->obtenerPedidos(); // <-- asegúrate que este método exista
 
-    // 2 AGREGAR INFO DE ÚLTIMO CAMBIO DE ESTADO
-    $db = \Config\Database::connect();
+        // 2) AGREGAR INFO DE ÚLTIMO CAMBIO DE ESTADO
+        $db = Database::connect();
 
-    foreach ($pedidos as &$p) {
-        $row = $db->table('pedidos_estado pe')
-            ->select('pe.created_at as changed_at, u.nombre as user_name')
-            ->join('users u', 'u.id = pe.user_id', 'left')
-            ->where('pe.pedido_id', $p['id'])
-            ->orderBy('pe.created_at', 'DESC')
-            ->get()
-            ->getRowArray();
+        foreach ($pedidos as &$p) {
+            $row = $db->table('pedidos_estado pe')
+                ->select('pe.created_at as changed_at, u.nombre as user_name')
+                ->join('usuarios u', 'u.id = pe.user_id', 'left')
+                ->where('pe.pedido_id', $p['id'])
+                ->orderBy('pe.created_at', 'DESC')
+                ->get()
+                ->getRowArray();
 
-        $p['last_status_change'] = [
-            'user_name'  => $row['user_name'] ?? 'Shopify',
-            'changed_at' => $row['changed_at'] ?? ($p['created_at'] ?? null),
-        ];
+            $p['last_estado_changed_at'] = $row['changed_at'] ?? null;
+            $p['last_estado_user_name']  = $row['user_name'] ?? null;
+        }
+
+        return view('pedidos/index', ['pedidos' => $pedidos]);
     }
-    unset($p); // buena práctica
 
-    // 3 DEVOLVER AL FRONT
-    return $this->response->setJSON([
-        'success' => true,
-        'pedidos' => $pedidos
-    ]);
+    // EJEMPLO: si no existe aún, crea este método o reemplázalo por tu lógica real
+    private function obtenerPedidos(): array
+    {
+        return [];
+    }
 }
