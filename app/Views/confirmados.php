@@ -103,7 +103,7 @@
     <!-- Footer de la tabla (paginación abajo) -->
   <div class="flex items-center justify-between gap-2 p-4 border-t border-gray-200 bg-white">
     <span class="text-xs text-gray-500">
-      ### Consejo: puedes desplazarte horizontalmente si hay muchas columnas. ###
+     ====== Consejo: puedes desplazarte horizontalmente si hay muchas columnas. ======
     </span>
 
     <div class="flex items-center gap-2">
