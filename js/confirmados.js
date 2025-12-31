@@ -15,10 +15,14 @@ function hideLoader() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  cargarPedidosPreparados();
+  currentPageInfo = null;
+  cargarPedidosPreparados(currentPageInfo);
+  startAutoRefresh(); // 👈 tiempo real
 });
 
+
 function cargarPedidosPreparados(pageInfo = null) {
+  currentPageInfo = pageInfo; // 👈 guarda la página actual
   if (isLoading) return;
   isLoading = true;
 
