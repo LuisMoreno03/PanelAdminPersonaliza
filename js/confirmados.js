@@ -196,3 +196,28 @@ function colorEtiqueta(tag) {
   if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900";
   return "bg-gray-200 text-gray-700";
 }
+
+// =====================================================
+// TIEMPO REAL (POLLING)
+// =====================================================
+let autoRefreshTimer = null;
+let autoRefreshEveryMs = 7000; // 7s (puedes bajar a 3-5s si quieres)
+let currentPageInfo = null;    // guardamos la página actual
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  autoRefreshTimer = setInterval(() => {
+    // no refrescar si ya está cargando
+    if (isLoading) return;
+
+    // refresca la misma página que estás viendo
+    cargarPedidosPreparados(currentPageInfo);
+  }, autoRefreshEveryMs);
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+}
