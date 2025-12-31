@@ -1,11 +1,13 @@
+<?php
+
 public function listarPedidos()
 {
-    // 1️⃣ Obtienes los pedidos (como ya lo haces hoy)
+    // 1 Obtienes los pedidos (como ya lo haces hoy)
     // EJEMPLO:
     $pedidos = $this->obtenerPedidos(); 
     // $pedidos debe ser un array de pedidos con ['id'] y ['created_at']
 
-    // 2️⃣ AGREGAR INFO DE ÚLTIMO CAMBIO DE ESTADO
+    // 2 AGREGAR INFO DE ÚLTIMO CAMBIO DE ESTADO
     $db = \Config\Database::connect();
 
     foreach ($pedidos as &$p) {
@@ -24,7 +26,7 @@ public function listarPedidos()
     }
     unset($p); // buena práctica
 
-    // 3️⃣ DEVOLVER AL FRONT
+    // 3 DEVOLVER AL FRONT
     return $this->response->setJSON([
         'success' => true,
         'pedidos' => $pedidos
