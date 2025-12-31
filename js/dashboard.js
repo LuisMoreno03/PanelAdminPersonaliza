@@ -1,9 +1,9 @@
 // =====================================================
-// DASHBOARD.JS (COMPLETO) - FUNCIONAL
-// - Tabla responsive SIN scroll horizontal (oculta columnas por breakpoints)
+// DASHBOARD.JS (COMPLETO) - ROBUSTO + FALLBACK CI4
+// - Tabla responsive sin scroll horizontal (oculta columnas por breakpoints)
 // - Entrega MUY visible
-// - Etiquetas compactas + MODAL FUNCIONAL
-// - Exponemos funciones para onclick (window.*)
+// - Etiquetas compactas + modal funcional
+// - Fix: endpoints con fallback /index.php (CI4) y debug real de 500
 // =====================================================
 
 // =====================================================
@@ -34,26 +34,52 @@ function hideLoader() {
 }
 
 // =====================================================
-// INIT
+// UTIL: Fetch robusto con fallback + debug de 500
 // =====================================================
-document.addEventListener("DOMContentLoaded", () => {
-  const btnAnterior = document.getElementById("btnAnterior");
-  if (btnAnterior) {
-    btnAnterior.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (!btnAnterior.disabled) paginaAnterior();
-    });
+async function fetchJsonWithFallback(urls, options = {}) {
+  const list = Array.isArray(urls) ? urls : [urls];
+
+  let lastErr = null;
+
+  for (const url of list) {
+    try {
+      const res = await fetch(url, {
+        credentials: "same-origin",
+        ...options,
+        headers: {
+          Accept: "application/json",
+          ...(options.headers || {}),
+        },
+      });
+
+      // Si no es 2xx, intentamos leer texto para debug
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        lastErr = new Error(`HTTP ${res.status} en ${url}\n${txt?.slice(0, 500)}`);
+        continue;
+      }
+
+      // Intentar JSON
+      const data = await res.json().catch(async () => {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`Respuesta NO JSON en ${url}\n${txt?.slice(0, 500)}`);
+      });
+
+      return { ok: true, url, data };
+    } catch (e) {
+      lastErr = e;
+    }
   }
 
-  // Usuarios (si existen endpoints)
-  pingUsuario();
-  userPingInterval = setInterval(pingUsuario, 30000);
+  return { ok: false, error: lastErr };
+}
 
-  cargarUsuariosEstado();
-  userStatusInterval = setInterval(cargarUsuariosEstado, 15000);
-
-  cargarPedidos();
-});
+function ciFallback(urlNoIndex) {
+  // Si el server requiere index.php, lo probamos como fallback.
+  // Ej: /api/estado/guardar -> /index.php/api/estado/guardar
+  if (!urlNoIndex.startsWith("/")) return [urlNoIndex];
+  return [urlNoIndex, "/index.php" + urlNoIndex];
+}
 
 // =====================================================
 // HELPERS
@@ -87,7 +113,7 @@ function renderEstado(valor) {
 }
 
 // =====================================================
-// ENTREGA (visible y limpia)
+// ENTREGA (MUY visible)
 // =====================================================
 function entregaStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
@@ -114,7 +140,7 @@ function renderEntregaPill(estadoEnvio) {
   const st = entregaStyle(estadoEnvio);
   return `
     <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border ${st.wrap}
-                 shadow-sm font-extrabold text-[11px] uppercase tracking-wide max-w-[200px] truncate"
+                 shadow-sm font-extrabold text-[11px] uppercase tracking-wide max-w-[220px] truncate"
           title="${escapeHtml(st.label)}">
       <span class="h-2.5 w-2.5 rounded-full ${st.dot}"></span>
       <span class="text-sm leading-none">${st.icon}</span>
@@ -143,9 +169,6 @@ function timeAgo(dtStr) {
   return `${sec}s`;
 }
 
-// =====================================================
-// ÚLTIMO CAMBIO (compacto)
-// =====================================================
 function renderLastChangeCompact(p) {
   const info = p?.last_status_change;
   if (!info || !info.changed_at) return `<span class="text-slate-400 text-sm">—</span>`;
@@ -221,12 +244,11 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
   `;
 }
 
-// =========================
-// MODAL ETIQUETAS (FALTABAN)
-// =========================
+// --- Modal etiquetas ---
 function abrirModalEtiquetas(orderId, textos = "") {
-  const input = document.getElementById("modalTagOrderId");
   const modal = document.getElementById("modalEtiquetas");
+  const input = document.getElementById("modalTagOrderId");
+
   if (!modal) {
     console.warn("No existe #modalEtiquetas en el DOM");
     return;
@@ -239,36 +261,12 @@ function abrirModalEtiquetas(orderId, textos = "") {
 
   renderEtiquetasSeleccionadas();
   mostrarEtiquetasRapidas();
+
   modal.classList.remove("hidden");
 }
 
 function cerrarModalEtiquetas() {
-  const modal = document.getElementById("modalEtiquetas");
-  if (modal) modal.classList.add("hidden");
-}
-
-async function guardarEtiquetas() {
-  const id = document.getElementById("modalTagOrderId")?.value;
-  const tags = etiquetasSeleccionadas.join(", ");
-
-  try {
-    const r = await fetch("/api/estado/etiquetas/guardar", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, tags }),
-    });
-    const d = await r.json().catch(() => null);
-
-    if (d?.success) {
-      cerrarModalEtiquetas();
-      cargarPedidos();
-    } else {
-      alert("No se pudieron guardar las etiquetas.");
-    }
-  } catch (e) {
-    console.error(e);
-    alert("Error de red guardando etiquetas.");
-  }
+  document.getElementById("modalEtiquetas")?.classList.add("hidden");
 }
 
 function renderEtiquetasSeleccionadas() {
@@ -300,6 +298,7 @@ function mostrarEtiquetasRapidas() {
   if (!cont) return;
 
   cont.innerHTML = "";
+
   (window.etiquetasPredeterminadas || []).forEach((tag) => {
     cont.innerHTML += `
       <button onclick="agregarEtiqueta('${escapeJsString(tag)}')"
@@ -323,10 +322,37 @@ function eliminarEtiqueta(i) {
   renderEtiquetasSeleccionadas();
 }
 
+async function guardarEtiquetas() {
+  const id = document.getElementById("modalTagOrderId")?.value;
+  const tags = etiquetasSeleccionadas.join(", ");
+
+  const urls = ciFallback("/api/estado/etiquetas/guardar");
+
+  const result = await fetchJsonWithFallback(urls, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, tags }),
+  });
+
+  if (!result.ok) {
+    console.error("Guardar etiquetas falló:", result.error);
+    alert("Error guardando etiquetas. Revisa consola / logs del servidor.");
+    return;
+  }
+
+  if (result.data?.success) {
+    cerrarModalEtiquetas();
+    cargarPedidos();
+  } else {
+    console.warn("Respuesta guardarEtiquetas:", result.data);
+    alert("No se pudieron guardar las etiquetas.");
+  }
+}
+
 // =====================================================
 // CARGAR PEDIDOS
 // =====================================================
-function cargarPedidos(pageInfo = null) {
+async function cargarPedidos(pageInfo = null) {
   if (isLoading) return;
   isLoading = true;
   showLoader();
@@ -334,42 +360,53 @@ function cargarPedidos(pageInfo = null) {
   let url = "/dashboard/filter";
   if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
 
-  fetch(url, { headers: { Accept: "application/json" } })
-    .then((res) => res.json())
-    .then((data) => {
-      if (!data || !data.success) return;
+  const result = await fetchJsonWithFallback([url], { method: "GET" });
 
-      if (pageInfo) {
-        if (pageHistory[pageHistory.length - 1] !== pageInfo) pageHistory.push(pageInfo);
-      } else {
-        pageHistory = [];
-      }
+  if (!result.ok) {
+    console.error("Error cargando pedidos:", result.error);
+    isLoading = false;
+    hideLoader();
+    return;
+  }
 
-      nextPageInfo = data.next_page_info ?? null;
-      actualizarTabla(data.orders || []);
+  const data = result.data;
 
-      const btnSig = document.getElementById("btnSiguiente");
-      if (btnSig) {
-        btnSig.disabled = !nextPageInfo;
-        btnSig.classList.toggle("opacity-50", btnSig.disabled);
-        btnSig.classList.toggle("cursor-not-allowed", btnSig.disabled);
-      }
+  if (!data || !data.success) {
+    console.warn("Respuesta cargarPedidos:", data);
+    isLoading = false;
+    hideLoader();
+    return;
+  }
 
-      const btnAnt = document.getElementById("btnAnterior");
-      if (btnAnt) {
-        btnAnt.disabled = pageHistory.length === 0;
-        btnAnt.classList.toggle("opacity-50", btnAnt.disabled);
-        btnAnt.classList.toggle("cursor-not-allowed", btnAnt.disabled);
-      }
+  if (pageInfo) {
+    if (pageHistory[pageHistory.length - 1] !== pageInfo) pageHistory.push(pageInfo);
+  } else {
+    pageHistory = [];
+  }
 
-      const total = document.getElementById("total-pedidos");
-      if (total) total.textContent = data.count ?? 0;
-    })
-    .catch((err) => console.error("Error cargando pedidos:", err))
-    .finally(() => {
-      isLoading = false;
-      hideLoader();
-    });
+  nextPageInfo = data.next_page_info ?? null;
+
+  actualizarTabla(data.orders || []);
+
+  const btnSig = document.getElementById("btnSiguiente");
+  if (btnSig) {
+    btnSig.disabled = !nextPageInfo;
+    btnSig.classList.toggle("opacity-50", btnSig.disabled);
+    btnSig.classList.toggle("cursor-not-allowed", btnSig.disabled);
+  }
+
+  const btnAnt = document.getElementById("btnAnterior");
+  if (btnAnt) {
+    btnAnt.disabled = pageHistory.length === 0;
+    btnAnt.classList.toggle("opacity-50", btnAnt.disabled);
+    btnAnt.classList.toggle("cursor-not-allowed", btnAnt.disabled);
+  }
+
+  const total = document.getElementById("total-pedidos");
+  if (total) total.textContent = data.count ?? 0;
+
+  isLoading = false;
+  hideLoader();
 }
 
 // =====================================================
@@ -378,7 +415,6 @@ function cargarPedidos(pageInfo = null) {
 function paginaSiguiente() {
   if (nextPageInfo) cargarPedidos(nextPageInfo);
 }
-
 function paginaAnterior() {
   if (pageHistory.length === 0) return cargarPedidos(null);
   pageHistory.pop();
@@ -399,26 +435,33 @@ function actualizarTabla(pedidos) {
     if (!pedidos.length) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="11" class="py-10 text-center text-slate-500">
-            No se encontraron pedidos
-          </td>
+          <td colspan="11" class="py-10 text-center text-slate-500">No se encontraron pedidos</td>
         </tr>`;
     } else {
       tbody.innerHTML = pedidos
         .map((p) => {
           const id = p.id ?? "";
           const etiquetas = p.etiquetas ?? "";
+
           return `
           <tr class="border-b border-slate-100 hover:bg-slate-50/60 transition">
-            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</td>
-
-            <td class="py-4 px-4 text-slate-600 whitespace-nowrap hidden lg:table-cell">${escapeHtml(p.fecha ?? "-")}</td>
-
-            <td class="py-4 px-4">
-              <div class="font-semibold text-slate-900 truncate max-w-[280px]">${escapeHtml(p.cliente ?? "-")}</div>
+            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
+              ${escapeHtml(p.numero ?? "-")}
             </td>
 
-            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</td>
+            <td class="py-4 px-4 text-slate-600 whitespace-nowrap hidden lg:table-cell">
+              ${escapeHtml(p.fecha ?? "-")}
+            </td>
+
+            <td class="py-4 px-4">
+              <div class="font-semibold text-slate-900 truncate max-w-[260px]">
+                ${escapeHtml(p.cliente ?? "-")}
+              </div>
+            </td>
+
+            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
+              ${escapeHtml(p.total ?? "-")}
+            </td>
 
             <td class="py-4 w-40 px-3">
               <button onclick="abrirModal(${id})"
@@ -435,7 +478,9 @@ function actualizarTabla(pedidos) {
               ${renderLastChangeCompact(p)}
             </td>
 
-            <td class="py-4 px-4">${renderEtiquetasCompact(etiquetas, id)}</td>
+            <td class="py-4 px-4">
+              ${renderEtiquetasCompact(etiquetas, id)}
+            </td>
 
             <td class="py-4 px-4 hidden lg:table-cell">
               <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-extrabold
@@ -444,7 +489,9 @@ function actualizarTabla(pedidos) {
               </span>
             </td>
 
-            <td class="py-4 px-4">${renderEntregaPill(p.estado_envio ?? "-")}</td>
+            <td class="py-4 px-4">
+              ${renderEntregaPill(p.estado_envio ?? "-")}
+            </td>
 
             <td class="py-4 px-4 hidden xl:table-cell">
               <span class="inline-flex items-center px-3 py-2 rounded-2xl bg-slate-50 border border-slate-200
@@ -457,8 +504,7 @@ function actualizarTabla(pedidos) {
             <td class="py-4 px-4 text-right whitespace-nowrap">
               <button onclick="verDetalles(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-blue-600 text-white
-                       text-[11px] font-extrabold uppercase tracking-wide shadow-sm
-                       hover:bg-blue-700 transition">
+                       text-[11px] font-extrabold uppercase tracking-wide shadow-sm hover:bg-blue-700 transition">
                 Ver <span class="text-white/90">→</span>
               </button>
             </td>
@@ -468,7 +514,7 @@ function actualizarTabla(pedidos) {
     }
   }
 
-  // Cards si existen
+  // Cards (si existe el contenedor)
   if (cards) {
     cards.innerHTML = "";
 
@@ -530,40 +576,43 @@ function actualizarTabla(pedidos) {
 function abrirModal(orderId) {
   const idInput = document.getElementById("modalOrderId");
   if (idInput) idInput.value = orderId;
-
-  const modal = document.getElementById("modalEstado");
-  if (modal) modal.classList.remove("hidden");
+  document.getElementById("modalEstado")?.classList.remove("hidden");
 }
+
 function cerrarModal() {
-  const modal = document.getElementById("modalEstado");
-  if (modal) modal.classList.add("hidden");
+  document.getElementById("modalEstado")?.classList.add("hidden");
 }
 
 async function guardarEstado(nuevoEstado) {
   const id = document.getElementById("modalOrderId")?.value;
 
-  try {
-    const r = await fetch("/api/estado/guardar", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, estado: nuevoEstado }),
-    });
-    const d = await r.json().catch(() => null);
+  const urls = ciFallback("/api/estado/guardar");
 
-    if (d?.success) {
-      cerrarModal();
-      cargarPedidos();
-    } else {
-      alert("No se pudo actualizar el estado.");
-    }
-  } catch (e) {
-    console.error(e);
-    alert("Error de red actualizando estado.");
+  const result = await fetchJsonWithFallback(urls, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, estado: nuevoEstado }),
+  });
+
+  if (!result.ok) {
+    console.error("guardarEstado falló:", result.error);
+    alert("No se pudo actualizar el estado. (Revisa consola / logs del servidor)");
+    return;
+  }
+
+  const d = result.data;
+
+  if (d?.success) {
+    cerrarModal();
+    cargarPedidos();
+  } else {
+    console.warn("Respuesta guardarEstado:", d);
+    alert("No se pudo actualizar el estado.");
   }
 }
 
 // =====================================================
-// DETALLES (tu función)
+// DETALLES
 // =====================================================
 function verDetalles(orderId) {
   document.getElementById("modalDetalles")?.classList.remove("hidden");
@@ -574,7 +623,8 @@ function verDetalles(orderId) {
   document.getElementById("detalleTotales").innerHTML = "";
   document.getElementById("tituloPedido").innerHTML = "Cargando...";
 
-  fetch(`/index.php/dashboard/detalles/${orderId}`)
+  // OJO: aquí ya estabas usando index.php, lo dejamos igual
+  fetch(`/index.php/dashboard/detalles/${orderId}`, { headers: { Accept: "application/json" } })
     .then((r) => r.json())
     .then((data) => {
       if (!data.success) {
@@ -697,7 +747,7 @@ function subirImagenProducto(orderId, index, input) {
   form.append("index", index);
   form.append("file", file);
 
-  fetch("/index.php/dashboard/subirImagenProducto", { method: "POST", body: form })
+  fetch("/index.php/dashboard/subirImagenProducto", { method: "POST", body: form, credentials: "same-origin" })
     .then((r) => r.json())
     .then((res) => {
       hideLoader();
@@ -726,13 +776,17 @@ function validarEstadoFinal(orderId) {
   const listo = window.imagenesCargadas.every((v) => v === true);
   const nuevoEstado = listo ? "Producción" : "Faltan diseños";
 
-  fetch("/api/estado/guardar", {
+  const urls = ciFallback("/api/estado/guardar");
+
+  fetchJsonWithFallback(urls, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: orderId, estado: nuevoEstado }),
   })
-    .then((r) => r.json())
-    .then(() => cargarPedidos())
+    .then((r) => {
+      if (!r.ok) console.error("validarEstadoFinal falló:", r.error);
+      else cargarPedidos();
+    })
     .catch((e) => console.error(e));
 }
 
@@ -744,7 +798,6 @@ function renderUsersStatus(payload) {
 
   const onlineList = document.getElementById("onlineUsers");
   const offlineList = document.getElementById("offlineUsers");
-
   const onlineCountEl = document.getElementById("onlineCount");
   const offlineCountEl = document.getElementById("offlineCount");
 
@@ -782,23 +835,26 @@ function renderUsersStatus(payload) {
 }
 
 async function pingUsuario() {
-  try {
-    await fetch("/dashboard/ping", { headers: { Accept: "application/json" } });
-  } catch (e) {}
+  const urls = ciFallback("/dashboard/ping");
+  const res = await fetchJsonWithFallback(urls, { method: "GET" });
+  if (!res.ok) console.warn("pingUsuario 500:", res.error);
 }
 
 async function cargarUsuariosEstado() {
-  try {
-    const r = await fetch("/dashboard/usuarios-estado", { headers: { Accept: "application/json" } });
-    const d = await r.json().catch(() => null);
-    if (d && d.success) renderUsersStatus(d);
-  } catch (e) {
-    console.error("Error usuarios estado:", e);
+  const urls = ciFallback("/dashboard/usuarios-estado");
+  const res = await fetchJsonWithFallback(urls, { method: "GET" });
+
+  if (!res.ok) {
+    console.warn("usuarios-estado 500:", res.error);
+    return;
   }
+
+  const d = res.data;
+  if (d && d.success) renderUsersStatus(d);
 }
 
 // =====================================================
-// ✅ CLAVE: EXPORTAR PARA onclick
+// ✅ EXPORTAR PARA onclick
 // =====================================================
 window.cargarPedidos = cargarPedidos;
 window.paginaSiguiente = paginaSiguiente;
