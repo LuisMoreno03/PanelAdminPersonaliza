@@ -12,9 +12,10 @@ class ShopifyController extends Controller
 
     public function __construct()
     {
-        $envShop  = (string) env('SHOPIFY_STORE_DOMAIN');
-        $envToken = (string) env('SHOPIFY_ADMIN_TOKEN');
-        
+        $envShop  = (string) env('962f2d.myshopify.com'); // ej: 962f2d.myshopify.com
+        $envToken = (string) env('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');  // ej: shpat_xxx
+        $envVer   = (string) env('SHOPIFY_API_VERSION');  // opcional
+
         if (!empty(trim($envShop))) {
             $shop = trim($envShop);
             $shop = preg_replace('#^https?://#', '', $shop);
@@ -27,24 +28,27 @@ class ShopifyController extends Controller
             $this->token = trim($envToken);
         }
 
-       
-        // Normalización
+        if (!empty(trim($envVer))) {
+            $this->apiVersion = trim($envVer);
+        }
+
+        // Normalización final
         $this->shop = trim($this->shop);
         $this->shop = preg_replace('#^https?://#', '', $this->shop);
         $this->shop = preg_replace('#/.*$#', '', $this->shop);
         $this->shop = rtrim($this->shop, '/');
     }
 
-    // ============================================================
-    // REQUEST BASE (devuelve headers + body + decoded)
-    // ============================================================
+    // ============================
+    // HTTP request (headers+body)
+    // ============================
     private function requestRaw(string $method, string $endpoint, ?array $data = null): array
     {
         if (empty($this->shop) || empty($this->token)) {
             return [
                 "success" => false,
                 "status"  => 500,
-                "error"   => "Faltan credenciales Shopify (SHOPIFY_SHOP o SHOPIFY_TOKEN).",
+                "error"   => "Faltan credenciales Shopify (SHOPIFY_STORE_DOMAIN o SHOPIFY_ADMIN_TOKEN).",
                 "headers" => "",
                 "raw"     => null,
                 "data"    => null,
@@ -66,7 +70,7 @@ class ShopifyController extends Controller
             CURLOPT_CUSTOMREQUEST  => strtoupper($method),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_HEADER         => true, // capturar headers
+            CURLOPT_HEADER         => true,
             CURLOPT_HTTP_VERSION   => CURL_HTTP_VERSION_1_1,
             CURLOPT_CONNECTTIMEOUT => 15,
             CURLOPT_TIMEOUT        => 60,
@@ -97,8 +101,7 @@ class ShopifyController extends Controller
 
         $raw_headers = substr($resp, 0, $header_size);
         $raw_body    = substr($resp, $header_size);
-
-        $decoded = json_decode($raw_body, true);
+        $decoded     = json_decode($raw_body, true);
 
         $errorMsg = $curlError ?: null;
         if ($status_code >= 400) {
@@ -122,9 +125,9 @@ class ShopifyController extends Controller
         ];
     }
 
-    // ============================================================
-    // Extrae page_info de Link header rel="next"
-    // ============================================================
+    // ============================
+    // page_info (Link rel="next")
+    // ============================
     private function extractNextPageInfo(string $rawHeaders): ?string
     {
         if (!preg_match('/^Link:\s*(.+)$/mi', $rawHeaders, $m)) return null;
@@ -146,21 +149,21 @@ class ShopifyController extends Controller
         return null;
     }
 
-    // ============================================================
-    // ✅ Servicio: trae 1 página (NO usa $this->request/$this->response)
-    // ============================================================
+    // ============================
+    // ✅ Servicio: 1 página orders
+    // ============================
     public function fetchOrdersPage(int $limit = 50, ?string $pageInfo = null): array
     {
         if ($limit <= 0 || $limit > 250) $limit = 50;
 
-        // IMPORTANTE: cuando hay page_info, Shopify recomienda SOLO limit + page_info
+        // Primera página con filtros; siguientes SOLO limit+page_info
         if ($pageInfo) {
             $endpoint = "orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
         } else {
             $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
         }
 
-        // fields para que vaya rápido (agrega los que necesites)
+        // Reducir payload
         $endpoint .= (strpos($endpoint, '?') !== false ? '&' : '?') .
             "fields=id,name,order_number,created_at,total_price,tags,customer,line_items,fulfillment_status,shipping_lines";
 
@@ -176,13 +179,13 @@ class ShopifyController extends Controller
         ];
     }
 
-    // Endpoint JSON (por si lo visitas directo)
+    // Endpoint JSON para probar
     public function getOrders()
     {
         $limit     = (int) ($this->request->getGet("limit") ?? 50);
-        $page_info = (string) ($this->request->getGet("page_info") ?? '');
+        $page_info = trim((string) ($this->request->getGet("page_info") ?? ''));
 
-        $result = $this->fetchOrdersPage($limit, $page_info ? $page_info : null);
+        $result = $this->fetchOrdersPage($limit, $page_info !== '' ? $page_info : null);
 
         return $this->response->setJSON($result);
     }
@@ -219,6 +222,16 @@ class ShopifyController extends Controller
             "success" => $resp["success"],
             "status"  => $resp["status"],
             "error"   => $resp["error"],
+        ]);
+    }
+
+    public function test()
+    {
+        return $this->response->setJSON([
+            "success"   => true,
+            "shop"      => $this->shop,
+            "hasToken"  => !empty($this->token),
+            "version"   => $this->apiVersion
         ]);
     }
 }
