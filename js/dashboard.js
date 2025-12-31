@@ -49,6 +49,8 @@ function renderEstado(valor) {
   return escapeHtml(valor ?? "-");
 }
 
+
+
 // =====================================================
 // CI4 FALLBACK
 // =====================================================
@@ -113,6 +115,8 @@ async function fetchJsonWithFallback(urls, options = {}) {
 // =====================================================
 // ENTREGA (pill visible)
 // =====================================================
+
+
 function entregaStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
 
@@ -375,6 +379,43 @@ function actualizarTabla(pedidos, msg = null) {
 let _pingFails = 0;
 let _usersFails = 0;
 
+<<<<<<< HEAD
+=======
+function cerrarModal() {
+  document.getElementById("modalEstado")?.classList.add("hidden");
+}
+
+
+async function guardarEstado(nuevoEstado) {
+  const id = document.getElementById("modalOrderId")?.value;
+  if (!id) return alert("No se encontró el ID del pedido.");
+
+  const result = await fetchJsonWithFallback(ciFallback("/api/estado/guardar"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // mando ambos por compatibilidad
+    body: JSON.stringify({ id, orderId: id, estado: nuevoEstado }),
+  });
+
+  if (!result.ok) {
+    console.error("guardarEstado falló:", result.error);
+    alert("No se pudo actualizar el estado. Revisa consola / logs.");
+    return;
+  }
+
+  if (result.data?.success) {
+    cerrarModal();
+    cargarPedidos();
+  } else {
+    console.warn("Respuesta guardarEstado:", result.data);
+    alert("No se pudo actualizar el estado.");
+  }
+}
+
+// =====================================================
+// USUARIOS (NO ROMPEN)
+// =====================================================
+>>>>>>> 24d08ffcbe9d3d2a1f994b7b98b931b506361621
 async function pingUsuario() {
   const res = await fetchJsonWithFallback(ciFallback("/dashboard/ping"), { method: "GET" });
   if (!res.ok) {
@@ -428,3 +469,12 @@ document.addEventListener("DOMContentLoaded", () => {
 window.cargarPedidos = cargarPedidos;
 window.paginaSiguiente = paginaSiguiente;
 window.paginaAnterior = paginaAnterior;
+<<<<<<< HEAD
+=======
+
+window.abrirModal = abrirModal;
+window.cerrarModal = cerrarModal;
+window.guardarEstado = guardarEstado;
+
+
+>>>>>>> 24d08ffcbe9d3d2a1f994b7b98b931b506361621

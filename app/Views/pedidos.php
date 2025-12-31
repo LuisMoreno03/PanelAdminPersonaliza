@@ -1,19 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Pedidos</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pedidos</title>
 </head>
-<body class="bg-slate-100">
-
-    <main class="max-w-7xl mx-auto p-6">
-        <h1 class="text-3xl font-black mb-6">Panel de pedidos</h1>
-
-        <div id="app">
-            <!-- aquí renderizas tus pedidos con JS -->
-        </div>
-    </main>
-
+<body style="font-family: Arial; padding: 20px;">
+  <h1>✅ Ruta /pedidos funcionando</h1>
+  <p>La vista <b>app/Views/pedidos/index.php</b> está cargando correctamente.</p>
 </body>
 </html>
