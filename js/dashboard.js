@@ -1,14 +1,7 @@
-// =====================================================
-// DASHBOARD.JS (COMPLETO) - ROBUSTO + FALLBACK CI4
-// - Tabla responsive sin scroll horizontal (oculta columnas por breakpoints)
-// - Entrega MUY visible
-// - Etiquetas compactas + modal funcional
-// - Fix: endpoints con fallback /index.php (CI4) y debug real de 500
-// =====================================================
+// ===============================
+// DASHBOARD.JS - Shopify 50 en 50 + modales guardan
+// ===============================
 
-// =====================================================
-// VARIABLES GLOBALES
-// =====================================================
 let nextPageInfo = null;
 let isLoading = false;
 
@@ -36,8 +29,6 @@ function hideLoader() {
 // =====================================================
 // UTIL: Fetch robusto con fallback + debug de 500
 // =====================================================
-
-
 async function fetchJsonWithFallback(urls, options = {}) {
   const list = Array.isArray(urls) ? urls : [urls];
 
@@ -114,41 +105,27 @@ function renderEstado(valor) {
   return escapeHtml(valor ?? "-");
 }
 
-
-
 // =====================================================
 // ENTREGA (MUY visible)
 // =====================================================
-
-
 function entregaStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
 
   if (!s || s === "-" || s === "null" || s === "sin estado") {
     return { wrap: "bg-slate-50 border-slate-200 text-slate-800", dot: "bg-slate-400", icon: "📦", label: "Sin estado" };
   }
-
-
   if (s.includes("entregado") || s.includes("delivered")) {
     return { wrap: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "✅", label: "Entregado" };
   }
-
-
   if (s.includes("enviado") || s.includes("shipped")) {
     return { wrap: "bg-blue-50 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🚚", label: "Enviado" };
   }
-
-
   if (s.includes("prepar") || s.includes("pendiente") || s.includes("processing")) {
     return { wrap: "bg-amber-50 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "⏳", label: "Preparando" };
   }
-
-
   if (s.includes("cancel") || s.includes("devuelto") || s.includes("return")) {
     return { wrap: "bg-rose-50 border-rose-200 text-rose-900", dot: "bg-rose-500", icon: "⛔", label: "Incidencia" };
   }
-
-
   return { wrap: "bg-slate-50 border-slate-200 text-slate-900", dot: "bg-slate-400", icon: "📍", label: estado || "—" };
 }
 
@@ -235,194 +212,78 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
         </span>`
       : "";
 
-  if (!list.length) {
     return `
-      <button onclick="abrirModalEtiquetas(${orderId}, '')"
-        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
-               bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide
-               hover:shadow-md transition whitespace-nowrap">
-        Etiquetas
-        <span class="text-blue-700">＋</span>
-      </button>
+      <tr data-order-id="${o.id}">
+        <td class="py-3">${escapeHtml(o.numero || "-")}</td>
+        <td class="py-3">${escapeHtml(o.fecha || "-")}</td>
+        <td class="py-3">${escapeHtml(o.cliente || "-")}</td>
+        <td class="py-3">${escapeHtml(o.total || "-")}</td>
+        <td class="py-3">
+          <button class="btnEstado px-3 py-1 rounded bg-gray-100" data-id="${o.id}" data-estado="${escapeAttr(o.estado || "")}">
+            ${escapeHtml(o.estado || "-")}
+          </button>
+        </td>
+        <td class="py-3">${escapeHtml(last)}</td>
+        <td class="py-3">
+          <button class="btnEtiquetas px-3 py-1 rounded bg-gray-100" data-id="${o.id}" data-tags="${escapeAttr(o.etiquetas || "")}">
+            ${escapeHtml((o.etiquetas || "").slice(0, 35) || "Editar")}
+          </button>
+        </td>
+        <td class="py-3">${escapeHtml(String(o.articulos ?? 0))}</td>
+      </tr>
     `;
-  }
+  }).join("");
 
-  return `
-    <div class="flex flex-wrap items-center gap-2">
-      ${pills}${more}
-      <button onclick="abrirModalEtiquetas(${orderId}, '${escapeJsString(raw)}')"
-        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
-               bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide
-               hover:bg-slate-800 transition shadow-sm whitespace-nowrap">
-        Etiquetas <span class="text-white/80">✎</span>
-      </button>
-    </div>
-  `;
+  if (append) tbody.insertAdjacentHTML("beforeend", rows);
+  else tbody.innerHTML = rows;
+
+  bindRowButtons();
 }
 
-// --- Modal etiquetas ---
-function abrirModalEtiquetas(orderId, textos = "") {
-  const modal = document.getElementById("modalEtiquetas");
-  const input = document.getElementById("modalTagOrderId");
+function bindRowButtons() {
+  document.querySelectorAll(".btnEstado").forEach(btn => {
+    btn.onclick = () => openEstadoModal(btn.dataset.id, btn.dataset.estado || "");
+  });
 
-  if (!modal) {
-    console.warn("No existe #modalEtiquetas en el DOM");
-    return;
-  }
-  if (input) input.value = orderId;
-
-  etiquetasSeleccionadas = textos
-    ? String(textos).split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
-
-  renderEtiquetasSeleccionadas();
-  mostrarEtiquetasRapidas();
-
-  modal.classList.remove("hidden");
-}
-
-function cerrarModalEtiquetas() {
-  document.getElementById("modalEtiquetas")?.classList.add("hidden");
-}
-
-function renderEtiquetasSeleccionadas() {
-  const cont = document.getElementById("etiquetasSeleccionadas");
-  if (!cont) return;
-
-  cont.innerHTML = "";
-
-  if (!etiquetasSeleccionadas.length) {
-    cont.innerHTML = `<span class="text-slate-500 text-sm">No hay etiquetas seleccionadas</span>`;
-    return;
-  }
-
-  etiquetasSeleccionadas.forEach((tag, index) => {
-    cont.innerHTML += `
-      <span class="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-slate-200 bg-slate-50 text-xs font-bold">
-        ${escapeHtml(tag)}
-        <button onclick="eliminarEtiqueta(${index})"
-                class="h-5 w-5 inline-flex items-center justify-center rounded-full bg-white border border-slate-200 text-rose-600 hover:bg-rose-50">
-          ×
-        </button>
-      </span>
-    `;
+  document.querySelectorAll(".btnEtiquetas").forEach(btn => {
+    btn.onclick = () => openEtiquetasModal(btn.dataset.id, btn.dataset.tags || "");
   });
 }
 
-function mostrarEtiquetasRapidas() {
-  const cont = document.getElementById("listaEtiquetasRapidas");
-  if (!cont) return;
-
-  cont.innerHTML = "";
-
-  (window.etiquetasPredeterminadas || []).forEach((tag) => {
-    cont.innerHTML += `
-      <button onclick="agregarEtiqueta('${escapeJsString(tag)}')"
-              class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-800 text-sm font-semibold
-                     hover:bg-slate-50 hover:border-slate-300 transition">
-        ${escapeHtml(tag)}
-      </button>
-    `;
-  });
-}
-
-function agregarEtiqueta(tag) {
-  if (!etiquetasSeleccionadas.includes(tag)) {
-    etiquetasSeleccionadas.push(tag);
-    renderEtiquetasSeleccionadas();
-  }
-}
-
-function eliminarEtiqueta(i) {
-  etiquetasSeleccionadas.splice(i, 1);
-  renderEtiquetasSeleccionadas();
-}
-
-async function guardarEtiquetas() {
-  const id = document.getElementById("modalTagOrderId")?.value;
-  const tags = etiquetasSeleccionadas.join(", ");
-
-  const urls = ciFallback("/api/estado/etiquetas/guardar");
-
-  const result = await fetchJsonWithFallback(urls, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, tags }),
-  });
-
-  if (!result.ok) {
-    console.error("Guardar etiquetas falló:", result.error);
-    alert("Error guardando etiquetas. Revisa consola / logs del servidor.");
-    return;
-  }
-
-  if (result.data?.success) {
-    cerrarModalEtiquetas();
-    cargarPedidos();
-  } else {
-    console.warn("Respuesta guardarEtiquetas:", result.data);
-    alert("No se pudieron guardar las etiquetas.");
-  }
-}
-
-// =====================================================
-// CARGAR PEDIDOS
-// =====================================================
-async function cargarPedidos(pageInfo = null) {
+// ===============================
+// Cargar 1 página (50)
+// ===============================
+async function loadOrdersPage(pageInfo = null, append = false) {
   if (isLoading) return;
   isLoading = true;
   showLoader();
 
-  let url = "/dashboard/filter";
-  if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
+  try {
+    const url = new URL("/dashboard/filter", window.location.origin);
+    url.searchParams.set("limit", "50");
+    if (pageInfo) url.searchParams.set("page_info", pageInfo);
 
-  const result = await fetchJsonWithFallback([url], { method: "GET" });
+    const res = await fetch(url.toString(), { credentials: "include" });
+    const data = await res.json();
 
-  if (!result.ok) {
-    console.error("Error cargando pedidos:", result.error);
-    isLoading = false;
+    if (!data.success) throw new Error(data.message || "Error cargando pedidos");
+
+    nextPageInfo = data.next_page_info || null;
+
+    // guardamos en map
+    (data.orders || []).forEach(o => allOrdersMap.set(String(o.id), o));
+
+    renderOrders(data.orders || [], append);
+
+    setProgress(`Cargados: ${allOrdersMap.size}`);
+
+  } catch (e) {
+    console.error(e);
+    alert("Error: " + (e.message || e));
+  } finally {
     hideLoader();
-    return;
-  }
-
-  const data = result.data;
-
-  if (!data || !data.success) {
-    console.warn("Respuesta cargarPedidos:", data);
     isLoading = false;
-    hideLoader();
-    return;
   }
-
-  if (pageInfo) {
-    if (pageHistory[pageHistory.length - 1] !== pageInfo) pageHistory.push(pageInfo);
-  } else {
-    pageHistory = [];
-  }
-
-  nextPageInfo = data.next_page_info ?? null;
-
-  actualizarTabla(data.orders || []);
-
-  const btnSig = document.getElementById("btnSiguiente");
-  if (btnSig) {
-    btnSig.disabled = !nextPageInfo;
-    btnSig.classList.toggle("opacity-50", btnSig.disabled);
-    btnSig.classList.toggle("cursor-not-allowed", btnSig.disabled);
-  }
-
-  const btnAnt = document.getElementById("btnAnterior");
-  if (btnAnt) {
-    btnAnt.disabled = pageHistory.length === 0;
-    btnAnt.classList.toggle("opacity-50", btnAnt.disabled);
-    btnAnt.classList.toggle("cursor-not-allowed", btnAnt.disabled);
-  }
-
-  const total = document.getElementById("total-pedidos");
-  if (total) total.textContent = data.count ?? 0;
-
-  isLoading = false;
-  hideLoader();
 }
 
 // =====================================================
@@ -445,8 +306,6 @@ function actualizarTabla(pedidos) {
   const tbody = document.getElementById("tablaPedidos");
   const cards = document.getElementById("cardsPedidos");
 
-
- 
   if (tbody) {
     tbody.innerHTML = "";
 
@@ -588,289 +447,118 @@ function actualizarTabla(pedidos) {
   }
 }
 
-// =====================================================
-// MODAL ESTADO
-// =====================================================
-function abrirModal(orderId) {
-  const idInput = document.getElementById("modalOrderId");
-  if (idInput) idInput.value = orderId;
-  document.getElementById("modalEstado")?.classList.remove("hidden");
+// ===============================
+// Modales
+// ===============================
+
+function openEstadoModal(orderId, estadoActual) {
+  $("#modalEstado")?.classList.remove("hidden");
+  $("#estadoOrderId").value = orderId;
+  $("#estadoSelect").value = estadoActual || "Por preparar";
 }
 
-function cerrarModal() {
-  document.getElementById("modalEstado")?.classList.add("hidden");
+function closeEstadoModal() {
+  $("#modalEstado")?.classList.add("hidden");
 }
 
 
-async function guardarEstado(nuevoEstado) {
-  const id = document.getElementById("modalOrderId")?.value;
+async function saveEstadoModal() {
+  const id = $("#estadoOrderId").value;
+  const estado = $("#estadoSelect").value;
 
-  const urls = ciFallback("/api/estado/guardar");
-
-  const result = await fetchJsonWithFallback(urls, {
+  const res = await fetch("/dashboard/save-estado", {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, estado: nuevoEstado }),
+    body: JSON.stringify({ id, estado })
   });
 
-  if (!result.ok) {
-    console.error("guardarEstado falló:", result.error);
-    alert("No se pudo actualizar el estado. (Revisa consola / logs del servidor)");
-    return;
-  }
+  const data = await res.json();
+  if (!data.success) return alert(data.message || "No se pudo guardar estado");
 
-  const d = result.data;
-
-  if (d?.success) {
-    cerrarModal();
-    cargarPedidos();
-  } else {
-    console.warn("Respuesta guardarEstado:", d);
-    alert("No se pudo actualizar el estado.");
-  }
+  // refrescar solo la fila en UI
+  updateRowLocal(id, { estado, last_status_change: { user_name: "Tú", changed_at: new Date().toISOString().slice(0,19).replace("T"," ") } });
+  closeEstadoModal();
 }
 
-// =====================================================
-// DETALLES
-// =====================================================
-function verDetalles(orderId) {
-  document.getElementById("modalDetalles")?.classList.remove("hidden");
-
-  document.getElementById("detalleProductos").innerHTML = "Cargando...";
-  document.getElementById("detalleCliente").innerHTML = "";
-  document.getElementById("detalleEnvio").innerHTML = "";
-  document.getElementById("detalleTotales").innerHTML = "";
-  document.getElementById("tituloPedido").innerHTML = "Cargando...";
-
-  // OJO: aquí ya estabas usando index.php, lo dejamos igual
-  fetch(`/index.php/dashboard/detalles/${orderId}`, { headers: { Accept: "application/json" } })
-    .then((r) => r.json())
-    .then((data) => {
-      if (!data.success) {
-        document.getElementById("detalleProductos").innerHTML =
-          "<p class='text-rose-600 font-bold'>Error cargando detalles.</p>";
-        return;
-      }
-
-      const o = data.order;
-      window.imagenesLocales = data.imagenes_locales ?? {};
-
-      document.getElementById("tituloPedido").innerHTML = `Detalles del pedido ${escapeHtml(o.name)}`;
-
-      document.getElementById("detalleCliente").innerHTML = `
-        <p><strong>${escapeHtml((o.customer?.first_name ?? "") + " " + (o.customer?.last_name ?? ""))}</strong></p>
-        <p>Email: ${escapeHtml(o.email ?? "-")}</p>
-        <p>Teléfono: ${escapeHtml(o.phone ?? "-")}</p>
-      `;
-
-      const a = o.shipping_address ?? {};
-      document.getElementById("detalleEnvio").innerHTML = `
-        <p>${escapeHtml(a.address1 ?? "")}</p>
-        <p>${escapeHtml((a.city ?? "") + ", " + (a.zip ?? ""))}</p>
-        <p>${escapeHtml(a.country ?? "")}</p>
-      `;
-
-      document.getElementById("detalleTotales").innerHTML = `
-        <p><strong>Subtotal:</strong> ${escapeHtml(o.subtotal_price)} €</p>
-        <p><strong>Envío:</strong> ${escapeHtml(o.total_shipping_price_set?.shop_money?.amount ?? "0")} €</p>
-        <p><strong>Total:</strong> ${escapeHtml(o.total_price)} €</p>
-      `;
-
-      window.imagenesCargadas = new Array(o.line_items.length).fill(false);
-
-      let html = "";
-      o.line_items.forEach((item, index) => {
-        let propsHTML = "";
-
-        if (item.properties?.length) {
-          propsHTML = item.properties
-            .map((p) => {
-              if (esImagen(p.value)) {
-                return `
-                  <div class="mt-2">
-                    <span class="font-semibold">${escapeHtml(p.name)}</span><br>
-                    <img src="${escapeHtml(p.value)}" class="w-28 rounded shadow">
-                  </div>`;
-              }
-              return `<p><strong>${escapeHtml(p.name)}:</strong> ${escapeHtml(p.value)}</p>`;
-            })
-            .join("");
-        }
-
-        let imagenLocalHTML = "";
-        if (window.imagenesLocales[index]) {
-          imagenLocalHTML = `
-            <div class="mt-3">
-              <p class="font-semibold text-sm">Imagen cargada:</p>
-              <img src="${escapeHtml(window.imagenesLocales[index])}" class="w-32 rounded shadow mt-1">
-            </div>`;
-        }
-
-        html += `
-          <div class="p-4 border rounded-lg shadow bg-white">
-            <h4 class="font-semibold">${escapeHtml(item.title)}</h4>
-            <p>Cantidad: ${escapeHtml(item.quantity)}</p>
-            <p>Precio: ${escapeHtml(item.price)} €</p>
-
-            ${propsHTML}
-            ${imagenLocalHTML}
-
-            <label class="font-semibold text-sm mt-3 block">Subir nueva imagen:</label>
-            <input type="file"
-              onchange="subirImagenProducto(${orderId}, ${index}, this)"
-              class="mt-1 w-full border rounded p-2">
-
-            <div id="preview_${orderId}_${index}" class="mt-2"></div>
-          </div>`;
-      });
-
-      document.getElementById("detalleProductos").innerHTML = html;
-    })
-    .catch((e) => {
-      console.error(e);
-      document.getElementById("detalleProductos").innerHTML =
-        "<p class='text-rose-600 font-bold'>Error de red cargando detalles.</p>";
-    });
+function openEtiquetasModal(orderId, tagsActuales) {
+  $("#modalEtiquetas")?.classList.remove("hidden");
+  $("#tagsOrderId").value = orderId;
+  $("#tagsInput").value = tagsActuales || "";
 }
 
-function cerrarModalDetalles() {
-  document.getElementById("modalDetalles")?.classList.add("hidden");
+function closeEtiquetasModal() {
+  $("#modalEtiquetas")?.classList.add("hidden");
 }
 
-function abrirPanelCliente() {
-  document.getElementById("panelCliente")?.classList.remove("hidden");
-}
+async function saveEtiquetasModal(syncShopify = true) {
+  const id = $("#tagsOrderId").value;
+  const tags = $("#tagsInput").value;
 
-function cerrarPanelCliente() {
-  document.getElementById("panelCliente")?.classList.add("hidden");
-}
-
-// =====================================================
-// SUBIR IMAGEN
-// =====================================================
-function subirImagenProducto(orderId, index, input) {
-  if (!input.files.length) return;
-  const file = input.files[0];
-
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const prev = document.getElementById(`preview_${orderId}_${index}`);
-    if (prev) prev.innerHTML = `<img src="${e.target.result}" class="w-32 mt-2 rounded shadow">`;
-  };
-  reader.readAsDataURL(file);
-
-  showLoader();
-
-  const form = new FormData();
-  form.append("orderId", orderId);
-  form.append("index", index);
-  form.append("file", file);
-
-  fetch("/index.php/dashboard/subirImagenProducto", { method: "POST", body: form, credentials: "same-origin" })
-    .then((r) => r.json())
-    .then((res) => {
-      hideLoader();
-
-      if (!res.success) {
-        alert("Error subiendo imagen");
-        return;
-      }
-
-      const prev = document.getElementById(`preview_${orderId}_${index}`);
-      if (prev) prev.innerHTML = `<img src="${escapeHtml(res.url)}" class="w-32 mt-2 rounded shadow">`;
-
-      window.imagenesLocales[index] = res.url;
-      window.imagenesCargadas[index] = true;
-
-      validarEstadoFinal(orderId);
-    })
-    .catch((e) => {
-      hideLoader();
-      console.error(e);
-      alert("Error de red subiendo imagen");
-    });
-}
-
-function validarEstadoFinal(orderId) {
-  const listo = window.imagenesCargadas.every((v) => v === true);
-  const nuevoEstado = listo ? "Producción" : "Faltan diseños";
-
-  const urls = ciFallback("/api/estado/guardar");
-
-  fetchJsonWithFallback(urls, {
+  // 1) guardar BD
+  const res = await fetch("/dashboard/save-etiquetas", {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: orderId, estado: nuevoEstado }),
-  })
-    .then((r) => {
-      if (!r.ok) console.error("validarEstadoFinal falló:", r.error);
-      else cargarPedidos();
-    })
-    .catch((e) => console.error(e));
+    body: JSON.stringify({ id, tags })
+  });
+
+  const data = await res.json();
+  if (!data.success) return alert(data.message || "No se pudo guardar etiquetas");
+
+  // 2) opcional: sync Shopify
+  if (syncShopify) {
+    const r2 = await fetch("/shopify/update-tags", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, tags })
+    });
+    const d2 = await r2.json();
+    if (!d2.success) console.warn("No se sincronizó Shopify:", d2.error);
+  }
+
+  // refrescar fila
+  updateRowLocal(id, { etiquetas: tags });
+  closeEtiquetasModal();
 }
 
-// =====================================================
-// USUARIOS ONLINE/OFFLINE
-// =====================================================
-function renderUsersStatus(payload) {
-  const users = payload?.users || [];
+// ===============================
+// Update local row UI
+// ===============================
+function updateRowLocal(id, patch) {
+  const key = String(id);
+  const current = allOrdersMap.get(key) || { id };
+  const updated = { ...current, ...patch };
+  allOrdersMap.set(key, updated);
 
-  const onlineList = document.getElementById("onlineUsers");
-  const offlineList = document.getElementById("offlineUsers");
-  const onlineCountEl = document.getElementById("onlineCount");
-  const offlineCountEl = document.getElementById("offlineCount");
+  // actualizar fila DOM
+  const tr = document.querySelector(`tr[data-order-id="${CSS.escape(key)}"]`);
+  if (!tr) return;
 
-  if (!onlineList || !offlineList) return;
-
-  onlineList.innerHTML = "";
-  offlineList.innerHTML = "";
-
-  let onlineCount = 0;
-  let offlineCount = 0;
-
-  users.forEach((u) => {
-    const name = escapeHtml(u.nombre ?? "Usuario");
-    const online = !!u.online;
-
-    const li = document.createElement("li");
-    li.className = "flex items-center gap-2";
-
-    li.innerHTML = `
-      <span class="h-2.5 w-2.5 rounded-full ${online ? "bg-emerald-500" : "bg-rose-500"}"></span>
-      <span class="font-semibold text-slate-800">${name}</span>
-    `;
-
-    if (online) {
-      onlineList.appendChild(li);
-      onlineCount++;
-    } else {
-      offlineList.appendChild(li);
-      offlineCount++;
+  // Estado button
+  if (patch.estado !== undefined) {
+    const btn = tr.querySelector(".btnEstado");
+    if (btn) {
+      btn.textContent = updated.estado || "-";
+      btn.dataset.estado = updated.estado || "";
     }
-  });
-
-  if (onlineCountEl) onlineCountEl.textContent = onlineCount;
-  if (offlineCountEl) offlineCountEl.textContent = offlineCount;
-}
-
-async function pingUsuario() {
-  const urls = ciFallback("/dashboard/ping");
-  const res = await fetchJsonWithFallback(urls, { method: "GET" });
-  if (!res.ok) console.warn("pingUsuario 500:", res.error);
-}
-
-async function cargarUsuariosEstado() {
-  const urls = ciFallback("/dashboard/usuarios-estado");
-  const res = await fetchJsonWithFallback(urls, { method: "GET" });
-
-  if (!res.ok) {
-    console.warn("usuarios-estado 500:", res.error);
-    return;
   }
 
-  const d = res.data;
-  if (d && d.success) renderUsersStatus(d);
+  // Etiquetas button
+  if (patch.etiquetas !== undefined) {
+    const btn = tr.querySelector(".btnEtiquetas");
+    if (btn) {
+      btn.textContent = (updated.etiquetas || "").slice(0, 35) || "Editar";
+      btn.dataset.tags = updated.etiquetas || "";
+    }
+  }
 }
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
+}
+function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 
 // =====================================================
 // ✅ EXPORTAR PARA onclick
@@ -878,9 +566,6 @@ async function cargarUsuariosEstado() {
 window.cargarPedidos = cargarPedidos;
 window.paginaSiguiente = paginaSiguiente;
 window.paginaAnterior = paginaAnterior;
-
-
-
 
 window.abrirModal = abrirModal;
 window.cerrarModal = cerrarModal;
