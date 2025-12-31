@@ -145,7 +145,7 @@
   </script>
 
   <!-- JS principal -->
-  <script src="<?= base_url('assets/js/confirmados.js') ?>" defer></script>
+  <script src="<?= base_url('js/confirmados.js') ?>" defer></script>
 
 </body>
 </html>
