@@ -45,15 +45,15 @@
           <div class="rounded-3xl border border-slate-200 bg-white/80 backdrop-blur shadow-sm p-4 sm:p-6">
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div>
-                <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Pedidos test</h1>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Pedidos</h1>
                 <p class="text-slate-500 mt-1 text-sm sm:text-base">
-                  Control rápido: 1estados, etiquetas, últimos cambios y detalles.
+                  Control rápido: estados, etiquetas, últimos cambios y detalles.
                 </p>
               </div>
 
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full lg:w-auto">
                 <div class="rounded-2xl border border-slate-200 bg-white p-4">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">Pedidos 1cargados</div>
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">Pedidos cargados</div>
                   <div class="mt-1 flex items-end justify-between">
                     <div class="text-3xl font-extrabold text-slate-900 leading-none">
                       <span id="total-pedidos">0</span>
