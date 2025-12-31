@@ -332,7 +332,7 @@ function actualizarTabla(pedidos) {
               </div>
             </div>
 
-            <div class="mt-3 flex items-center justify-between gap-3">
+            <div class="mt-3 w-40 flex items-center justify-between gap-3">
               <button onclick="abrirModal(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
                 <span class="h-2 w-2 rounded-full bg-blue-600"></span>
