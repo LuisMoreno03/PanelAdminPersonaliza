@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- ✅ responsive real -->
   <title>Dashboard - Panel</title>
 
   <!-- Tailwind -->
@@ -12,8 +13,8 @@
     body { background: #f3f4f6; }
 
     @keyframes fadeIn {
-      from { opacity: 0; transform: scale(0.98); }
-      to   { opacity: 1; transform: scale(1); }
+      from { opacity: 0; transform: translateY(6px) scale(0.99); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
     }
     .animate-fadeIn { animation: fadeIn .18s ease-out; }
 
@@ -27,88 +28,111 @@
       position: sticky;
       top: 0;
       z-index: 10;
-      background: #f8fafc; /* slate-50 */
+      background: #f8fafc;
     }
+
+    /* Mejor “tap” en móvil */
+    button { -webkit-tap-highlight-color: transparent; }
   </style>
 </head>
 
-<body class="flex">
+<body class="flex min-h-screen">
 
   <!-- Sidebar -->
   <?= view('layouts/menu') ?>
 
   <!-- Contenido principal -->
-  <div class="flex-1 md:ml-64 p-6 md:p-8">
+  <main class="flex-1 md:ml-64 p-4 sm:p-6 lg:p-8">
 
-    <!-- Barra superior (más visible) -->
-    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-6">
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+    <!-- Header principal -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5 mb-4 sm:mb-6">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <h1 class="text-3xl font-extrabold text-slate-900 tracking-tight">Pedidos</h1>
-          <p class="text-slate-500 mt-1">
+          <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Pedidos</h1>
+          <p class="text-slate-500 mt-1 text-sm sm:text-base">
             Vista rápida de estados, etiquetas y cambios recientes.
           </p>
         </div>
 
         <div class="flex items-center gap-3">
-          <div class="px-4 py-2 rounded-xl bg-slate-50 border border-slate-200">
-            <div class="text-xs uppercase tracking-wide text-slate-500">Pedidos cargados</div>
-            <div class="text-2xl font-extrabold text-slate-900">
+          <div class="px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 w-full sm:w-auto">
+            <div class="text-[11px] uppercase tracking-wide text-slate-500">Pedidos cargados</div>
+            <div class="text-2xl font-extrabold text-slate-900 leading-none">
               <span id="total-pedidos">0</span>
             </div>
           </div>
         </div>
       </div>
-    </div>
-    <!-- BLOQUE ESTADO DE USUARIOS -->
-<!-- ESTADO DE USUARIOS -->
-<div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-6">
+    </section>
 
-  <h3 class="text-lg font-extrabold text-slate-800 mb-4">
-    Estado de usuarios
-  </h3>
-
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-    <!-- CONECTADOS -->
-    <div>
-      <div class="flex items-center gap-2 mb-2">
-        <span class="h-3 w-3 rounded-full bg-emerald-500"></span>
-        <h4 class="font-bold text-emerald-700">
-          Conectados (<span id="onlineCount">0</span>)
-        </h4>
+    <!-- Estado de usuarios (responsive + scroll si hay muchos) -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-5 mb-4 sm:mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-base sm:text-lg font-extrabold text-slate-800">Estado de usuarios</h3>
+        <div class="text-xs text-slate-500 hidden sm:block">Actualiza automáticamente</div>
       </div>
 
-      <ul id="onlineUsers" class="space-y-2 text-sm"></ul>
-    </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
 
-    <!-- DESCONECTADOS -->
-    <div>
-      <div class="flex items-center gap-2 mb-2">
-        <span class="h-3 w-3 rounded-full bg-rose-500"></span>
-        <h4 class="font-bold text-rose-700">
-          Desconectados (<span id="offlineCount">0</span>)
-        </h4>
+        <!-- CONECTADOS -->
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4">
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <div class="flex items-center gap-2">
+              <span class="h-3 w-3 rounded-full bg-emerald-500"></span>
+              <h4 class="font-bold text-emerald-800 text-sm sm:text-base">
+                Conectados
+              </h4>
+            </div>
+
+            <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-white border border-emerald-200 text-emerald-800">
+              <span id="onlineCount">0</span>
+            </span>
+          </div>
+
+          <ul id="onlineUsers" class="space-y-2 text-sm max-h-52 overflow-auto pr-1"></ul>
+          <p class="text-xs text-emerald-700/80 mt-3">
+            Verde = activo en los últimos 2 min
+          </p>
+        </div>
+
+        <!-- DESCONECTADOS -->
+        <div class="rounded-2xl border border-rose-200 bg-rose-50/40 p-4">
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <div class="flex items-center gap-2">
+              <span class="h-3 w-3 rounded-full bg-rose-500"></span>
+              <h4 class="font-bold text-rose-800 text-sm sm:text-base">
+                Desconectados
+              </h4>
+            </div>
+
+            <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-white border border-rose-200 text-rose-800">
+              <span id="offlineCount">0</span>
+            </span>
+          </div>
+
+          <ul id="offlineUsers" class="space-y-2 text-sm max-h-52 overflow-auto pr-1"></ul>
+          <p class="text-xs text-rose-700/80 mt-3">
+            Rojo = sin actividad reciente
+          </p>
+        </div>
+
       </div>
+    </section>
 
-      <ul id="offlineUsers" class="space-y-2 text-sm"></ul>
-    </div>
-
-  </div>
-</div>
-
-
-    <!-- TABLA (mejorada) -->
-    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-      <!-- header de tabla -->
-      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+    <!-- Tabla -->
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <!-- Cabecera tabla -->
+      <div class="px-4 sm:px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div class="flex items-center gap-2">
-          <span class="inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+          <span class="inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
           <p class="font-semibold text-slate-800">Listado de pedidos</p>
         </div>
-        <p class="text-sm text-slate-500">Desliza horizontalmente si hace falta</p>
+        <p class="text-xs sm:text-sm text-slate-500">
+          En móvil: desliza horizontalmente → 
+        </p>
       </div>
 
+      <!-- Tabla scroll -->
       <div class="overflow-x-auto soft-scroll">
         <table class="w-full text-left min-w-[1550px]">
           <thead class="text-[11px] uppercase tracking-wider text-slate-600">
@@ -127,58 +151,54 @@
             </tr>
           </thead>
 
-          <!--
-            🔥 Tip: “divide-y” hace las filas más legibles
-            “text-sm” y “leading-tight” da lectura rápida
-          -->
           <tbody id="tablaPedidos"
                  class="text-slate-800 text-sm leading-tight divide-y divide-slate-100">
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
 
-    <!-- PAGINACIÓN (más clara) -->
-    <div class="flex items-center justify-between mt-5">
+    <!-- Paginación -->
+    <section class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mt-5">
       <button id="btnAnterior"
               disabled
-              class="px-4 py-2 rounded-xl bg-slate-200 text-slate-800 font-semibold
+              class="w-full sm:w-auto px-4 py-3 rounded-2xl bg-slate-200 text-slate-800 font-semibold
                      opacity-50 cursor-not-allowed transition">
         ← Anterior
       </button>
 
       <button id="btnSiguiente"
               onclick="paginaSiguiente()"
-              class="px-4 py-2 rounded-xl bg-blue-600 text-white font-semibold
+              class="w-full sm:w-auto px-4 py-3 rounded-2xl bg-blue-600 text-white font-semibold
                      hover:bg-blue-700 active:scale-[0.99] transition">
         Siguiente →
       </button>
-    </div>
+    </section>
 
-  </div>
+  </main>
 
   <!-- =============================================================== -->
-  <!-- 🟦 MODAL DETALLES DEL PEDIDO (ANCHO COMPLETO) -->
+  <!-- 🟦 MODAL DETALLES DEL PEDIDO -->
   <!-- =============================================================== -->
   <div id="modalDetalles"
        class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
 
-    <div class="bg-white w-[92%] h-[92%] rounded-2xl shadow-2xl p-6 overflow-hidden flex flex-col animate-fadeIn">
+    <div class="bg-white w-[94%] sm:w-[92%] h-[92%] rounded-2xl shadow-2xl p-4 sm:p-6 overflow-hidden flex flex-col animate-fadeIn">
 
       <!-- HEADER -->
-      <div class="flex justify-between items-center border-b pb-4">
-        <h2 id="tituloPedido" class="text-2xl font-extrabold text-slate-900">
+      <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-b pb-4">
+        <h2 id="tituloPedido" class="text-xl sm:text-2xl font-extrabold text-slate-900">
           Detalles del pedido
         </h2>
 
-        <div class="flex gap-3">
+        <div class="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <button onclick="abrirPanelCliente()"
-                  class="px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition">
+                  class="px-4 py-3 bg-blue-600 text-white rounded-2xl font-semibold hover:bg-blue-700 transition">
             Información del cliente
           </button>
 
           <button onclick="cerrarModalDetalles()"
-                  class="px-4 py-2 bg-slate-200 text-slate-800 rounded-xl font-semibold hover:bg-slate-300 transition">
+                  class="px-4 py-3 bg-slate-200 text-slate-800 rounded-2xl font-semibold hover:bg-slate-300 transition">
             Cerrar
           </button>
         </div>
@@ -186,25 +206,25 @@
 
       <!-- CONTENIDO PRINCIPAL (PRODUCTOS) -->
       <div id="detalleProductos"
-           class="flex-1 overflow-auto grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+           class="flex-1 overflow-auto grid grid-cols-1 lg:grid-cols-2 gap-4 p-2 sm:p-4">
       </div>
 
       <!-- TOTALES -->
-      <div id="detalleTotales" class="border-t pt-4 text-lg font-bold text-slate-900"></div>
+      <div id="detalleTotales" class="border-t pt-4 text-base sm:text-lg font-bold text-slate-900"></div>
 
     </div>
   </div>
 
   <!-- =============================================================== -->
-  <!-- 🟩 PANEL LATERAL: INFORMACIÓN DEL CLIENTE -->
+  <!-- 🟩 PANEL LATERAL: INFO CLIENTE -->
   <!-- =============================================================== -->
   <div id="panelCliente"
        class="hidden fixed inset-0 flex justify-end bg-black/30 backdrop-blur-sm z-50">
 
-    <div class="w-[400px] h-full bg-white shadow-xl p-6 overflow-y-auto animate-fadeIn">
+    <div class="w-[92%] sm:w-[420px] h-full bg-white shadow-xl p-4 sm:p-6 overflow-y-auto animate-fadeIn">
 
       <div class="flex justify-between items-center mb-4">
-        <h3 class="text-xl font-extrabold text-slate-900">Información del cliente</h3>
+        <h3 class="text-lg sm:text-xl font-extrabold text-slate-900">Información del cliente</h3>
 
         <button onclick="cerrarPanelCliente()"
                 class="text-slate-600 hover:text-slate-900 text-2xl font-bold">×</button>
@@ -212,23 +232,19 @@
 
       <div id="detalleCliente" class="space-y-2 mb-6"></div>
 
-      <h3 class="text-lg font-extrabold mt-6 text-slate-900">Dirección de envío</h3>
+      <h3 class="text-base sm:text-lg font-extrabold mt-6 text-slate-900">Dirección de envío</h3>
       <div id="detalleEnvio" class="space-y-1 mb-6"></div>
 
-      <h3 class="text-lg font-extrabold mt-6 text-slate-900">Resumen del pedido</h3>
+      <h3 class="text-base sm:text-lg font-extrabold mt-6 text-slate-900">Resumen del pedido</h3>
       <div id="detalleResumen" class="space-y-1 mb-6"></div>
 
     </div>
   </div>
 
-  <!-- =============================================================== -->
-  <!-- MODALES DE ESTADOS + ETIQUETAS -->
-  <!-- =============================================================== -->
+  <!-- MODALES -->
   <?= view('layouts/modales_estados', ['etiquetasPredeterminadas' => $etiquetasPredeterminadas]) ?>
 
-  <!-- =============================================================== -->
   <!-- LOADER GLOBAL -->
-  <!-- =============================================================== -->
   <div id="globalLoader"
        class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[9999]">
 
@@ -238,12 +254,10 @@
     </div>
   </div>
 
-  <!-- PASAR ETIQUETAS AL JS -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
   </script>
 
-  <!-- SCRIPT PRINCIPAL -->
   <script src="<?= base_url('js/dashboard.js') ?>"></script>
 
 </body>
