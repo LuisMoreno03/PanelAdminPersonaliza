@@ -1,0 +1,60 @@
+DEBUG - 2025-12-13 22:57:06 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+DEBUG - 2025-12-13 22:57:08 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+DEBUG - 2025-12-13 22:57:10 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+CRITICAL - 2025-12-13 23:01:10 --> CodeIgniter\View\Exceptions\ViewException: Invalid file: "layouts/modales_etiquetas.php"
+[Method: GET, Route: dashboard]
+in SYSTEMPATH/Exceptions/FrameworkException.php on line 39.
+ 1 SYSTEMPATH/View/View.php(214): CodeIgniter\Exceptions\FrameworkException::forInvalidFile()
+ 2 SYSTEMPATH/Common.php(1167): CodeIgniter\View\View->render()
+ 3 APPPATH/Views/dashboard.php(74): view()
+ 4 SYSTEMPATH/View/View.php(226): include('/home/u756064303/domains/paneladministrativopersonaliza.com/public_html/app/Views/dashboard.php')
+ 5 SYSTEMPATH/View/View.php(229): CodeIgniter\View\View->CodeIgniter\View\{closure}()
+ 6 SYSTEMPATH/Common.php(1167): CodeIgniter\View\View->render()
+ 7 APPPATH/Controllers/DashboardController.php(89): view()
+ 8 SYSTEMPATH/CodeIgniter.php(933): App\Controllers\DashboardController->index()
+ 9 SYSTEMPATH/CodeIgniter.php(507): CodeIgniter\CodeIgniter->runController()
+10 SYSTEMPATH/CodeIgniter.php(354): CodeIgniter\CodeIgniter->handleRequest()
+11 SYSTEMPATH/Boot.php(363): CodeIgniter\CodeIgniter->run()
+12 SYSTEMPATH/Boot.php(68): CodeIgniter\Boot::runCodeIgniter()
+13 FCPATH/index.php(61): CodeIgniter\Boot::bootWeb()
+CRITICAL - 2025-12-13 23:02:05 --> CodeIgniter\View\Exceptions\ViewException: Invalid file: "layouts/modales_etiquetas.php"
+[Method: GET, Route: dashboard]
+in SYSTEMPATH/Exceptions/FrameworkException.php on line 39.
+ 1 SYSTEMPATH/View/View.php(214): CodeIgniter\Exceptions\FrameworkException::forInvalidFile()
+ 2 SYSTEMPATH/Common.php(1167): CodeIgniter\View\View->render()
+ 3 APPPATH/Views/dashboard.php(74): view()
+ 4 SYSTEMPATH/View/View.php(226): include('/home/u756064303/domains/paneladministrativopersonaliza.com/public_html/app/Views/dashboard.php')
+ 5 SYSTEMPATH/View/View.php(229): CodeIgniter\View\View->CodeIgniter\View\{closure}()
+ 6 SYSTEMPATH/Common.php(1167): CodeIgniter\View\View->render()
+ 7 APPPATH/Controllers/DashboardController.php(89): view()
+ 8 SYSTEMPATH/CodeIgniter.php(933): App\Controllers\DashboardController->index()
+ 9 SYSTEMPATH/CodeIgniter.php(507): CodeIgniter\CodeIgniter->runController()
+10 SYSTEMPATH/CodeIgniter.php(354): CodeIgniter\CodeIgniter->handleRequest()
+11 SYSTEMPATH/Boot.php(363): CodeIgniter\CodeIgniter->run()
+12 SYSTEMPATH/Boot.php(68): CodeIgniter\Boot::runCodeIgniter()
+13 FCPATH/index.php(61): CodeIgniter\Boot::bootWeb()
+CRITICAL - 2025-12-13 23:11:53 --> CodeIgniter\View\Exceptions\ViewException: Invalid file: "layouts/modales_etiquetas.php"
+[Method: GET, Route: dashboard]
+in SYSTEMPATH/Exceptions/FrameworkException.php on line 39.
+ 1 SYSTEMPATH/View/View.php(214): CodeIgniter\Exceptions\FrameworkException::forInvalidFile()
+ 2 SYSTEMPATH/Common.php(1167): CodeIgniter\View\View->render()
+ 3 APPPATH/Views/dashboard.php(74): view()
+ 4 SYSTEMPATH/View/View.php(226): include('/home/u756064303/domains/paneladministrativopersonaliza.com/public_html/app/Views/dashboard.php')
+ 5 SYSTEMPATH/View/View.php(229): CodeIgniter\View\View->CodeIgniter\View\{closure}()
+ 6 SYSTEMPATH/Common.php(1167): CodeIgniter\View\View->render()
+ 7 APPPATH/Controllers/DashboardController.php(89): view()
+ 8 SYSTEMPATH/CodeIgniter.php(933): App\Controllers\DashboardController->index()
+ 9 SYSTEMPATH/CodeIgniter.php(507): CodeIgniter\CodeIgniter->runController()
+10 SYSTEMPATH/CodeIgniter.php(354): CodeIgniter\CodeIgniter->handleRequest()
+11 SYSTEMPATH/Boot.php(363): CodeIgniter\CodeIgniter->run()
+12 SYSTEMPATH/Boot.php(68): CodeIgniter\Boot::runCodeIgniter()
+13 FCPATH/index.php(61): CodeIgniter\Boot::bootWeb()
+DEBUG - 2025-12-13 23:27:53 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+DEBUG - 2025-12-13 23:32:38 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+DEBUG - 2025-12-13 23:35:20 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+DEBUG - 2025-12-13 23:58:20 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+DEBUG - 2025-12-13 23:58:28 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+DEBUG - 2025-12-13 23:58:30 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+DEBUG - 2025-12-13 23:58:30 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+DEBUG - 2025-12-13 23:58:56 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.
+DEBUG - 2025-12-13 23:58:57 --> Session: Class initialized using 'CodeIgniter\Session\Handlers\FileHandler' driver.

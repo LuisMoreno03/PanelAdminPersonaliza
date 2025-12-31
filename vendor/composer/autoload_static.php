@@ -13,86 +13,86 @@ class ComposerStaticInit620365035a1cf139e5bdbc7221edb1d8
     );
 
     public static $prefixLengthsPsr4 = array (
-        'T' =>
+        'T' => 
         array (
             'Tests\\Support\\' => 14,
         ),
-        'P' =>
+        'P' => 
         array (
             'Psr\\Log\\' => 8,
             'Psr\\Container\\' => 14,
             'PhpParser\\' => 10,
         ),
-        'L' =>
+        'L' => 
         array (
             'Laminas\\Escaper\\' => 16,
         ),
-        'F' =>
+        'F' => 
         array (
             'Faker\\' => 6,
         ),
-        'D' =>
+        'D' => 
         array (
             'DeepCopy\\' => 9,
         ),
-        'C' =>
+        'C' => 
         array (
             'Config\\' => 7,
             'CodeIgniter\\' => 12,
         ),
-        'A' =>
+        'A' => 
         array (
             'App\\' => 4,
         ),
     );
 
     public static $prefixDirsPsr4 = array (
-        'Tests\\Support\\' =>
+        'Tests\\Support\\' => 
         array (
             0 => __DIR__ . '/../..' . '/tests/_support',
         ),
-        'Psr\\Log\\' =>
+        'Psr\\Log\\' => 
         array (
             0 => __DIR__ . '/..' . '/psr/log/src',
         ),
-        'Psr\\Container\\' =>
+        'Psr\\Container\\' => 
         array (
             0 => __DIR__ . '/..' . '/psr/container/src',
         ),
-        'PhpParser\\' =>
+        'PhpParser\\' => 
         array (
             0 => __DIR__ . '/..' . '/nikic/php-parser/lib/PhpParser',
         ),
-        'Laminas\\Escaper\\' =>
+        'Laminas\\Escaper\\' => 
         array (
             0 => __DIR__ . '/..' . '/laminas/laminas-escaper/src',
         ),
-        'Faker\\' =>
+        'Faker\\' => 
         array (
             0 => __DIR__ . '/..' . '/fakerphp/faker/src/Faker',
         ),
-        'DeepCopy\\' =>
+        'DeepCopy\\' => 
         array (
             0 => __DIR__ . '/..' . '/myclabs/deep-copy/src/DeepCopy',
         ),
-        'Config\\' =>
+        'Config\\' => 
         array (
             0 => __DIR__ . '/../..' . '/app/Config',
         ),
-        'CodeIgniter\\' =>
+        'CodeIgniter\\' => 
         array (
             0 => __DIR__ . '/..' . '/codeigniter4/framework/system',
         ),
-        'App\\' =>
+        'App\\' => 
         array (
             0 => __DIR__ . '/../..' . '/app',
         ),
     );
 
     public static $prefixesPsr0 = array (
-        'o' =>
+        'o' => 
         array (
-            'org\\bovigo\\vfs\\' =>
+            'org\\bovigo\\vfs\\' => 
             array (
                 0 => __DIR__ . '/..' . '/mikey179/vfsstream/src/main/php',
             ),
@@ -102,8 +102,20 @@ class ComposerStaticInit620365035a1cf139e5bdbc7221edb1d8
     public static $classMap = array (
         'App\\Controllers\\Auth' => __DIR__ . '/../..' . '/app/Controllers/Auth.php',
         'App\\Controllers\\BaseController' => __DIR__ . '/../..' . '/app/Controllers/BaseController.php',
+        'App\\Controllers\\Confirmados' => __DIR__ . '/../..' . '/app/Controllers/Confirmados.php',
+        'App\\Controllers\\ConfirmadosController' => __DIR__ . '/../..' . '/app/Controllers/ConfirmadosController.php',
         'App\\Controllers\\Dashboard' => __DIR__ . '/../..' . '/app/Controllers/Dashboard.php',
+        'App\\Controllers\\DashboardController' => __DIR__ . '/../..' . '/app/Controllers/DashboardController.php',
+        'App\\Controllers\\EstadoController' => __DIR__ . '/../..' . '/app/Controllers/EstadoController.php',
+        'App\\Controllers\\Home' => __DIR__ . '/../..' . '/app/Controllers/Home.php',
+        'App\\Controllers\\Orders' => __DIR__ . '/../..' . '/app/Controllers/Orders.php',
+        'App\\Controllers\\PedidosController' => __DIR__ . '/../..' . '/app/Controllers/PedidosController.php',
+        'App\\Controllers\\ShopifyController' => __DIR__ . '/../..' . '/app/Controllers/ShopifyController.php',
+        'App\\Libraries\\ShopifyService' => __DIR__ . '/../..' . '/app/Libraries/ShopifyService.php',
+        'App\\Models\\PedidoEstadoModel' => __DIR__ . '/../..' . '/app/Models/PedidoEstadoModel.php',
+        'App\\Models\\PedidoModel' => __DIR__ . '/../..' . '/app/Models/PedidoModel.php',
         'App\\Models\\UserModel' => __DIR__ . '/../..' . '/app/Models/UserModel.php',
+        'App\\Services\\ShopifyService' => __DIR__ . '/../..' . '/app/Services/ShopifyService.php',
         'CodeIgniter\\API\\ResponseTrait' => __DIR__ . '/..' . '/codeigniter4/framework/system/API/ResponseTrait.php',
         'CodeIgniter\\Autoloader\\Autoloader' => __DIR__ . '/..' . '/codeigniter4/framework/system/Autoloader/Autoloader.php',
         'CodeIgniter\\Autoloader\\FileLocator' => __DIR__ . '/..' . '/codeigniter4/framework/system/Autoloader/FileLocator.php',
