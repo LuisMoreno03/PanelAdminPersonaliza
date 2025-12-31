@@ -12,8 +12,8 @@ class ShopifyController extends Controller
 
     public function __construct()
     {
-        $envShop  = (string) env('SHOPIFY_SHOP');
-        $envToken = (string) env('SHOPIFY_TOKEN');
+        $envShop  = (string) env('SHOPIFY_STORE_DOMAIN');
+        $envToken = (string) env('SHOPIFY_ADMIN_TOKEN');
         $envVer   = (string) env('SHOPIFY_API_VERSION');
 
         if (!empty(trim($envShop))) {
