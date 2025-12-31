@@ -87,27 +87,29 @@ function renderEstado(valor) {
 }
 
 // =====================================================
-// ENTREGA: MUY VISIBLE PERO LIMPIA
+// ETIQUETAS: FORMATO ACTUALIZADO!
 // =====================================================
-function entregaStyle(estado) {
+function entregaStyle(estado) {}
   const s = String(estado || "").toLowerCase().trim();
 
   if (!s || s === "-" || s === "null") {
-    return { wrap: "bg-slate-50 border-slate-200 text-slate-800", dot: "bg-slate-400", icon: "📦", label: "Sin estado" };
+    return { wrap: "bg-slate-50 border-slate-200 text-slate-800", dot: "bg-slate-400", icon: "📄", label: "Por Preparar" };
   }
   if (s.includes("entregado") || s.includes("delivered")) {
-    return { wrap: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "✅", label: "Entregado" };
+    return { wrap: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "🔔", label: "Pendiente" };
   }
   if (s.includes("enviado") || s.includes("shipped")) {
-    return { wrap: "bg-blue-50 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🚚", label: "Enviado" };
+    return { wrap: "bg-blue-50 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🛠️", label: "Producción" };
   }
   if (s.includes("prepar") || s.includes("pendiente") || s.includes("processing")) {
     return { wrap: "bg-amber-50 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "⏳", label: "Preparando" };
   }
   if (s.includes("cancel") || s.includes("devuelto") || s.includes("return")) {
-    return { wrap: "bg-rose-50 border-rose-200 text-rose-900", dot: "bg-rose-500", icon: "⛔", label: "Incidencia" };
+    return { wrap: "bg-rose-50 border-rose-200 text-rose-900", dot: "bg-rose-500", icon: "✅", label: "Terminado" };
   }
-  return { wrap: "bg-slate-50 border-slate-200 text-slate-900", dot: "bg-slate-400", icon: "📍", label: estado || "—" };
+  if (s.includes("cancel") || s.includes("devuelto") || s.includes("return")) {
+  return { wrap: "bg-rose-50 border-rose-200 text-rose-900", dot: "bg-rose-500", icon: "🚚", label: "Enviado" };
+
 }
 
 function renderEntregaPill(estadoEnvio) {
