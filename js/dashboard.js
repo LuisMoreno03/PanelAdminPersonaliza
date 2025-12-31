@@ -5,9 +5,9 @@
 // - Etiquetas compactas (máximo 2 + contador)
 // =====================================================
 
-// =====================================================
-// VARIABLES GLOBALES
-// =====================================================
+/* =====================================================
+   VARIABLES GLOBALES
+===================================================== */
 let nextPageInfo = null;
 let isLoading = false;
 
@@ -17,13 +17,13 @@ window.imagenesLocales = {};
 
 let pageHistory = [];
 
-// Intervalos usuarios
+// Intervalos (evita ReferenceError)
 let userPingInterval = null;
 let userStatusInterval = null;
 
-// =====================================================
-// Loader global
-// =====================================================
+/* =====================================================
+   Loader global
+===================================================== */
 function showLoader() {
   const el = document.getElementById("globalLoader");
   if (el) el.classList.remove("hidden");
@@ -33,15 +33,25 @@ function hideLoader() {
   if (el) el.classList.add("hidden");
 }
 
-// =====================================================
-// INIT
-// =====================================================
+/* =====================================================
+   INIT
+===================================================== */
 document.addEventListener("DOMContentLoaded", () => {
+  // Botones de paginación
   const btnAnterior = document.getElementById("btnAnterior");
+  const btnSiguiente = document.getElementById("btnSiguiente");
+
   if (btnAnterior) {
     btnAnterior.addEventListener("click", (e) => {
       e.preventDefault();
       if (!btnAnterior.disabled) paginaAnterior();
+    });
+  }
+
+  if (btnSiguiente) {
+    btnSiguiente.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!btnSiguiente.disabled) paginaSiguiente();
     });
   }
 
@@ -55,9 +65,9 @@ document.addEventListener("DOMContentLoaded", () => {
   cargarPedidos();
 });
 
-// =====================================================
-// HELPERS
-// =====================================================
+/* =====================================================
+   HELPERS
+===================================================== */
 function esImagen(url) {
   if (!url) return false;
   return /\.(jpeg|jpg|png|gif|webp|svg)$/i.test(url);
@@ -86,28 +96,58 @@ function renderEstado(valor) {
   return escapeHtml(valor ?? "-");
 }
 
-// =====================================================
-// ENTREGA: MUY VISIBLE PERO LIMPIA
-// =====================================================
+/* =====================================================
+   ENTREGA: MUY VISIBLE PERO LIMPIA
+===================================================== */
 function entregaStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
 
   if (!s || s === "-" || s === "null") {
-    return { wrap: "bg-slate-50 border-slate-200 text-slate-800", dot: "bg-slate-400", icon: "📦", label: "Sin estado" };
+    return {
+      wrap: "bg-slate-50 border-slate-200 text-slate-800",
+      dot: "bg-slate-400",
+      icon: "📦",
+      label: "Sin estado",
+    };
   }
   if (s.includes("entregado") || s.includes("delivered")) {
-    return { wrap: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "✅", label: "Entregado" };
+    return {
+      wrap: "bg-emerald-50 border-emerald-200 text-emerald-900",
+      dot: "bg-emerald-500",
+      icon: "✅",
+      label: "Entregado",
+    };
   }
   if (s.includes("enviado") || s.includes("shipped")) {
-    return { wrap: "bg-blue-50 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🚚", label: "Enviado" };
+    return {
+      wrap: "bg-blue-50 border-blue-200 text-blue-900",
+      dot: "bg-blue-500",
+      icon: "🚚",
+      label: "Enviado",
+    };
   }
   if (s.includes("prepar") || s.includes("pendiente") || s.includes("processing")) {
-    return { wrap: "bg-amber-50 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "⏳", label: "Preparando" };
+    return {
+      wrap: "bg-amber-50 border-amber-200 text-amber-900",
+      dot: "bg-amber-500",
+      icon: "⏳",
+      label: "Preparando",
+    };
   }
   if (s.includes("cancel") || s.includes("devuelto") || s.includes("return")) {
-    return { wrap: "bg-rose-50 border-rose-200 text-rose-900", dot: "bg-rose-500", icon: "⛔", label: "Incidencia" };
+    return {
+      wrap: "bg-rose-50 border-rose-200 text-rose-900",
+      dot: "bg-rose-500",
+      icon: "⛔",
+      label: "Incidencia",
+    };
   }
-  return { wrap: "bg-slate-50 border-slate-200 text-slate-900", dot: "bg-slate-400", icon: "📍", label: estado || "—" };
+  return {
+    wrap: "bg-slate-50 border-slate-200 text-slate-900",
+    dot: "bg-slate-400",
+    icon: "📍",
+    label: estado || "—",
+  };
 }
 
 function renderEntregaPill(estadoEnvio) {
@@ -122,9 +162,9 @@ function renderEntregaPill(estadoEnvio) {
   `;
 }
 
-// =====================================================
-// CARGAR PEDIDOS
-// =====================================================
+/* =====================================================
+   CARGAR PEDIDOS
+===================================================== */
 function cargarPedidos(pageInfo = null) {
   if (isLoading) return;
   isLoading = true;
@@ -172,9 +212,9 @@ function cargarPedidos(pageInfo = null) {
     });
 }
 
-// =====================================================
-// PAGINACIÓN
-// =====================================================
+/* =====================================================
+   PAGINACIÓN
+===================================================== */
 function paginaSiguiente() {
   if (nextPageInfo) cargarPedidos(nextPageInfo);
 }
@@ -189,10 +229,10 @@ function paginaAnterior() {
   cargarPedidos(prev);
 }
 
-// =====================================================
-// TABLA (tbody) - RESPONSIVE SIN SCROLL HORIZONTAL
-// - Ocultamos celdas con "hidden lg:table-cell / hidden xl:table-cell"
-// =====================================================
+/* =====================================================
+   TABLA (tbody) - RESPONSIVE SIN SCROLL HORIZONTAL
+   - Ocultamos celdas con "hidden lg:table-cell / hidden xl:table-cell"
+===================================================== */
 function actualizarTabla(pedidos) {
   const tbody = document.getElementById("tablaPedidos");
   const cards = document.getElementById("cardsPedidos");
@@ -220,23 +260,6 @@ function actualizarTabla(pedidos) {
             <!-- Pedido -->
             <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
               ${escapeHtml(p.numero ?? "-")}
-            </td>
-
-            <!-- Fecha (solo lg+) -->
-            <td class="py-4 px-4 text-slate-600 whitespace-nowrap hidden lg:table-cell">
-              ${escapeHtml(p.fecha ?? "-")}
-            </td>
-
-            <!-- Cliente -->
-            <td class="py-4 px-4">
-              <div class="font-semibold text-slate-900 truncate max-w-[280px]">
-                ${escapeHtml(p.cliente ?? "-")}
-              </div>
-            </td>
-
-            <!-- Total -->
-            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
-              ${escapeHtml(p.total ?? "-")}
             </td>
 
             <!-- Estado -->
@@ -361,9 +384,9 @@ function actualizarTabla(pedidos) {
   }
 }
 
-// =====================================================
-// ÚLTIMO CAMBIO (COMPACTO, NO CAJA GRANDE)
-// =====================================================
+/* =====================================================
+   ÚLTIMO CAMBIO (COMPACTO, NO CAJA GRANDE)
+===================================================== */
 function renderLastChangeCompact(p) {
   const info = p?.last_status_change;
   if (!info || !info.changed_at) return `<span class="text-slate-400 text-sm">—</span>`;
@@ -377,14 +400,12 @@ function renderLastChangeCompact(p) {
   `;
 }
 
-// =====================================================
-// ETIQUETAS: compactas (max 2) + botón limpio
-// =====================================================
+/* =====================================================
+   ETIQUETAS: compactas (max 2) + botón limpio
+===================================================== */
 function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
   const raw = String(etiquetas || "").trim();
-  const list = raw
-    ? raw.split(",").map((t) => t.trim()).filter(Boolean)
-    : [];
+  const list = raw ? raw.split(",").map((t) => t.trim()).filter(Boolean) : [];
 
   const max = mobile ? 3 : 2;
   const visibles = list.slice(0, max);
@@ -399,13 +420,13 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
     })
     .join("");
 
-  const more = rest > 0
-    ? `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border bg-white border-slate-200 text-slate-700">
+  const more =
+    rest > 0
+      ? `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border bg-white border-slate-200 text-slate-700">
         +${rest}
       </span>`
-    : "";
+      : "";
 
-  // Botón pequeño (sin subrayado, sin ruido)
   const btn = `
     <button onclick="abrirModalEtiquetas(${orderId}, '${escapeJsString(raw)}')"
       class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
@@ -443,9 +464,9 @@ function colorEtiqueta(tag) {
   return "bg-slate-50 border-slate-200 text-slate-800";
 }
 
-// =====================================================
-// TIME AGO (igual que antes)
-// =====================================================
+/* =====================================================
+   TIME AGO
+===================================================== */
 function timeAgo(dtStr) {
   if (!dtStr) return "";
   const d = new Date(String(dtStr).replace(" ", "T"));
@@ -463,9 +484,9 @@ function timeAgo(dtStr) {
   return `${sec}s`;
 }
 
-// =====================================================
-// MODAL ESTADO
-// =====================================================
+/* =====================================================
+   MODAL ESTADO
+===================================================== */
 function abrirModal(orderId) {
   const idInput = document.getElementById("modalOrderId");
   if (idInput) idInput.value = orderId;
@@ -495,50 +516,70 @@ async function guardarEstado(nuevoEstado) {
   }
 }
 
-// =====================================================
-// DETALLES (dejo tu función como estaba si ya te funciona)
-// =====================================================
-function verDetalles(orderId) {
+/* =====================================================
+   DETALLES
+===================================================== */
+function abrirModalDetalles() {
   document.getElementById("modalDetalles")?.classList.remove("hidden");
+}
+function cerrarModalDetalles() {
+  document.getElementById("modalDetalles")?.classList.add("hidden");
+}
 
-  document.getElementById("detalleProductos").innerHTML = "Cargando...";
-  document.getElementById("detalleCliente").innerHTML = "";
-  document.getElementById("detalleEnvio").innerHTML = "";
-  document.getElementById("detalleTotales").innerHTML = "";
-  document.getElementById("tituloPedido").innerHTML = "Cargando...";
+function verDetalles(orderId) {
+  abrirModalDetalles();
+
+  const detalleProductos = document.getElementById("detalleProductos");
+  const detalleCliente = document.getElementById("detalleCliente");
+  const detalleEnvio = document.getElementById("detalleEnvio");
+  const detalleTotales = document.getElementById("detalleTotales");
+  const tituloPedido = document.getElementById("tituloPedido");
+
+  if (detalleProductos) detalleProductos.innerHTML = "Cargando...";
+  if (detalleCliente) detalleCliente.innerHTML = "";
+  if (detalleEnvio) detalleEnvio.innerHTML = "";
+  if (detalleTotales) detalleTotales.innerHTML = "";
+  if (tituloPedido) tituloPedido.innerHTML = "Cargando...";
 
   fetch(`/index.php/dashboard/detalles/${orderId}`)
     .then((r) => r.json())
     .then((data) => {
-      if (!data.success) {
-        document.getElementById("detalleProductos").innerHTML =
-          "<p class='text-rose-600 font-bold'>Error cargando detalles.</p>";
+      if (!data?.success) {
+        if (detalleProductos) {
+          detalleProductos.innerHTML = "<p class='text-rose-600 font-bold'>Error cargando detalles.</p>";
+        }
         return;
       }
 
       const o = data.order;
       window.imagenesLocales = data.imagenes_locales ?? {};
 
-      document.getElementById("tituloPedido").innerHTML = `Detalles del pedido ${escapeHtml(o.name)}`;
+      if (tituloPedido) tituloPedido.innerHTML = `Detalles del pedido ${escapeHtml(o.name)}`;
 
-      document.getElementById("detalleCliente").innerHTML = `
-        <p><strong>${escapeHtml((o.customer?.first_name ?? "") + " " + (o.customer?.last_name ?? ""))}</strong></p>
-        <p>Email: ${escapeHtml(o.email ?? "-")}</p>
-        <p>Teléfono: ${escapeHtml(o.phone ?? "-")}</p>
-      `;
+      if (detalleCliente) {
+        detalleCliente.innerHTML = `
+          <p><strong>${escapeHtml((o.customer?.first_name ?? "") + " " + (o.customer?.last_name ?? ""))}</strong></p>
+          <p>Email: ${escapeHtml(o.email ?? "-")}</p>
+          <p>Teléfono: ${escapeHtml(o.phone ?? "-")}</p>
+        `;
+      }
 
       const a = o.shipping_address ?? {};
-      document.getElementById("detalleEnvio").innerHTML = `
-        <p>${escapeHtml(a.address1 ?? "")}</p>
-        <p>${escapeHtml((a.city ?? "") + ", " + (a.zip ?? ""))}</p>
-        <p>${escapeHtml(a.country ?? "")}</p>
-      `;
+      if (detalleEnvio) {
+        detalleEnvio.innerHTML = `
+          <p>${escapeHtml(a.address1 ?? "")}</p>
+          <p>${escapeHtml((a.city ?? "") + ", " + (a.zip ?? ""))}</p>
+          <p>${escapeHtml(a.country ?? "")}</p>
+        `;
+      }
 
-      document.getElementById("detalleTotales").innerHTML = `
-        <p><strong>Subtotal:</strong> ${escapeHtml(o.subtotal_price)} €</p>
-        <p><strong>Envío:</strong> ${escapeHtml(o.total_shipping_price_set?.shop_money?.amount ?? "0")} €</p>
-        <p><strong>Total:</strong> ${escapeHtml(o.total_price)} €</p>
-      `;
+      if (detalleTotales) {
+        detalleTotales.innerHTML = `
+          <p><strong>Subtotal:</strong> ${escapeHtml(o.subtotal_price)} €</p>
+          <p><strong>Envío:</strong> ${escapeHtml(o.total_shipping_price_set?.shop_money?.amount ?? "0")} €</p>
+          <p><strong>Total:</strong> ${escapeHtml(o.total_price)} €</p>
+        `;
+      }
 
       window.imagenesCargadas = new Array(o.line_items.length).fill(false);
 
@@ -588,20 +629,19 @@ function verDetalles(orderId) {
           </div>`;
       });
 
-      document.getElementById("detalleProductos").innerHTML = html;
+      if (detalleProductos) detalleProductos.innerHTML = html;
     })
     .catch((e) => {
       console.error(e);
-      document.getElementById("detalleProductos").innerHTML =
-        "<p class='text-rose-600 font-bold'>Error de red cargando detalles.</p>";
+      if (detalleProductos) {
+        detalleProductos.innerHTML = "<p class='text-rose-600 font-bold'>Error de red cargando detalles.</p>";
+      }
     });
 }
 
-function cerrarModalDetalles() {
-  document.getElementById("modalDetalles")?.classList.add("hidden");
-}
-
-// Panel cliente
+/* =====================================================
+   Panel cliente
+===================================================== */
 function abrirPanelCliente() {
   document.getElementById("panelCliente")?.classList.remove("hidden");
 }
@@ -609,11 +649,11 @@ function cerrarPanelCliente() {
   document.getElementById("panelCliente")?.classList.add("hidden");
 }
 
-// =====================================================
-// SUBIR IMAGEN (igual)
-// =====================================================
+/* =====================================================
+   SUBIR IMAGEN
+===================================================== */
 function subirImagenProducto(orderId, index, input) {
-  if (!input.files.length) return;
+  if (!input?.files?.length) return;
   const file = input.files[0];
 
   const reader = new FileReader();
@@ -635,7 +675,7 @@ function subirImagenProducto(orderId, index, input) {
     .then((res) => {
       hideLoader();
 
-      if (!res.success) {
+      if (!res?.success) {
         alert("Error subiendo imagen");
         return;
       }
@@ -669,9 +709,9 @@ function validarEstadoFinal(orderId) {
     .catch((e) => console.error(e));
 }
 
-// =====================================================
-// USUARIOS ONLINE/OFFLINE
-// =====================================================
+/* =====================================================
+   USUARIOS ONLINE/OFFLINE
+===================================================== */
 function renderUsersStatus(payload) {
   const users = payload?.users || [];
 
@@ -717,7 +757,9 @@ function renderUsersStatus(payload) {
 async function pingUsuario() {
   try {
     await fetch("/dashboard/ping", { headers: { Accept: "application/json" } });
-  } catch (e) {}
+  } catch (e) {
+    // silencioso
+  }
 }
 
 async function cargarUsuariosEstado() {
