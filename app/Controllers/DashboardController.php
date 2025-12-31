@@ -351,57 +351,93 @@ public function usuariosEstado()
     // LISTAR TODOS LOS PEDIDOS
     // ============================================================
     public function filter()
-    {
-        $allOrders = [];
-        $limit = 250;
-        $pageInfo = null;
-
-        do {
-            $params = "limit=$limit&status=any&order=created_at%20desc";
-
-            if ($pageInfo) {
-                $params .= "&page_info=$pageInfo";
-            }
-
-            $response = $this->queryShopify($params);
-
-            if (!isset($response["orders"])) break;
-
-            $allOrders = array_merge($allOrders, $response["orders"]);
-
-            $pageInfo = $response["next_page_info"] ?? null;
-
-        } while ($pageInfo);
-
-
-        $resultado = [];
-
-        foreach ($allOrders as $o) {
-
-            $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
-            $badge         = $this->badgeEstado($estadoInterno);
-
-            $resultado[] = [
-                "id"           => $o["id"],
-                "numero"       => $o["name"],
-                "fecha"        => substr($o["created_at"], 0, 10),
-                "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
-                "total"        => $o["total_price"] . " €",
-                "estado"       => $badge,
-                "estado_raw"   => $estadoInterno,
-                "etiquetas"    => $o["tags"] ?? "-",
-                "articulos"    => count($o["line_items"] ?? []),
-                "estado_envio" => $o["fulfillment_status"] ?? "-",
-                "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
-            ];
-        }
-
+{
+    if (!session()->get('logged_in')) {
         return $this->response->setJSON([
-            "success" => true,
-            "orders"  => $resultado,
-            "count"   => count($resultado)
+            'success' => false,
+            'message' => 'No autenticado'
+        ])->setStatusCode(401);
+    }
+
+    $limit    = (int) ($this->request->getGet('limit') ?? 50);
+    if ($limit <= 0 || $limit > 250) $limit = 50;
+
+    $pageInfo = trim((string) ($this->request->getGet('page_info') ?? ''));
+
+    // ✅ Llamada REAL a Shopify (sin usar $_GET)
+    $shopify = new \App\Controllers\ShopifyController();
+    $result  = $shopify->fetchOrdersPage($limit, $pageInfo ?: null);
+
+    // 🔥 Debug si viene vacío (te ayuda a detectar permisos/token)
+    if (empty($result['success'])) {
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => $result['error'] ?? 'Error Shopify',
+            'debug'   => $result,
+        ])->setStatusCode(500);
+    }
+
+    // ✅ OJO: aquí es "orders", NO data.orders
+    $ordersRaw    = $result['orders'] ?? [];
+    $nextPageInfo = $result['next_page_info'] ?? null;
+
+    // Si Shopify devuelve 200 pero vacío, devolvemos debug también
+    if (empty($ordersRaw)) {
+        return $this->response->setJSON([
+            'success'        => true,
+            'orders'         => [],
+            'next_page_info' => $nextPageInfo,
+            'count'          => 0,
+            'debug'          => [
+                'shopify_url' => $result['url'] ?? null,
+                'hint'        => 'Si /shopify/getOrders también devuelve vacío, es token/scope o tienda sin pedidos.'
+            ]
         ]);
     }
+
+    // Map simple (igual que tu formato)
+    $orders = [];
+    foreach ($ordersRaw as $o) {
+        $orderId = $o['id'] ?? null;
+
+        $numero = $o['name'] ?? ('#' . ($o['order_number'] ?? $orderId));
+        $fecha  = isset($o['created_at']) ? substr($o['created_at'], 0, 10) : '-';
+
+        $cliente = '-';
+        if (!empty($o['customer'])) {
+            $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
+            if ($cliente === '') $cliente = '-';
+        }
+
+        $total     = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
+        $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
+
+        $estado_envio = $o['fulfillment_status'] ?? '-';
+        $forma_envio  = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
+
+        $orders[] = [
+            'id'           => $orderId,
+            'numero'       => $numero,
+            'fecha'        => $fecha,
+            'cliente'      => $cliente,
+            'total'        => $total,
+            'estado'       => (!empty($o['tags']) ? 'Producción' : 'Por preparar'),
+            'etiquetas'    => $o['tags'] ?? '',
+            'articulos'    => $articulos,
+            'estado_envio' => $estado_envio ?: '-',
+            'forma_envio'  => $forma_envio ?: '-',
+            'last_status_change' => null,
+        ];
+    }
+
+    return $this->response->setJSON([
+        'success'        => true,
+        'orders'         => $orders,
+        'next_page_info' => $nextPageInfo,
+        'count'          => count($orders),
+    ]);
+}
+
 
 
     // ============================================================
