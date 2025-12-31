@@ -27,7 +27,7 @@ class PedidosController extends BaseController
             $p['last_estado_user_name']  = $row['user_name'] ?? null;
         }
 
-        return view('pedidos/index', ['pedidos' => $pedidos]);
+        return view('pedidos', 'PedidosController::listarPedidos', ['pedidos' => $pedidos]);
     }
 
     // EJEMPLO: si no existe aún, crea este método o reemplázalo por tu lógica real
