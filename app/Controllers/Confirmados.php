@@ -16,13 +16,13 @@ class Confirmados extends BaseController
     $pageInfo = $this->request->getGet('page_info');
     $limit = 50;
 
-    $shop = env('SHOPIFY_SHOP');
-    $token = env('SHOPIFY_ACCESS_TOKEN');
+    $shop = env('SHOPIFY_STORE_DOMAIN');
+    $token = env('SHOPIFY_ADMIN_TOKEN');
 
     if (!$shop || !$token) {
         return $this->response->setStatusCode(500)->setJSON([
             'success' => false,
-            'error' => 'Faltan credenciales Shopify (SHOPIFY_SHOP / SHOPIFY_ACCESS_TOKEN).'
+            'error' => 'Faltan credenciales Shopify (SHOPIFY_STORE_DOMAIN / SHOPIFY_ADMIN_TOKEN).'
         ]);
     }
 
