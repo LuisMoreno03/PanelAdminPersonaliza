@@ -136,21 +136,23 @@ class DashboardController extends Controller
     // ============================================================
     // BADGE DEL ESTADO
     // ============================================================
-    private function badgeEstado($estado)
-    {
-        $estilos = [
-            "Por preparar" => "bg-yellow-100 text-yellow-800 border border-yellow-300",
-            "Preparado"    => "bg-green-100 text-green-800 border border-green-300",
-            "Enviado"      => "bg-blue-100 text-blue-800 border border-blue-300",
-            "Entregado"    => "bg-emerald-1 00 text-emerald-800 border border-emerald-300",
-            "Cancelado"    => "bg-red-100 text-red-800 border border-red-300",
-            "Devuelto"     => "bg-purple-100 text-purple-800 border border-purple-300",
-        ];
+    private function badgeEstado(string $estado): string
+{
+    $estilos = [
+        'Por preparar' => 'bg-yellow-100 text-yellow-800 border border-yellow-300',
+        'Preparado'    => 'bg-green-100 text-green-800 border border-green-300',
+        'Enviado'      => 'bg-blue-100 text-blue-800 border border-blue-300',
+        'Entregado'    => 'bg-emerald-100 text-emerald-800 border border-emerald-300',
+        'Cancelado'    => 'bg-red-100 text-red-800 border border-red-300',
+        'Devuelto'     => 'bg-purple-100 text-purple-800 border border-purple-300',
+    ];
 
-        $clase = $estilos[$estado] ?? "bg-gray-100 text-gray-800 border border-gray-300";
+    $clase = $estilos[$estado] ?? 'bg-gray-100 text-gray-800 border border-gray-300';
 
-        return '<span class="px-3 py-1 rounded-full text-xs font-bold tracking-wide $clase">$estado</span>';
-    }
+    return '<span class="px-3 py-1 rounded-full text-xs font-bold tracking-wide ' 
+        . $clase . '">' . htmlspecialchars($estado, ENT_QUOTES, 'UTF-8') . '</span>';
+}
+
 
 
     // ============================================================
