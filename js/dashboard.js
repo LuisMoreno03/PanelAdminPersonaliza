@@ -553,6 +553,9 @@ window.cargarPedidos = cargarPedidos;
 window.paginaSiguiente = paginaSiguiente;
 window.paginaAnterior = paginaAnterior;
 
+
+
+
 window.abrirModal = abrirModal;
 window.cerrarModal = cerrarModal;
 window.guardarEstado = guardarEstado;
