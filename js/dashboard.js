@@ -240,7 +240,7 @@ function actualizarTabla(pedidos) {
             </td>
 
             <!-- Estado -->
-            <td class="py-4 px-3">
+            <td class="py-4 w-40 px-3">
               <button onclick="abrirModal(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm
                        hover:shadow-md hover:border-slate-300 transition">
