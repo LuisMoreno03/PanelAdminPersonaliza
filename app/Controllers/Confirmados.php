@@ -13,133 +13,62 @@ class Confirmados extends BaseController
 
     public function filter()
 {
-    $pageInfo = $this->request->getGet('page_info'); // cursor
-    $limit = 50;
+    // Si tu JS manda page_info, lo usamos como "page" (1,2,3...)
+    $page = (int)($this->request->getGet('page_info') ?? 1);
+    $limit = (int)($this->request->getGet('limit') ?? 50);
 
-    $shop  = getenv('SHOPIFY_STORE_DOMAIN') ?: env('SHOPIFY_STORE_DOMAIN');
-    $token = getenv('SHOPIFY_ADMIN_TOKEN') ?: env('SHOPIFY_ADMIN_TOKEN');
+    $page = max(1, $page);
+    $limit = max(1, min(200, $limit));
+    $offset = ($page - 1) * $limit;
 
-    if (!$shop || !$token) {
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'error' => 'Faltan credenciales Shopify (SHOPIFY_STORE_DOMAIN / SHOPIFY_ADMIN_TOKEN).'
-        ]);
-    }
+    // ✅ CAMBIA ESTO:
+    $tablaPedidos = 'pedidos';        // <--- tu tabla real (ej: pedidos, ordenes, shopify_pedidos, etc.)
+    $campoEstado  = 'estado_interno'; // <--- tu campo real (ej: estado, estado_interno, estatus, status_interno, etc.)
 
-    // ✅ Query de Shopify (búsqueda)
-    // Si tu tag real es otro, cambia aquí.
-    $searchQuery = 'status:any (tag:Preparado OR tag:Preparados OR tag:preparado OR tag:PREPARADO)';
+    // ✅ Estado que quieres mostrar en "Confirmados"
+    $estadoObjetivo = 'Preparado';
 
-    $endpoint = "https://{$shop}/admin/api/2025-01/graphql.json";
+    $db = \Config\Database::connect();
+    $builder = $db->table($tablaPedidos);
 
-    $afterPart = $pageInfo ? ', after: "' . addslashes($pageInfo) . '"' : '';
+    // Trae SOLO preparados (case-insensitive)
+    $builder->where("LOWER($campoEstado)", strtolower($estadoObjetivo));
 
-    $gql = <<<GQL
-    {
-      orders(first: {$limit}{$afterPart}, query: "{$searchQuery}") {
-        edges {
-          cursor
-          node {
-            id
-            name
-            createdAt
-            totalPriceSet { shopMoney { amount currencyCode } }
-            displayFulfillmentStatus
-            tags
-            lineItems(first: 1) { edges { node { id } } }
-            customer { firstName lastName }
-          }
-        }
-        pageInfo { hasNextPage }
-      }
-    }
-    GQL;
+    // Total para paginación
+    $total = (clone $builder)->countAllResults(false);
 
-    $payload = json_encode(['query' => $gql]);
+    // Datos
+    $rows = $builder
+        ->orderBy('id', 'DESC') // si tienes created_at mejor: ->orderBy('created_at','DESC')
+        ->limit($limit, $offset)
+        ->get()
+        ->getResultArray();
 
-    $ch = curl_init($endpoint);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $payload,
-        CURLOPT_HTTPHEADER => [
-            "X-Shopify-Access-Token: {$token}",
-            "Content-Type: application/json",
-        ],
-        CURLOPT_TIMEOUT => 30,
-    ]);
-
-    $raw = curl_exec($ch);
-    if ($raw === false) {
-        $err = curl_error($ch);
-        curl_close($ch);
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'error' => 'cURL error',
-            'details' => $err
-        ]);
-    }
-
-    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    $json = json_decode($raw, true);
-
-    if ($status >= 400 || !is_array($json)) {
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'error' => 'Error Shopify GraphQL',
-            'status' => $status,
-            'body' => substr($raw, 0, 1200),
-        ]);
-    }
-
-    if (!empty($json['errors'])) {
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'error' => 'GraphQL errors',
-            'errors' => $json['errors'],
-        ]);
-    }
-
-    $edges = $json['data']['orders']['edges'] ?? [];
-    $hasNext = $json['data']['orders']['pageInfo']['hasNextPage'] ?? false;
-
-    $orders = [];
-    $nextCursor = null;
-
-    foreach ($edges as $edge) {
-        $node = $edge['node'] ?? [];
-        $nextCursor = $edge['cursor'] ?? $nextCursor;
-
-        $cliente = '-';
-        if (!empty($node['customer'])) {
-            $fn = $node['customer']['firstName'] ?? '';
-            $ln = $node['customer']['lastName'] ?? '';
-            $cliente = trim($fn . ' ' . $ln) ?: '-';
-        }
-
-        $money = $node['totalPriceSet']['shopMoney'] ?? null;
-        $total = $money ? ($money['amount'] . ' ' . $money['currencyCode']) : '-';
-
-        $orders[] = [
-            'id' => $node['id'] ?? '',
-            'numero' => $node['name'] ?? '-',
-            'fecha' => $node['createdAt'] ?? '-',
-            'cliente' => $cliente,
-            'total' => $total,
-            'estado' => $node['displayFulfillmentStatus'] ?? '-',
-            'etiquetas' => !empty($node['tags']) ? implode(',', $node['tags']) : '',
-            'articulos' => 0, // si quieres conteo real, se puede pedir lineItems(first: 250) y contar
-            'estado_envio' => $node['displayFulfillmentStatus'] ?? '',
-            'forma_envio' => '',
+    // Mapea al formato que tu tabla frontend espera
+    $orders = array_map(function ($r) use ($campoEstado) {
+        return [
+            'id' => $r['id'] ?? ($r['shopify_order_id'] ?? null),
+            'numero' => $r['numero'] ?? ($r['order_number'] ?? ($r['name'] ?? '-')),
+            'fecha' => $r['fecha'] ?? ($r['created_at'] ?? '-'),
+            'cliente' => $r['cliente'] ?? ($r['customer_name'] ?? '-'),
+            'total' => $r['total'] ?? ($r['total_price'] ?? '-'),
+            // ✅ estado interno
+            'estado' => $r[$campoEstado] ?? '-',
+            'etiquetas' => $r['etiquetas'] ?? ($r['tags'] ?? ''),
+            'articulos' => $r['articulos'] ?? ($r['items_count'] ?? '-'),
+            'estado_envio' => $r['estado_envio'] ?? '',
+            'forma_envio' => $r['forma_envio'] ?? '',
         ];
-    }
+    }, $rows);
+
+    $hasNext = ($offset + $limit) < $total;
 
     return $this->response->setJSON([
         'success' => true,
         'orders' => $orders,
-        'next_page_info' => ($hasNext ? $nextCursor : null),
+        // seguimos usando page_info como "page"
+        'next_page_info' => $hasNext ? (string)($page + 1) : null,
     ]);
 }
+
 }
