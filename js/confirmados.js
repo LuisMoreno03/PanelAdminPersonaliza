@@ -4,6 +4,8 @@
 
 let nextPageInfo = null;
 let isLoading = false;
+let lastRenderedHash = "";
+
 
 function showLoader() {
   const el = document.getElementById("globalLoader");
@@ -21,12 +23,13 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
-function cargarPedidosPreparados(pageInfo = null) {
+function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
   currentPageInfo = pageInfo; // 👈 guarda la página actual
   if (isLoading) return;
   isLoading = true;
 
-  showLoader();
+  if (!silent) showLoader();
+
 
   const base = window.BASE_URL || ""; // si no existe, usa root
   let url = `${base}/confirmados/filter`;
@@ -88,6 +91,21 @@ function cargarPedidosPreparados(pageInfo = null) {
         );
       });
 
+      const hash = JSON.stringify(preparados.map(p => ({
+        id: p.id,
+        estado: p.estado ?? p.status,
+        etiquetas: p.etiquetas,
+        total: p.total,
+        fecha: p.fecha
+        })));
+
+        if (hash === lastRenderedHash) {
+        // nada cambió, no re-render
+        setBtnSiguiente(nextPageInfo);
+        return;
+        }
+        lastRenderedHash = hash;
+
       actualizarTabla(preparados);
       setTotal(preparados.length);
       setBtnSiguiente(nextPageInfo);
@@ -99,7 +117,8 @@ function cargarPedidosPreparados(pageInfo = null) {
       setBtnSiguiente(null);
     })
     .finally(() => {
-      hideLoader();
+      if (!silent) hideLoader();
+
       isLoading = false;
     });
 }
@@ -211,13 +230,11 @@ let currentPageInfo = null;    // guardamos la página actual
 function startAutoRefresh() {
   stopAutoRefresh();
   autoRefreshTimer = setInterval(() => {
-    // no refrescar si ya está cargando
     if (isLoading) return;
-
-    // refresca la misma página que estás viendo
-    cargarPedidosPreparados(currentPageInfo);
+    cargarPedidosPreparados(currentPageInfo, { silent: true });
   }, autoRefreshEveryMs);
 }
+
 
 function stopAutoRefresh() {
   if (autoRefreshTimer) {
