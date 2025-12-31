@@ -26,7 +26,6 @@ function hideLoader() {
 // INICIALIZAR
 // =====================================================
 document.addEventListener("DOMContentLoaded", () => {
-  // enganchar botón anterior si existe
   const btnAnterior = document.getElementById("btnAnterior");
   if (btnAnterior) {
     btnAnterior.addEventListener("click", (e) => {
@@ -61,6 +60,20 @@ function escapeJsString(str) {
   return String(str ?? "").replaceAll("\\", "\\\\").replaceAll("'", "\\'");
 }
 
+// Detecta si el “estado” viene como HTML de badge
+function esBadgeHtml(valor) {
+  const s = String(valor ?? "").trim();
+  return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
+}
+
+// Render seguro del estado:
+// - Si viene HTML (badge), lo devolvemos tal cual para que se pinte.
+// - Si viene texto normal, lo escapamos.
+function renderEstado(valor) {
+  if (esBadgeHtml(valor)) return String(valor);
+  return escapeHtml(valor ?? "-");
+}
+
 // =====================================================
 // CARGAR PEDIDOS
 // =====================================================
@@ -68,10 +81,12 @@ function cargarPedidos(pageInfo = null) {
   if (isLoading) return;
   isLoading = true;
 
+  showLoader();
+
   let url = "/dashboard/filter";
   if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
 
-  fetch(url)
+  fetch(url, { headers: { Accept: "application/json" } })
     .then((res) => res.json())
     .then((data) => {
       if (!data || !data.success) return;
@@ -88,8 +103,13 @@ function cargarPedidos(pageInfo = null) {
       nextPageInfo = data.next_page_info ?? null;
 
       actualizarTabla(data.orders || []);
+
       const btnSig = document.getElementById("btnSiguiente");
-      if (btnSig) btnSig.disabled = !nextPageInfo;
+      if (btnSig) {
+        btnSig.disabled = !nextPageInfo;
+        btnSig.classList.toggle("opacity-50", btnSig.disabled);
+        btnSig.classList.toggle("cursor-not-allowed", btnSig.disabled);
+      }
 
       const btnAnt = document.getElementById("btnAnterior");
       if (btnAnt) {
@@ -101,8 +121,12 @@ function cargarPedidos(pageInfo = null) {
       const total = document.getElementById("total-pedidos");
       if (total) total.textContent = data.count ?? 0;
     })
+    .catch((err) => {
+      console.error("Error cargando pedidos:", err);
+    })
     .finally(() => {
       isLoading = false;
+      hideLoader();
     });
 }
 
@@ -127,7 +151,6 @@ function paginaAnterior() {
 
 // =====================================================
 // TABLA PRINCIPAL (RESPETA 11 COLUMNAS)
-// Orden esperado del <thead>:
 // Pedido | Fecha | Cliente | Total | Estado | Último cambio | Etiquetas | Artículos | Estado entrega | Forma entrega | Detalles
 // =====================================================
 function actualizarTabla(pedidos) {
@@ -149,6 +172,7 @@ function actualizarTabla(pedidos) {
   const rows = pedidos
     .map((p) => {
       const id = p.id ?? "";
+
       return `
       <tr class="border-b hover:bg-gray-50 transition">
         <!-- 1 Pedido -->
@@ -163,14 +187,14 @@ function actualizarTabla(pedidos) {
         <!-- 4 Total -->
         <td class="py-2 px-4">${escapeHtml(p.total ?? "-")}</td>
 
-        <!-- 5 Estado -->
+        <!-- 5 Estado (FIX: NO escapamos si viene badge HTML) -->
         <td class="py-2 px-2">
           <button onclick="abrirModal(${id})" class="font-semibold">
-            ${escapeHtml(p.estado ?? "-")}
+            ${renderEstado(p.estado ?? "-")}
           </button>
         </td>
 
-        <!-- 6 ÚLTIMO CAMBIO (NUEVA) -->
+        <!-- 6 ÚLTIMO CAMBIO -->
         <td class="py-2 px-4" data-lastchange="${id}">
           ${renderLastChange(p)}
         </td>
@@ -388,7 +412,6 @@ function cerrarModal() {
 async function guardarEstado(nuevoEstado) {
   const id = document.getElementById("modalOrderId").value;
 
-  // OJO: si aún no tienes este endpoint, te tocará crearlo
   const r = await fetch("/api/estado/guardar", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -507,6 +530,11 @@ function verDetalles(orderId) {
       });
 
       document.getElementById("detalleProductos").innerHTML = html;
+    })
+    .catch((e) => {
+      console.error(e);
+      document.getElementById("detalleProductos").innerHTML =
+        "<p class='text-red-500'>Error de red cargando detalles.</p>";
     });
 }
 
@@ -563,6 +591,11 @@ function subirImagenProducto(orderId, index, input) {
       window.imagenesCargadas[index] = true;
 
       validarEstadoFinal(orderId);
+    })
+    .catch((e) => {
+      hideLoader();
+      console.error(e);
+      alert("Error de red subiendo imagen");
     });
 }
 
@@ -579,5 +612,6 @@ function validarEstadoFinal(orderId) {
     body: JSON.stringify({ id: orderId, estado: nuevoEstado }),
   })
     .then((r) => r.json())
-    .then(() => cargarPedidos());
+    .then(() => cargarPedidos())
+    .catch((e) => console.error(e));
 }
