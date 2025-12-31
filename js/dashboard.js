@@ -1,9 +1,5 @@
 // =====================================================
-// DASHBOARD.JS (COMPLETO) — Moderno + cómodo + rápido
-// - Tabla optimizada (zebra + hover + acciones claras)
-// - Responsive real: columnas se esconden en pantallas pequeñas (sin scroll horizontal)
-// - Cards móviles (si existe #cardsPedidos)
-// - Usuarios online/offline (ping + estado)
+// DASHBOARD.JS (COMPLETO) - UI moderna + entrega más visible + etiquetas pro
 // =====================================================
 
 // =====================================================
@@ -11,6 +7,7 @@
 // =====================================================
 let nextPageInfo = null;
 let isLoading = false;
+
 let etiquetasSeleccionadas = [];
 window.imagenesCargadas = [];
 window.imagenesLocales = {}; // imágenes locales por índice
@@ -18,7 +15,7 @@ window.imagenesLocales = {}; // imágenes locales por índice
 // Historial page_info para botón "Anterior"
 let pageHistory = [];
 
-// Intervalos usuarios
+// Intervalos para usuarios
 let userPingInterval = null;
 let userStatusInterval = null;
 
@@ -35,10 +32,9 @@ function hideLoader() {
 }
 
 // =====================================================
-// INIT
+// INICIALIZAR
 // =====================================================
 document.addEventListener("DOMContentLoaded", () => {
-  // Botón Anterior
   const btnAnterior = document.getElementById("btnAnterior");
   if (btnAnterior) {
     btnAnterior.addEventListener("click", (e) => {
@@ -47,19 +43,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Usuarios: ping + estado
+  // ping y estado usuarios (si existen endpoints)
   pingUsuario();
   userPingInterval = setInterval(pingUsuario, 30000); // 30s
 
   cargarUsuariosEstado();
   userStatusInterval = setInterval(cargarUsuariosEstado, 15000); // 15s
 
-  // Pedidos
   cargarPedidos();
 });
 
 // =====================================================
-// HELPERS
+// Helpers
 // =====================================================
 function esImagen(url) {
   if (!url) return false;
@@ -79,26 +74,87 @@ function escapeJsString(str) {
   return String(str ?? "").replaceAll("\\", "\\\\").replaceAll("'", "\\'");
 }
 
-// Inicial para avatar (A, B, C…) desde nombre
-function inicialNombre(nombre) {
-  const s = String(nombre ?? "").trim();
-  if (!s) return "U";
-  const parts = s.split(/\s+/).filter(Boolean);
-  const first = parts[0]?.[0] ?? "U";
-  const second = parts.length > 1 ? parts[parts.length - 1]?.[0] : "";
-  return (first + second).toUpperCase();
-}
-
 // Detecta si el “estado” viene como HTML de badge
 function esBadgeHtml(valor) {
   const s = String(valor ?? "").trim();
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
 }
 
-// Render seguro del estado
+// Render seguro del estado (badge html o texto)
 function renderEstado(valor) {
   if (esBadgeHtml(valor)) return String(valor);
   return escapeHtml(valor ?? "-");
+}
+
+// =====================================================
+// ENTREGA - Pill súper visible (MODERNO)
+// =====================================================
+function entregaStyle(estado) {
+  const s = String(estado || "").toLowerCase();
+
+  if (!s || s === "-" || s === "null") {
+    return {
+      wrap: "bg-slate-50 border-slate-200 text-slate-800",
+      dot: "bg-slate-400",
+      icon: "📦",
+      label: "Sin estado",
+    };
+  }
+
+  if (s.includes("entregado") || s.includes("delivered")) {
+    return {
+      wrap: "bg-emerald-50 border-emerald-200 text-emerald-900",
+      dot: "bg-emerald-500",
+      icon: "✅",
+      label: "Entregado",
+    };
+  }
+
+  if (s.includes("enviado") || s.includes("shipped")) {
+    return {
+      wrap: "bg-blue-50 border-blue-200 text-blue-900",
+      dot: "bg-blue-500",
+      icon: "🚚",
+      label: "Enviado",
+    };
+  }
+
+  if (s.includes("prepar") || s.includes("processing") || s.includes("pendiente")) {
+    return {
+      wrap: "bg-amber-50 border-amber-200 text-amber-900",
+      dot: "bg-amber-500",
+      icon: "📦",
+      label: "Preparando",
+    };
+  }
+
+  if (s.includes("cancel") || s.includes("devuelto") || s.includes("return") || s.includes("refunded")) {
+    return {
+      wrap: "bg-rose-50 border-rose-200 text-rose-900",
+      dot: "bg-rose-500",
+      icon: "⛔",
+      label: "Incidencia",
+    };
+  }
+
+  return {
+    wrap: "bg-slate-50 border-slate-200 text-slate-900",
+    dot: "bg-slate-400",
+    icon: "📍",
+    label: estado || "—",
+  };
+}
+
+function renderEntregaPill(estadoEnvio) {
+  const st = entregaStyle(estadoEnvio);
+  return `
+    <span class="inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl border ${st.wrap}
+                 shadow-sm font-extrabold text-xs uppercase tracking-wide">
+      <span class="h-2.5 w-2.5 rounded-full ${st.dot}"></span>
+      <span class="text-sm leading-none">${st.icon}</span>
+      <span class="leading-none">${escapeHtml(st.label)}</span>
+    </span>
+  `;
 }
 
 // =====================================================
@@ -131,7 +187,6 @@ function cargarPedidos(pageInfo = null) {
 
       actualizarTabla(data.orders || []);
 
-      // botones paginación
       const btnSig = document.getElementById("btnSiguiente");
       if (btnSig) {
         btnSig.disabled = !nextPageInfo;
@@ -168,16 +223,14 @@ function paginaAnterior() {
     cargarPedidos(null);
     return;
   }
+
   pageHistory.pop();
   const prev = pageHistory.length ? pageHistory[pageHistory.length - 1] : null;
   cargarPedidos(prev);
 }
 
 // =====================================================
-// TABLA + CARDS (MODERNO + RÁPIDO)
-// - Mantiene tbody único (#tablaPedidos)
-// - En pantallas pequeñas, ocultamos columnas pesadas con hidden lg/xl/2xl
-// - Cards móviles si existe #cardsPedidos
+// TABLA PRINCIPAL + CARDS
 // =====================================================
 function actualizarTabla(pedidos) {
   const tbody = document.getElementById("tablaPedidos");
@@ -190,136 +243,114 @@ function actualizarTabla(pedidos) {
     tbody.innerHTML = "";
 
     if (!pedidos.length) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td colspan="11" class="py-10 text-center text-slate-500">
-          No se encontraron pedidos
-        </td>`;
-      tbody.appendChild(tr);
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="11" class="py-8 text-center text-slate-500">
+            No se encontraron pedidos
+          </td>
+        </tr>`;
     } else {
-      const frag = document.createDocumentFragment();
+      const rows = pedidos
+        .map((p) => {
+          const id = p.id ?? "";
+          const estadoEnvio = p.estado_envio ?? "-";
 
-      pedidos.forEach((p, idx) => {
-        const id = p.id ?? "";
-        const numero = escapeHtml(p.numero ?? "-");
-        const fecha = escapeHtml(p.fecha ?? "-");
-        const cliente = escapeHtml(p.cliente ?? "-");
-        const total = escapeHtml(p.total ?? "-");
-        const articulos = escapeHtml(p.articulos ?? "-");
-        const estadoEnvio = escapeHtml(p.estado_envio ?? "-");
-        const formaEnvio = escapeHtml(p.forma_envio ?? "-");
-
-        const tr = document.createElement("tr");
-
-        tr.className =
-          `border-b border-slate-100 transition
-           ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"}
-           hover:bg-blue-50/40`;
-
-        tr.innerHTML = `
-          <!-- Pedido -->
-          <td class="py-4 px-4">
-            <div class="flex items-center gap-3">
-              <div class="h-10 w-10 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center">
-                <span class="text-slate-700">🧾</span>
+          return `
+          <tr class="border-b border-slate-100 hover:bg-slate-50/60 transition">
+            <!-- Pedido -->
+            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
+              ${escapeHtml(p.numero ?? "-")}
+              <div class="text-xs font-semibold text-slate-500 mt-0.5 hidden 2xl:block">
+                ID: <span class="font-mono">${escapeHtml(String(id))}</span>
               </div>
-              <div class="min-w-0">
-                <div class="font-extrabold text-slate-900 truncate">${numero}</div>
-                <div class="text-xs text-slate-500 truncate">
-                  ID: <span class="font-mono">${escapeHtml(String(id))}</span>
-                </div>
-              </div>
-            </div>
-          </td>
+            </td>
 
-          <!-- Fecha (solo lg+) -->
-          <td class="py-4 px-4 text-slate-700 font-medium hidden lg:table-cell">
-            ${fecha}
-          </td>
+            <!-- Fecha -->
+            <td class="py-4 px-4 text-slate-700 whitespace-nowrap">
+              ${escapeHtml(p.fecha ?? "-")}
+            </td>
 
-          <!-- Cliente -->
-          <td class="py-4 px-4">
-            <div class="flex items-center gap-3">
-              <div class="h-9 w-9 rounded-xl bg-slate-900 text-white flex items-center justify-center text-xs font-extrabold">
-                ${inicialNombre(cliente)}
-              </div>
-              <div class="min-w-0">
-                <div class="font-semibold text-slate-900 truncate">${cliente}</div>
-                <div class="text-xs text-slate-500">Cliente</div>
-              </div>
-            </div>
-          </td>
+            <!-- Cliente -->
+            <td class="py-4 px-4 text-slate-800">
+              <div class="font-semibold">${escapeHtml(p.cliente ?? "-")}</div>
+            </td>
 
-          <!-- Total -->
-          <td class="py-4 px-4 text-right">
-            <div class="font-extrabold text-slate-900">${total}</div>
-            <div class="text-xs text-slate-500">${articulos} art.</div>
-          </td>
+            <!-- Total -->
+            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
+              ${escapeHtml(p.total ?? "-")}
+            </td>
 
-          <!-- Estado -->
-          <td class="py-4 px-4">
-            <button onclick="abrirModal(${id})"
-              class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm
-                     hover:shadow-md hover:border-slate-300 transition font-semibold text-slate-800">
-              ${renderEstado(p.estado ?? "-")}
-              <span class="text-slate-400">✎</span>
-            </button>
-          </td>
+            <!-- Estado -->
+            <td class="py-4 px-3">
+              <button onclick="abrirModal(${id})"
+                class="inline-flex items-center gap-2 rounded-2xl px-3 py-2 bg-white border border-slate-200 shadow-sm
+                       hover:shadow-md hover:border-slate-300 transition">
+                <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+                <span class="font-extrabold text-xs uppercase tracking-wide text-slate-900">
+                  ${renderEstado(p.estado ?? "-")}
+                </span>
+              </button>
+            </td>
 
-          <!-- Último cambio (solo xl+) -->
-          <td class="py-4 px-4 hidden xl:table-cell" data-lastchange="${id}">
-            ${renderLastChange(p)}
-          </td>
+            <!-- Último cambio -->
+            <td class="py-4 px-4" data-lastchange="${id}">
+              ${renderLastChange(p)}
+            </td>
 
-          <!-- Etiquetas (solo 2xl+) -->
-          <td class="py-4 px-4 hidden 2xl:table-cell">
-            ${formatearEtiquetas(p.etiquetas ?? "", id)}
-          </td>
+            <!-- Etiquetas (botón moderno incluido) -->
+            <td class="py-4 px-4">
+              ${formatearEtiquetas(p.etiquetas ?? "", id)}
+            </td>
 
-          <!-- Artículos (solo xl+) -->
-          <td class="py-4 px-4 hidden xl:table-cell text-center">
-            <span class="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
-              ${articulos}
-            </span>
-          </td>
+            <!-- Artículos -->
+            <td class="py-4 px-4 text-slate-700 whitespace-nowrap">
+              <span class="inline-flex items-center justify-center min-w-[42px] px-3 py-1 rounded-full text-xs font-extrabold
+                           bg-slate-50 border border-slate-200 text-slate-800">
+                ${escapeHtml(p.articulos ?? "-")}
+              </span>
+            </td>
 
-          <!-- Estado entrega (solo xl+) -->
-          <td class="py-4 px-4 hidden xl:table-cell">
-            <span class="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-100">
-              ${estadoEnvio}
-            </span>
-          </td>
+            <!-- Estado entrega (MUCHO más visible) -->
+            <td class="py-4 px-4">
+              ${renderEntregaPill(estadoEnvio)}
+            </td>
 
-          <!-- Forma entrega (solo 2xl+) -->
-          <td class="py-4 px-4 hidden 2xl:table-cell text-slate-700">
-            ${formaEnvio}
-          </td>
+            <!-- Forma entrega -->
+            <td class="py-4 px-4 text-slate-700">
+              <span class="inline-flex items-center px-3 py-2 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-bold">
+                ${escapeHtml(p.forma_envio ?? "-")}
+              </span>
+            </td>
 
-          <!-- Detalles -->
-          <td class="py-4 px-4 text-right">
-            <button onclick="verDetalles(${id})"
-              class="inline-flex items-center justify-center px-4 py-2 rounded-2xl bg-blue-600 text-white text-sm font-extrabold
-                     hover:bg-blue-700 active:scale-[0.99] transition shadow-sm">
-              Ver
-            </button>
-          </td>
+            <!-- Detalles -->
+            <td class="py-4 px-4">
+              <button onclick="verDetalles(${id})"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-blue-600 text-white text-xs font-extrabold uppercase tracking-wide
+                       hover:bg-blue-700 active:scale-[0.99] transition shadow-sm">
+                Ver
+                <span class="text-white/90">→</span>
+              </button>
+            </td>
+          </tr>
         `;
+        })
+        .join("");
 
-        frag.appendChild(tr);
-      });
-
-      tbody.appendChild(frag);
+      tbody.innerHTML = rows;
     }
   }
 
   // ==========================
-  // MOBILE CARDS (si existe)
+  // MOBILE CARDS
   // ==========================
   if (cards) {
     cards.innerHTML = "";
 
     if (!pedidos.length) {
-      cards.innerHTML = `<div class="py-10 text-center text-slate-500">No se encontraron pedidos</div>`;
+      cards.innerHTML = `
+        <div class="py-10 text-center text-slate-500">
+          No se encontraron pedidos
+        </div>`;
       return;
     }
 
@@ -331,28 +362,18 @@ function actualizarTabla(pedidos) {
         const cliente = escapeHtml(p.cliente ?? "-");
         const total = escapeHtml(p.total ?? "-");
         const envio = escapeHtml(p.forma_envio ?? "-");
-        const estadoEnvio = escapeHtml(p.estado_envio ?? "-");
+        const estadoEnvio = p.estado_envio ?? "-";
         const articulos = escapeHtml(p.articulos ?? "0");
 
         return `
-        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden hover:shadow-md transition">
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div class="p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                  <span class="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-white border border-slate-200 shadow-sm">🧾</span>
-                  <div class="min-w-0">
-                    <div class="text-sm font-extrabold text-slate-900 truncate">${numero}</div>
-                    <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
-                  </div>
-                </div>
 
-                <div class="mt-3 flex items-center gap-2">
-                  <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-900 text-white text-xs font-extrabold">
-                    ${inicialNombre(cliente)}
-                  </span>
-                  <div class="text-sm font-semibold text-slate-800 truncate">${cliente}</div>
-                </div>
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-sm font-extrabold text-slate-900">${numero}</div>
+                <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
+                <div class="text-sm text-slate-700 mt-1 font-semibold">${cliente}</div>
               </div>
 
               <div class="text-right">
@@ -361,40 +382,54 @@ function actualizarTabla(pedidos) {
               </div>
             </div>
 
-            <div class="mt-4 flex items-center justify-between gap-3">
+            <div class="mt-3 flex items-center justify-between gap-3">
               <button onclick="abrirModal(${id})"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm font-semibold text-slate-800">
-                ${renderEstado(p.estado ?? "-")}
-                <span class="text-slate-400">✎</span>
+                class="inline-flex items-center gap-2 rounded-2xl px-3 py-2 bg-white border border-slate-200 shadow-sm hover:shadow-md transition">
+                <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+                <span class="font-extrabold text-xs uppercase tracking-wide text-slate-900">
+                  ${renderEstado(p.estado ?? "-")}
+                </span>
               </button>
 
               <button onclick="verDetalles(${id})"
-                class="px-4 py-2 rounded-2xl bg-blue-600 text-white text-sm font-extrabold shadow-sm">
-                Ver
+                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-xs font-extrabold uppercase tracking-wide shadow-sm
+                       hover:bg-blue-700 transition">
+                Ver →
               </button>
             </div>
 
-            <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-3 text-sm">
-              <div class="flex items-center justify-between gap-3">
-                <span class="text-slate-500">Entrega</span>
-                <span class="font-semibold text-slate-800">${estadoEnvio}</span>
-              </div>
-              <div class="flex items-center justify-between gap-3 mt-1">
-                <span class="text-slate-500">Forma</span>
-                <span class="font-semibold text-slate-800">${envio}</span>
+            <div class="mt-3">
+              <div class="text-xs uppercase tracking-wider text-slate-500 mb-2">Entrega</div>
+              ${renderEntregaPill(estadoEnvio)}
+              <div class="mt-2 text-xs text-slate-600">
+                <span class="font-bold">Forma:</span> ${envio}
               </div>
             </div>
 
-            <div class="mt-4" data-lastchange="${id}">
+            <div class="mt-3" data-lastchange="${id}">
               ${renderLastChange(p)}
             </div>
 
-            <div class="mt-4">
+            <div class="mt-3">
               <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Etiquetas</div>
               ${formatearEtiquetas(p.etiquetas ?? "", id)}
             </div>
+
+            <details class="mt-3">
+              <summary class="cursor-pointer text-sm font-semibold text-slate-700 select-none">
+                Ver más
+              </summary>
+              <div class="mt-2 text-sm text-slate-600">
+                <div class="flex items-center justify-between">
+                  <span class="text-slate-500">ID</span>
+                  <span class="font-mono text-xs">${escapeHtml(String(id))}</span>
+                </div>
+              </div>
+            </details>
+
           </div>
-        </div>`;
+        </div>
+      `;
       })
       .join("");
 
@@ -403,14 +438,22 @@ function actualizarTabla(pedidos) {
 }
 
 // =====================================================
-// ETIQUETAS
+// ETIQUETAS (BOTÓN/ESTILO MÁS MODERNO)
 // =====================================================
 function formatearEtiquetas(etiquetas, orderId) {
   if (!etiquetas) {
-    return `<button onclick="abrirModalEtiquetas(${orderId}, '')"
-            class="inline-flex items-center gap-2 text-blue-600 font-semibold underline">
-            + Agregar
-            </button>`;
+    // Botón pro cuando no hay etiquetas
+    return `
+      <button onclick="abrirModalEtiquetas(${orderId}, '')"
+        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
+               bg-white border border-slate-200 shadow-sm
+               hover:shadow-md hover:border-slate-300 transition
+               text-slate-900 font-extrabold text-xs uppercase tracking-wide">
+        <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+        Etiquetas
+        <span class="text-blue-700">＋</span>
+      </button>
+    `;
   }
 
   let lista = String(etiquetas)
@@ -421,27 +464,31 @@ function formatearEtiquetas(etiquetas, orderId) {
   const tagsHtml = lista
     .map((tag) => {
       const cls = colorEtiqueta(tag);
-      return `<span class="px-2.5 py-1 rounded-full text-xs font-bold ${cls}">
+      return `<span class="px-2.5 py-1.5 rounded-full text-[11px] font-extrabold uppercase tracking-wide ${cls}">
         ${escapeHtml(tag)}
       </span>`;
     })
     .join("");
 
   return `
-    <div class="flex flex-wrap gap-2 items-center">
+    <div class="flex flex-wrap items-center gap-2">
       ${tagsHtml}
+      <span class="w-full h-0 lg:hidden"></span>
       <button onclick="abrirModalEtiquetas(${orderId}, '${escapeJsString(etiquetas)}')"
-              class="text-blue-600 underline text-xs font-semibold ml-1">
+        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
+               bg-slate-900 text-white shadow-sm
+               hover:bg-slate-800 hover:shadow-md transition
+               text-xs font-extrabold uppercase tracking-wide">
+        <span class="h-2 w-2 rounded-full bg-blue-400"></span>
         Editar
       </button>
-    </div>`;
+    </div>
+  `;
 }
 
 function abrirModalEtiquetas(orderId, textos = "") {
-  const idInput = document.getElementById("modalTagOrderId");
-  if (!idInput) return;
-
-  idInput.value = orderId;
+  const input = document.getElementById("modalTagOrderId");
+  if (input) input.value = orderId;
 
   etiquetasSeleccionadas = textos
     ? String(textos).split(",").map((s) => s.trim()).filter(Boolean)
@@ -460,38 +507,35 @@ function cerrarModalEtiquetas() {
 }
 
 async function guardarEtiquetas() {
-  const idEl = document.getElementById("modalTagOrderId");
-  if (!idEl) return;
+  const id = document.getElementById("modalTagOrderId")?.value;
+  const tags = etiquetasSeleccionadas.join(", ");
 
-  let id = idEl.value;
-  let tags = etiquetasSeleccionadas.join(", ");
-
-  let r = await fetch("/api/estado/etiquetas/guardar", {
+  const r = await fetch("/api/estado/etiquetas/guardar", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, tags }),
   });
 
-  let d = await r.json().catch(() => null);
-
-  if (d && d.success) {
+  const d = await r.json().catch(() => null);
+  if (d?.success) {
     cerrarModalEtiquetas();
     cargarPedidos();
   }
 }
 
 function renderEtiquetasSeleccionadas() {
-  let cont = document.getElementById("etiquetasSeleccionadas");
+  const cont = document.getElementById("etiquetasSeleccionadas");
   if (!cont) return;
 
   cont.innerHTML = "";
 
   etiquetasSeleccionadas.forEach((tag, index) => {
     cont.innerHTML += `
-      <span class="px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-full text-xs font-semibold text-slate-800 inline-flex items-center gap-2">
+      <span class="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 border border-slate-200 rounded-2xl text-xs font-bold">
         ${escapeHtml(tag)}
         <button onclick="eliminarEtiqueta(${index})" class="text-rose-600 font-extrabold">×</button>
-      </span>`;
+      </span>
+    `;
   });
 }
 
@@ -501,7 +545,7 @@ function eliminarEtiqueta(i) {
 }
 
 function mostrarEtiquetasRapidas() {
-  let cont = document.getElementById("listaEtiquetasRapidas");
+  const cont = document.getElementById("listaEtiquetasRapidas");
   if (!cont) return;
 
   cont.innerHTML = "";
@@ -509,9 +553,11 @@ function mostrarEtiquetasRapidas() {
   (window.etiquetasPredeterminadas || []).forEach((tag) => {
     cont.innerHTML += `
       <button onclick="agregarEtiqueta('${escapeJsString(tag)}')"
-              class="px-3 py-2 bg-white border border-slate-200 hover:border-slate-300 hover:shadow-sm rounded-2xl text-sm font-semibold text-slate-800 transition">
+        class="px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 transition
+               text-xs font-extrabold uppercase tracking-wide text-slate-900">
         ${escapeHtml(tag)}
-      </button>`;
+      </button>
+    `;
   });
 }
 
@@ -526,7 +572,7 @@ function colorEtiqueta(tag) {
   tag = String(tag).toLowerCase().trim();
   if (tag.startsWith("d.")) return "bg-emerald-100 text-emerald-900 border border-emerald-200";
   if (tag.startsWith("p.")) return "bg-amber-100 text-amber-900 border border-amber-200";
-  return "bg-slate-100 text-slate-700 border border-slate-200";
+  return "bg-slate-100 text-slate-800 border border-slate-200";
 }
 
 // =====================================================
@@ -535,10 +581,10 @@ function colorEtiqueta(tag) {
 function formatDateFull(dtStr) {
   if (!dtStr) return "-";
   const d = new Date(String(dtStr).replace(" ", "T"));
-  if (isNaN(d)) return dtStr;
+  if (isNaN(d)) return String(dtStr);
 
   const fecha = d.toLocaleDateString("es-ES", {
-    weekday: "short",
+    weekday: "long",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -548,6 +594,7 @@ function formatDateFull(dtStr) {
     hour12: false,
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
   });
 
   return `${fecha} ${hora}`;
@@ -578,19 +625,13 @@ function renderLastChange(p) {
   }
 
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
-  const full = escapeHtml(formatDateFull(info.changed_at));
-  const ago = escapeHtml(timeAgo(info.changed_at));
 
   return `
     <div class="rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="font-semibold text-slate-900 truncate">${user}</div>
-          <div class="text-xs text-slate-500">${full}</div>
-        </div>
-        <span class="text-xs font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2 py-1 rounded-full">
-          Hace ${ago}
-        </span>
+      <div class="text-sm font-extrabold text-slate-900">${user}</div>
+      <div class="text-xs text-slate-600 mt-0.5">${escapeHtml(formatDateFull(info.changed_at))}</div>
+      <div class="text-[11px] text-slate-500 mt-1 font-bold uppercase tracking-wide">
+        Hace ${escapeHtml(timeAgo(info.changed_at))}
       </div>
     </div>
   `;
@@ -601,24 +642,19 @@ window.renderLastChange = renderLastChange;
 // ESTADO MANUAL (MODAL)
 // =====================================================
 function abrirModal(orderId) {
-  const idEl = document.getElementById("modalOrderId");
+  const idInput = document.getElementById("modalOrderId");
+  if (idInput) idInput.value = orderId;
+
   const modal = document.getElementById("modalEstado");
-  if (!idEl || !modal) return;
-
-  idEl.value = orderId;
-  modal.classList.remove("hidden");
+  if (modal) modal.classList.remove("hidden");
 }
-
 function cerrarModal() {
   const modal = document.getElementById("modalEstado");
   if (modal) modal.classList.add("hidden");
 }
 
 async function guardarEstado(nuevoEstado) {
-  const idEl = document.getElementById("modalOrderId");
-  if (!idEl) return;
-
-  const id = idEl.value;
+  const id = document.getElementById("modalOrderId")?.value;
 
   const r = await fetch("/api/estado/guardar", {
     method: "POST",
@@ -628,15 +664,13 @@ async function guardarEstado(nuevoEstado) {
 
   const d = await r.json().catch(() => null);
 
-  if (d && d.success) {
+  if (d?.success) {
     cerrarModal();
 
     // actualizar en vivo si viene last_status_change
     if (d.last_status_change) {
       const cell = document.querySelector(`[data-lastchange="${id}"]`);
-      if (cell) {
-        cell.innerHTML = renderLastChange({ last_status_change: d.last_status_change });
-      }
+      if (cell) cell.innerHTML = renderLastChange({ last_status_change: d.last_status_change });
     } else {
       cargarPedidos();
     }
@@ -650,58 +684,63 @@ function verDetalles(orderId) {
   const modal = document.getElementById("modalDetalles");
   if (modal) modal.classList.remove("hidden");
 
-  const detalleProductos = document.getElementById("detalleProductos");
-  const detalleCliente = document.getElementById("detalleCliente");
-  const detalleEnvio = document.getElementById("detalleEnvio");
-  const detalleTotales = document.getElementById("detalleTotales");
-  const tituloPedido = document.getElementById("tituloPedido");
+  const prod = document.getElementById("detalleProductos");
+  const cli = document.getElementById("detalleCliente");
+  const env = document.getElementById("detalleEnvio");
+  const tot = document.getElementById("detalleTotales");
+  const tit = document.getElementById("tituloPedido");
 
-  if (detalleProductos) detalleProductos.innerHTML = "Cargando...";
-  if (detalleCliente) detalleCliente.innerHTML = "";
-  if (detalleEnvio) detalleEnvio.innerHTML = "";
-  if (detalleTotales) detalleTotales.innerHTML = "";
-  if (tituloPedido) tituloPedido.innerHTML = "Cargando...";
+  if (prod) prod.innerHTML = "Cargando...";
+  if (cli) cli.innerHTML = "";
+  if (env) env.innerHTML = "";
+  if (tot) tot.innerHTML = "";
+  if (tit) tit.innerHTML = "Cargando...";
 
   fetch(`/index.php/dashboard/detalles/${orderId}`)
     .then((r) => r.json())
     .then((data) => {
       if (!data.success) {
-        if (detalleProductos) detalleProductos.innerHTML = "<p class='text-rose-600 font-semibold'>Error cargando detalles.</p>";
+        if (prod) prod.innerHTML = "<p class='text-rose-600 font-bold'>Error cargando detalles.</p>";
         return;
       }
 
       const o = data.order;
       window.imagenesLocales = data.imagenes_locales ?? {};
 
-      if (tituloPedido) tituloPedido.innerHTML = `Detalles del pedido ${escapeHtml(o.name)}`;
+      if (tit) tit.innerHTML = `Detalles del pedido ${escapeHtml(o.name)}`;
 
-      if (detalleCliente) {
-        detalleCliente.innerHTML = `
+      if (cli) {
+        cli.innerHTML = `
           <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p class="font-extrabold text-slate-900">${escapeHtml((o.customer?.first_name ?? "") + " " + (o.customer?.last_name ?? ""))}</p>
-            <p class="text-sm text-slate-600 mt-1">Email: <span class="font-semibold">${escapeHtml(o.email ?? "-")}</span></p>
-            <p class="text-sm text-slate-600">Teléfono: <span class="font-semibold">${escapeHtml(o.phone ?? "-")}</span></p>
-          </div>`;
+            <p class="font-extrabold text-slate-900">
+              ${escapeHtml((o.customer?.first_name ?? "") + " " + (o.customer?.last_name ?? ""))}
+            </p>
+            <p class="text-sm text-slate-600 mt-1">Email: ${escapeHtml(o.email ?? "-")}</p>
+            <p class="text-sm text-slate-600">Teléfono: ${escapeHtml(o.phone ?? "-")}</p>
+          </div>
+        `;
       }
 
       const a = o.shipping_address ?? {};
-      if (detalleEnvio) {
-        detalleEnvio.innerHTML = `
+      if (env) {
+        env.innerHTML = `
           <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm text-sm text-slate-700">
-            <p class="font-semibold text-slate-900 mb-1">Dirección</p>
+            <p class="font-bold text-slate-900 mb-1">Dirección</p>
             <p>${escapeHtml(a.address1 ?? "")}</p>
             <p>${escapeHtml((a.city ?? "") + ", " + (a.zip ?? ""))}</p>
             <p>${escapeHtml(a.country ?? "")}</p>
-          </div>`;
+          </div>
+        `;
       }
 
-      if (detalleTotales) {
-        detalleTotales.innerHTML = `
-          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm text-sm text-slate-700">
-            <div class="flex items-center justify-between"><span>Subtotal</span><span class="font-extrabold text-slate-900">${escapeHtml(o.subtotal_price)} €</span></div>
-            <div class="flex items-center justify-between mt-1"><span>Envío</span><span class="font-extrabold text-slate-900">${escapeHtml(o.total_shipping_price_set?.shop_money?.amount ?? "0")} €</span></div>
-            <div class="flex items-center justify-between mt-2 pt-2 border-t border-slate-200"><span class="font-semibold">Total</span><span class="text-base font-extrabold text-slate-900">${escapeHtml(o.total_price)} €</span></div>
-          </div>`;
+      if (tot) {
+        tot.innerHTML = `
+          <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p><strong>Subtotal:</strong> ${escapeHtml(o.subtotal_price)} €</p>
+            <p><strong>Envío:</strong> ${escapeHtml(o.total_shipping_price_set?.shop_money?.amount ?? "0")} €</p>
+            <p class="text-lg font-extrabold text-slate-900 mt-1"><strong>Total:</strong> ${escapeHtml(o.total_price)} €</p>
+          </div>
+        `;
       }
 
       window.imagenesCargadas = new Array(o.line_items.length).fill(false);
@@ -715,12 +754,12 @@ function verDetalles(orderId) {
             .map((p) => {
               if (esImagen(p.value)) {
                 return `
-                  <div class="mt-3">
-                    <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">${escapeHtml(p.name)}</div>
+                  <div class="mt-2">
+                    <span class="font-bold text-slate-800">${escapeHtml(p.name)}</span><br>
                     <img src="${escapeHtml(p.value)}" class="w-28 rounded-2xl shadow-sm border border-slate-200 mt-2">
                   </div>`;
               }
-              return `<p class="text-sm text-slate-700 mt-1"><strong>${escapeHtml(p.name)}:</strong> ${escapeHtml(p.value)}</p>`;
+              return `<p class="text-sm text-slate-700"><strong>${escapeHtml(p.name)}:</strong> ${escapeHtml(p.value)}</p>`;
             })
             .join("");
         }
@@ -728,43 +767,39 @@ function verDetalles(orderId) {
         let imagenLocalHTML = "";
         if (window.imagenesLocales[index]) {
           imagenLocalHTML = `
-            <div class="mt-4">
-              <p class="text-xs font-bold text-slate-500 uppercase tracking-wide">Imagen cargada</p>
-              <img src="${escapeHtml(window.imagenesLocales[index])}" class="w-32 rounded-2xl shadow-sm border border-slate-200 mt-2">
+            <div class="mt-3">
+              <p class="font-extrabold text-xs uppercase tracking-wide text-slate-500">Imagen cargada</p>
+              <img src="${escapeHtml(window.imagenesLocales[index])}"
+                class="w-36 rounded-2xl shadow-sm border border-slate-200 mt-2">
             </div>`;
         }
 
         html += `
-          <div class="p-4 rounded-3xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <h4 class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title)}</h4>
-                <p class="text-sm text-slate-600 mt-1">Cantidad: <span class="font-semibold text-slate-900">${escapeHtml(item.quantity)}</span></p>
-                <p class="text-sm text-slate-600">Precio: <span class="font-semibold text-slate-900">${escapeHtml(item.price)} €</span></p>
-              </div>
-              <span class="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-white text-xs font-extrabold">
-                ${index + 1}
-              </span>
-            </div>
+          <div class="p-4 rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <h4 class="font-extrabold text-slate-900">${escapeHtml(item.title)}</h4>
+            <p class="text-sm text-slate-700 mt-1">Cantidad: <span class="font-bold">${escapeHtml(item.quantity)}</span></p>
+            <p class="text-sm text-slate-700">Precio: <span class="font-bold">${escapeHtml(item.price)} €</span></p>
 
-            ${propsHTML}
+            <div class="mt-3 space-y-1">${propsHTML}</div>
             ${imagenLocalHTML}
 
-            <div class="mt-4">
-              <label class="text-xs font-bold text-slate-500 uppercase tracking-wide">Subir nueva imagen</label>
-              <input type="file"
-                     onchange="subirImagenProducto(${orderId}, ${index}, this)"
-                     class="mt-2 w-full border border-slate-200 rounded-2xl p-3 bg-slate-50/50">
-              <div id="preview_${orderId}_${index}" class="mt-3"></div>
-            </div>
+            <label class="font-extrabold text-xs uppercase tracking-wide text-slate-500 mt-4 block">
+              Subir nueva imagen
+            </label>
+            <input type="file"
+              onchange="subirImagenProducto(${orderId}, ${index}, this)"
+              class="mt-2 w-full border border-slate-200 rounded-2xl p-3 text-sm bg-slate-50">
+
+            <div id="preview_${orderId}_${index}" class="mt-3"></div>
           </div>`;
       });
 
-      if (detalleProductos) detalleProductos.innerHTML = html;
+      if (prod) prod.innerHTML = html;
     })
     .catch((e) => {
       console.error(e);
-      if (detalleProductos) detalleProductos.innerHTML = "<p class='text-rose-600 font-semibold'>Error de red cargando detalles.</p>";
+      const prod = document.getElementById("detalleProductos");
+      if (prod) prod.innerHTML = "<p class='text-rose-600 font-bold'>Error de red cargando detalles.</p>";
     });
 }
 
@@ -773,6 +808,7 @@ function cerrarModalDetalles() {
   if (modal) modal.classList.add("hidden");
 }
 
+// Panel cliente
 function abrirPanelCliente() {
   const panel = document.getElementById("panelCliente");
   if (panel) panel.classList.remove("hidden");
@@ -789,16 +825,13 @@ function subirImagenProducto(orderId, index, input) {
   if (!input.files.length) return;
   const file = input.files[0];
 
-  // preview local
   const reader = new FileReader();
   reader.onload = (e) => {
     const prev = document.getElementById(`preview_${orderId}_${index}`);
     if (prev) {
       prev.innerHTML = `
-        <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-          <div class="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Preview</div>
-          <img src="${e.target.result}" class="w-36 rounded-2xl shadow-sm border border-slate-200">
-        </div>`;
+        <img src="${e.target.result}"
+          class="w-40 rounded-2xl shadow-sm border border-slate-200">`;
     }
   };
   reader.readAsDataURL(file);
@@ -826,10 +859,8 @@ function subirImagenProducto(orderId, index, input) {
       const prev = document.getElementById(`preview_${orderId}_${index}`);
       if (prev) {
         prev.innerHTML = `
-          <div class="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-3">
-            <div class="text-xs font-bold text-emerald-800 uppercase tracking-wide mb-2">Subida OK</div>
-            <img src="${escapeHtml(res.url)}" class="w-36 rounded-2xl shadow-sm border border-emerald-200">
-          </div>`;
+          <img src="${escapeHtml(res.url)}"
+            class="w-40 rounded-2xl shadow-sm border border-slate-200">`;
       }
 
       window.imagenesLocales[index] = res.url;
@@ -862,7 +893,7 @@ function validarEstadoFinal(orderId) {
 }
 
 // =====================================================
-// USUARIOS ONLINE/OFFLINE
+// USUARIOS ONLINE / OFFLINE
 // =====================================================
 function renderUsersStatus(payload) {
   const users = payload?.users || [];
@@ -878,9 +909,6 @@ function renderUsersStatus(payload) {
   onlineList.innerHTML = "";
   offlineList.innerHTML = "";
 
-  const onlineFrag = document.createDocumentFragment();
-  const offlineFrag = document.createDocumentFragment();
-
   let onlineCount = 0;
   let offlineCount = 0;
 
@@ -890,37 +918,28 @@ function renderUsersStatus(payload) {
 
     const li = document.createElement("li");
     li.className =
-      "flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm hover:shadow-md transition";
+      "flex items-center justify-between gap-3 p-2 rounded-2xl bg-white border border-slate-200 shadow-sm";
 
     li.innerHTML = `
-      <div class="flex items-center gap-3 min-w-0">
-        <div class="h-9 w-9 rounded-2xl ${online ? "bg-emerald-600" : "bg-rose-600"} text-white flex items-center justify-center text-xs font-extrabold shadow-sm">
-          ${inicialNombre(name)}
-        </div>
-        <div class="min-w-0">
-          <div class="font-semibold text-slate-900 truncate">${name}</div>
-          <div class="text-xs ${online ? "text-emerald-700" : "text-rose-700"} font-semibold">
-            ${online ? "Activo ahora" : "Inactivo"}
-          </div>
-        </div>
-      </div>
-
-      <span class="inline-flex items-center gap-2">
+      <div class="flex items-center gap-2">
         <span class="h-2.5 w-2.5 rounded-full ${online ? "bg-emerald-500" : "bg-rose-500"}"></span>
+        <span class="font-bold text-slate-900">${name}</span>
+      </div>
+      <span class="text-[11px] font-extrabold uppercase tracking-wide ${
+        online ? "text-emerald-700" : "text-rose-700"
+      }">
+        ${online ? "Online" : "Offline"}
       </span>
     `;
 
     if (online) {
-      onlineFrag.appendChild(li);
+      onlineList.appendChild(li);
       onlineCount++;
     } else {
-      offlineFrag.appendChild(li);
+      offlineList.appendChild(li);
       offlineCount++;
     }
   });
-
-  onlineList.appendChild(onlineFrag);
-  offlineList.appendChild(offlineFrag);
 
   if (onlineCountEl) onlineCountEl.textContent = onlineCount;
   if (offlineCountEl) offlineCountEl.textContent = offlineCount;
@@ -929,9 +948,7 @@ function renderUsersStatus(payload) {
 async function pingUsuario() {
   try {
     await fetch("/dashboard/ping", { headers: { Accept: "application/json" } });
-  } catch (e) {
-    // silencioso
-  }
+  } catch (e) {}
 }
 
 async function cargarUsuariosEstado() {
@@ -943,25 +960,3 @@ async function cargarUsuariosEstado() {
     console.error("Error usuarios estado:", e);
   }
 }
-
-// =====================================================
-// EXPONE FUNCIONES NECESARIAS A HTML INLINE (onclick)
-// =====================================================
-window.paginaSiguiente = paginaSiguiente;
-window.paginaAnterior = paginaAnterior;
-window.abrirModal = abrirModal;
-window.cerrarModal = cerrarModal;
-window.guardarEstado = guardarEstado;
-
-window.abrirModalEtiquetas = abrirModalEtiquetas;
-window.cerrarModalEtiquetas = cerrarModalEtiquetas;
-window.guardarEtiquetas = guardarEtiquetas;
-window.eliminarEtiqueta = eliminarEtiqueta;
-window.agregarEtiqueta = agregarEtiqueta;
-
-window.verDetalles = verDetalles;
-window.cerrarModalDetalles = cerrarModalDetalles;
-window.abrirPanelCliente = abrirPanelCliente;
-window.cerrarPanelCliente = cerrarPanelCliente;
-
-window.subirImagenProducto = subirImagenProducto;
