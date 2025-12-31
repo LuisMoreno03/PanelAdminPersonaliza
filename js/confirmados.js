@@ -1,11 +1,10 @@
 // =====================================================
-// CONFIRMADOS.JS  -> Solo muestra pedidos "Preparado"
+// CONFIRMADOS.JS  -> Muestra pedidos preparados
 // =====================================================
 
 let nextPageInfo = null;
 let isLoading = false;
 
-// Loader global (si existe en la vista)
 function showLoader() {
   const el = document.getElementById("globalLoader");
   if (el) el.classList.remove("hidden");
@@ -15,30 +14,23 @@ function hideLoader() {
   if (el) el.classList.add("hidden");
 }
 
-// =====================================================
-// INICIALIZAR
-// =====================================================
 document.addEventListener("DOMContentLoaded", () => {
   cargarPedidosPreparados();
 });
 
-// =====================================================
-// CARGAR PEDIDOS (solo preparados)
-// =====================================================
 function cargarPedidosPreparados(pageInfo = null) {
   if (isLoading) return;
   isLoading = true;
 
   showLoader();
 
-  // ✅ IMPORTANTE: usa la ruta real de confirmados
-  let url = "/confirmados/filter";
-  if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
+  const base = window.BASE_URL || ""; // si no existe, usa root
+  let url = `${base}/confirmados/filter`;
+  if (pageInfo) url += `?page_info=${encodeURIComponent(pageInfo)}`;
 
- 
   fetch(url, {
     headers: {
-      "Accept": "application/json",
+      Accept: "application/json",
       "X-Requested-With": "XMLHttpRequest",
     },
     credentials: "same-origin",
@@ -50,15 +42,14 @@ function cargarPedidosPreparados(pageInfo = null) {
       console.log("STATUS:", res.status);
       console.log("RAW:", text.slice(0, 300));
 
-      // Si devuelve HTML (login/redirect), cortamos
       if (text.trim().startsWith("<")) {
-        throw new Error("El endpoint devolvió HTML (no JSON). Revisa ruta/sesión/controlador.");
+        throw new Error("El endpoint devolvió HTML (no JSON). Revisa sesión/ruta/controlador.");
       }
 
       let data;
       try {
         data = JSON.parse(text);
-      } catch (e) {
+      } catch {
         throw new Error("Respuesta inválida: no se pudo parsear JSON.");
       }
 
@@ -74,10 +65,23 @@ function cargarPedidosPreparados(pageInfo = null) {
 
       nextPageInfo = data.next_page_info ?? null;
 
-      // ✅ Filtrar SOLO preparados (singular/plural, mayúsculas/minúsculas)
+      // ✅ Filtro robusto: estado o tags/etiquetas
       const preparados = (data.orders || []).filter((p) => {
-        const estado = (p.estado || p.status || "").trim().toLowerCase();
-        return estado === "preparado" || estado === "preparados";
+        const estado = (p.estado || p.status || p.fulfillment_status || "")
+          .toString()
+          .trim()
+          .toLowerCase();
+
+        const tags = (p.etiquetas || p.tags || "")
+          .toString()
+          .trim()
+          .toLowerCase();
+
+        return (
+          estado === "preparado" ||
+          estado === "preparados" ||
+          tags.includes("preparado")
+        );
       });
 
       actualizarTabla(preparados);
@@ -96,17 +100,10 @@ function cargarPedidosPreparados(pageInfo = null) {
     });
 }
 
-
-
-
-// =====================================================
-// SIGUIENTE PÁGINA
-// =====================================================
 function paginaSiguiente() {
   if (nextPageInfo) cargarPedidosPreparados(nextPageInfo);
 }
 
-// Helpers UI
 function setTotal(n) {
   const total = document.getElementById("total-pedidos");
   if (total) total.textContent = String(n);
@@ -116,9 +113,6 @@ function setBtnSiguiente(pageInfo) {
   if (btnSig) btnSig.disabled = !pageInfo;
 }
 
-// =====================================================
-// TABLA PRINCIPAL
-// =====================================================
 function actualizarTabla(pedidos) {
   const tbody = document.getElementById("tablaPedidos");
   if (!tbody) return;
@@ -134,31 +128,27 @@ function actualizarTabla(pedidos) {
   }
 
   pedidos.forEach((p) => {
+    const id = p.id ?? p.order_id ?? "";
     tbody.innerHTML += `
       <tr class="border-b hover:bg-gray-50 transition">
-        <td class="py-2 px-4">${p.numero ?? "-"}</td>
-        <td class="py-2 px-4">${p.fecha ?? "-"}</td>
-        <td class="py-2 px-4">${p.cliente ?? "-"}</td>
-        <td class="py-2 px-4">${p.total ?? "-"}</td>
+        <td class="py-2 px-4">${p.numero ?? p.name ?? "-"}</td>
+        <td class="py-2 px-4">${p.fecha ?? p.created_at ?? "-"}</td>
+        <td class="py-2 px-4">${p.cliente ?? p.customer ?? "-"}</td>
+        <td class="py-2 px-4">${p.total ?? p.total_price ?? "-"}</td>
 
         <td class="py-2 px-2">
-          <button onclick="abrirModal(${p.id})" class="font-semibold">
-            ${p.estado ?? p.status ?? "-"}
-          </button>
+          <span class="font-semibold">
+            ${(p.estado ?? p.status ?? p.fulfillment_status ?? "-")}
+          </span>
         </td>
 
-      
-        <td class="py-3 px-4" data-lastchange="${p.id}">
-          ${renderLastChange(p)}
-        </td>
-
-        <td class="py-2 px-4">${formatearEtiquetas(p.etiquetas, p.id)}</td>
-        <td class="py-2 px-4">${p.articulos ?? "-"}</td>
+        <td class="py-2 px-4">${formatearEtiquetas(p.etiquetas ?? p.tags, id)}</td>
+        <td class="py-2 px-4">${p.articulos ?? p.line_items_count ?? "-"}</td>
         <td class="py-2 px-4">${p.estado_envio ?? "-"}</td>
         <td class="py-2 px-4">${p.forma_envio ?? "-"}</td>
 
         <td class="py-2 px-4">
-          <button onclick="verDetalles(${p.id})" class="text-blue-600 underline">
+          <button onclick="verDetalles && verDetalles('${id}')" class="text-blue-600 underline">
             Ver detalles
           </button>
         </td>
@@ -168,16 +158,16 @@ function actualizarTabla(pedidos) {
 }
 
 // =====================================================
-// UTILIDADES (si ya existen en otro JS global, elimina estas)
+// Etiquetas
 // =====================================================
 
 function formatearEtiquetas(etiquetas, orderId) {
   if (!etiquetas) {
-    return `<button onclick="abrirModalEtiquetas(${orderId}, '')"
+    return `<button onclick="abrirModalEtiquetas && abrirModalEtiquetas('${orderId}', '')"
             class="text-blue-600 underline">Agregar</button>`;
   }
 
-  let lista = etiquetas.split(",").map((t) => t.trim());
+  const lista = String(etiquetas).split(",").map((t) => t.trim()).filter(Boolean);
 
   return `
     <div class="flex flex-wrap gap-2">
@@ -189,7 +179,7 @@ function formatearEtiquetas(etiquetas, orderId) {
           </span>`
         )
         .join("")}
-      <button onclick="abrirModalEtiquetas(${orderId}, '${escapeQuotes(etiquetas)}')"
+      <button onclick="abrirModalEtiquetas && abrirModalEtiquetas('${orderId}', '${escapeQuotes(etiquetas)}')"
               class="text-blue-600 underline text-xs ml-2">
         Editar
       </button>
@@ -201,9 +191,8 @@ function escapeQuotes(str) {
 }
 
 function colorEtiqueta(tag) {
-  tag = tag.toLowerCase().trim();
+  tag = String(tag).toLowerCase().trim();
   if (tag.startsWith("d.")) return "bg-green-200 text-green-900";
   if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900";
   return "bg-gray-200 text-gray-700";
 }
-
