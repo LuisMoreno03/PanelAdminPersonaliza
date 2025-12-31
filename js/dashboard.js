@@ -1,8 +1,9 @@
 // =====================================================
-// DASHBOARD.JS (COMPLETO) - Limpio, moderno, NO sobrecargado
+// DASHBOARD.JS (COMPLETO) - FUNCIONAL
 // - Tabla responsive SIN scroll horizontal (oculta columnas por breakpoints)
 // - Entrega MUY visible
-// - Etiquetas compactas (máximo 2 + contador)
+// - Etiquetas compactas + MODAL FUNCIONAL
+// - Exponemos funciones para onclick (window.*)
 // =====================================================
 
 // =====================================================
@@ -17,7 +18,6 @@ window.imagenesLocales = {};
 
 let pageHistory = [];
 
-// Intervalos usuarios
 let userPingInterval = null;
 let userStatusInterval = null;
 
@@ -45,7 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // usuarios (si tienes endpoints)
+  // Usuarios (si existen endpoints)
   pingUsuario();
   userPingInterval = setInterval(pingUsuario, 30000);
 
@@ -87,12 +87,12 @@ function renderEstado(valor) {
 }
 
 // =====================================================
-// ENTREGA: MUY VISIBLE PERO LIMPIA
+// ENTREGA (visible y limpia)
 // =====================================================
 function entregaStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
 
-  if (!s || s === "-" || s === "null") {
+  if (!s || s === "-" || s === "null" || s === "sin estado") {
     return { wrap: "bg-slate-50 border-slate-200 text-slate-800", dot: "bg-slate-400", icon: "📦", label: "Sin estado" };
   }
   if (s.includes("entregado") || s.includes("delivered")) {
@@ -114,12 +114,213 @@ function renderEntregaPill(estadoEnvio) {
   const st = entregaStyle(estadoEnvio);
   return `
     <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border ${st.wrap}
-                 shadow-sm font-extrabold text-[11px] uppercase tracking-wide whitespace-nowrap">
+                 shadow-sm font-extrabold text-[11px] uppercase tracking-wide max-w-[200px] truncate"
+          title="${escapeHtml(st.label)}">
       <span class="h-2.5 w-2.5 rounded-full ${st.dot}"></span>
       <span class="text-sm leading-none">${st.icon}</span>
-      <span class="leading-none">${escapeHtml(st.label)}</span>
+      <span class="leading-none truncate">${escapeHtml(st.label)}</span>
     </span>
   `;
+}
+
+// =====================================================
+// TIME AGO
+// =====================================================
+function timeAgo(dtStr) {
+  if (!dtStr) return "";
+  const d = new Date(String(dtStr).replace(" ", "T"));
+  if (isNaN(d)) return "";
+
+  const diff = Date.now() - d.getTime();
+  const sec = Math.floor(diff / 1000);
+  const min = Math.floor(sec / 60);
+  const hr = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+
+  if (day > 0) return `${day}d ${hr % 24}h`;
+  if (hr > 0) return `${hr}h ${min % 60}m`;
+  if (min > 0) return `${min}m`;
+  return `${sec}s`;
+}
+
+// =====================================================
+// ÚLTIMO CAMBIO (compacto)
+// =====================================================
+function renderLastChangeCompact(p) {
+  const info = p?.last_status_change;
+  if (!info || !info.changed_at) return `<span class="text-slate-400 text-sm">—</span>`;
+
+  const user = info.user_name ? escapeHtml(info.user_name) : "—";
+  return `
+    <div class="text-xs text-slate-600 leading-tight">
+      <div class="font-bold text-slate-900 truncate max-w-[180px]" title="${user}">${user}</div>
+      <div class="text-slate-500">Hace ${escapeHtml(timeAgo(info.changed_at))}</div>
+    </div>
+  `;
+}
+
+// =====================================================
+// ETIQUETAS (compactas + modal)
+// =====================================================
+function colorEtiqueta(tag) {
+  tag = String(tag).toLowerCase().trim();
+  if (tag.startsWith("d.")) return "bg-emerald-50 border-emerald-200 text-emerald-900";
+  if (tag.startsWith("p.")) return "bg-amber-50 border-amber-200 text-amber-900";
+  return "bg-slate-50 border-slate-200 text-slate-800";
+}
+
+function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
+  const raw = String(etiquetas || "").trim();
+  const list = raw ? raw.split(",").map((t) => t.trim()).filter(Boolean) : [];
+
+  const max = mobile ? 3 : 2;
+  const visibles = list.slice(0, max);
+  const rest = list.length - visibles.length;
+
+  const pills = visibles
+    .map((tag) => {
+      const cls = colorEtiqueta(tag);
+      return `
+        <span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${cls}
+                     max-w-[120px] truncate" title="${escapeHtml(tag)}">
+          ${escapeHtml(tag)}
+        </span>
+      `;
+    })
+    .join("");
+
+  const more =
+    rest > 0
+      ? `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border bg-white border-slate-200 text-slate-700">
+          +${rest}
+        </span>`
+      : "";
+
+  if (!list.length) {
+    return `
+      <button onclick="abrirModalEtiquetas(${orderId}, '')"
+        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
+               bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide
+               hover:shadow-md transition whitespace-nowrap">
+        Etiquetas
+        <span class="text-blue-700">＋</span>
+      </button>
+    `;
+  }
+
+  return `
+    <div class="flex flex-wrap items-center gap-2">
+      ${pills}${more}
+      <button onclick="abrirModalEtiquetas(${orderId}, '${escapeJsString(raw)}')"
+        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
+               bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide
+               hover:bg-slate-800 transition shadow-sm whitespace-nowrap">
+        Etiquetas <span class="text-white/80">✎</span>
+      </button>
+    </div>
+  `;
+}
+
+// =========================
+// MODAL ETIQUETAS (FALTABAN)
+// =========================
+function abrirModalEtiquetas(orderId, textos = "") {
+  const input = document.getElementById("modalTagOrderId");
+  const modal = document.getElementById("modalEtiquetas");
+  if (!modal) {
+    console.warn("No existe #modalEtiquetas en el DOM");
+    return;
+  }
+  if (input) input.value = orderId;
+
+  etiquetasSeleccionadas = textos
+    ? String(textos).split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+
+  renderEtiquetasSeleccionadas();
+  mostrarEtiquetasRapidas();
+  modal.classList.remove("hidden");
+}
+
+function cerrarModalEtiquetas() {
+  const modal = document.getElementById("modalEtiquetas");
+  if (modal) modal.classList.add("hidden");
+}
+
+async function guardarEtiquetas() {
+  const id = document.getElementById("modalTagOrderId")?.value;
+  const tags = etiquetasSeleccionadas.join(", ");
+
+  try {
+    const r = await fetch("/api/estado/etiquetas/guardar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, tags }),
+    });
+    const d = await r.json().catch(() => null);
+
+    if (d?.success) {
+      cerrarModalEtiquetas();
+      cargarPedidos();
+    } else {
+      alert("No se pudieron guardar las etiquetas.");
+    }
+  } catch (e) {
+    console.error(e);
+    alert("Error de red guardando etiquetas.");
+  }
+}
+
+function renderEtiquetasSeleccionadas() {
+  const cont = document.getElementById("etiquetasSeleccionadas");
+  if (!cont) return;
+
+  cont.innerHTML = "";
+
+  if (!etiquetasSeleccionadas.length) {
+    cont.innerHTML = `<span class="text-slate-500 text-sm">No hay etiquetas seleccionadas</span>`;
+    return;
+  }
+
+  etiquetasSeleccionadas.forEach((tag, index) => {
+    cont.innerHTML += `
+      <span class="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-slate-200 bg-slate-50 text-xs font-bold">
+        ${escapeHtml(tag)}
+        <button onclick="eliminarEtiqueta(${index})"
+                class="h-5 w-5 inline-flex items-center justify-center rounded-full bg-white border border-slate-200 text-rose-600 hover:bg-rose-50">
+          ×
+        </button>
+      </span>
+    `;
+  });
+}
+
+function mostrarEtiquetasRapidas() {
+  const cont = document.getElementById("listaEtiquetasRapidas");
+  if (!cont) return;
+
+  cont.innerHTML = "";
+  (window.etiquetasPredeterminadas || []).forEach((tag) => {
+    cont.innerHTML += `
+      <button onclick="agregarEtiqueta('${escapeJsString(tag)}')"
+              class="px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-800 text-sm font-semibold
+                     hover:bg-slate-50 hover:border-slate-300 transition">
+        ${escapeHtml(tag)}
+      </button>
+    `;
+  });
+}
+
+function agregarEtiqueta(tag) {
+  if (!etiquetasSeleccionadas.includes(tag)) {
+    etiquetasSeleccionadas.push(tag);
+    renderEtiquetasSeleccionadas();
+  }
+}
+
+function eliminarEtiqueta(i) {
+  etiquetasSeleccionadas.splice(i, 1);
+  renderEtiquetasSeleccionadas();
 }
 
 // =====================================================
@@ -145,7 +346,6 @@ function cargarPedidos(pageInfo = null) {
       }
 
       nextPageInfo = data.next_page_info ?? null;
-
       actualizarTabla(data.orders || []);
 
       const btnSig = document.getElementById("btnSiguiente");
@@ -180,26 +380,19 @@ function paginaSiguiente() {
 }
 
 function paginaAnterior() {
-  if (pageHistory.length === 0) {
-    cargarPedidos(null);
-    return;
-  }
+  if (pageHistory.length === 0) return cargarPedidos(null);
   pageHistory.pop();
   const prev = pageHistory.length ? pageHistory[pageHistory.length - 1] : null;
   cargarPedidos(prev);
 }
 
 // =====================================================
-// TABLA (tbody) - RESPONSIVE SIN SCROLL HORIZONTAL
-// - Ocultamos celdas con "hidden lg:table-cell / hidden xl:table-cell"
+// TABLA (tbody) - RESPONSIVE
 // =====================================================
 function actualizarTabla(pedidos) {
   const tbody = document.getElementById("tablaPedidos");
   const cards = document.getElementById("cardsPedidos");
 
-  // ==========================
-  // DESKTOP TABLE (tbody)
-  // ==========================
   if (tbody) {
     tbody.innerHTML = "";
 
@@ -217,29 +410,16 @@ function actualizarTabla(pedidos) {
           const etiquetas = p.etiquetas ?? "";
           return `
           <tr class="border-b border-slate-100 hover:bg-slate-50/60 transition">
-            <!-- Pedido -->
-            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
-              ${escapeHtml(p.numero ?? "-")}
-            </td>
+            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</td>
 
-            <!-- Fecha (solo lg+) -->
-            <td class="py-4 px-4 text-slate-600 whitespace-nowrap hidden lg:table-cell">
-              ${escapeHtml(p.fecha ?? "-")}
-            </td>
+            <td class="py-4 px-4 text-slate-600 whitespace-nowrap hidden lg:table-cell">${escapeHtml(p.fecha ?? "-")}</td>
 
-            <!-- Cliente -->
             <td class="py-4 px-4">
-              <div class="font-semibold text-slate-900 truncate max-w-[280px]">
-                ${escapeHtml(p.cliente ?? "-")}
-              </div>
+              <div class="font-semibold text-slate-900 truncate max-w-[280px]">${escapeHtml(p.cliente ?? "-")}</div>
             </td>
 
-            <!-- Total -->
-            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
-              ${escapeHtml(p.total ?? "-")}
-            </td>
+            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</td>
 
-            <!-- Estado -->
             <td class="py-4 w-40 px-3">
               <button onclick="abrirModal(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm
@@ -251,17 +431,12 @@ function actualizarTabla(pedidos) {
               </button>
             </td>
 
-            <!-- Último cambio (solo xl+) -->
             <td class="py-4 px-4 hidden xl:table-cell" data-lastchange="${id}">
               ${renderLastChangeCompact(p)}
             </td>
 
-            <!-- Etiquetas -->
-            <td class="py-4 px-4">
-              ${renderEtiquetasCompact(etiquetas, id)}
-            </td>
+            <td class="py-4 px-4">${renderEtiquetasCompact(etiquetas, id)}</td>
 
-            <!-- Artículos (solo lg+) -->
             <td class="py-4 px-4 hidden lg:table-cell">
               <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-extrabold
                            bg-slate-50 border border-slate-200 text-slate-800 whitespace-nowrap">
@@ -269,20 +444,16 @@ function actualizarTabla(pedidos) {
               </span>
             </td>
 
-            <!-- Entrega (SIEMPRE visible y grande) -->
-            <td class="py-4 px-4">
-              ${renderEntregaPill(p.estado_envio ?? "-")}
-            </td>
+            <td class="py-4 px-4">${renderEntregaPill(p.estado_envio ?? "-")}</td>
 
-            <!-- Forma (solo xl+) -->
             <td class="py-4 px-4 hidden xl:table-cell">
               <span class="inline-flex items-center px-3 py-2 rounded-2xl bg-slate-50 border border-slate-200
-                           text-[11px] font-extrabold uppercase tracking-wide text-slate-800 whitespace-nowrap">
+                           text-[11px] font-extrabold uppercase tracking-wide text-slate-800 max-w-[220px] truncate"
+                    title="${escapeHtml(p.forma_envio ?? "-")}">
                 ${escapeHtml(p.forma_envio ?? "-")}
               </span>
             </td>
 
-            <!-- Acción -->
             <td class="py-4 px-4 text-right whitespace-nowrap">
               <button onclick="verDetalles(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-blue-600 text-white
@@ -297,9 +468,7 @@ function actualizarTabla(pedidos) {
     }
   }
 
-  // ==========================
-  // MOBILE CARDS (si existen)
-  // ==========================
+  // Cards si existen
   if (cards) {
     cards.innerHTML = "";
 
@@ -326,13 +495,12 @@ function actualizarTabla(pedidos) {
                 <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
                 <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${cliente}</div>
               </div>
-
               <div class="text-right whitespace-nowrap">
                 <div class="text-sm font-extrabold text-slate-900">${total}</div>
               </div>
             </div>
 
-            <div class="mt-3 w-40 flex items-center justify-between gap-3">
+            <div class="mt-3 flex items-center justify-between gap-3">
               <button onclick="abrirModal(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
                 <span class="h-2 w-2 rounded-full bg-blue-600"></span>
@@ -347,120 +515,13 @@ function actualizarTabla(pedidos) {
               </button>
             </div>
 
-            <div class="mt-3">
-              ${renderEntregaPill(p.estado_envio ?? "-")}
-            </div>
-
-            <div class="mt-3">
-              ${renderEtiquetasCompact(etiquetas, id, true)}
-            </div>
+            <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+            <div class="mt-3">${renderEtiquetasCompact(etiquetas, id, true)}</div>
           </div>
         </div>`;
       })
       .join("");
   }
-}
-
-// =====================================================
-// ÚLTIMO CAMBIO (COMPACTO, NO CAJA GRANDE)
-// =====================================================
-function renderLastChangeCompact(p) {
-  const info = p?.last_status_change;
-  if (!info || !info.changed_at) return `<span class="text-slate-400 text-sm">—</span>`;
-
-  const user = info.user_name ? escapeHtml(info.user_name) : "—";
-  return `
-    <div class="text-xs text-slate-600 leading-tight">
-      <div class="font-bold text-slate-900">${user}</div>
-      <div class="text-slate-500">${escapeHtml(timeAgo(info.changed_at))}</div>
-    </div>
-  `;
-}
-
-// =====================================================
-// ETIQUETAS: compactas (max 2) + botón limpio
-// =====================================================
-function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
-  const raw = String(etiquetas || "").trim();
-  const list = raw
-    ? raw.split(",").map((t) => t.trim()).filter(Boolean)
-    : [];
-
-  const max = mobile ? 3 : 2;
-  const visibles = list.slice(0, max);
-  const rest = list.length - visibles.length;
-
-  const pills = visibles
-    .map((tag) => {
-      const cls = colorEtiqueta(tag);
-      return `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${cls}">
-        ${escapeHtml(tag)}
-      </span>`;
-    })
-    .join("");
-
-  const more = rest > 0
-    ? `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border bg-white border-slate-200 text-slate-700">
-        +${rest}
-      </span>`
-    : "";
-
-  // Botón pequeño (sin subrayado, sin ruido)
-  const btn = `
-    <button onclick="abrirModalEtiquetas(${orderId}, '${escapeJsString(raw)}')"
-      class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
-             bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide
-             hover:bg-slate-800 transition shadow-sm">
-      Etiquetas
-      <span class="text-white/80">✎</span>
-    </button>
-  `;
-
-  if (!list.length) {
-    return `
-      <button onclick="abrirModalEtiquetas(${orderId}, '')"
-        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
-               bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide
-               hover:shadow-md transition">
-        Etiquetas
-        <span class="text-blue-700">＋</span>
-      </button>
-    `;
-  }
-
-  return `
-    <div class="flex flex-wrap items-center gap-2">
-      ${pills}${more}
-      ${btn}
-    </div>
-  `;
-}
-
-function colorEtiqueta(tag) {
-  tag = String(tag).toLowerCase().trim();
-  if (tag.startsWith("d.")) return "bg-emerald-50 border-emerald-200 text-emerald-900";
-  if (tag.startsWith("p.")) return "bg-amber-50 border-amber-200 text-amber-900";
-  return "bg-slate-50 border-slate-200 text-slate-800";
-}
-
-// =====================================================
-// TIME AGO (igual que antes)
-// =====================================================
-function timeAgo(dtStr) {
-  if (!dtStr) return "";
-  const d = new Date(String(dtStr).replace(" ", "T"));
-  if (isNaN(d)) return "";
-
-  const diff = Date.now() - d.getTime();
-  const sec = Math.floor(diff / 1000);
-  const min = Math.floor(sec / 60);
-  const hr = Math.floor(min / 60);
-  const day = Math.floor(hr / 24);
-
-  if (day > 0) return `${day}d ${hr % 24}h`;
-  if (hr > 0) return `${hr}h ${min % 60}m`;
-  if (min > 0) return `${min}m`;
-  return `${sec}s`;
 }
 
 // =====================================================
@@ -481,22 +542,28 @@ function cerrarModal() {
 async function guardarEstado(nuevoEstado) {
   const id = document.getElementById("modalOrderId")?.value;
 
-  const r = await fetch("/api/estado/guardar", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, estado: nuevoEstado }),
-  });
+  try {
+    const r = await fetch("/api/estado/guardar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, estado: nuevoEstado }),
+    });
+    const d = await r.json().catch(() => null);
 
-  const d = await r.json().catch(() => null);
-
-  if (d?.success) {
-    cerrarModal();
-    cargarPedidos();
+    if (d?.success) {
+      cerrarModal();
+      cargarPedidos();
+    } else {
+      alert("No se pudo actualizar el estado.");
+    }
+  } catch (e) {
+    console.error(e);
+    alert("Error de red actualizando estado.");
   }
 }
 
 // =====================================================
-// DETALLES (dejo tu función como estaba si ya te funciona)
+// DETALLES (tu función)
 // =====================================================
 function verDetalles(orderId) {
   document.getElementById("modalDetalles")?.classList.remove("hidden");
@@ -601,16 +668,16 @@ function cerrarModalDetalles() {
   document.getElementById("modalDetalles")?.classList.add("hidden");
 }
 
-// Panel cliente
 function abrirPanelCliente() {
   document.getElementById("panelCliente")?.classList.remove("hidden");
 }
+
 function cerrarPanelCliente() {
   document.getElementById("panelCliente")?.classList.add("hidden");
 }
 
 // =====================================================
-// SUBIR IMAGEN (igual)
+// SUBIR IMAGEN
 // =====================================================
 function subirImagenProducto(orderId, index, input) {
   if (!input.files.length) return;
@@ -729,3 +796,27 @@ async function cargarUsuariosEstado() {
     console.error("Error usuarios estado:", e);
   }
 }
+
+// =====================================================
+// ✅ CLAVE: EXPORTAR PARA onclick
+// =====================================================
+window.cargarPedidos = cargarPedidos;
+window.paginaSiguiente = paginaSiguiente;
+window.paginaAnterior = paginaAnterior;
+
+window.abrirModal = abrirModal;
+window.cerrarModal = cerrarModal;
+window.guardarEstado = guardarEstado;
+
+window.verDetalles = verDetalles;
+window.cerrarModalDetalles = cerrarModalDetalles;
+window.abrirPanelCliente = abrirPanelCliente;
+window.cerrarPanelCliente = cerrarPanelCliente;
+
+window.subirImagenProducto = subirImagenProducto;
+
+window.abrirModalEtiquetas = abrirModalEtiquetas;
+window.cerrarModalEtiquetas = cerrarModalEtiquetas;
+window.guardarEtiquetas = guardarEtiquetas;
+window.agregarEtiqueta = agregarEtiqueta;
+window.eliminarEtiqueta = eliminarEtiqueta;
