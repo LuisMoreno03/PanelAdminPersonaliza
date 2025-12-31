@@ -20,7 +20,6 @@ $routes->get('shopify/getAllOrders', 'ShopifyController::getAllOrders');
 $routes->get('shopify/ordersView', 'ShopifyController::ordersView');
 
 /* API */
-$routes->post('api/estado/guardar', 'DashboardController::guardarEstado');
 $routes->post('api/estado/etiquetas/guardar', 'DashboardController::guardarEtiquetas');
 
 $routes->post('shopify/orders/update-tags', 'ShopifyController::updateOrderTags');
@@ -42,3 +41,7 @@ $routes->get('confirmados/filter', 'Confirmados::filter');
 $routes->get('api/confirmados', 'Confirmados::filter');
 
 $routes->post('api/estado/guardar', 'EstadoController::guardar');
+
+
+$routes->get('dashboard/ping', 'DashboardController::ping');
+$routes->get('dashboard/usuarios-estado', 'DashboardController::usuariosEstado');

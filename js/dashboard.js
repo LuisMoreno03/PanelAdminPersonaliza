@@ -33,6 +33,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!btnAnterior.disabled) paginaAnterior();
     });
   }
+pingUsuario();
+userPingInterval = setInterval(pingUsuario, 30000); // 30s
+
+cargarUsuariosEstado();
+userStatusInterval = setInterval(cargarUsuariosEstado, 15000); // 15s
 
   cargarPedidos();
 });
@@ -614,4 +619,60 @@ function validarEstadoFinal(orderId) {
     .then((r) => r.json())
     .then(() => cargarPedidos())
     .catch((e) => console.error(e));
+}
+
+
+let userPingInterval = null;
+let userStatusInterval = null;
+
+function renderUsersStatus(payload) {
+  const users = payload?.users || [];
+  const onlineCount = payload?.online_count ?? 0;
+  const offlineCount = payload?.offline_count ?? 0;
+
+  const elOn = document.getElementById("onlineCount");
+  const elOff = document.getElementById("offlineCount");
+  const list = document.getElementById("usersList");
+
+  if (elOn) elOn.textContent = String(onlineCount);
+  if (elOff) elOff.textContent = String(offlineCount);
+  if (!list) return;
+
+  list.innerHTML = users.map(u => {
+    const name = escapeHtml(u.nombre ?? "Usuario");
+    const online = !!u.online;
+
+    return `
+      <div class="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
+        <div class="relative">
+          <div class="h-8 w-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-700">
+            ${name.slice(0,1).toUpperCase()}
+          </div>
+          <span class="absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${online ? 'bg-emerald-500' : 'bg-rose-500'}"></span>
+        </div>
+        <div class="leading-tight">
+          <div class="text-sm font-semibold text-slate-800">${name}</div>
+          <div class="text-xs ${online ? 'text-emerald-700' : 'text-rose-700'}">
+            ${online ? 'Conectado' : 'Desconectado'}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function pingUsuario() {
+  try {
+    await fetch("/dashboard/ping", { headers: { "Accept": "application/json" } });
+  } catch (e) {}
+}
+
+async function cargarUsuariosEstado() {
+  try {
+    const r = await fetch("/dashboard/usuarios-estado", { headers: { "Accept": "application/json" } });
+    const d = await r.json().catch(() => null);
+    if (d && d.success) renderUsersStatus(d);
+  } catch (e) {
+    console.error("Error usuarios estado:", e);
+  }
 }

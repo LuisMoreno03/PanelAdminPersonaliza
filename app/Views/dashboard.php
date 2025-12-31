@@ -60,6 +60,26 @@
         </div>
       </div>
     </div>
+    <!-- BLOQUE ESTADO DE USUARIOS -->
+<div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-4">
+  <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <div class="font-bold text-slate-800 text-sm uppercase tracking-wide">Usuarios</div>
+
+      <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-sm">
+        <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+        Conectados: <span id="onlineCount" class="font-extrabold">0</span>
+      </span>
+
+      <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-200 text-sm">
+        <span class="h-2 w-2 rounded-full bg-rose-500"></span>
+        Desconectados: <span id="offlineCount" class="font-extrabold">0</span>
+      </span>
+    </div>
+
+    <div id="usersList" class="flex flex-wrap gap-2"></div>
+  </div>
+</div>
 
     <!-- TABLA (mejorada) -->
     <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">

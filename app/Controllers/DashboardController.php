@@ -155,6 +155,68 @@ class DashboardController extends Controller
 }
 
 
+// ============================================================
+// PING (marca al usuario como activo)
+// ============================================================
+public function ping()
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setJSON(['success' => false])->setStatusCode(401);
+    }
+
+    $userId = session()->get('user_id');
+    if (!$userId) {
+        return $this->response->setJSON(['success' => false])->setStatusCode(401);
+    }
+
+    $db = \Config\Database::connect();
+    $db->table('users')->where('id', $userId)->update([
+        'last_seen' => date('Y-m-d H:i:s'),
+    ]);
+
+    return $this->response->setJSON(['success' => true]);
+}
+
+// ============================================================
+// LISTA USUARIOS + ONLINE/OFFLINE
+// ============================================================
+public function usuariosEstado()
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setJSON(['success' => false])->setStatusCode(401);
+    }
+
+    $db = \Config\Database::connect();
+
+    $usuarios = $db->table('users')
+        ->select('id, nombre, role, last_seen')
+        ->orderBy('nombre', 'ASC')
+        ->get()
+        ->getResultArray();
+
+    $now = time();
+    $onlineThreshold = 120; // 2 minutos
+
+    foreach ($usuarios as &$u) {
+        $ts = $u['last_seen'] ? strtotime($u['last_seen']) : 0;
+        $u['online'] = ($ts > 0 && ($now - $ts) <= $onlineThreshold);
+    }
+    unset($u);
+
+    $onlineCount = 0;
+    $offlineCount = 0;
+    foreach ($usuarios as $u) {
+        if (!empty($u['online'])) $onlineCount++;
+        else $offlineCount++;
+    }
+
+    return $this->response->setJSON([
+        'success' => true,
+        'online_count' => $onlineCount,
+        'offline_count' => $offlineCount,
+        'users' => $usuarios,
+    ]);
+}
 
 
     // ============================================================
