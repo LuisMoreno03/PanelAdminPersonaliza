@@ -27,7 +27,8 @@ class Confirmados extends BaseController
     }
 
     // ✅ Filtrar por etiqueta Preparado
-    $query = 'status:any tag:Preparado';
+    $query = 'status:any (tag:Preparado OR tag:preparado OR tag:Preparados OR tag:PREPARADO)';
+
 
     // URL base (primera carga)
     $url = "https://{$shop}/admin/api/2025-01/orders.json"
