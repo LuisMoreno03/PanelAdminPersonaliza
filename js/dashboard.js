@@ -1,36 +1,64 @@
 // =====================================================
+// CONFIG / HELPERS
+// =====================================================
+
+// Si tu proyecto usa index.php en las rutas, pon esto en true.
+// Si no lo usas (rutas limpias), déjalo en false.
+const USE_INDEX_PHP = true;
+
+// Base URL helper
+function url(path) {
+  if (!path.startsWith("/")) path = "/" + path;
+  return USE_INDEX_PHP ? "/index.php" + path : path;
+}
+
+// Escape simple para strings dentro de atributos HTML con comillas simples
+function escapeForSingleQuotes(str) {
+  return String(str ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+// Loader global
+function showLoader() {
+  document.getElementById("globalLoader")?.classList.remove("hidden");
+}
+function hideLoader() {
+  document.getElementById("globalLoader")?.classList.add("hidden");
+}
+
+// =====================================================
 // VARIABLES GLOBALES
 // =====================================================
 let nextPageInfo = null;
 let isLoading = false;
 let etiquetasSeleccionadas = [];
 window.imagenesCargadas = [];
-window.imagenesLocales = {}; // NUEVO: almacenará imágenes locales por índice
-
-// NUEVO: historial de page_info para botón "Anterior"
-let pageHistory = []; // guarda page_info visitados (excepto primera)
-
-// Loader global
-function showLoader() {
-  document.getElementById("globalLoader").classList.remove("hidden");
-}
-function hideLoader() {
-  document.getElementById("globalLoader").classList.add("hidden");
-}
+window.imagenesLocales = {}; // imágenes locales por índice
+let pageHistory = [];        // historial de page_info visitados
 
 // =====================================================
 // INICIALIZAR
 // =====================================================
 document.addEventListener("DOMContentLoaded", () => {
+  // Enlazar botones de paginación (seguro aunque no tengan onclick)
+  document.getElementById("btnSiguiente")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    paginaSiguiente();
+  });
+
+  document.getElementById("btnAnterior")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    paginaAnterior();
+  });
+
   cargarPedidos();
 });
 
 // =====================================================
 // DETECTAR SI UNA URL ES UNA IMAGEN REAL
 // =====================================================
-function esImagen(url) {
-  if (!url) return false;
-  return url.match(/\.(jpeg|jpg|png|gif|webp|svg)$/i);
+function esImagen(urlStr) {
+  if (!urlStr) return false;
+  return String(urlStr).match(/\.(jpeg|jpg|png|gif|webp|svg)$/i);
 }
 
 // =====================================================
@@ -40,28 +68,35 @@ function cargarPedidos(pageInfo = null) {
   if (isLoading) return;
   isLoading = true;
 
-  let url = "/dashboard/filter";
-  if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
+  let endpoint = url("/dashboard/filter");
+  if (pageInfo) endpoint += "?page_info=" + encodeURIComponent(pageInfo);
 
-  fetch(url)
+  fetch(endpoint)
     .then((res) => res.json())
     .then((data) => {
-      if (!data.success) return;
+      if (!data || !data.success) {
+        console.error("Error backend /dashboard/filter:", data);
+        actualizarTabla([]);
+        document.getElementById("total-pedidos").textContent = "0";
+        return;
+      }
 
-      // Guardar historial para botón anterior
+      // Historial anterior
       if (pageInfo) {
-        // solo agrega si es diferente al último
         if (pageHistory[pageHistory.length - 1] !== pageInfo) {
           pageHistory.push(pageInfo);
         }
       } else {
-        pageHistory = []; // si volvemos a primera página, resetea
+        pageHistory = []; // primera página
       }
 
       nextPageInfo = data.next_page_info ?? null;
 
       actualizarTabla(data.orders || []);
-      document.getElementById("btnSiguiente").disabled = !nextPageInfo;
+
+      // Botón siguiente
+      const btnSiguiente = document.getElementById("btnSiguiente");
+      if (btnSiguiente) btnSiguiente.disabled = !nextPageInfo;
 
       // Botón anterior
       const btnAnterior = document.getElementById("btnAnterior");
@@ -71,7 +106,12 @@ function cargarPedidos(pageInfo = null) {
         btnAnterior.classList.toggle("cursor-not-allowed", btnAnterior.disabled);
       }
 
-      document.getElementById("total-pedidos").textContent = data.count ?? 0;
+      document.getElementById("total-pedidos").textContent = data.count ?? (data.orders?.length ?? 0);
+    })
+    .catch((err) => {
+      console.error("Error fetch pedidos:", err);
+      actualizarTabla([]);
+      document.getElementById("total-pedidos").textContent = "0";
     })
     .finally(() => (isLoading = false));
 }
@@ -84,29 +124,33 @@ function paginaSiguiente() {
 }
 
 function paginaAnterior() {
-  // Para volver atrás: si estoy en página 2, el "anterior" es primera (pageInfo null)
   if (pageHistory.length === 0) {
     cargarPedidos(null);
     return;
   }
 
-  // Quita el último page_info (página actual)
+  // quitar página actual
   pageHistory.pop();
 
-  // El nuevo "actual" sería el último guardado, o null si ya no hay
+  // anterior real
   const prev = pageHistory.length ? pageHistory[pageHistory.length - 1] : null;
   cargarPedidos(prev);
 }
+
+// Exponer por si el HTML tiene onclick
+window.paginaSiguiente = paginaSiguiente;
+window.paginaAnterior = paginaAnterior;
 
 // =====================================================
 // TABLA PRINCIPAL
 // =====================================================
 function actualizarTabla(pedidos) {
   const tbody = document.getElementById("tablaPedidos");
+  if (!tbody) return;
+
   tbody.innerHTML = "";
 
-  // ✅ ahora hay 11 columnas (porque agregaste "ÚLTIMO CAMBIO")
-  if (!pedidos.length) {
+  if (!pedidos || !pedidos.length) {
     tbody.innerHTML = `
       <tr>
         <td colspan="11" class="py-4 text-center text-gray-500">
@@ -130,7 +174,7 @@ function actualizarTabla(pedidos) {
           </button>
         </td>
 
-        <!-- ✅ COLUMNA NUEVA: ÚLTIMO CAMBIO -->
+        <!-- ÚLTIMO CAMBIO -->
         <td class="py-2 px-4" data-lastchange="${p.id}">
           ${renderLastChange(p)}
         </td>
@@ -158,7 +202,8 @@ function formatearEtiquetas(etiquetas, orderId) {
             class="text-blue-600 underline">Agregar</button>`;
   }
 
-  let lista = etiquetas.split(",").map((t) => t.trim());
+  const etiquetasEsc = escapeForSingleQuotes(etiquetas);
+  const lista = String(etiquetas).split(",").map((t) => t.trim()).filter(Boolean);
 
   return `
     <div class="flex flex-wrap gap-2">
@@ -170,18 +215,84 @@ function formatearEtiquetas(etiquetas, orderId) {
           </span>`
         )
         .join("")}
-      <button onclick="abrirModalEtiquetas(${orderId}, '${etiquetas}')"
+      <button onclick="abrirModalEtiquetas(${orderId}, '${etiquetasEsc}')"
               class="text-blue-600 underline text-xs ml-2">
         Editar
       </button>
     </div>`;
 }
 
+function colorEtiqueta(tag) {
+  tag = String(tag ?? "").toLowerCase().trim();
+  if (tag.startsWith("d.")) return "bg-green-200 text-green-900";
+  if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900";
+  return "bg-gray-200 text-gray-700";
+}
+
+// =====================================================
+// ÚLTIMO CAMBIO: FORMATEO + RENDER
+// =====================================================
+function formatDateFull(dtStr) {
+  if (!dtStr) return "-";
+  const d = new Date(String(dtStr).replace(" ", "T"));
+  if (isNaN(d)) return dtStr;
+
+  const fecha = d.toLocaleDateString("es-ES", {
+    weekday: "long",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const hora = d.toLocaleTimeString("es-ES", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  return `${fecha} ${hora}`;
+}
+
+function timeAgo(dtStr) {
+  if (!dtStr) return "";
+  const d = new Date(String(dtStr).replace(" ", "T"));
+  if (isNaN(d)) return "";
+
+  const diff = Date.now() - d.getTime();
+  const sec = Math.floor(diff / 1000);
+  const min = Math.floor(sec / 60);
+  const hr = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+
+  if (day > 0) return `${day}d ${hr % 24}h`;
+  if (hr > 0) return `${hr}h ${min % 60}m`;
+  if (min > 0) return `${min}m`;
+  return `${sec}s`;
+}
+
+function renderLastChange(p) {
+  const info = p?.last_status_change;
+
+  if (!info || !info.changed_at) {
+    return `<span class="text-gray-400 text-sm">—</span>`;
+  }
+
+  const user = info.user_name ? info.user_name : "—";
+
+  return `
+    <div class="text-sm">
+      <div class="font-semibold text-gray-800">${user}</div>
+      <div class="text-gray-600">${formatDateFull(info.changed_at)}</div>
+      <div class="text-xs text-gray-500">Hace ${timeAgo(info.changed_at)}</div>
+    </div>`;
+}
+
+window.renderLastChange = renderLastChange;
+
 // =====================================================
 // VER DETALLES DEL PEDIDO
 // =====================================================
 function verDetalles(orderId) {
-  document.getElementById("modalDetalles").classList.remove("hidden");
+  document.getElementById("modalDetalles")?.classList.remove("hidden");
 
   document.getElementById("detalleProductos").innerHTML = "Cargando...";
   document.getElementById("detalleCliente").innerHTML = "";
@@ -189,7 +300,7 @@ function verDetalles(orderId) {
   document.getElementById("detalleTotales").innerHTML = "";
   document.getElementById("tituloPedido").innerHTML = "Cargando...";
 
-  fetch(`/index.php/dashboard/detalles/${orderId}`)
+  fetch(url(`/dashboard/detalles/${orderId}`))
     .then((r) => r.json())
     .then((data) => {
       if (!data.success) {
@@ -198,36 +309,31 @@ function verDetalles(orderId) {
         return;
       }
 
-      let o = data.order;
+      const o = data.order;
 
-      // NUEVO: guardar imágenes locales recibidas desde el backend
       window.imagenesLocales = data.imagenes_locales ?? {};
 
       document.getElementById("tituloPedido").innerHTML = `Detalles del pedido ${o.name}`;
 
-      // CLIENTE
       document.getElementById("detalleCliente").innerHTML = `
         <p><strong>${o.customer?.first_name ?? ""} ${o.customer?.last_name ?? ""}</strong></p>
         <p>Email: ${o.email ?? "-"}</p>
         <p>Teléfono: ${o.phone ?? "-"}</p>
       `;
 
-      // ENVÍO
-      let a = o.shipping_address ?? {};
+      const a = o.shipping_address ?? {};
       document.getElementById("detalleEnvio").innerHTML = `
         <p>${a.address1 ?? ""}</p>
         <p>${a.city ?? ""}, ${a.zip ?? ""}</p>
         <p>${a.country ?? ""}</p>
       `;
 
-      // TOTALES
       document.getElementById("detalleTotales").innerHTML = `
         <p><strong>Subtotal:</strong> ${o.subtotal_price} €</p>
         <p><strong>Envío:</strong> ${o.total_shipping_price_set?.shop_money?.amount ?? "0"} €</p>
         <p><strong>Total:</strong> ${o.total_price} €</p>
       `;
 
-      // PRODUCTOS
       window.imagenesCargadas = new Array(o.line_items.length).fill(false);
 
       let html = "";
@@ -244,13 +350,11 @@ function verDetalles(orderId) {
                     <img src="${p.value}" class="w-28 rounded shadow">
                   </div>`;
               }
-
               return `<p><strong>${p.name}:</strong> ${p.value}</p>`;
             })
             .join("");
         }
 
-        // NUEVO: Si la imagen local existe → mostrarla
         let imagenLocalHTML = "";
         if (window.imagenesLocales[index]) {
           imagenLocalHTML = `
@@ -280,17 +384,22 @@ function verDetalles(orderId) {
       });
 
       document.getElementById("detalleProductos").innerHTML = html;
+    })
+    .catch((e) => {
+      console.error("Error detalles:", e);
+      document.getElementById("detalleProductos").innerHTML =
+        "<p class='text-red-500'>Error cargando detalles.</p>";
     });
 }
+window.verDetalles = verDetalles;
 
 // =====================================================
 // SUBIR IMAGEN AL SERVIDOR Y MOSTRARLA
 // =====================================================
 function subirImagenProducto(orderId, index, input) {
   if (!input.files.length) return;
-  let file = input.files[0];
+  const file = input.files[0];
 
-  // Preview inmediata
   const reader = new FileReader();
   reader.onload = (e) => {
     document.getElementById(`preview_${orderId}_${index}`).innerHTML =
@@ -300,12 +409,12 @@ function subirImagenProducto(orderId, index, input) {
 
   showLoader();
 
-  let form = new FormData();
+  const form = new FormData();
   form.append("orderId", orderId);
   form.append("index", index);
   form.append("file", file);
 
-  fetch("/index.php/dashboard/subirImagenProducto", {
+  fetch(url("/dashboard/subirImagenProducto"), {
     method: "POST",
     body: form,
   })
@@ -318,22 +427,28 @@ function subirImagenProducto(orderId, index, input) {
         return;
       }
 
-      // Mostrar imagen final guardada en el servidor
       document.getElementById(`preview_${orderId}_${index}`).innerHTML =
         `<img src="${res.url}" class="w-32 mt-2 rounded shadow">`;
 
-      // Guardar en memoria local para próximas aperturas
       window.imagenesLocales[index] = res.url;
-
       window.imagenesCargadas[index] = true;
 
       validarEstadoFinal(orderId);
+    })
+    .catch((e) => {
+      hideLoader();
+      console.error("Error subir imagen:", e);
+      alert("Error subiendo imagen");
     });
 }
+window.subirImagenProducto = subirImagenProducto;
 
 // =====================================================
 // VALIDAR ESTADO FINAL
 // =====================================================
+// IMPORTANTE: Esta ruta /api/estado/guardar tú dijiste que NO la tienes.
+// Dejo la función, pero si no existe el endpoint te va a dar 404.
+// Puedes comentar este bloque si aún no lo implementas.
 function validarEstadoFinal(orderId) {
   const listo = window.imagenesCargadas.every((v) => v === true);
   const nuevoEstado = listo ? "Producción" : "Faltan diseños";
@@ -344,57 +459,68 @@ function validarEstadoFinal(orderId) {
     body: JSON.stringify({ id: orderId, estado: nuevoEstado }),
   })
     .then((r) => r.json())
-    .then(() => cargarPedidos());
+    .then(() => cargarPedidos())
+    .catch(() => {
+      // si no existe endpoint, no rompas el dashboard
+      console.warn("Endpoint /api/estado/guardar no existe aún (ignorado).");
+    });
 }
 
 // =====================================================
-// CERRAR MODALES
+// MODALES
 // =====================================================
 function cerrarModalDetalles() {
-  document.getElementById("modalDetalles").classList.add("hidden");
+  document.getElementById("modalDetalles")?.classList.add("hidden");
 }
+window.cerrarModalDetalles = cerrarModalDetalles;
 
-// =====================================================
-// PANEL CLIENTE
-// =====================================================
 function abrirPanelCliente() {
-  document.getElementById("panelCliente").classList.remove("hidden");
+  document.getElementById("panelCliente")?.classList.remove("hidden");
 }
 function cerrarPanelCliente() {
-  document.getElementById("panelCliente").classList.add("hidden");
+  document.getElementById("panelCliente")?.classList.add("hidden");
 }
+window.abrirPanelCliente = abrirPanelCliente;
+window.cerrarPanelCliente = cerrarPanelCliente;
 
 // =====================================================
 // ESTADO MANUAL
 // =====================================================
 function abrirModal(orderId) {
   document.getElementById("modalOrderId").value = orderId;
-  document.getElementById("modalEstado").classList.remove("hidden");
+  document.getElementById("modalEstado")?.classList.remove("hidden");
 }
-
 function cerrarModal() {
-  document.getElementById("modalEstado").classList.add("hidden");
+  document.getElementById("modalEstado")?.classList.add("hidden");
 }
+window.abrirModal = abrirModal;
+window.cerrarModal = cerrarModal;
 
+// OJO: también usa /api/estado/guardar (si no existe, dará 404)
 async function guardarEstado(nuevoEstado) {
-  let id = document.getElementById("modalOrderId").value;
+  const id = document.getElementById("modalOrderId").value;
 
-  let r = await fetch("/api/estado/guardar", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, estado: nuevoEstado }),
-  });
+  try {
+    const r = await fetch("/api/estado/guardar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, estado: nuevoEstado }),
+    });
 
-  let d = await r.json();
+    const d = await r.json();
 
-  if (d.success) {
-    cerrarModal();
-
-    // ✅ Si tu backend ya devuelve last_status_change aquí, se puede actualizar sin recargar.
-    // Por ahora recargamos para asegurar consistencia.
-    cargarPedidos();
+    if (d.success) {
+      cerrarModal();
+      cargarPedidos();
+    } else {
+      alert(d.message || "Error guardando estado");
+    }
+  } catch (e) {
+    console.warn("Endpoint /api/estado/guardar no existe aún o falló.");
+    // no romper UI
   }
 }
+window.guardarEstado = guardarEstado;
 
 // =====================================================
 // ETIQUETAS
@@ -402,38 +528,48 @@ async function guardarEstado(nuevoEstado) {
 function abrirModalEtiquetas(orderId, textos = "") {
   document.getElementById("modalTagOrderId").value = orderId;
 
-  etiquetasSeleccionadas = textos ? textos.split(",").map((s) => s.trim()) : [];
+  etiquetasSeleccionadas = textos ? String(textos).split(",").map((s) => s.trim()).filter(Boolean) : [];
 
   renderEtiquetasSeleccionadas();
   mostrarEtiquetasRapidas();
 
-  document.getElementById("modalEtiquetas").classList.remove("hidden");
+  document.getElementById("modalEtiquetas")?.classList.remove("hidden");
 }
-
 function cerrarModalEtiquetas() {
-  document.getElementById("modalEtiquetas").classList.add("hidden");
+  document.getElementById("modalEtiquetas")?.classList.add("hidden");
 }
+window.abrirModalEtiquetas = abrirModalEtiquetas;
+window.cerrarModalEtiquetas = cerrarModalEtiquetas;
 
+// OJO: también usa /api/estado/etiquetas/guardar (si no existe, dará 404)
 async function guardarEtiquetas() {
-  let id = document.getElementById("modalTagOrderId").value;
-  let tags = etiquetasSeleccionadas.join(", ");
+  const id = document.getElementById("modalTagOrderId").value;
+  const tags = etiquetasSeleccionadas.join(", ");
 
-  let r = await fetch("/api/estado/etiquetas/guardar", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, tags }),
-  });
+  try {
+    const r = await fetch("/api/estado/etiquetas/guardar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, tags }),
+    });
 
-  let d = await r.json();
+    const d = await r.json();
 
-  if (d.success) {
-    cerrarModalEtiquetas();
-    cargarPedidos();
+    if (d.success) {
+      cerrarModalEtiquetas();
+      cargarPedidos();
+    } else {
+      alert(d.message || "Error guardando etiquetas");
+    }
+  } catch (e) {
+    console.warn("Endpoint /api/estado/etiquetas/guardar no existe aún o falló.");
   }
 }
+window.guardarEtiquetas = guardarEtiquetas;
 
 function renderEtiquetasSeleccionadas() {
-  let cont = document.getElementById("etiquetasSeleccionadas");
+  const cont = document.getElementById("etiquetasSeleccionadas");
+  if (!cont) return;
   cont.innerHTML = "";
 
   etiquetasSeleccionadas.forEach((tag, index) => {
@@ -449,14 +585,16 @@ function eliminarEtiqueta(i) {
   etiquetasSeleccionadas.splice(i, 1);
   renderEtiquetasSeleccionadas();
 }
+window.eliminarEtiqueta = eliminarEtiqueta;
 
 function mostrarEtiquetasRapidas() {
-  let cont = document.getElementById("listaEtiquetasRapidas");
+  const cont = document.getElementById("listaEtiquetasRapidas");
+  if (!cont) return;
   cont.innerHTML = "";
 
-  etiquetasPredeterminadas.forEach((tag) => {
+  (window.etiquetasPredeterminadas || []).forEach((tag) => {
     cont.innerHTML += `
-      <button onclick="agregarEtiqueta('${tag}')"
+      <button onclick="agregarEtiqueta('${escapeForSingleQuotes(tag)}')"
               class="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm">
         ${tag}
       </button>`;
@@ -469,109 +607,4 @@ function agregarEtiqueta(tag) {
     renderEtiquetasSeleccionadas();
   }
 }
-
-function colorEtiqueta(tag) {
-  tag = tag.toLowerCase().trim();
-  if (tag.startsWith("d.")) return "bg-green-200 text-green-900";
-  if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900";
-  return "bg-gray-200 text-gray-700";
-}
-
-// =====================================================
-// ÚLTIMO CAMBIO: FORMATEO + RENDER
-// =====================================================
-function formatDateFull(dtStr) {
-  if (!dtStr) return "-";
-  const d = new Date(dtStr.replace(" ", "T"));
-  if (isNaN(d)) return dtStr;
-
-  const fecha = d.toLocaleDateString("es-ES", {
-    weekday: "long",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const hora = d.toLocaleTimeString("es-ES", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  return `${fecha} ${hora}`;
-}
-
-function timeAgo(dtStr) {
-  if (!dtStr) return "";
-  const d = new Date(dtStr.replace(" ", "T"));
-  if (isNaN(d)) return "";
-  const diff = Date.now() - d.getTime();
-  const sec = Math.floor(diff / 1000);
-  const min = Math.floor(sec / 60);
-  const hr = Math.floor(min / 60);
-  const day = Math.floor(hr / 24);
-  if (day > 0) return `${day}d ${hr % 24}h`;
-  if (hr > 0) return `${hr}h ${min % 60}m`;
-  if (min > 0) return `${min}m`;
-  return `${sec}s`;
-}
-
-function renderLastChange(p) {
-  const info = p.last_status_change;
-  if (!info || !info.changed_at)
-    return `<span class="text-gray-400 text-sm">—</span>`;
-
-  return `
-    <div class="text-sm">
-      <div class="font-semibold text-gray-800">${info.user_name}</div>
-      <div class="text-gray-600">${formatDateFull(info.changed_at)}</div>
-      <div class="text-xs text-gray-500">Hace ${timeAgo(info.changed_at)}</div>
-    </div>
-  `;
-}
-
-// alias por compatibilidad (por si ya llamabas renderLastChange en algún lado)
-function renderLastChangeWrapper(p) {
-  return renderLastChange(p);
-}
-window.renderLastChange = renderLastChange; // por si el HTML lo llama
-
-// =====================================================
-// OPCIONAL: CAMBIO ESTADO EN VIVO (si usas endpoint que devuelva last_status_change)
-// =====================================================
-async function guardarCambioEstado(pedidoId, nuevoEstado) {
-  const res = await fetch("/api/estado/guardar", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: pedidoId, estado: nuevoEstado }),
-  });
-
-  const data = await res.json();
-
-  if (!data.success) {
-    alert(data.message || "Error");
-    return;
-  }
-
-  // Si el backend devuelve last_status_change, actualiza celda
-  if (data.last_status_change) {
-    const cell = document.querySelector(`[data-lastchange="${pedidoId}"]`);
-    if (cell) {
-      const fakePedido = { last_status_change: data.last_status_change };
-      cell.innerHTML = renderLastChange(fakePedido);
-    }
-  } else {
-    // fallback seguro
-    cargarPedidos();
-  }
-}
-
-// =====================================================
-// ENLAZAR BOTÓN ANTERIOR SI EXISTE
-// =====================================================
-document.addEventListener("click", (e) => {
-  const btn = e.target?.id === "btnAnterior" ? e.target : null;
-  if (btn) {
-    e.preventDefault();
-    if (!btn.disabled) paginaAnterior();
-  }
-});
+window.agregarEtiqueta = agregarEtiqueta;
