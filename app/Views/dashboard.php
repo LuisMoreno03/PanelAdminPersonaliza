@@ -21,28 +21,17 @@
     .soft-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
     .soft-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
 
-    thead th {
-      position: sticky;
-      top: 0;
-      z-index: 10;
-      background: #f8fafc;
-    }
     button { -webkit-tap-highlight-color: transparent; }
   </style>
 </head>
 
 <body class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 overflow-x-hidden">
 
-  <!-- ✅ Sidebar/Topbar (tu menú moderno) -->
+  <!-- ✅ Sidebar/Topbar -->
   <?= view('layouts/menu') ?>
 
-  <!-- ✅ Contenido
-      - En desktop se separa del sidebar con md:ml-64 (sidebar md:w-64)
-      - En móvil no aplica (porque el menú ya crea su topbar)
-  -->
   <main class="md:ml-64">
 
-    <!-- ✅ Wrapper centrado + padding consistente -->
     <div class="p-4 sm:p-6 lg:p-8">
       <div class="mx-auto w-full max-w-[1400px]">
 
@@ -146,47 +135,35 @@
           </div>
         </section>
 
-        <!-- Pedidos: Cards (móvil/tablet) + Tabla (solo lg+) -->
+        <!-- ✅ LISTADO RESPONSIVE (SIN SCROLL HORIZONTAL) -->
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div class="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div class="flex items-center gap-2">
               <span class="inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
               <p class="font-semibold text-slate-900">Listado de pedidos</p>
             </div>
-
             <div class="text-xs text-slate-500">
-              <span class="lg:hidden">Vista en tarjetas (sin scroll horizontal)</span>
-              <span class="hidden lg:inline">Vista en tabla</span>
+              Adaptativo: sin scroll horizontal
             </div>
           </div>
 
-          <!-- Cards (móvil + tablet) -->
-          <div class="lg:hidden p-3 sm:p-4 bg-slate-50/40">
-            <div id="cardsPedidos" class="space-y-3"></div>
+          <!-- Header tipo tabla (solo desktop grande) -->
+          <div class="hidden xl:grid grid-cols-12 gap-3 px-6 py-3 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-600 font-bold border-b border-slate-200">
+            <div class="col-span-2">Pedido</div>
+            <div class="col-span-1">Fecha</div>
+            <div class="col-span-2">Cliente</div>
+            <div class="col-span-1">Total</div>
+            <div class="col-span-2">Estado</div>
+            <div class="col-span-2">Último cambio</div>
+            <div class="col-span-1 text-center">Art.</div>
+            <div class="col-span-1 text-right">Acción</div>
           </div>
 
-          <!-- Tabla (solo lg+) -->
-          <div class="hidden lg:block overflow-x-auto soft-scroll">
-            <table class="w-full text-left min-w-[1550px]">
-              <thead class="text-[11px] uppercase tracking-wider text-slate-600">
-                <tr class="border-b border-slate-200">
-                  <th class="py-3 px-4">Pedido</th>
-                  <th class="py-3 px-4">Fecha</th>
-                  <th class="py-3 px-4">Cliente</th>
-                  <th class="py-3 px-4">Total</th>
-                  <th class="py-3 px-2 w-44">Estado</th>
-                  <th class="py-3 px-4">Último cambio</th>
-                  <th class="py-3 px-2">Etiquetas</th>
-                  <th class="py-3 px-4">Artículos</th>
-                  <th class="py-3 px-4">Estado entrega</th>
-                  <th class="py-3 px-4">Forma entrega</th>
-                  <th class="py-3 px-4">Detalles</th>
-                </tr>
-              </thead>
+          <!-- ✅ Aquí renderiza el JS SIN TABLA -->
+          <div id="tablaPedidos" class="divide-y divide-slate-200"></div>
 
-              <tbody id="tablaPedidos" class="text-slate-800 text-sm leading-tight divide-y divide-slate-100"></tbody>
-            </table>
-          </div>
+          <!-- (Opcional) Si todavía usas cards aparte, lo dejamos por compatibilidad -->
+          <div class="hidden" id="cardsPedidos"></div>
         </section>
 
         <!-- Paginación -->
