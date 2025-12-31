@@ -1,29 +1,42 @@
 // =====================================================
+// DASHBOARD.JS (MODERNO + LEGIBLE + RESPONSIVE)
+// - Desktop: tabla con columnas adaptativas (sin scroll horizontal)
+// - Mobile: cards
+// - Usuarios online/offline (UI más moderna)
+// =====================================================
+
+// =====================================================
 // VARIABLES GLOBALES
 // =====================================================
 let nextPageInfo = null;
 let isLoading = false;
+
 let etiquetasSeleccionadas = [];
+
 window.imagenesCargadas = [];
 window.imagenesLocales = {}; // imágenes locales por índice
 
-// Historial page_info para botón "Anterior"
-let pageHistory = [];
+let pageHistory = []; // page_info history para botón "Anterior"
+
+// Intervalos
+let userPingInterval = null;
+let userStatusInterval = null;
 
 // =====================================================
-// Loader global
+// LOADER GLOBAL
 // =====================================================
 function showLoader() {
   const el = document.getElementById("globalLoader");
   if (el) el.classList.remove("hidden");
 }
+
 function hideLoader() {
   const el = document.getElementById("globalLoader");
   if (el) el.classList.add("hidden");
 }
 
 // =====================================================
-// INICIALIZAR
+// INIT
 // =====================================================
 document.addEventListener("DOMContentLoaded", () => {
   const btnAnterior = document.getElementById("btnAnterior");
@@ -33,24 +46,26 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!btnAnterior.disabled) paginaAnterior();
     });
   }
-pingUsuario();
-userPingInterval = setInterval(pingUsuario, 30000); // 30s
 
-cargarUsuariosEstado();
-userStatusInterval = setInterval(cargarUsuariosEstado, 15000); // 15s
+  // Pings usuario + estado usuarios
+  pingUsuario();
+  userPingInterval = setInterval(pingUsuario, 30000); // 30s
 
+  cargarUsuariosEstado();
+  userStatusInterval = setInterval(cargarUsuariosEstado, 15000); // 15s
+
+  // Pedidos
   cargarPedidos();
 });
 
 // =====================================================
-// Helpers
+// HELPERS
 // =====================================================
 function esImagen(url) {
   if (!url) return false;
   return /\.(jpeg|jpg|png|gif|webp|svg)$/i.test(url);
 }
 
-// Escapar para evitar romper HTML/atributos
 function escapeHtml(str) {
   return String(str ?? "")
     .replaceAll("&", "&amp;")
@@ -61,22 +76,28 @@ function escapeHtml(str) {
 }
 
 function escapeJsString(str) {
-  // para usar dentro de comillas simples en onclick
   return String(str ?? "").replaceAll("\\", "\\\\").replaceAll("'", "\\'");
 }
 
-// Detecta si el “estado” viene como HTML de badge
+// Detecta si el “estado” viene como HTML de badge (span)
 function esBadgeHtml(valor) {
   const s = String(valor ?? "").trim();
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
 }
 
 // Render seguro del estado:
-// - Si viene HTML (badge), lo devolvemos tal cual para que se pinte.
-// - Si viene texto normal, lo escapamos.
+// - Si viene HTML (badge), se devuelve tal cual.
+// - Si viene texto, se escapa.
 function renderEstado(valor) {
   if (esBadgeHtml(valor)) return String(valor);
   return escapeHtml(valor ?? "-");
+}
+
+// Inicial para avatar
+function inicialNombre(nombre) {
+  const n = String(nombre ?? "").trim();
+  if (!n) return "?";
+  return n[0].toUpperCase();
 }
 
 // =====================================================
@@ -96,11 +117,9 @@ function cargarPedidos(pageInfo = null) {
     .then((data) => {
       if (!data || !data.success) return;
 
-      // historial
+      // Historial page_info
       if (pageInfo) {
-        if (pageHistory[pageHistory.length - 1] !== pageInfo) {
-          pageHistory.push(pageInfo);
-        }
+        if (pageHistory[pageHistory.length - 1] !== pageInfo) pageHistory.push(pageInfo);
       } else {
         pageHistory = [];
       }
@@ -109,6 +128,7 @@ function cargarPedidos(pageInfo = null) {
 
       actualizarTabla(data.orders || []);
 
+      // Botones paginación
       const btnSig = document.getElementById("btnSiguiente");
       if (btnSig) {
         btnSig.disabled = !nextPageInfo;
@@ -123,12 +143,11 @@ function cargarPedidos(pageInfo = null) {
         btnAnt.classList.toggle("cursor-not-allowed", btnAnt.disabled);
       }
 
+      // Total
       const total = document.getElementById("total-pedidos");
       if (total) total.textContent = data.count ?? 0;
     })
-    .catch((err) => {
-      console.error("Error cargando pedidos:", err);
-    })
+    .catch((err) => console.error("Error cargando pedidos:", err))
     .finally(() => {
       isLoading = false;
       hideLoader();
@@ -136,7 +155,7 @@ function cargarPedidos(pageInfo = null) {
 }
 
 // =====================================================
-// SIGUIENTE / ANTERIOR
+// PAGINACIÓN
 // =====================================================
 function paginaSiguiente() {
   if (nextPageInfo) cargarPedidos(nextPageInfo);
@@ -148,15 +167,15 @@ function paginaAnterior() {
     return;
   }
 
-  // quita el actual
   pageHistory.pop();
   const prev = pageHistory.length ? pageHistory[pageHistory.length - 1] : null;
   cargarPedidos(prev);
 }
 
 // =====================================================
-// TABLA PRINCIPAL (RESPETA 11 COLUMNAS)
-// Pedido | Fecha | Cliente | Total | Estado | Último cambio | Etiquetas | Artículos | Estado entrega | Forma entrega | Detalles
+// TABLA + CARDS (RESPONSIVE SIN SCROLL HORIZONTAL)
+// - Desktop: ocultamos columnas en pantallas chicas con hidden xl/2xl
+// - Mobile: cards
 // =====================================================
 function actualizarTabla(pedidos) {
   const tbody = document.getElementById("tablaPedidos");
@@ -171,80 +190,163 @@ function actualizarTabla(pedidos) {
     if (!pedidos.length) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="11" class="py-6 text-center text-gray-500">
+          <td colspan="11" class="py-10 text-center text-slate-500">
             No se encontraron pedidos
           </td>
         </tr>`;
     } else {
-      const rows = pedidos.map((p) => {
-        const id = p.id ?? "";
-        return `
-          <tr class="border-b hover:bg-gray-50 transition">
-            <td class="py-2 px-4 font-semibold text-slate-900">${escapeHtml(p.numero ?? "-")}</td>
-            <td class="py-2 px-4">${escapeHtml(p.fecha ?? "-")}</td>
-            <td class="py-2 px-4">${escapeHtml(p.cliente ?? "-")}</td>
-            <td class="py-2 px-4 font-semibold">${escapeHtml(p.total ?? "-")}</td>
+      const rows = pedidos
+        .map((p) => {
+          const id = p.id ?? "";
+          const numero = escapeHtml(p.numero ?? "-");
+          const fecha = escapeHtml(p.fecha ?? "-");
+          const cliente = escapeHtml(p.cliente ?? "-");
+          const total = escapeHtml(p.total ?? "-");
+          const articulos = escapeHtml(p.articulos ?? "-");
+          const estadoEnvio = escapeHtml(p.estado_envio ?? "-");
+          const formaEnvio = escapeHtml(p.forma_envio ?? "-");
 
-            <td class="py-2 px-2">
-              <button onclick="abrirModal(${id})" class="font-semibold">
+          // Etiquetas (ya viene HTML)
+          const etiquetasHtml = formatearEtiquetas(p.etiquetas ?? "", id);
+
+          return `
+          <tr class="group border-b border-slate-100 hover:bg-slate-50/70 transition">
+            <!-- Pedido -->
+            <td class="py-3 px-4">
+              <div class="flex items-center gap-3">
+                <div class="h-9 w-9 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-700">
+                  🧾
+                </div>
+                <div class="min-w-0">
+                  <div class="font-extrabold text-slate-900 truncate">${numero}</div>
+                  <div class="text-xs text-slate-500 truncate">ID: <span class="font-mono">${escapeHtml(String(id))}</span></div>
+                </div>
+              </div>
+            </td>
+
+            <!-- Fecha -->
+            <td class="py-3 px-4 text-slate-700 font-medium">
+              ${fecha}
+            </td>
+
+            <!-- Cliente -->
+            <td class="py-3 px-4">
+              <div class="flex items-center gap-3">
+                <div class="h-8 w-8 rounded-xl bg-slate-900 text-white flex items-center justify-center text-xs font-extrabold">
+                  ${inicialNombre(cliente)}
+                </div>
+                <div class="min-w-0">
+                  <div class="font-semibold text-slate-900 truncate">${cliente}</div>
+                  <div class="text-xs text-slate-500 truncate">Cliente</div>
+                </div>
+              </div>
+            </td>
+
+            <!-- Total -->
+            <td class="py-3 px-4 text-right">
+              <div class="font-extrabold text-slate-900">${total}</div>
+              <div class="text-xs text-slate-500">${articulos} art.</div>
+            </td>
+
+            <!-- Estado -->
+            <td class="py-3 px-4">
+              <button onclick="abrirModal(${id})"
+                      class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm
+                             hover:shadow transition font-semibold text-slate-800">
                 ${renderEstado(p.estado ?? "-")}
+                <span class="text-slate-400 group-hover:text-slate-700 transition">✎</span>
               </button>
             </td>
 
-            <td class="py-2 px-4" data-lastchange="${id}">
+            <!-- Último cambio (oculto < xl) -->
+            <td class="py-3 px-4 hidden xl:table-cell" data-lastchange="${id}">
               ${renderLastChange(p)}
             </td>
 
-            <td class="py-2 px-4">${formatearEtiquetas(p.etiquetas ?? "", id)}</td>
-            <td class="py-2 px-4">${escapeHtml(p.articulos ?? "-")}</td>
-            <td class="py-2 px-4">${escapeHtml(p.estado_envio ?? "-")}</td>
-            <td class="py-2 px-4">${escapeHtml(p.forma_envio ?? "-")}</td>
+            <!-- Etiquetas (oculto < 2xl) -->
+            <td class="py-3 px-4 hidden 2xl:table-cell">
+              ${etiquetasHtml}
+            </td>
 
-            <td class="py-2 px-4">
-              <button onclick="verDetalles(${id})" class="text-blue-600 underline">
-                Ver detalles
+            <!-- Artículos (oculto < xl) -->
+            <td class="py-3 px-4 text-center hidden xl:table-cell">
+              <span class="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700">
+                ${articulos}
+              </span>
+            </td>
+
+            <!-- Estado entrega (oculto < xl) -->
+            <td class="py-3 px-4 hidden xl:table-cell">
+              <span class="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-100">
+                ${estadoEnvio}
+              </span>
+            </td>
+
+            <!-- Forma entrega (oculto < 2xl) -->
+            <td class="py-3 px-4 hidden 2xl:table-cell text-slate-700">
+              ${formaEnvio}
+            </td>
+
+            <!-- Detalles -->
+            <td class="py-3 px-4 text-right">
+              <button onclick="verDetalles(${id})"
+                      class="inline-flex items-center justify-center px-3 py-2 rounded-2xl bg-blue-600 text-white text-sm font-bold
+                             hover:bg-blue-700 active:scale-[0.99] transition">
+                Ver
               </button>
             </td>
-          </tr>
-        `;
-      }).join("");
+          </tr>`;
+        })
+        .join("");
 
       tbody.innerHTML = rows;
     }
   }
 
   // ==========================
-  // MOBILE CARDS (NO SCROLL)
+  // MOBILE CARDS
   // ==========================
   if (cards) {
     cards.innerHTML = "";
 
     if (!pedidos.length) {
       cards.innerHTML = `
-        <div class="py-6 text-center text-slate-500">
+        <div class="py-10 text-center text-slate-500">
           No se encontraron pedidos
         </div>`;
       return;
     }
 
-    const html = pedidos.map((p) => {
-      const id = p.id ?? "";
-      const numero = escapeHtml(p.numero ?? "-");
-      const fecha = escapeHtml(p.fecha ?? "-");
-      const cliente = escapeHtml(p.cliente ?? "-");
-      const total = escapeHtml(p.total ?? "-");
-      const envio = escapeHtml(p.forma_envio ?? "-");
-      const estadoEnvio = escapeHtml(p.estado_envio ?? "-");
-      const articulos = escapeHtml(p.articulos ?? "0");
+    const html = pedidos
+      .map((p) => {
+        const id = p.id ?? "";
+        const numero = escapeHtml(p.numero ?? "-");
+        const fecha = escapeHtml(p.fecha ?? "-");
+        const cliente = escapeHtml(p.cliente ?? "-");
+        const total = escapeHtml(p.total ?? "-");
+        const envio = escapeHtml(p.forma_envio ?? "-");
+        const estadoEnvio = escapeHtml(p.estado_envio ?? "-");
+        const articulos = escapeHtml(p.articulos ?? "0");
 
-      return `
-        <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        return `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div class="p-4">
             <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="text-sm font-extrabold text-slate-900">${numero}</div>
-                <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
-                <div class="text-sm text-slate-700 mt-1">${cliente}</div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-white border border-slate-200 shadow-sm">🧾</span>
+                  <div class="min-w-0">
+                    <div class="text-sm font-extrabold text-slate-900 truncate">${numero}</div>
+                    <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
+                  </div>
+                </div>
+
+                <div class="mt-3 flex items-center gap-2">
+                  <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-900 text-white text-xs font-extrabold">
+                    ${inicialNombre(cliente)}
+                  </span>
+                  <div class="text-sm font-semibold text-slate-800 truncate">${cliente}</div>
+                </div>
               </div>
 
               <div class="text-right">
@@ -253,18 +355,20 @@ function actualizarTabla(pedidos) {
               </div>
             </div>
 
-            <div class="mt-3 flex items-center justify-between gap-3">
-              <button onclick="abrirModal(${id})" class="text-left">
+            <div class="mt-4 flex items-center justify-between gap-3">
+              <button onclick="abrirModal(${id})"
+                      class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm font-semibold text-slate-800">
                 ${renderEstado(p.estado ?? "-")}
+                <span class="text-slate-400">✎</span>
               </button>
 
               <button onclick="verDetalles(${id})"
-                      class="px-3 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold">
+                      class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-sm font-bold">
                 Ver
               </button>
             </div>
 
-            <div class="mt-3 text-sm">
+            <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-3 text-sm">
               <div class="flex items-center justify-between gap-3">
                 <span class="text-slate-500">Entrega</span>
                 <span class="font-semibold text-slate-800">${estadoEnvio}</span>
@@ -275,43 +379,33 @@ function actualizarTabla(pedidos) {
               </div>
             </div>
 
-            <div class="mt-3" data-lastchange="${id}">
+            <div class="mt-4" data-lastchange="${id}">
               ${renderLastChange(p)}
             </div>
 
-            <div class="mt-3">
+            <div class="mt-4">
               <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Etiquetas</div>
               ${formatearEtiquetas(p.etiquetas ?? "", id)}
             </div>
-
-            <details class="mt-3">
-              <summary class="cursor-pointer text-sm font-semibold text-slate-700 select-none">
-                Ver más
-              </summary>
-              <div class="mt-2 text-sm text-slate-600">
-                <div class="flex items-center justify-between">
-                  <span class="text-slate-500">ID</span>
-                  <span class="font-mono text-xs">${escapeHtml(String(id))}</span>
-                </div>
-              </div>
-            </details>
           </div>
-        </div>
-      `;
-    }).join("");
+        </div>`;
+      })
+      .join("");
 
     cards.innerHTML = html;
   }
 }
-
 
 // =====================================================
 // ETIQUETAS
 // =====================================================
 function formatearEtiquetas(etiquetas, orderId) {
   if (!etiquetas) {
-    return `<button onclick="abrirModalEtiquetas(${orderId}, '')"
-            class="text-blue-600 underline">Agregar</button>`;
+    return `
+      <button onclick="abrirModalEtiquetas(${orderId}, '')"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm text-blue-700 font-semibold">
+        + Agregar
+      </button>`;
   }
 
   let lista = String(etiquetas)
@@ -322,104 +416,32 @@ function formatearEtiquetas(etiquetas, orderId) {
   const tagsHtml = lista
     .map((tag) => {
       const cls = colorEtiqueta(tag);
-      return `<span class="px-2 py-1 rounded-full text-xs font-semibold ${cls}">
-        ${escapeHtml(tag)}
-      </span>`;
+      return `
+        <span class="px-2.5 py-1 rounded-full text-xs font-extrabold ${cls}">
+          ${escapeHtml(tag)}
+        </span>`;
     })
     .join("");
 
   return `
-    <div class="flex flex-wrap gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       ${tagsHtml}
       <button onclick="abrirModalEtiquetas(${orderId}, '${escapeJsString(etiquetas)}')"
-              class="text-blue-600 underline text-xs ml-2">
-        Editar
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm text-slate-700 text-xs font-bold">
+        Editar ✎
       </button>
     </div>`;
 }
 
-function abrirModalEtiquetas(orderId, textos = "") {
-  document.getElementById("modalTagOrderId").value = orderId;
-
-  etiquetasSeleccionadas = textos
-    ? String(textos).split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
-
-  renderEtiquetasSeleccionadas();
-  mostrarEtiquetasRapidas();
-
-  document.getElementById("modalEtiquetas").classList.remove("hidden");
-}
-
-function cerrarModalEtiquetas() {
-  document.getElementById("modalEtiquetas").classList.add("hidden");
-}
-
-async function guardarEtiquetas() {
-  let id = document.getElementById("modalTagOrderId").value;
-  let tags = etiquetasSeleccionadas.join(", ");
-
-  let r = await fetch("/api/estado/etiquetas/guardar", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, tags }),
-  });
-
-  let d = await r.json();
-
-  if (d.success) {
-    cerrarModalEtiquetas();
-    cargarPedidos();
-  }
-}
-
-function renderEtiquetasSeleccionadas() {
-  let cont = document.getElementById("etiquetasSeleccionadas");
-  cont.innerHTML = "";
-
-  etiquetasSeleccionadas.forEach((tag, index) => {
-    cont.innerHTML += `
-      <span class="px-2 py-1 bg-gray-200 rounded-full text-xs">
-        ${escapeHtml(tag)}
-        <button onclick="eliminarEtiqueta(${index})" class="text-red-600 ml-1">×</button>
-      </span>`;
-  });
-}
-
-function eliminarEtiqueta(i) {
-  etiquetasSeleccionadas.splice(i, 1);
-  renderEtiquetasSeleccionadas();
-}
-
-function mostrarEtiquetasRapidas() {
-  let cont = document.getElementById("listaEtiquetasRapidas");
-  cont.innerHTML = "";
-
-  (window.etiquetasPredeterminadas || []).forEach((tag) => {
-    cont.innerHTML += `
-      <button onclick="agregarEtiqueta('${escapeJsString(tag)}')"
-              class="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm">
-        ${escapeHtml(tag)}
-      </button>`;
-  });
-}
-
-function agregarEtiqueta(tag) {
-  if (!etiquetasSeleccionadas.includes(tag)) {
-    etiquetasSeleccionadas.push(tag);
-    renderEtiquetasSeleccionadas();
-  }
-}
-
 function colorEtiqueta(tag) {
   tag = String(tag).toLowerCase().trim();
-  if (tag.startsWith("d.")) return "bg-green-200 text-green-900";
-  if (tag.startsWith("p.")) return "bg-yellow-200 text-yellow-900";
-  return "bg-gray-200 text-gray-700";
+  if (tag.startsWith("d.")) return "bg-emerald-100 text-emerald-800 border border-emerald-200";
+  if (tag.startsWith("p.")) return "bg-amber-100 text-amber-800 border border-amber-200";
+  return "bg-slate-100 text-slate-700 border border-slate-200";
 }
 
 // =====================================================
-// ÚLTIMO CAMBIO (FORMATEO + RENDER)
+// ÚLTIMO CAMBIO
 // =====================================================
 function formatDateFull(dtStr) {
   if (!dtStr) return "-";
@@ -464,18 +486,26 @@ function renderLastChange(p) {
   const info = p?.last_status_change;
 
   if (!info || !info.changed_at) {
-    return `<span class="text-gray-400 text-sm">—</span>`;
+    return `<span class="text-slate-400 text-sm">—</span>`;
   }
 
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
 
   return `
-    <div class="text-sm leading-tight">
-      <div class="font-semibold text-gray-800">${user}</div>
-      <div class="text-gray-600">${escapeHtml(formatDateFull(info.changed_at))}</div>
-      <div class="text-xs text-gray-500">Hace ${escapeHtml(timeAgo(info.changed_at))}</div>
-    </div>
-  `;
+    <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div class="flex items-center gap-3">
+        <div class="h-8 w-8 rounded-xl bg-slate-900 text-white flex items-center justify-center text-xs font-extrabold">
+          ${inicialNombre(user)}
+        </div>
+        <div class="min-w-0">
+          <div class="font-extrabold text-slate-900 truncate">${user}</div>
+          <div class="text-xs text-slate-500 truncate">${escapeHtml(formatDateFull(info.changed_at))}</div>
+        </div>
+      </div>
+      <div class="mt-2 text-xs text-slate-500">
+        Hace <span class="font-bold text-slate-700">${escapeHtml(timeAgo(info.changed_at))}</span>
+      </div>
+    </div>`;
 }
 window.renderLastChange = renderLastChange;
 
@@ -486,6 +516,7 @@ function abrirModal(orderId) {
   document.getElementById("modalOrderId").value = orderId;
   document.getElementById("modalEstado").classList.remove("hidden");
 }
+
 function cerrarModal() {
   document.getElementById("modalEstado").classList.add("hidden");
 }
@@ -504,12 +535,9 @@ async function guardarEstado(nuevoEstado) {
   if (d.success) {
     cerrarModal();
 
-    // actualizar en vivo si viene last_status_change
     if (d.last_status_change) {
       const cell = document.querySelector(`[data-lastchange="${id}"]`);
-      if (cell) {
-        cell.innerHTML = renderLastChange({ last_status_change: d.last_status_change });
-      }
+      if (cell) cell.innerHTML = renderLastChange({ last_status_change: d.last_status_change });
     } else {
       cargarPedidos();
     }
@@ -593,20 +621,20 @@ function verDetalles(orderId) {
         }
 
         html += `
-          <div class="p-4 border rounded-lg shadow bg-white">
-            <h4 class="font-semibold">${escapeHtml(item.title)}</h4>
-            <p>Cantidad: ${escapeHtml(item.quantity)}</p>
-            <p>Precio: ${escapeHtml(item.price)} €</p>
+          <div class="p-4 border rounded-2xl shadow-sm bg-white">
+            <h4 class="font-extrabold text-slate-900">${escapeHtml(item.title)}</h4>
+            <p class="text-sm text-slate-700 mt-1">Cantidad: <span class="font-semibold">${escapeHtml(item.quantity)}</span></p>
+            <p class="text-sm text-slate-700">Precio: <span class="font-semibold">${escapeHtml(item.price)} €</span></p>
 
             ${propsHTML}
             ${imagenLocalHTML}
 
-            <label class="font-semibold text-sm mt-3 block">Subir nueva imagen:</label>
+            <label class="font-semibold text-sm mt-4 block">Subir nueva imagen:</label>
             <input type="file"
                 onchange="subirImagenProducto(${orderId}, ${index}, this)"
-                class="mt-1 w-full border rounded p-2">
+                class="mt-2 w-full border border-slate-200 rounded-2xl p-3">
 
-            <div id="preview_${orderId}_${index}" class="mt-2"></div>
+            <div id="preview_${orderId}_${index}" class="mt-3"></div>
           </div>`;
       });
 
@@ -623,10 +651,10 @@ function cerrarModalDetalles() {
   document.getElementById("modalDetalles").classList.add("hidden");
 }
 
-// Panel cliente
 function abrirPanelCliente() {
   document.getElementById("panelCliente").classList.remove("hidden");
 }
+
 function cerrarPanelCliente() {
   document.getElementById("panelCliente").classList.add("hidden");
 }
@@ -641,7 +669,7 @@ function subirImagenProducto(orderId, index, input) {
   const reader = new FileReader();
   reader.onload = (e) => {
     const prev = document.getElementById(`preview_${orderId}_${index}`);
-    if (prev) prev.innerHTML = `<img src="${e.target.result}" class="w-32 mt-2 rounded shadow">`;
+    if (prev) prev.innerHTML = `<img src="${e.target.result}" class="w-32 mt-2 rounded-2xl shadow-sm">`;
   };
   reader.readAsDataURL(file);
 
@@ -666,7 +694,7 @@ function subirImagenProducto(orderId, index, input) {
       }
 
       const prev = document.getElementById(`preview_${orderId}_${index}`);
-      if (prev) prev.innerHTML = `<img src="${escapeHtml(res.url)}" class="w-32 mt-2 rounded shadow">`;
+      if (prev) prev.innerHTML = `<img src="${escapeHtml(res.url)}" class="w-32 mt-2 rounded-2xl shadow-sm">`;
 
       window.imagenesLocales[index] = res.url;
       window.imagenesCargadas[index] = true;
@@ -697,10 +725,9 @@ function validarEstadoFinal(orderId) {
     .catch((e) => console.error(e));
 }
 
-
-let userPingInterval = null;
-let userStatusInterval = null;
-
+// =====================================================
+// USUARIOS ONLINE / OFFLINE (UI MODERNA)
+// =====================================================
 function renderUsersStatus(payload) {
   const users = payload?.users || [];
 
@@ -718,16 +745,28 @@ function renderUsersStatus(payload) {
   let onlineCount = 0;
   let offlineCount = 0;
 
-  users.forEach(u => {
+  users.forEach((u) => {
     const name = escapeHtml(u.nombre ?? "Usuario");
     const online = !!u.online;
 
     const li = document.createElement("li");
-    li.className = "flex items-center gap-2";
+    li.className =
+      "flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm";
 
     li.innerHTML = `
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="h-8 w-8 rounded-xl ${online ? "bg-emerald-600" : "bg-rose-600"} text-white flex items-center justify-center text-xs font-extrabold">
+          ${inicialNombre(name)}
+        </div>
+        <div class="min-w-0">
+          <div class="font-semibold text-slate-900 truncate">${name}</div>
+          <div class="text-xs ${online ? "text-emerald-700" : "text-rose-700"}">
+            ${online ? "Conectado" : "Desconectado"}
+          </div>
+        </div>
+      </div>
+
       <span class="h-2.5 w-2.5 rounded-full ${online ? "bg-emerald-500" : "bg-rose-500"}"></span>
-      <span class="font-medium text-slate-800">${name}</span>
     `;
 
     if (online) {
@@ -739,20 +778,21 @@ function renderUsersStatus(payload) {
     }
   });
 
-  onlineCountEl.textContent = onlineCount;
-  offlineCountEl.textContent = offlineCount;
+  if (onlineCountEl) onlineCountEl.textContent = onlineCount;
+  if (offlineCountEl) offlineCountEl.textContent = offlineCount;
 }
-
 
 async function pingUsuario() {
   try {
-    await fetch("/dashboard/ping", { headers: { "Accept": "application/json" } });
+    await fetch("/dashboard/ping", { headers: { Accept: "application/json" } });
   } catch (e) {}
 }
 
 async function cargarUsuariosEstado() {
   try {
-    const r = await fetch("/dashboard/usuarios-estado", { headers: { "Accept": "application/json" } });
+    const r = await fetch("/dashboard/usuarios-estado", {
+      headers: { Accept: "application/json" },
+    });
     const d = await r.json().catch(() => null);
     if (d && d.success) renderUsersStatus(d);
   } catch (e) {
