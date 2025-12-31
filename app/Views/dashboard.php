@@ -53,7 +53,7 @@
 
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full lg:w-auto">
                 <div class="rounded-2xl border border-slate-200 bg-white p-4">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">Pedidos cargados</div>
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">Pedidos 1cargados</div>
                   <div class="mt-1 flex items-end justify-between">
                     <div class="text-3xl font-extrabold text-slate-900 leading-none">
                       <span id="total-pedidos">0</span>
