@@ -195,7 +195,7 @@
 
         <div class="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <button onclick="abrirPanelCliente()" class="px-4 py-3 bg-blue-600 text-white rounded-2xl font-semibold hover:bg-blue-700 transition">
-            Información del cliente
+            Información del cliente t1
           </button>
           <button onclick="cerrarModalDetalles()" class="px-4 py-3 bg-slate-200 text-slate-800 rounded-2xl font-semibold hover:bg-slate-300 transition">
             Cerrar
