@@ -14,144 +14,195 @@ class Confirmados extends BaseController
     }
 
     public function filter()
-    {
-        if (!session()->get('logged_in')) {
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => 'No autenticado'
-            ])->setStatusCode(401);
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'No autenticado'
+        ])->setStatusCode(401);
+    }
+
+    $pageInfo = $this->request->getGet('page_info');
+    $limit = 50;
+
+    // =====================================================
+    // 1) Traer pedidos desde Shopify (sin usar ShopifyController)
+    // =====================================================
+    $shop  = getenv('SHOPIFY_STORE_DOMAIN') ?: env('SHOPIFY_STORE_DOMAIN');
+    $token = getenv('SHOPIFY_ADMIN_TOKEN') ?: env('SHOPIFY_ADMIN_TOKEN');
+
+    if (!$shop || !$token) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => 'Faltan credenciales Shopify'
+        ]);
+    }
+
+    $url = "https://{$shop}/admin/api/2025-01/orders.json?limit={$limit}&status=any&fields=id,name,order_number,created_at,total_price,customer,line_items,tags,fulfillment_status,shipping_lines";
+
+    if ($pageInfo) {
+        $url .= "&page_info=" . urlencode($pageInfo);
+    }
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HEADER => true,
+        CURLOPT_HTTPHEADER => [
+            "X-Shopify-Access-Token: {$token}",
+            "Content-Type: application/json",
+        ],
+        CURLOPT_TIMEOUT => 30,
+    ]);
+
+    $resp = curl_exec($ch);
+    if ($resp === false) {
+        $err = curl_error($ch);
+        curl_close($ch);
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => 'Error cURL Shopify',
+            'error' => $err
+        ]);
+    }
+
+    $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    $headersRaw = substr($resp, 0, $headerSize);
+    $bodyRaw = substr($resp, $headerSize);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($status >= 400) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => 'Error Shopify',
+            'status' => $status,
+            'body' => substr($bodyRaw, 0, 800)
+        ]);
+    }
+
+    $json = json_decode($bodyRaw, true);
+    $ordersRaw = $json['orders'] ?? [];
+
+    // next page_info
+    $nextPageInfo = null;
+    if (preg_match('/<[^>]*page_info=([^&>]*)[^>]*>; rel="next"/', $headersRaw, $m)) {
+        $nextPageInfo = urldecode($m[1]);
+    }
+
+    // =====================================================
+    // 2) Mapear pedidos Shopify
+    // =====================================================
+    $orders = [];
+    $ids = [];
+
+    foreach ($ordersRaw as $o) {
+        $orderId = $o['id'] ?? null;
+        if (!$orderId) continue;
+
+        $ids[] = (string)$orderId;
+
+        $numero = $o['name'] ?? ('#' . ($o['order_number'] ?? $orderId));
+        $fecha  = isset($o['created_at']) ? substr($o['created_at'], 0, 10) : '-';
+
+        $cliente = '-';
+        if (!empty($o['customer'])) {
+            $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
+            if ($cliente === '') $cliente = '-';
         }
 
-        $pageInfo = $this->request->getGet('page_info');
+        $total = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
+        $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
 
-        // 1) Pedir a Shopify (igual que Dashboard)
-        $shopify = new \App\Controllers\ShopifyController();
+        $estado_envio = $o['fulfillment_status'] ?? '-';
+        $forma_envio  = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
 
-        $_GET['limit'] = 50;
-        if ($pageInfo) $_GET['page_info'] = $pageInfo;
+        $orders[] = [
+            'id'           => $orderId,
+            'numero'       => $numero,
+            'fecha'        => $fecha,
+            'cliente'      => $cliente,
+            'total'        => $total,
+            'estado'       => 'Por preparar', // se reemplaza por estado interno
+            'etiquetas'    => $o['tags'] ?? '',
+            'articulos'    => $articulos,
+            'estado_envio' => $estado_envio ?: '-',
+            'forma_envio'  => $forma_envio ?: '-',
+            'last_status_change' => null,
+        ];
+    }
 
-        $shopifyResp = $shopify->getOrders();
-        $payload = json_decode($shopifyResp->getBody(), true);
+    if (empty($orders)) {
+        return $this->response->setJSON([
+            'success' => true,
+            'orders' => [],
+            'next_page_info' => $nextPageInfo,
+            'count' => 0
+        ]);
+    }
 
-        if (!$payload || empty($payload['success'])) {
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => $payload['error'] ?? 'Error consultando Shopify',
-                'debug'   => $payload ?? null,
-            ])->setStatusCode(500);
-        }
+    // =====================================================
+    // 3) Leer ÚLTIMO estado interno desde BD (pedidos_estado)
+    // =====================================================
+    $db = \Config\Database::connect();
 
-        $ordersRaw    = $payload['data']['orders'] ?? [];
-        $nextPageInfo = $payload['next_page_info'] ?? null;
+    // ⚠️ CAMBIA AQUÍ si tu columna no se llama "estado"
+    $colEstado = 'estado';
 
-        // 2) Mapear pedidos (igual que Dashboard)
-        $orders = [];
-        $ids = [];
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
 
-        foreach ($ordersRaw as $o) {
-            $orderId = $o['id'] ?? null;
-            if (!$orderId) continue;
+    $sql = "
+        SELECT pe.id, pe.{$colEstado} AS estado, pe.created_at, pe.user_id
+        FROM pedidos_estado pe
+        INNER JOIN (
+            SELECT id, MAX(created_at) AS mx
+            FROM pedidos_estado
+            WHERE id IN ($placeholders)
+            GROUP BY id
+        ) t ON t.id = pe.id AND t.mx = pe.created_at
+    ";
 
-            $ids[] = (string)$orderId;
+    $rows = $db->query($sql, $ids)->getResultArray();
+    $ultimo = [];
+    foreach ($rows as $r) {
+        $ultimo[(string)$r['id']] = $r;
+    }
 
-            $numero = $o['name'] ?? ('#' . ($o['order_number'] ?? $orderId));
-            $fecha  = isset($o['created_at']) ? substr($o['created_at'], 0, 10) : '-';
+    // =====================================================
+    // 4) Asignar estado interno y FILTRAR internamente por "Preparado"
+    // =====================================================
+    $filtrados = [];
+    foreach ($orders as $ord) {
+        $orderId = (string)$ord['id'];
+        $row = $ultimo[$orderId] ?? null;
 
-            $cliente = '-';
-            if (!empty($o['customer'])) {
-                $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
-                if ($cliente === '') $cliente = '-';
+        if ($row) {
+            $ord['estado'] = $row['estado'] ?? $ord['estado'];
+
+            $userName = 'Sistema';
+            if (!empty($row['user_id'])) {
+                $u = $db->table('users')->where('id', $row['user_id'])->get()->getRowArray();
+                if ($u) $userName = $u['nombre'];
             }
 
-            $total = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
-            $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
-
-            $estado_envio = $o['fulfillment_status'] ?? '-';
-            $forma_envio  = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
-
-            $orders[] = [
-                'id'           => $orderId,
-                'numero'       => $numero,
-                'fecha'        => $fecha,
-                'cliente'      => $cliente,
-                'total'        => $total,
-                'estado'       => 'Por preparar', // se reemplaza por estado interno real abajo
-                'etiquetas'    => $o['tags'] ?? '',
-                'articulos'    => $articulos,
-                'estado_envio' => $estado_envio ?: '-',
-                'forma_envio'  => $forma_envio ?: '-',
-                'last_status_change' => null,
+            $ord['last_status_change'] = [
+                'user_name'  => $userName,
+                'changed_at' => $row['created_at'] ?? null,
             ];
         }
 
-        if (empty($orders)) {
-            return $this->response->setJSON([
-                'success' => true,
-                'orders' => [],
-                'next_page_info' => $nextPageInfo,
-                'count' => 0,
-            ]);
+        // ✅ FILTRO INTERNO REAL
+        if (($ord['estado'] ?? '') === 'Preparado') {
+            $filtrados[] = $ord;
         }
-
-        // 3) Traer ÚLTIMO estado interno desde BD para todos los IDs de esta página
-        $db = \Config\Database::connect();
-
-        // ⚠️ IMPORTANTE: aquí asumimos que la columna se llama "estado"
-        // Si se llama distinto (ej: status, estado_pedido), cámbiala en pe.estado
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-
-        $sql = "
-            SELECT pe.id, pe.estado, pe.created_at, pe.user_id
-            FROM pedidos_estado pe
-            INNER JOIN (
-                SELECT id, MAX(created_at) AS mx
-                FROM pedidos_estado
-                WHERE id IN ($placeholders)
-                GROUP BY id
-            ) t ON t.id = pe.id AND t.mx = pe.created_at
-        ";
-
-        $rows = $db->query($sql, $ids)->getResultArray();
-
-        $ultimo = [];
-        foreach ($rows as $r) {
-            $ultimo[(string)$r['id']] = $r;
-        }
-
-        // 4) Setear estado interno y filtrar SOLO "Preparado"
-        $filtrados = [];
-
-        foreach ($orders as $ord) {
-            $orderId = (string)($ord['id'] ?? '');
-            $row = $ultimo[$orderId] ?? null;
-
-            if ($row) {
-                $ord['estado'] = $row['estado'] ?? $ord['estado'];
-
-                // usuario del cambio (igual que tu dashboard)
-                $userName = 'Sistema';
-                if (!empty($row['user_id'])) {
-                    $u = $db->table('users')->where('id', $row['user_id'])->get()->getRowArray();
-                    if ($u) $userName = $u['nombre'];
-                }
-
-                $ord['last_status_change'] = [
-                    'user_name'  => $userName,
-                    'changed_at' => $row['created_at'] ?? null,
-                ];
-            }
-
-            // ✅ FILTRO REAL: solo "Preparado"
-            if (($ord['estado'] ?? '') === 'Preparado') {
-                $filtrados[] = $ord;
-            }
-        }
-
-        return $this->response->setJSON([
-            'success'        => true,
-            'orders'         => $filtrados,
-            'next_page_info' => $nextPageInfo,
-            'count'          => count($filtrados),
-        ]);
     }
+
+    return $this->response->setJSON([
+        'success' => true,
+        'orders' => $filtrados,
+        'next_page_info' => $nextPageInfo,
+        'count' => count($filtrados),
+    ]);
+}
+
 }
