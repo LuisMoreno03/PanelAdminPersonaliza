@@ -2,57 +2,42 @@
 
 namespace App\Controllers;
 
-use CodeIgniter\RESTful\ResourceController;
 use Config\Database;
 
-class EstadoController extends ResourceController
+class EstadoController extends BaseController
 {
-    /**
-     * POST /api/estado/guardar
-     * Body JSON: { "id": 7173..., "estado": "Preparado" }
-     */
     public function guardar()
     {
         if (!session()->get('logged_in')) {
-            return $this->respond([
+            return $this->response->setJSON([
                 'success' => false,
                 'message' => 'No autenticado'
-            ], 401);
+            ])->setStatusCode(401);
         }
 
-        $data = $this->request->getJSON(true);
+        $json = $this->request->getJSON(true);
 
-        $pedidoId = $data['id'] ?? null;
-        $estado   = $data['estado'] ?? null;
+        $pedidoId = $json['id'] ?? null;
+        $estado   = $json['estado'] ?? null;
 
         if (!$pedidoId || !$estado) {
-            return $this->respond([
+            return $this->response->setJSON([
                 'success' => false,
-                'message' => 'Faltan campos: id o estado'
-            ], 400);
+                'message' => 'Datos incompletos'
+            ])->setStatusCode(400);
         }
 
         $db = Database::connect();
 
-        // ✅ Insertar historial en pedidos_estado (id = ID Shopify)
-        $now = date('Y-m-d H:i:s');
-        $userId = session()->get('user_id') ?? null;
-        $userName = session()->get('nombre') ?? (session()->get('user_name') ?? 'Usuario');
-
         $db->table('pedidos_estado')->insert([
-            'id'         => $pedidoId,    // 👈 tu tabla usa "id" como ID del pedido
+            'id'         => $pedidoId, // 🔥 ID REAL Shopify
             'estado'     => $estado,
-            'user_id'    => $userId,
-            'created_at' => $now,
+            'user_id'    => session()->get('user_id'), // 🔥 USUARIO LOGUEADO
+            'created_at' => date('Y-m-d H:i:s'),
         ]);
 
-        // ✅ Responder con el último cambio para que el frontend lo pinte al instante
-        return $this->respond([
-            'success' => true,
-            'last_status_change' => [
-                'user_name'  => $userName,
-                'changed_at' => $now,
-            ]
+        return $this->response->setJSON([
+            'success' => true
         ]);
     }
 }
