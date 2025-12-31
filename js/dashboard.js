@@ -206,7 +206,7 @@ function actualizarTabla(pedidos) {
         <td class="py-2 px-4">${escapeHtml(p.articulos ?? "-")}</td>
 
         <!-- 9 Estado entrega -->
-        <td class="py-2 px-4">${escapeHtml(p.estado_envio ?? "-")}</td>
+        <td class="py-2 h-30 px-4">${escapeHtml(p.estado_envio ?? "-")}</td>
 
         <!-- 10 Forma entrega -->
         <td class="py-2 px-4">${escapeHtml(p.forma_envio ?? "-")}</td>
