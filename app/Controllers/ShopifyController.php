@@ -14,8 +14,7 @@ class ShopifyController extends Controller
     {
         $envShop  = (string) env('SHOPIFY_STORE_DOMAIN');
         $envToken = (string) env('SHOPIFY_ADMIN_TOKEN');
-        $envVer   = (string) env('SHOPIFY_API_VERSION');
-
+        
         if (!empty(trim($envShop))) {
             $shop = trim($envShop);
             $shop = preg_replace('#^https?://#', '', $shop);
@@ -28,10 +27,7 @@ class ShopifyController extends Controller
             $this->token = trim($envToken);
         }
 
-        if (!empty(trim($envVer))) {
-            $this->apiVersion = trim($envVer);
-        }
-
+       
         // Normalización
         $this->shop = trim($this->shop);
         $this->shop = preg_replace('#^https?://#', '', $this->shop);
