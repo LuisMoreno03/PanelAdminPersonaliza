@@ -61,25 +61,42 @@
       </div>
     </div>
     <!-- BLOQUE ESTADO DE USUARIOS -->
-<div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 mb-4">
-  <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-    <div class="flex flex-wrap items-center gap-2">
-      <div class="font-bold text-slate-800 text-sm uppercase tracking-wide">Usuarios</div>
+<!-- ESTADO DE USUARIOS -->
+<div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-6">
 
-      <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-sm">
-        <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
-        Conectados: <span id="onlineCount" class="font-extrabold">0</span>
-      </span>
+  <h3 class="text-lg font-extrabold text-slate-800 mb-4">
+    Estado de usuarios
+  </h3>
 
-      <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-200 text-sm">
-        <span class="h-2 w-2 rounded-full bg-rose-500"></span>
-        Desconectados: <span id="offlineCount" class="font-extrabold">0</span>
-      </span>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+    <!-- CONECTADOS -->
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <span class="h-3 w-3 rounded-full bg-emerald-500"></span>
+        <h4 class="font-bold text-emerald-700">
+          Conectados (<span id="onlineCount">0</span>)
+        </h4>
+      </div>
+
+      <ul id="onlineUsers" class="space-y-2 text-sm"></ul>
     </div>
 
-    <div id="usersList" class="flex flex-wrap gap-2"></div>
+    <!-- DESCONECTADOS -->
+    <div>
+      <div class="flex items-center gap-2 mb-2">
+        <span class="h-3 w-3 rounded-full bg-rose-500"></span>
+        <h4 class="font-bold text-rose-700">
+          Desconectados (<span id="offlineCount">0</span>)
+        </h4>
+      </div>
+
+      <ul id="offlineUsers" class="space-y-2 text-sm"></ul>
+    </div>
+
   </div>
 </div>
+
 
     <!-- TABLA (mejorada) -->
     <div class="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">

@@ -627,39 +627,46 @@ let userStatusInterval = null;
 
 function renderUsersStatus(payload) {
   const users = payload?.users || [];
-  const onlineCount = payload?.online_count ?? 0;
-  const offlineCount = payload?.offline_count ?? 0;
 
-  const elOn = document.getElementById("onlineCount");
-  const elOff = document.getElementById("offlineCount");
-  const list = document.getElementById("usersList");
+  const onlineList = document.getElementById("onlineUsers");
+  const offlineList = document.getElementById("offlineUsers");
 
-  if (elOn) elOn.textContent = String(onlineCount);
-  if (elOff) elOff.textContent = String(offlineCount);
-  if (!list) return;
+  const onlineCountEl = document.getElementById("onlineCount");
+  const offlineCountEl = document.getElementById("offlineCount");
 
-  list.innerHTML = users.map(u => {
+  if (!onlineList || !offlineList) return;
+
+  onlineList.innerHTML = "";
+  offlineList.innerHTML = "";
+
+  let onlineCount = 0;
+  let offlineCount = 0;
+
+  users.forEach(u => {
     const name = escapeHtml(u.nombre ?? "Usuario");
     const online = !!u.online;
 
-    return `
-      <div class="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50">
-        <div class="relative">
-          <div class="h-8 w-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-700">
-            ${name.slice(0,1).toUpperCase()}
-          </div>
-          <span class="absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white ${online ? 'bg-emerald-500' : 'bg-rose-500'}"></span>
-        </div>
-        <div class="leading-tight">
-          <div class="text-sm font-semibold text-slate-800">${name}</div>
-          <div class="text-xs ${online ? 'text-emerald-700' : 'text-rose-700'}">
-            ${online ? 'Conectado' : 'Desconectado'}
-          </div>
-        </div>
-      </div>
+    const li = document.createElement("li");
+    li.className = "flex items-center gap-2";
+
+    li.innerHTML = `
+      <span class="h-2.5 w-2.5 rounded-full ${online ? "bg-emerald-500" : "bg-rose-500"}"></span>
+      <span class="font-medium text-slate-800">${name}</span>
     `;
-  }).join("");
+
+    if (online) {
+      onlineList.appendChild(li);
+      onlineCount++;
+    } else {
+      offlineList.appendChild(li);
+      offlineCount++;
+    }
+  });
+
+  onlineCountEl.textContent = onlineCount;
+  offlineCountEl.textContent = offlineCount;
 }
+
 
 async function pingUsuario() {
   try {
