@@ -47,7 +47,7 @@
               <div>
                 <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Pedidos test</h1>
                 <p class="text-slate-500 mt-1 text-sm sm:text-base">
-                  Control rápido: estados, etiquetas, últimos cambios y detalles.
+                  Control rápido: 1estados, etiquetas, últimos cambios y detalles.
                 </p>
               </div>
 
