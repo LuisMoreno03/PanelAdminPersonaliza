@@ -45,7 +45,7 @@
           <div class="rounded-3xl border border-slate-200 bg-white/80 backdrop-blur shadow-sm p-4 sm:p-6">
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div>
-                <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Pedidos</h1>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Pedidos test</h1>
                 <p class="text-slate-500 mt-1 text-sm sm:text-base">
                   Control rápido: estados, etiquetas, últimos cambios y detalles.
                 </p>
