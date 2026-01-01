@@ -48,9 +48,13 @@ class Dashboard extends BaseController
             $pageInfo = (string) ($this->request->getGet('page_info') ?? '');
             $limit = 50;
 
+            // ✅ NUEVO: página UI (para que puedas mostrar "Página X de Y")
+            $page = (int) ($this->request->getGet('page') ?? 1);
+            if ($page < 1) $page = 1;
+
             $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
             $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
-            $apiVersion = '2024-01';
+            $apiVersion = (string) (env('SHOPIFY_API_VERSION') ?: '2024-01');
 
             if (!$shop || !$token) {
                 return $this->response->setJSON([
@@ -64,16 +68,46 @@ class Dashboard extends BaseController
             $shop = preg_replace('#^https?://#', '', $shop);
             $shop = preg_replace('#/.*$#', '', $shop);
 
+            $client = \Config\Services::curlrequest([
+                'timeout' => 25,
+                'http_errors' => false,
+            ]);
+
+            // ✅ NUEVO: total pedidos + total páginas (cache 5 min)
+            $cacheKey = 'shopify_orders_count_any';
+            $totalOrders = cache($cacheKey);
+
+            if ($totalOrders === null) {
+                $countUrl = "https://{$shop}/admin/api/{$apiVersion}/orders/count.json?status=any";
+                $countResp = $client->get($countUrl, [
+                    'headers' => [
+                        'X-Shopify-Access-Token' => $token,
+                        'Accept' => 'application/json',
+                    ],
+                ]);
+
+                $countStatus = $countResp->getStatusCode();
+                $countRaw = (string) $countResp->getBody();
+                $countJson = json_decode($countRaw, true) ?: [];
+
+                if ($countStatus >= 200 && $countStatus < 300) {
+                    $totalOrders = (int) ($countJson['count'] ?? 0);
+                    cache()->save($cacheKey, $totalOrders, 300);
+                } else {
+                    // Si falla el count, no rompemos nada:
+                    $totalOrders = 0;
+                    log_message('error', 'SHOPIFY COUNT HTTP '.$countStatus.': '.$countRaw);
+                }
+            }
+
+            $totalPages = $totalOrders > 0 ? (int) ceil($totalOrders / $limit) : null;
+
+            // URL pedidos (cursor pagination)
             if ($pageInfo !== '') {
                 $url = "https://{$shop}/admin/api/{$apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
             } else {
                 $url = "https://{$shop}/admin/api/{$apiVersion}/orders.json?limit={$limit}&status=any&order=created_at%20desc";
             }
-
-            $client = \Config\Services::curlrequest([
-                'timeout' => 25,
-                'http_errors' => false,
-            ]);
 
             $resp = $client->get($url, [
                 'headers' => [
@@ -180,11 +214,17 @@ class Dashboard extends BaseController
             }
             unset($ord);
 
+            // ✅ NUEVO: respuesta con info de paginación (page, total_pages, total_orders)
             return $this->response->setJSON([
                 'success'        => true,
                 'orders'         => $orders,
                 'count'          => count($orders),
                 'limit'          => $limit,
+
+                'page'           => $page,          // 👈 lote actual (1,2,3...)
+                'total_orders'   => $totalOrders,   // 👈 total pedidos Shopify
+                'total_pages'    => $totalPages,    // 👈 total páginas (count/50) o null si no se pudo calcular
+
                 'next_page_info' => $nextPageInfo,
                 'prev_page_info' => $prevPageInfo,
             ]);
@@ -221,7 +261,6 @@ class Dashboard extends BaseController
             if ($hasLastSeen) $data['last_seen'] = date('Y-m-d H:i:s');
             if ($hasIsOnline) $data['is_online'] = 1;
 
-            // Si no hay columnas, no hagas update (evita error)
             if (!empty($data)) {
                 $db->table('usuarios')->where('id', $userId)->update($data);
             }
@@ -249,7 +288,6 @@ class Dashboard extends BaseController
             $hasLastSeen = $this->columnExists($db, 'usuarios', 'last_seen');
 
             if (!$hasLastSeen) {
-                // Sin last_seen no podemos calcular "últimos 2 min"
                 return $this->response->setJSON([
                     'ok' => true,
                     'conectados' => [],
@@ -302,7 +340,6 @@ class Dashboard extends BaseController
 
             return !empty($row);
         } catch (\Throwable $e) {
-            // Si falla este check, mejor no romper nada:
             log_message('error', 'columnExists ERROR: ' . $e->getMessage());
             return false;
         }
