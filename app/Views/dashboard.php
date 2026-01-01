@@ -133,7 +133,7 @@
           <div class="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div class="flex items-center gap-2">
               <span class="inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
-              <p class="font-semibold text-slate-900">Listado de pedidos algo</p>
+              <p class="font-semibold text-slate-900">Listado de pedidos:</p>
             </div>
 
             <div class="text-xs text-slate-500">
