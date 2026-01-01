@@ -6,104 +6,78 @@ use CodeIgniter\Router\RouteCollection;
  * @var RouteCollection $routes
  */
 
-// =====================================================
+// ================================
 // AUTH
-// =====================================================
+// ================================
 $routes->get('/', 'Auth::index');
 $routes->post('auth/login', 'Auth::login');
 $routes->get('logout', 'Auth::logout');
 
 
-// =====================================================
-// DASHBOARD (PROTEGIDO)
-// =====================================================
-$routes->group('dashboard', ['filter' => 'auth'], function (RouteCollection $routes) {
+// ================================
+// DASHBOARD
+// ================================
+$routes->get('dashboard', 'DashboardController::index');
+$routes->get('dashboard/sync', 'DashboardController::sync');
+$routes->get('dashboard/filter', 'DashboardController::filter');
 
-    // Vista principal
-    $routes->get('/', 'DashboardController::index');
+$routes->get('dashboard/detalles/(:num)', 'DashboardController::detalles/$1');
+$routes->post('dashboard/subirImagenProducto', 'DashboardController::subirImagenProducto');
 
-    // Sync / filtros
-    $routes->get('sync', 'DashboardController::sync');
-    $routes->get('filter', 'DashboardController::filter');
-
-    // Detalles y acciones
-    $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
-    $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
-
-    // Estado usuarios (tiempo real)
-    $routes->get('ping', 'DashboardController::ping');
-    $routes->get('usuarios-estado', 'DashboardController::usuariosEstado');
-
-    // Shopify directo desde dashboard
-    $routes->get('shopify/productos', 'DashboardController::shopifyProductos');
-    $routes->get('pedidos', 'DashboardController::pedidos'); // 50 en 50
+// Estado usuarios
+$routes->get('dashboard/ping', 'DashboardController::ping');
+$routes->get('dashboard/usuarios-estado', 'DashboardController::usuariosEstado');
+$routes->group('dashboard', ['filter' => 'auth'], function($routes) {
+    $routes->get('/', 'Dashboard::index');
+    $routes->get('ping', 'Dashboard::ping');
+    $routes->get('usuarios-estado', 'Dashboard::usuariosEstado');
+    $routes->get('shopify/productos', 'Dashboard::shopifyProductos');
 });
 
 
-// =====================================================
-// API (AJAX / JSON)
-// =====================================================
-$routes->group('api', ['filter' => 'auth'], function (RouteCollection $routes) {
-
-    // Estados / etiquetas
-    $routes->post('estado/guardar', 'EstadoController::guardar');
-    $routes->post('estado/etiquetas/guardar', 'DashboardController::guardarEtiquetas');
-
-    // Confirmados
-    $routes->get('confirmados', 'Confirmados::filter');
-
-    // Pedidos
-    $routes->get('pedidos', 'PedidosController::filter');
-});
+// ================================
+// API (ESTADO / ETIQUETAS)
+// ================================
+$routes->post('api/estado/guardar', 'EstadoController::guardar');
+$routes->post('api/estado/etiquetas/guardar', 'DashboardController::guardarEtiquetas');
 
 
-// =====================================================
-// SHOPIFY (ADMIN / DEBUG / SERVICIOS)
-// =====================================================
-$routes->group('shopify', ['filter' => 'auth'], function (RouteCollection $routes) {
+// ================================
+// SHOPIFY
+// ================================
+$routes->get('shopify/getOrders', 'ShopifyController::getOrders');
+$routes->get('shopify/getAllOrders', 'ShopifyController::getAllOrders');      // si existe ese método
+$routes->get('shopify/ordersView', 'ShopifyController::ordersView');
 
-    // Orders
-    $routes->get('orders', 'ShopifyController::getOrders');
-    $routes->get('orders/all', 'ShopifyController::getAllOrders');
-    $routes->get('order/(:num)', 'ShopifyController::getOrder/$1');
+$routes->get('shopify/order/(:num)', 'ShopifyController::getOrder/$1');
 
-    $routes->post('orders/update', 'ShopifyController::updateOrder');
-    $routes->post('orders/update-tags', 'ShopifyController::updateOrderTags');
+$routes->post('shopify/orders/update-tags', 'ShopifyController::updateOrderTags');
+$routes->post('shopify/orders/update', 'ShopifyController::updateOrder');
 
-    // Products
-    $routes->get('products', 'ShopifyController::getProducts');
-    $routes->get('products/(:num)', 'ShopifyController::getProduct/$1');
+$routes->get('shopify/products', 'ShopifyController::getProducts');
+$routes->get('shopify/products/(:num)', 'ShopifyController::getProduct/$1');
 
-    // Customers
-    $routes->get('customers', 'ShopifyController::getCustomers');
+$routes->get('shopify/customers', 'ShopifyController::getCustomers');
 
-    // Test
-    $routes->get('test', 'ShopifyController::test');
-});
+$routes->get('shopify/test', 'ShopifyController::test');
 
 
-// =====================================================
-// CONFIRMADOS (VISTA)
-// =====================================================
-$routes->group('confirmados', ['filter' => 'auth'], function (RouteCollection $routes) {
-    $routes->get('/', 'Confirmados::index');
-    $routes->get('filter', 'Confirmados::filter');
-});
+// ================================
+// CONFIRMADOS
+// ================================
+$routes->get('confirmados', 'Confirmados::index');
+$routes->get('confirmados/filter', 'Confirmados::filter');
+$routes->get('api/confirmados', 'Confirmados::filter');
 
 
-// =====================================================
-// PEDIDOS (VISTA)
-// =====================================================
+// ================================
+// PEDIDOS
+// ================================
 
-$routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $routes){
+// ✅ Elige UNA ruta principal para /pedidos
+$routes->get('pedidos', 'PedidosController::index'); // o listarPedidos, pero solo una
 
-    // Página principal
-    $routes->get('/', 'PedidosController::index');
+$routes->get('pedidos/filter', 'PedidosController::filter');
+$routes->get('api/pedidos', 'PedidosController::filter');
 
-    // Filtros
-    $routes->get('filter', 'PedidosController::filter');
-
-    // Acciones
-    $routes->post('cambiar-estado', 'PedidosController::cambiarEstado');
-
-});
+$routes->post('pedidos/cambiar-estado', 'PedidosController::cambiarEstado');
