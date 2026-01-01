@@ -86,7 +86,7 @@ $routes->group('confirmados', ['filter' => 'auth'], function (RouteCollection $r
     $routes->get('filter', 'Confirmados::filter');
 });
 
-
+ 
 // =====================================================
 // PEDIDOS (VISTA)
 // =====================================================
