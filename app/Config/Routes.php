@@ -99,4 +99,8 @@ $routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $route
 // =====================================================
 // PRODUCCION
 // =====================================================
-$routes->get('produccion', 'ProduccionController::index');
+$routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $routes) {
+
+    $routes->get('produccion', 'ProduccionController::index');
+    $routes->get('/', 'ProduccionController::index');
+});
