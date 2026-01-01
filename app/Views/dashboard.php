@@ -236,7 +236,7 @@
     <div class="bg-white p-6 rounded-3xl shadow-xl text-center animate-fadeIn border border-slate-200">
       <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
       <p class="mt-3 font-semibold text-slate-700">Cargando...</p>
-    </div>
+    </div> 
   </div>
 
   <script>
