@@ -98,7 +98,7 @@ $routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $route
 
 
 // =====================================================
-// PRODUCCION (VISTA)
+// PRODUCCION 
 // =====================================================
 $routes->group('produccion', ['filter' => 'auth'], function (RouteCollection $routes) {
     $routes->get('/', 'ProduccionController::index'); // /produccion
