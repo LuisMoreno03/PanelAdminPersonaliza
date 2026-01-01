@@ -12,25 +12,21 @@ class Dashboard extends BaseController
     public function index()
     {
         if (!session()->get('logged_in')) {
-            return redirect()->to('/'); // ✅ correcto
+            return redirect()->to('/');
         }
 
         return view('dashboard');
     }
 
     // =====================================================
-    // PEDIDOS (50 en 50) - endpoint recomendado para dashboard
-    // GET /dashboard/pedidos?page_info=XXX
+    // PEDIDOS (50 en 50)
     // =====================================================
     public function pedidos()
     {
         return $this->pedidosPaginados();
     }
 
-    // =====================================================
-    // FILTER (alias para no romper tu JS viejo)
-    // GET /dashboard/filter?page_info=XXX
-    // =====================================================
+    // Alias para JS viejo
     public function filter()
     {
         return $this->pedidosPaginados();
@@ -52,9 +48,6 @@ class Dashboard extends BaseController
             $pageInfo = (string) ($this->request->getGet('page_info') ?? '');
             $limit = 50;
 
-            // -----------------------------
-            // 1) Shopify Orders (sin usar ShopifyController)
-            // -----------------------------
             $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
             $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
             $apiVersion = '2024-01';
@@ -71,7 +64,6 @@ class Dashboard extends BaseController
             $shop = preg_replace('#^https?://#', '', $shop);
             $shop = preg_replace('#/.*$#', '', $shop);
 
-            // Con page_info NO metas filtros extra que cambien el set
             if ($pageInfo !== '') {
                 $url = "https://{$shop}/admin/api/{$apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
             } else {
@@ -108,9 +100,7 @@ class Dashboard extends BaseController
 
             $ordersRaw = $json['orders'] ?? [];
 
-            // -----------------------------
-            // 2) Extraer next/prev page_info desde header Link
-            // -----------------------------
+            // next/prev page_info
             $linkHeader = $resp->getHeaderLine('Link');
             $nextPageInfo = null;
             $prevPageInfo = null;
@@ -124,9 +114,7 @@ class Dashboard extends BaseController
                 }
             }
 
-            // -----------------------------
-            // 3) Mapear formato dashboard
-            // -----------------------------
+            // Mapear formato dashboard
             $orders = [];
             foreach ($ordersRaw as $o) {
                 $orderId = $o['id'] ?? null;
@@ -161,9 +149,7 @@ class Dashboard extends BaseController
                 ];
             }
 
-            // -----------------------------
-            // 4) Último cambio en BD (pedidos_estado + users)
-            // -----------------------------
+            // Último cambio desde BD
             $db = \Config\Database::connect();
 
             foreach ($orders as &$ord) {
@@ -175,7 +161,7 @@ class Dashboard extends BaseController
 
                 $row = $db->table('pedidos_estado')
                     ->select('created_at, user_id')
-                    ->where('id', $orderId)           // 👈 tu clave
+                    ->where('id', $orderId)
                     ->orderBy('created_at', 'DESC')
                     ->limit(1)
                     ->get()
@@ -194,9 +180,6 @@ class Dashboard extends BaseController
             }
             unset($ord);
 
-            // -----------------------------
-            // 5) Respuesta
-            // -----------------------------
             return $this->response->setJSON([
                 'success'        => true,
                 'orders'         => $orders,
@@ -219,8 +202,7 @@ class Dashboard extends BaseController
     }
 
     // =====================================================
-    // PING (marca activo)
-    // GET /dashboard/ping
+    // PING (marca activo) - BLINDADO
     // =====================================================
     public function ping()
     {
@@ -231,14 +213,25 @@ class Dashboard extends BaseController
             }
 
             $db = \Config\Database::connect();
-            $db->table('usuarios')
-                ->where('id', $userId)
-                ->update([
-                    'last_seen' => date('Y-m-d H:i:s'),
-                    'is_online' => 1,
-                ]);
 
-            return $this->response->setJSON(['ok' => true]);
+            $hasLastSeen = $this->columnExists($db, 'usuarios', 'last_seen');
+            $hasIsOnline = $this->columnExists($db, 'usuarios', 'is_online');
+
+            $data = [];
+            if ($hasLastSeen) $data['last_seen'] = date('Y-m-d H:i:s');
+            if ($hasIsOnline) $data['is_online'] = 1;
+
+            // Si no hay columnas, no hagas update (evita error)
+            if (!empty($data)) {
+                $db->table('usuarios')->where('id', $userId)->update($data);
+            }
+
+            return $this->response->setJSON([
+                'ok' => true,
+                'last_seen_enabled' => $hasLastSeen,
+                'is_online_enabled' => $hasIsOnline,
+            ])->setStatusCode(200);
+
         } catch (\Throwable $e) {
             log_message('error', 'PING ERROR: ' . $e->getMessage());
             return $this->response->setJSON(['ok' => false])->setStatusCode(200);
@@ -246,15 +239,27 @@ class Dashboard extends BaseController
     }
 
     // =====================================================
-    // USUARIOS ESTADO (últimos 2 min)
-    // GET /dashboard/usuarios-estado
+    // USUARIOS ESTADO (últimos 2 min) - BLINDADO
     // =====================================================
     public function usuariosEstado()
     {
         try {
+            $db = \Config\Database::connect();
+
+            $hasLastSeen = $this->columnExists($db, 'usuarios', 'last_seen');
+
+            if (!$hasLastSeen) {
+                // Sin last_seen no podemos calcular "últimos 2 min"
+                return $this->response->setJSON([
+                    'ok' => true,
+                    'conectados' => [],
+                    'count' => 0,
+                    'warning' => 'La columna usuarios.last_seen no existe',
+                ])->setStatusCode(200);
+            }
+
             $cutoff = date('Y-m-d H:i:s', time() - 120);
 
-            $db = \Config\Database::connect();
             $conectados = $db->table('usuarios')
                 ->select('id, nombre, last_seen')
                 ->where('last_seen >=', $cutoff)
@@ -265,7 +270,8 @@ class Dashboard extends BaseController
                 'ok' => true,
                 'conectados' => $conectados,
                 'count' => count($conectados),
-            ]);
+            ])->setStatusCode(200);
+
         } catch (\Throwable $e) {
             log_message('error', 'USUARIOS_ESTADO ERROR: ' . $e->getMessage());
             return $this->response->setJSON([
@@ -273,6 +279,32 @@ class Dashboard extends BaseController
                 'conectados' => [],
                 'count' => 0,
             ])->setStatusCode(200);
+        }
+    }
+
+    // =====================================================
+    // Helper: verificar si existe una columna en MySQL
+    // =====================================================
+    private function columnExists($db, string $table, string $column): bool
+    {
+        try {
+            $dbName = $db->getDatabase();
+
+            $row = $db->query(
+                "SELECT 1
+                 FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = ?
+                   AND TABLE_NAME = ?
+                   AND COLUMN_NAME = ?
+                 LIMIT 1",
+                [$dbName, $table, $column]
+            )->getRowArray();
+
+            return !empty($row);
+        } catch (\Throwable $e) {
+            // Si falla este check, mejor no romper nada:
+            log_message('error', 'columnExists ERROR: ' . $e->getMessage());
+            return false;
         }
     }
 }

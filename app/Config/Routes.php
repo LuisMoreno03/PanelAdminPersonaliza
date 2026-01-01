@@ -94,8 +94,7 @@ $routes->group('confirmados', ['filter' => 'auth'], function (RouteCollection $r
 // =====================================================
 // PEDIDOS (VISTA)
 // =====================================================
-
-$routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $routes){
+$routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $routes) {
 
     // Página principal
     $routes->get('/', 'PedidosController::index');
