@@ -107,3 +107,10 @@ $routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $route
     $routes->post('cambiar-estado', 'PedidosController::cambiarEstado');
 
 });
+
+
+// =====================================================
+// PRODUCCION
+// =====================================================
+
+$routes->get('produccion', 'ProduccionController::index');
