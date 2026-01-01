@@ -22,9 +22,9 @@ $routes->group('dashboard', ['filter' => 'auth'], function (RouteCollection $rou
     // Vista principal
     $routes->get('/', 'DashboardController::index');
 
-    // Sync / filtros
-    $routes->get('sync', 'DashboardController::sync');
-    $routes->get('filter', 'DashboardController::filter');
+    // Pedidos Shopify (50 en 50 - tiempo real)
+    $routes->get('pedidos', 'DashboardController::pedidos');   // ✅ /dashboard/pedidos
+    $routes->get('filter',  'DashboardController::filter');    // fallback JS viejo
 
     // Detalles y acciones
     $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
@@ -33,10 +33,6 @@ $routes->group('dashboard', ['filter' => 'auth'], function (RouteCollection $rou
     // Estado usuarios (tiempo real)
     $routes->get('ping', 'DashboardController::ping');
     $routes->get('usuarios-estado', 'DashboardController::usuariosEstado');
-
-    // Shopify directo desde dashboard
-    $routes->get('shopify/productos', 'DashboardController::shopifyProductos');
-    $routes->get('pedidos', 'DashboardController::pedidos'); // 50 en 50
 });
 
 
@@ -51,9 +47,6 @@ $routes->group('api', ['filter' => 'auth'], function (RouteCollection $routes) {
 
     // Confirmados
     $routes->get('confirmados', 'Confirmados::filter');
-
-    // Pedidos
-    $routes->get('pedidos', 'PedidosController::filter');
 });
 
 
@@ -73,7 +66,6 @@ $routes->group('shopify', ['filter' => 'auth'], function (RouteCollection $route
     // Products
     $routes->get('products', 'ShopifyController::getProducts');
     $routes->get('products/(:num)', 'ShopifyController::getProduct/$1');
-    $routes->get('dashboard/pedidos', 'Dashboard::pedidos'); // GET ?page_info=
 
     // Customers
     $routes->get('customers', 'ShopifyController::getCustomers');
@@ -87,30 +79,24 @@ $routes->group('shopify', ['filter' => 'auth'], function (RouteCollection $route
 // CONFIRMADOS (VISTA)
 // =====================================================
 $routes->group('confirmados', ['filter' => 'auth'], function (RouteCollection $routes) {
+
     $routes->get('/', 'Confirmados::index');
     $routes->get('filter', 'Confirmados::filter');
 });
 
 
 // =====================================================
-// PEDIDOS (VISTA)
+// PEDIDOS (VISTA LEGACY)
 // =====================================================
 $routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $routes) {
 
-    // Página principal
     $routes->get('/', 'PedidosController::index');
-
-    // Filtros
     $routes->get('filter', 'PedidosController::filter');
-
-    // Acciones
     $routes->post('cambiar-estado', 'PedidosController::cambiarEstado');
-
 });
 
 
 // =====================================================
 // PRODUCCION
 // =====================================================
-
 $routes->get('produccion', 'ProduccionController::index');

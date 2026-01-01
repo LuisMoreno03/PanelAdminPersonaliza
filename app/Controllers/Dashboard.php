@@ -6,9 +6,6 @@ use CodeIgniter\HTTP\ResponseInterface;
 
 class Dashboard extends BaseController
 {
-    // =========================
-    // VISTA
-    // =========================
     public function index()
     {
         if (!session()->get('logged_in')) {
@@ -18,39 +15,36 @@ class Dashboard extends BaseController
         return view('dashboard');
     }
 
-    // =====================================================
-    // PEDIDOS (50 en 50)
-    // =====================================================
     public function pedidos()
     {
         return $this->pedidosPaginados();
     }
 
-    // Alias para JS viejo
     public function filter()
     {
         return $this->pedidosPaginados();
     }
 
-    // =====================================================
-    // CORE: pedidos paginados + ultimo cambio BD
-    // =====================================================
     private function pedidosPaginados(): ResponseInterface
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setJSON([
+            return $this->response->setStatusCode(401)->setJSON([
                 'success' => false,
-                'message' => 'No autenticado'
-            ])->setStatusCode(401);
+                'message' => 'No autenticado',
+            ]);
         }
 
         try {
             $pageInfo = (string) ($this->request->getGet('page_info') ?? '');
-            $limit = 50;
+            $limit    = 50;
 
-            // ✅ NUEVO: página UI (para que puedas mostrar "Página X de Y")
+            // página UI
             $page = (int) ($this->request->getGet('page') ?? 1);
             if ($page < 1) $page = 1;
+
+            // debug opcional: ?debug=1
+            $debug = (string) ($this->request->getGet('debug') ?? '');
+            $debugEnabled = ($debug === '1' || $debug === 'true');
 
             $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
             $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
@@ -65,17 +59,24 @@ class Dashboard extends BaseController
                 ])->setStatusCode(200);
             }
 
+            // normalizar shop
             $shop = preg_replace('#^https?://#', '', $shop);
             $shop = preg_replace('#/.*$#', '', $shop);
+            $shop = rtrim($shop, '/');
 
             $client = \Config\Services::curlrequest([
                 'timeout' => 25,
                 'http_errors' => false,
             ]);
 
-            // ✅ NUEVO: total pedidos + total páginas (cache 5 min)
+            // -----------------------------------------------------
+            // 1) COUNT total pedidos (cache 5 min)
+            // -----------------------------------------------------
             $cacheKey = 'shopify_orders_count_any';
             $totalOrders = cache($cacheKey);
+
+            $countStatus = null;
+            $countRaw = null;
 
             if ($totalOrders === null) {
                 $countUrl = "https://{$shop}/admin/api/{$apiVersion}/orders/count.json?status=any";
@@ -102,7 +103,12 @@ class Dashboard extends BaseController
 
             $totalPages = $totalOrders > 0 ? (int) ceil($totalOrders / $limit) : null;
 
-            // URL pedidos (cursor pagination)
+            // -----------------------------------------------------
+            // 2) ORDERS (50 en 50)
+            // -----------------------------------------------------
+            // IMPORTANTE:
+            // - cuando usas page_info, Shopify recomienda NO repetir status/order.
+            // - para primera página: status=any & order=created_at desc
             if ($pageInfo !== '') {
                 $url = "https://{$shop}/admin/api/{$apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
             } else {
@@ -117,8 +123,8 @@ class Dashboard extends BaseController
             ]);
 
             $status = $resp->getStatusCode();
-            $raw = (string) $resp->getBody();
-            $json = json_decode($raw, true) ?: [];
+            $raw    = (string) $resp->getBody();
+            $json   = json_decode($raw, true) ?: [];
 
             if ($status >= 400) {
                 log_message('error', 'SHOPIFY ORDERS HTTP '.$status.': '.$raw);
@@ -129,6 +135,20 @@ class Dashboard extends BaseController
                     'orders'  => [],
                     'count'   => 0,
                     'status'  => $status,
+                    'shopify_body' => $debugEnabled ? $raw : null,
+                ])->setStatusCode(200);
+            }
+
+            // Si Shopify devuelve "errors" en body (a veces con 200)
+            if (!empty($json['errors'])) {
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Shopify devolvió errors',
+                    'orders'  => [],
+                    'count'   => 0,
+                    'status'  => $status,
+                    'shopify_errors' => $json['errors'],
+                    'shopify_body' => $debugEnabled ? $raw : null,
                 ])->setStatusCode(200);
             }
 
@@ -148,7 +168,9 @@ class Dashboard extends BaseController
                 }
             }
 
-            // Mapear formato dashboard
+            // -----------------------------------------------------
+            // 3) Mapear formato dashboard
+            // -----------------------------------------------------
             $orders = [];
             foreach ($ordersRaw as $o) {
                 $orderId = $o['id'] ?? null;
@@ -183,7 +205,9 @@ class Dashboard extends BaseController
                 ];
             }
 
-            // Último cambio desde BD
+            // -----------------------------------------------------
+            // 4) Último cambio desde BD
+            // -----------------------------------------------------
             $db = \Config\Database::connect();
 
             foreach ($orders as &$ord) {
@@ -214,20 +238,35 @@ class Dashboard extends BaseController
             }
             unset($ord);
 
-            // ✅ NUEVO: respuesta con info de paginación (page, total_pages, total_orders)
-            return $this->response->setJSON([
+            // -----------------------------------------------------
+            // 5) Respuesta final + debug opcional
+            // -----------------------------------------------------
+            $payload = [
                 'success'        => true,
                 'orders'         => $orders,
                 'count'          => count($orders),
                 'limit'          => $limit,
-
-                'page'           => $page,          // 👈 lote actual (1,2,3...)
-                'total_orders'   => $totalOrders,   // 👈 total pedidos Shopify
-                'total_pages'    => $totalPages,    // 👈 total páginas (count/50) o null si no se pudo calcular
-
+                'page'           => $page,
+                'total_orders'   => $totalOrders,
+                'total_pages'    => $totalPages,
                 'next_page_info' => $nextPageInfo,
                 'prev_page_info' => $prevPageInfo,
-            ]);
+            ];
+
+            if ($debugEnabled) {
+                $payload['shopify_debug'] = [
+                    'shop' => $shop,
+                    'api_version' => $apiVersion,
+                    'orders_url' => $url,
+                    'orders_status' => $status,
+                    'link' => $linkHeader,
+                    'orders_returned' => count($ordersRaw),
+                    'count_status' => $countStatus,
+                    'count_body' => $countRaw ? substr($countRaw, 0, 300) : null,
+                ];
+            }
+
+            return $this->response->setJSON($payload);
 
         } catch (\Throwable $e) {
             log_message('error', 'DASHBOARD PEDIDOS ERROR: ' . $e->getMessage());
@@ -320,9 +359,6 @@ class Dashboard extends BaseController
         }
     }
 
-    // =====================================================
-    // Helper: verificar si existe una columna en MySQL
-    // =====================================================
     private function columnExists($db, string $table, string $column): bool
     {
         try {
