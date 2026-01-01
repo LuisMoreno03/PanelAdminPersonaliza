@@ -128,40 +128,41 @@
           </div>
         </section>
 
-        <!-- ✅ PEDIDOS (TBODY) SIN SCROLL HORIZONTAL -->
+        <!-- ✅ PEDIDOS -->
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div class="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div class="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="flex items-center gap-2">
               <span class="inline-flex h-2.5 w-2.5 rounded-full bg-blue-600"></span>
-              <p class="font-semibold text-slate-900">Listado de pedidos:</p>
+              <p class="font-semibold text-slate-900">Listado de pedidos</p>
+
+              <!-- ✅ NUEVO: Píldora página actual -->
+              <span id="pillPagina" class="ml-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-extrabold border border-slate-200 bg-white text-slate-800">
+                Página 1
+              </span>
             </div>
 
             <div class="text-xs text-slate-500">
-              Responsive sin scroll horizontal (filas tipo tarjeta en móvil)
+              Responsive sin scroll horizontal
             </div>
           </div>
 
-          <!-- ✅ Ya NO usamos overflow-x-auto ni min-w -->
           <div class="w-full">
             <table class="w-full table-auto">
               <!-- Ocultamos el head en móvil -->
               <thead class="hidden lg:table-header-group text-[11px] uppercase tracking-wider text-slate-600">
                 <tr class="border-b border-slate-200 bg-slate-50">
+                  <!-- ✅ IMPORTANTE: estas columnas deben coincidir con lo que renderiza dashboard.js -->
                   <th class="py-3 px-4">Pedido</th>
-                  <th class="py-3 px-4">Fecha</th>
-                  <th class="py-3 px-4">Cliente</th>
-                  <th class="py-3 px-4">Total</th>
                   <th class="py-3 px-2 w-44">Estado</th>
                   <th class="py-3 px-4">Último cambio</th>
                   <th class="py-3 px-2">Etiquetas</th>
                   <th class="py-3 px-4">Artículos</th>
                   <th class="py-3 px-4">Estado entrega</th>
                   <th class="py-3 px-4">Forma entrega</th>
-                  <th class="py-3 px-4">Detalles</th>
+                  <th class="py-3 px-4 text-right">Detalles</th>
                 </tr>
               </thead>
 
-              <!-- ✅ TBODY se mantiene -->
               <tbody id="tablaPedidos" class="text-slate-800 text-sm leading-tight divide-y divide-slate-100"></tbody>
             </table>
           </div>
@@ -175,8 +176,8 @@
             ← Anterior
           </button>
 
+          <!-- ✅ QUITADO onclick para evitar doble llamada (JS ya engancha eventos) -->
           <button id="btnSiguiente"
-                  onclick="paginaSiguiente()"
                   class="w-full sm:w-auto px-4 py-3 rounded-2xl bg-blue-600 text-white font-semibold hover:bg-blue-700 active:scale-[0.99] transition">
             Siguiente →
           </button>
@@ -195,7 +196,7 @@
 
         <div class="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <button onclick="abrirPanelCliente()" class="px-4 py-3 bg-blue-600 text-white rounded-2xl font-semibold hover:bg-blue-700 transition">
-            Información del cliente t1
+            Información del cliente
           </button>
           <button onclick="cerrarModalDetalles()" class="px-4 py-3 bg-slate-200 text-slate-800 rounded-2xl font-semibold hover:bg-slate-300 transition">
             Cerrar
