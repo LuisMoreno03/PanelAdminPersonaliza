@@ -73,6 +73,7 @@ $routes->group('shopify', ['filter' => 'auth'], function (RouteCollection $route
     // Products
     $routes->get('products', 'ShopifyController::getProducts');
     $routes->get('products/(:num)', 'ShopifyController::getProduct/$1');
+    $routes->get('dashboard/pedidos', 'Dashboard::pedidos'); // GET ?page_info=
 
     // Customers
     $routes->get('customers', 'ShopifyController::getCustomers');
