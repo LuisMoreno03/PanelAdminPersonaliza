@@ -3,21 +3,23 @@
 // - Tabla responsive SIN scroll horizontal (oculta columnas por breakpoints)
 // - Entrega MUY visible
 // - Etiquetas compactas (máximo 2 + contador)
+// - Paginación Shopify REAL 50 en 50 (next/prev page_info)
+// - Muestra "Página X" (pestaña actual)
 // =====================================================
 
 /* =====================================================
    VARIABLES GLOBALES
 ===================================================== */
 let nextPageInfo = null;
+let prevPageInfo = null;
 let isLoading = false;
+
+let currentPage = 1;
 
 let etiquetasSeleccionadas = [];
 window.imagenesCargadas = [];
 window.imagenesLocales = {};
 
-let pageHistory = [];
-
-// Intervalos (evita ReferenceError)
 let userPingInterval = null;
 let userStatusInterval = null;
 
@@ -37,7 +39,6 @@ function hideLoader() {
    INIT
 ===================================================== */
 document.addEventListener("DOMContentLoaded", () => {
-  // Botones de paginación
   const btnAnterior = document.getElementById("btnAnterior");
   const btnSiguiente = document.getElementById("btnSiguiente");
 
@@ -55,14 +56,16 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // usuarios (si tienes endpoints)
+  // Usuarios online/offline
   pingUsuario();
   userPingInterval = setInterval(pingUsuario, 30000);
 
   cargarUsuariosEstado();
   userStatusInterval = setInterval(cargarUsuariosEstado, 15000);
 
-  cargarPedidos();
+  // Inicial pedidos
+  currentPage = 1;
+  cargarPedidos({ reset: true });
 });
 
 /* =====================================================
@@ -103,51 +106,21 @@ function entregaStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
 
   if (!s || s === "-" || s === "null") {
-    return {
-      wrap: "bg-slate-50 border-slate-200 text-slate-800",
-      dot: "bg-slate-400",
-      icon: "📦",
-      label: "Sin estado",
-    };
+    return { wrap: "bg-slate-50 border-slate-200 text-slate-800", dot: "bg-slate-400", icon: "📦", label: "Sin estado" };
   }
   if (s.includes("entregado") || s.includes("delivered")) {
-    return {
-      wrap: "bg-emerald-50 border-emerald-200 text-emerald-900",
-      dot: "bg-emerald-500",
-      icon: "✅",
-      label: "Entregado",
-    };
+    return { wrap: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "✅", label: "Entregado" };
   }
   if (s.includes("enviado") || s.includes("shipped")) {
-    return {
-      wrap: "bg-blue-50 border-blue-200 text-blue-900",
-      dot: "bg-blue-500",
-      icon: "🚚",
-      label: "Enviado",
-    };
+    return { wrap: "bg-blue-50 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🚚", label: "Enviado" };
   }
   if (s.includes("prepar") || s.includes("pendiente") || s.includes("processing")) {
-    return {
-      wrap: "bg-amber-50 border-amber-200 text-amber-900",
-      dot: "bg-amber-500",
-      icon: "⏳",
-      label: "Preparando",
-    };
+    return { wrap: "bg-amber-50 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "⏳", label: "Preparando" };
   }
   if (s.includes("cancel") || s.includes("devuelto") || s.includes("return")) {
-    return {
-      wrap: "bg-rose-50 border-rose-200 text-rose-900",
-      dot: "bg-rose-500",
-      icon: "⛔",
-      label: "Incidencia",
-    };
+    return { wrap: "bg-rose-50 border-rose-200 text-rose-900", dot: "bg-rose-500", icon: "⛔", label: "Incidencia" };
   }
-  return {
-    wrap: "bg-slate-50 border-slate-200 text-slate-900",
-    dot: "bg-slate-400",
-    icon: "📍",
-    label: estado || "—",
-  };
+  return { wrap: "bg-slate-50 border-slate-200 text-slate-900", dot: "bg-slate-400", icon: "📍", label: estado || "—" };
 }
 
 function renderEntregaPill(estadoEnvio) {
@@ -163,49 +136,68 @@ function renderEntregaPill(estadoEnvio) {
 }
 
 /* =====================================================
-   CARGAR PEDIDOS
+   PÍLDORA PÁGINA (pestaña actual)
+   Requiere un elemento con id="pillPagina"
 ===================================================== */
-function cargarPedidos(pageInfo = null) {
+function setPaginaUI() {
+  const pill = document.getElementById("pillPagina");
+  if (pill) pill.textContent = `Página ${currentPage}`;
+}
+
+/* =====================================================
+   CARGAR PEDIDOS (50 en 50)
+   Usa /dashboard/pedidos (o fallback /dashboard/filter)
+===================================================== */
+function cargarPedidos({ page_info = "", direction = "next", reset = false } = {}) {
   if (isLoading) return;
   isLoading = true;
   showLoader();
 
-  let url = "/dashboard/filter";
-  if (pageInfo) url += "?page_info=" + encodeURIComponent(pageInfo);
+  const base = "/dashboard/pedidos"; // ✅ recomendado
+  const fallback = "/dashboard/filter"; // por si aún lo usas en rutas
+
+  let url = base;
+  if (page_info) url += `?page_info=${encodeURIComponent(page_info)}&direction=${direction}`;
 
   fetch(url, { headers: { Accept: "application/json" } })
-    .then((res) => res.json())
+    .then(async (res) => {
+      // Si el endpoint /dashboard/pedidos no existe aún, cae al /dashboard/filter
+      if (res.status === 404) {
+        let url2 = fallback;
+        if (page_info) url2 += `?page_info=${encodeURIComponent(page_info)}&direction=${direction}`;
+        const r2 = await fetch(url2, { headers: { Accept: "application/json" } });
+        return r2.json();
+      }
+      return res.json();
+    })
     .then((data) => {
-      if (!data || !data.success) return;
-
-      if (pageInfo) {
-        if (pageHistory[pageHistory.length - 1] !== pageInfo) pageHistory.push(pageInfo);
-      } else {
-        pageHistory = [];
+      if (!data || !data.success) {
+        actualizarTabla([]);
+        nextPageInfo = null;
+        prevPageInfo = null;
+        actualizarControlesPaginacion();
+        return;
       }
 
+      if (reset) currentPage = 1;
+
       nextPageInfo = data.next_page_info ?? null;
+      prevPageInfo = data.prev_page_info ?? null;
 
       actualizarTabla(data.orders || []);
 
-      const btnSig = document.getElementById("btnSiguiente");
-      if (btnSig) {
-        btnSig.disabled = !nextPageInfo;
-        btnSig.classList.toggle("opacity-50", btnSig.disabled);
-        btnSig.classList.toggle("cursor-not-allowed", btnSig.disabled);
-      }
-
-      const btnAnt = document.getElementById("btnAnterior");
-      if (btnAnt) {
-        btnAnt.disabled = pageHistory.length === 0;
-        btnAnt.classList.toggle("opacity-50", btnAnt.disabled);
-        btnAnt.classList.toggle("cursor-not-allowed", btnAnt.disabled);
-      }
-
       const total = document.getElementById("total-pedidos");
       if (total) total.textContent = data.count ?? 0;
+
+      actualizarControlesPaginacion();
     })
-    .catch((err) => console.error("Error cargando pedidos:", err))
+    .catch((err) => {
+      console.error("Error cargando pedidos:", err);
+      actualizarTabla([]);
+      nextPageInfo = null;
+      prevPageInfo = null;
+      actualizarControlesPaginacion();
+    })
     .finally(() => {
       isLoading = false;
       hideLoader();
@@ -213,33 +205,47 @@ function cargarPedidos(pageInfo = null) {
 }
 
 /* =====================================================
-   PAGINACIÓN
+   CONTROLES PAGINACIÓN + UI
 ===================================================== */
+function actualizarControlesPaginacion() {
+  const btnSig = document.getElementById("btnSiguiente");
+  const btnAnt = document.getElementById("btnAnterior");
+
+  if (btnSig) {
+    btnSig.disabled = !nextPageInfo;
+    btnSig.classList.toggle("opacity-50", btnSig.disabled);
+    btnSig.classList.toggle("cursor-not-allowed", btnSig.disabled);
+  }
+
+  if (btnAnt) {
+    btnAnt.disabled = !prevPageInfo || currentPage <= 1;
+    btnAnt.classList.toggle("opacity-50", btnAnt.disabled);
+    btnAnt.classList.toggle("cursor-not-allowed", btnAnt.disabled);
+  }
+
+  setPaginaUI();
+}
+
 function paginaSiguiente() {
-  if (nextPageInfo) cargarPedidos(nextPageInfo);
+  if (!nextPageInfo) return;
+  currentPage += 1;
+  cargarPedidos({ page_info: nextPageInfo, direction: "next" });
 }
 
 function paginaAnterior() {
-  if (pageHistory.length === 0) {
-    cargarPedidos(null);
-    return;
-  }
-  pageHistory.pop();
-  const prev = pageHistory.length ? pageHistory[pageHistory.length - 1] : null;
-  cargarPedidos(prev);
+  if (!prevPageInfo || currentPage <= 1) return;
+  currentPage -= 1;
+  cargarPedidos({ page_info: prevPageInfo, direction: "prev" });
 }
 
 /* =====================================================
    TABLA (tbody) - RESPONSIVE SIN SCROLL HORIZONTAL
-   - Ocultamos celdas con "hidden lg:table-cell / hidden xl:table-cell"
 ===================================================== */
 function actualizarTabla(pedidos) {
   const tbody = document.getElementById("tablaPedidos");
   const cards = document.getElementById("cardsPedidos");
 
-  // ==========================
-  // DESKTOP TABLE (tbody)
-  // ==========================
+  // DESKTOP TABLE
   if (tbody) {
     tbody.innerHTML = "";
 
@@ -257,12 +263,10 @@ function actualizarTabla(pedidos) {
           const etiquetas = p.etiquetas ?? "";
           return `
           <tr class="border-b border-slate-100 hover:bg-slate-50/60 transition">
-            <!-- Pedido -->
             <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
               ${escapeHtml(p.numero ?? "-")}
             </td>
 
-            <!-- Estado -->
             <td class="py-4 px-3">
               <button onclick="abrirModal(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm
@@ -274,17 +278,14 @@ function actualizarTabla(pedidos) {
               </button>
             </td>
 
-            <!-- Último cambio (solo xl+) -->
             <td class="py-4 px-4 hidden xl:table-cell" data-lastchange="${id}">
               ${renderLastChangeCompact(p)}
             </td>
 
-            <!-- Etiquetas -->
             <td class="py-4 px-4">
               ${renderEtiquetasCompact(etiquetas, id)}
             </td>
 
-            <!-- Artículos (solo lg+) -->
             <td class="py-4 px-4 hidden lg:table-cell">
               <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-extrabold
                            bg-slate-50 border border-slate-200 text-slate-800 whitespace-nowrap">
@@ -292,12 +293,10 @@ function actualizarTabla(pedidos) {
               </span>
             </td>
 
-            <!-- Entrega (SIEMPRE visible y grande) -->
             <td class="py-4 px-4">
               ${renderEntregaPill(p.estado_envio ?? "-")}
             </td>
 
-            <!-- Forma (solo xl+) -->
             <td class="py-4 px-4 hidden xl:table-cell">
               <span class="inline-flex items-center px-3 py-2 rounded-2xl bg-slate-50 border border-slate-200
                            text-[11px] font-extrabold uppercase tracking-wide text-slate-800 whitespace-nowrap">
@@ -305,7 +304,6 @@ function actualizarTabla(pedidos) {
               </span>
             </td>
 
-            <!-- Acción -->
             <td class="py-4 px-4 text-right whitespace-nowrap">
               <button onclick="verDetalles(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-blue-600 text-white
@@ -320,9 +318,7 @@ function actualizarTabla(pedidos) {
     }
   }
 
-  // ==========================
-  // MOBILE CARDS (si existen)
-  // ==========================
+  // MOBILE CARDS
   if (cards) {
     cards.innerHTML = "";
 
@@ -385,7 +381,7 @@ function actualizarTabla(pedidos) {
 }
 
 /* =====================================================
-   ÚLTIMO CAMBIO (COMPACTO, NO CAJA GRANDE)
+   ÚLTIMO CAMBIO (COMPACTO)
 ===================================================== */
 function renderLastChangeCompact(p) {
   const info = p?.last_status_change;
@@ -401,7 +397,7 @@ function renderLastChangeCompact(p) {
 }
 
 /* =====================================================
-   ETIQUETAS: compactas (max 2) + botón limpio
+   ETIQUETAS (compactas)
 ===================================================== */
 function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
   const raw = String(etiquetas || "").trim();
@@ -427,19 +423,14 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
       </span>`
       : "";
 
-  const btn = `
-    <button onclick="abrirModalEtiquetas(${orderId}, '${escapeJsString(raw)}')"
-      class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
-             bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide
-             hover:bg-slate-800 transition shadow-sm">
-      Etiquetas
-      <span class="text-white/80">✎</span>
-    </button>
-  `;
+  // ✅ evita crash si no tienes abrirModalEtiquetas definida todavía
+  const onClick = typeof window.abrirModalEtiquetas === "function"
+    ? `abrirModalEtiquetas(${orderId}, '${escapeJsString(raw)}')`
+    : `alert('Falta implementar abrirModalEtiquetas()');`;
 
   if (!list.length) {
     return `
-      <button onclick="abrirModalEtiquetas(${orderId}, '')"
+      <button onclick="${onClick}"
         class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
                bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide
                hover:shadow-md transition">
@@ -452,7 +443,13 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
   return `
     <div class="flex flex-wrap items-center gap-2">
       ${pills}${more}
-      ${btn}
+      <button onclick="${onClick}"
+        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
+               bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide
+               hover:bg-slate-800 transition shadow-sm">
+        Etiquetas
+        <span class="text-white/80">✎</span>
+      </button>
     </div>
   `;
 }
@@ -512,7 +509,8 @@ async function guardarEstado(nuevoEstado) {
 
   if (d?.success) {
     cerrarModal();
-    cargarPedidos();
+    currentPage = 1;
+    cargarPedidos({ reset: true });
   }
 }
 
@@ -640,16 +638,6 @@ function verDetalles(orderId) {
 }
 
 /* =====================================================
-   Panel cliente
-===================================================== */
-function abrirPanelCliente() {
-  document.getElementById("panelCliente")?.classList.remove("hidden");
-}
-function cerrarPanelCliente() {
-  document.getElementById("panelCliente")?.classList.add("hidden");
-}
-
-/* =====================================================
    SUBIR IMAGEN
 ===================================================== */
 function subirImagenProducto(orderId, index, input) {
@@ -705,7 +693,7 @@ function validarEstadoFinal(orderId) {
     body: JSON.stringify({ id: orderId, estado: nuevoEstado }),
   })
     .then((r) => r.json())
-    .then(() => cargarPedidos())
+    .then(() => cargarPedidos({ reset: true }))
     .catch((e) => console.error(e));
 }
 
@@ -713,60 +701,48 @@ function validarEstadoFinal(orderId) {
    USUARIOS ONLINE/OFFLINE
 ===================================================== */
 function renderUsersStatus(payload) {
-  const users = payload?.users || [];
-
+  // Tu backend retorna: { ok:true, conectados:[...] }
+  const conectados = payload?.conectados || [];
   const onlineList = document.getElementById("onlineUsers");
   const offlineList = document.getElementById("offlineUsers");
-
   const onlineCountEl = document.getElementById("onlineCount");
   const offlineCountEl = document.getElementById("offlineCount");
 
   if (!onlineList || !offlineList) return;
 
+  // Si tú tienes una lista completa de usuarios en el payload, cambia esto.
+  // Por ahora: conectados = online, y offline queda vacío.
   onlineList.innerHTML = "";
   offlineList.innerHTML = "";
 
-  let onlineCount = 0;
-  let offlineCount = 0;
-
-  users.forEach((u) => {
+  conectados.forEach((u) => {
     const name = escapeHtml(u.nombre ?? "Usuario");
-    const online = !!u.online;
-
     const li = document.createElement("li");
     li.className = "flex items-center gap-2";
-
     li.innerHTML = `
-      <span class="h-2.5 w-2.5 rounded-full ${online ? "bg-emerald-500" : "bg-rose-500"}"></span>
+      <span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
       <span class="font-semibold text-slate-800">${name}</span>
     `;
-
-    if (online) {
-      onlineList.appendChild(li);
-      onlineCount++;
-    } else {
-      offlineList.appendChild(li);
-      offlineCount++;
-    }
+    onlineList.appendChild(li);
   });
 
-  if (onlineCountEl) onlineCountEl.textContent = onlineCount;
-  if (offlineCountEl) offlineCountEl.textContent = offlineCount;
+  if (onlineCountEl) onlineCountEl.textContent = conectados.length;
+  if (offlineCountEl) offlineCountEl.textContent = "0";
 }
 
 async function pingUsuario() {
   try {
     await fetch("/dashboard/ping", { headers: { Accept: "application/json" } });
-  } catch (e) {
-    // silencioso
-  }
+  } catch (e) {}
 }
 
 async function cargarUsuariosEstado() {
   try {
     const r = await fetch("/dashboard/usuarios-estado", { headers: { Accept: "application/json" } });
     const d = await r.json().catch(() => null);
-    if (d && d.success) renderUsersStatus(d);
+
+    // ✅ tu backend devuelve ok, no success
+    if (d && (d.ok === true || d.success === true)) renderUsersStatus(d);
   } catch (e) {
     console.error("Error usuarios estado:", e);
   }
