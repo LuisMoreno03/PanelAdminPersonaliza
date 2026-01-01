@@ -75,3 +75,12 @@ $routes->get('pedidos/filter', 'PedidosController::filter');
 $routes->get('api/pedidos', 'PedidosController::filter');
 
 $routes->post('pedidos/cambiar-estado', 'PedidosController::cambiarEstado');
+
+// ===============================
+// PRODUCCION 
+//================================
+
+$routes->get('produccion', 'ProduccionController::index');  // PPAGINA PRINCIPAL - LOBBY //
+
+
+
