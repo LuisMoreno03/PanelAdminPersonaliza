@@ -23,7 +23,7 @@ $routes->group('dashboard', ['filter' => 'auth'], function (RouteCollection $rou
     $routes->get('/', 'DashboardController::index');
 
     // Pedidos Shopify (50 en 50 - tiempo real)
-    $routes->get('pedidos', 'DashboardController::pedidos');   // ✅ /dashboard/pedidos
+    $routes->get('pedidos', 'DashboardController::pedidos');   // /dashboard/pedidos
     $routes->get('filter',  'DashboardController::filter');    // fallback JS viejo
 
     // Detalles y acciones
@@ -47,6 +47,9 @@ $routes->group('api', ['filter' => 'auth'], function (RouteCollection $routes) {
 
     // Confirmados
     $routes->get('confirmados', 'Confirmados::filter');
+
+    // (Opcional) si lo usas:
+    // $routes->get('pedidos', 'PedidosController::filter');
 });
 
 
@@ -79,28 +82,24 @@ $routes->group('shopify', ['filter' => 'auth'], function (RouteCollection $route
 // CONFIRMADOS (VISTA)
 // =====================================================
 $routes->group('confirmados', ['filter' => 'auth'], function (RouteCollection $routes) {
-
     $routes->get('/', 'Confirmados::index');
     $routes->get('filter', 'Confirmados::filter');
 });
- 
+
 
 // =====================================================
-// PEDIDOS (VISTA LEGACY)
+// PEDIDOS (VISTA)
 // =====================================================
 $routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $routes) {
-
     $routes->get('/', 'PedidosController::index');
     $routes->get('filter', 'PedidosController::filter');
     $routes->post('cambiar-estado', 'PedidosController::cambiarEstado');
 });
-  
+
 
 // =====================================================
-// PRODUCCION
+// PRODUCCION (VISTA)
 // =====================================================
-$routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $routes) {
-
-    $routes->get('produccion', 'ProduccionController::index');
-    $routes->get('/', 'ProduccionController::index');
+$routes->group('produccion', ['filter' => 'auth'], function (RouteCollection $routes) {
+    $routes->get('/', 'ProduccionController::index'); // /produccion
 });
