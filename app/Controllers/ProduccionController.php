@@ -1,11 +1,12 @@
 <?php
 
-namespace App\Controllers;
+
 
 class ProduccionController extends BaseController
 {
     public function index()
     {
-        return view('produccion/index');
+        return 'Producción OK ✅';
+        // o: return view('produccion/index');
     }
 }
