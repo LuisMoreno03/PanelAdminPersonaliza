@@ -88,7 +88,7 @@ $routes->group('confirmados', ['filter' => 'auth'], function (RouteCollection $r
 
  
 // =====================================================
-// PEDIDOS (VISTA)
+// PEDIDOS 
 // =====================================================
 $routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $routes) {
     $routes->get('/', 'PedidosController::index');
