@@ -4,7 +4,7 @@
 // - Entrega MUY visible
 // - Etiquetas compactas (máximo 2 + contador)
 // - Paginación Shopify REAL 50 en 50 (next/prev page_info)
-// - Muestra "Página X" (pestaña actual)
+// - Muestra "Página X" y "Página X de Y" (si backend lo da)
 // =====================================================
 
 /* =====================================================
@@ -136,35 +136,48 @@ function renderEntregaPill(estadoEnvio) {
 }
 
 /* =====================================================
-   PÍLDORA PÁGINA (pestaña actual)
-   Requiere un elemento con id="pillPagina"
+   PÍLDORA PÁGINA
+   - pillPagina: "Página X"
+   - pillPaginaTotal (opcional): "Página X de Y"
 ===================================================== */
-function setPaginaUI() {
+function setPaginaUI({ totalPages = null } = {}) {
   const pill = document.getElementById("pillPagina");
   if (pill) pill.textContent = `Página ${currentPage}`;
+
+  const pillTotal = document.getElementById("pillPaginaTotal");
+  if (pillTotal) {
+    if (totalPages) pillTotal.textContent = `Página ${currentPage} de ${totalPages}`;
+    else pillTotal.textContent = `Página ${currentPage}`;
+  }
 }
 
 /* =====================================================
    CARGAR PEDIDOS (50 en 50)
    Usa /dashboard/pedidos (o fallback /dashboard/filter)
 ===================================================== */
-function cargarPedidos({ page_info = "", direction = "next", reset = false } = {}) {
+function cargarPedidos({ page_info = "", reset = false } = {}) {
   if (isLoading) return;
   isLoading = true;
   showLoader();
 
   const base = "/dashboard/pedidos"; // ✅ recomendado
-  const fallback = "/dashboard/filter"; // por si aún lo usas en rutas
+  const fallback = "/dashboard/filter"; // fallback
 
-  let url = base;
-  if (page_info) url += `?page_info=${encodeURIComponent(page_info)}&direction=${direction}`;
+  // ✅ IMPORTANTÍSIMO: siempre manda page al backend
+  const buildUrl = (endpoint) => {
+    const u = new URL(endpoint, window.location.origin);
+    u.searchParams.set("page", String(currentPage));
+    if (page_info) u.searchParams.set("page_info", page_info);
+    return u.toString();
+  };
+
+  const url = buildUrl(base);
 
   fetch(url, { headers: { Accept: "application/json" } })
     .then(async (res) => {
-      // Si el endpoint /dashboard/pedidos no existe aún, cae al /dashboard/filter
+      // fallback si /dashboard/pedidos no existe
       if (res.status === 404) {
-        let url2 = fallback;
-        if (page_info) url2 += `?page_info=${encodeURIComponent(page_info)}&direction=${direction}`;
+        const url2 = buildUrl(fallback);
         const r2 = await fetch(url2, { headers: { Accept: "application/json" } });
         return r2.json();
       }
@@ -176,18 +189,31 @@ function cargarPedidos({ page_info = "", direction = "next", reset = false } = {
         nextPageInfo = null;
         prevPageInfo = null;
         actualizarControlesPaginacion();
+        setPaginaUI({ totalPages: null });
         return;
       }
 
-      if (reset) currentPage = 1;
+      // ✅ reset real
+      if (reset) {
+        currentPage = 1;
+        nextPageInfo = null;
+        prevPageInfo = null;
+      }
 
       nextPageInfo = data.next_page_info ?? null;
       prevPageInfo = data.prev_page_info ?? null;
 
       actualizarTabla(data.orders || []);
 
+      // ✅ total pedidos real (Shopify count) si viene
       const total = document.getElementById("total-pedidos");
-      if (total) total.textContent = data.count ?? 0;
+      if (total) {
+        // si el backend envía total_orders úsalo, sino usa count del lote
+        total.textContent = (data.total_orders ?? data.count ?? 0);
+      }
+
+      // ✅ UI "Página X de Y" si existe total_pages
+      setPaginaUI({ totalPages: data.total_pages ?? null });
 
       actualizarControlesPaginacion();
     })
@@ -197,6 +223,7 @@ function cargarPedidos({ page_info = "", direction = "next", reset = false } = {
       nextPageInfo = null;
       prevPageInfo = null;
       actualizarControlesPaginacion();
+      setPaginaUI({ totalPages: null });
     })
     .finally(() => {
       isLoading = false;
@@ -205,7 +232,7 @@ function cargarPedidos({ page_info = "", direction = "next", reset = false } = {
 }
 
 /* =====================================================
-   CONTROLES PAGINACIÓN + UI
+   CONTROLES PAGINACIÓN
 ===================================================== */
 function actualizarControlesPaginacion() {
   const btnSig = document.getElementById("btnSiguiente");
@@ -223,19 +250,20 @@ function actualizarControlesPaginacion() {
     btnAnt.classList.toggle("cursor-not-allowed", btnAnt.disabled);
   }
 
+  // La pill se setea también en cargarPedidos, pero no pasa nada si lo duplicas
   setPaginaUI();
 }
 
 function paginaSiguiente() {
   if (!nextPageInfo) return;
   currentPage += 1;
-  cargarPedidos({ page_info: nextPageInfo, direction: "next" });
+  cargarPedidos({ page_info: nextPageInfo });
 }
 
 function paginaAnterior() {
   if (!prevPageInfo || currentPage <= 1) return;
   currentPage -= 1;
-  cargarPedidos({ page_info: prevPageInfo, direction: "prev" });
+  cargarPedidos({ page_info: prevPageInfo });
 }
 
 /* =====================================================
@@ -423,7 +451,6 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
       </span>`
       : "";
 
-  // ✅ evita crash si no tienes abrirModalEtiquetas definida todavía
   const onClick = typeof window.abrirModalEtiquetas === "function"
     ? `abrirModalEtiquetas(${orderId}, '${escapeJsString(raw)}')`
     : `alert('Falta implementar abrirModalEtiquetas()');`;
@@ -693,7 +720,10 @@ function validarEstadoFinal(orderId) {
     body: JSON.stringify({ id: orderId, estado: nuevoEstado }),
   })
     .then((r) => r.json())
-    .then(() => cargarPedidos({ reset: true }))
+    .then(() => {
+      currentPage = 1;
+      cargarPedidos({ reset: true });
+    })
     .catch((e) => console.error(e));
 }
 
@@ -701,7 +731,6 @@ function validarEstadoFinal(orderId) {
    USUARIOS ONLINE/OFFLINE
 ===================================================== */
 function renderUsersStatus(payload) {
-  // Tu backend retorna: { ok:true, conectados:[...] }
   const conectados = payload?.conectados || [];
   const onlineList = document.getElementById("onlineUsers");
   const offlineList = document.getElementById("offlineUsers");
@@ -710,8 +739,6 @@ function renderUsersStatus(payload) {
 
   if (!onlineList || !offlineList) return;
 
-  // Si tú tienes una lista completa de usuarios en el payload, cambia esto.
-  // Por ahora: conectados = online, y offline queda vacío.
   onlineList.innerHTML = "";
   offlineList.innerHTML = "";
 
@@ -740,8 +767,6 @@ async function cargarUsuariosEstado() {
   try {
     const r = await fetch("/dashboard/usuarios-estado", { headers: { Accept: "application/json" } });
     const d = await r.json().catch(() => null);
-
-    // ✅ tu backend devuelve ok, no success
     if (d && (d.ok === true || d.success === true)) renderUsersStatus(d);
   } catch (e) {
     console.error("Error usuarios estado:", e);
