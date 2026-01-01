@@ -6,13 +6,14 @@ use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
 
-class Auth implements FilterInterface
+class AuthFilter implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null)
-    { 
-        if (! session()->get('logged_in')) {
+    {
+        if (!session()->get('logged_in')) {
             return redirect()->to('/');
         }
+        return null;
     }
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null)
