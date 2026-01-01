@@ -83,7 +83,7 @@ $routes->group('confirmados', ['filter' => 'auth'], function (RouteCollection $r
     $routes->get('/', 'Confirmados::index');
     $routes->get('filter', 'Confirmados::filter');
 });
-
+ 
 
 // =====================================================
 // PEDIDOS (VISTA LEGACY)
@@ -94,7 +94,7 @@ $routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $route
     $routes->get('filter', 'PedidosController::filter');
     $routes->post('cambiar-estado', 'PedidosController::cambiarEstado');
 });
-
+  
 
 // =====================================================
 // PRODUCCION
