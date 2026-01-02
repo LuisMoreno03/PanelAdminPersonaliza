@@ -43,7 +43,30 @@
       </p>
     </div>
 
-    <!-- Sistema de cargado de archivos JPG/PNG -->
+    
+
+
+     <!-- Buscador -->
+    <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+      <div class="relative">
+        <input
+          id="inputBuscar"
+          type="text"
+          placeholder="Buscar pedido, cliente, etiqueta..."
+          class="w-[320px] max-w-full pl-10 pr-3 py-2 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+        />
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔎</span>
+      </div>
+
+      <button
+        id="btnLimpiarBusqueda"
+        class="px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition"
+      >
+        Limpiar
+      </button>
+    </div>
+
+<!-- Sistema de cargado de archivos JPG/PNG -->
      <div style="display:flex; gap:10px; align-items:center; margin:12px 0;">
   <input id="archivoNombre" placeholder="Nombre (opcional)" style="padding:10px; width:240px;">
   <input id="archivoInput" type="file" style="padding:10px;">
@@ -178,25 +201,7 @@ listarArchivos();
 </script>
 
 
-     <!-- Buscador -->
-    <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
-      <div class="relative">
-        <input
-          id="inputBuscar"
-          type="text"
-          placeholder="Buscar pedido, cliente, etiqueta..."
-          class="w-[320px] max-w-full pl-10 pr-3 py-2 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-        />
-        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔎</span>
-      </div>
 
-      <button
-        id="btnLimpiarBusqueda"
-        class="px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition"
-      >
-        Limpiar
-      </button>
-    </div>
 
     <!-- Paginación arriba -->
     <div class="flex items-center gap-2">
