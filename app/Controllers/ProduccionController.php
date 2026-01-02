@@ -14,7 +14,7 @@ class ProduccionController extends BaseController
         // Si más adelante traes datos desde modelo:
         // $data['pedidos'] = [];
 
-        return view('produccion'); 
+        return view('produccion.php'); 
         // 👉 cambia 'produccion' por el nombre real de tu vista si es otro
     }
 }
