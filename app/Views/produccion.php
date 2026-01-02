@@ -198,7 +198,7 @@
   </script>
 
   <!-- JS principal -->
-  <script src="<?= base_url('js/confirmados.js') ?>" defer></script>
+  <script src="<?= base_url('js/produccion.js') ?>" defer></script>
 
 </body>
 </html>
