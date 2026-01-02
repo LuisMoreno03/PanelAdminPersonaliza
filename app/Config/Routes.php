@@ -2,40 +2,55 @@
 
 use CodeIgniter\Router\RouteCollection;
 
-/** @var RouteCollection $routes */
+/**
+ * @var RouteCollection $routes
+ */
 
+// =====================================================
 // AUTH
-$routes->get('/', 'Auth::index');
-$routes->post('auth/login', 'Auth::login');
+// =====================================================
+$routes->get('/', 'Auth::index');              // muestra login
+$routes->get('auth/login', 'Auth::index');     // ✅ FIX: /auth/login (GET)
+$routes->post('auth/login', 'Auth::login');    // procesa login (POST)
 $routes->get('logout', 'Auth::logout');
 
-// DASHBOARD (PROTEGIDO)
+
+// =====================================================
+// DASHBOARD (PROTEGIDO)  ✅ OJO: tu controlador es "Dashboard"
+// =====================================================
 $routes->group('dashboard', ['filter' => 'auth'], function (RouteCollection $routes) {
 
     $routes->get('/', 'Dashboard::index');
 
     // Pedidos Shopify (50 en 50)
-    $routes->get('pedidos', 'Dashboard::pedidos');
-    $routes->get('filter',  'Dashboard::filter'); // fallback JS viejo
+    $routes->get('pedidos', 'Dashboard::pedidos'); // ✅ /dashboard/pedidos
+    $routes->get('filter',  'Dashboard::filter');  // fallback JS viejo
 
     // Detalles y acciones
     $routes->get('detalles/(:num)', 'Dashboard::detalles/$1');
     $routes->post('subirImagenProducto', 'Dashboard::subirImagenProducto');
 
-    // Estado usuarios
+    // Estado usuarios (tiempo real)
     $routes->get('ping', 'Dashboard::ping');
     $routes->get('usuarios-estado', 'Dashboard::usuariosEstado');
 });
 
+
+// =====================================================
 // API (AJAX / JSON)
+// =====================================================
 $routes->group('api', ['filter' => 'auth'], function (RouteCollection $routes) {
+
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
 
     $routes->get('confirmados', 'Confirmados::filter');
 });
 
-// SHOPIFY (admin/debug)
+
+// =====================================================
+// SHOPIFY (ADMIN / DEBUG / SERVICIOS)
+// =====================================================
 $routes->group('shopify', ['filter' => 'auth'], function (RouteCollection $routes) {
 
     $routes->get('orders', 'ShopifyController::getOrders');
@@ -53,20 +68,29 @@ $routes->group('shopify', ['filter' => 'auth'], function (RouteCollection $route
     $routes->get('test', 'ShopifyController::test');
 });
 
-// CONFIRMADOS (vista)
+
+// =====================================================
+// CONFIRMADOS (VISTA)
+// =====================================================
 $routes->group('confirmados', ['filter' => 'auth'], function (RouteCollection $routes) {
     $routes->get('/', 'Confirmados::index');
     $routes->get('filter', 'Confirmados::filter');
 });
 
-// PEDIDOS (vista legacy)
+
+// =====================================================
+// PEDIDOS (VISTA LEGACY)
+// =====================================================
 $routes->group('pedidos', ['filter' => 'auth'], function (RouteCollection $routes) {
     $routes->get('/', 'PedidosController::index');
     $routes->get('filter', 'PedidosController::filter');
     $routes->post('cambiar-estado', 'PedidosController::cambiarEstado');
 });
 
-// PRODUCCIÓN
+
+// =====================================================
+// PRODUCCION
+// =====================================================
 $routes->group('produccion', ['filter' => 'auth'], function (RouteCollection $routes) {
     $routes->get('/', 'ProduccionController::index');
 });
