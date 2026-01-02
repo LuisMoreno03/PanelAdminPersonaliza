@@ -7,7 +7,7 @@ class PlacasController extends BaseController
     public function index()
     {
   
-        return view('placas/index');
+        return view('placas.php');
     }
 
 
