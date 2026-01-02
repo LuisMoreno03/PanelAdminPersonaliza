@@ -35,12 +35,15 @@ class Dashboard extends BaseController
         $this->apiVersion = trim($this->apiVersion ?: '2025-10');
     }
 
+    // =====================================================
+    // CONFIG LOADERS
+    // =====================================================
+
     private function loadShopifyFromConfig(): void
     {
         try {
             // En CI4 puedes usar config('Shopify')
             $cfg = config('Shopify');
-
             if (!$cfg) return;
 
             // Soporta distintas formas de declarar en Config/Shopify.php
@@ -59,10 +62,9 @@ class Dashboard extends BaseController
             $token = (string) env('SHOPIFY_ADMIN_TOKEN');
             $ver   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
 
-
-            if ($shop)  $this->shop = $shop;
-            if ($token) $this->token = $token;
-            if ($ver)   $this->apiVersion = $ver;
+            if (!empty(trim($shop)))  $this->shop = $shop;
+            if (!empty(trim($token))) $this->token = $token;
+            if (!empty(trim($ver)))   $this->apiVersion = $ver;
         } catch (\Throwable $e) {
             log_message('error', 'loadShopifyFromEnv ERROR: ' . $e->getMessage());
         }
@@ -93,6 +95,10 @@ class Dashboard extends BaseController
             log_message('error', 'loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
         }
     }
+
+    // =====================================================
+    // SHOPIFY CURL GET
+    // =====================================================
 
     /**
      * ✅ Request Shopify usando cURL NATIVO (evita bloqueos de hosting con curlrequest)
@@ -163,17 +169,87 @@ class Dashboard extends BaseController
         return [$next, $prev];
     }
 
-   public function index()
-{
-    if (!session()->get('logged_in')) {
-        return redirect()->to('/');
+    // =====================================================
+    // ✅ ETIQUETAS (FIX DEL ERROR: método faltante)
+    // =====================================================
+
+    /**
+     * Devuelve etiquetas disponibles para el usuario.
+     * - Si existe tabla usuarios_etiquetas, trae las del usuario.
+     * - Si no existe (o falla), devuelve defaults sin romper dashboard.
+     */
+    private function getEtiquetasUsuario(): array
+    {
+        $defaults = [
+            'Por preparar',
+            'Preparado',
+            'Enviado',
+            'Entregado',
+            'Cancelado',
+            'Devuelto',
+        ];
+
+        $userId = session()->get('user_id');
+        if (!$userId) {
+            return $defaults;
+        }
+
+        try {
+            $db = \Config\Database::connect();
+
+            // Si no tienes esa tabla, no rompas el dashboard
+            // Cambia "usuarios_etiquetas" y columnas si tu BD usa otros nombres
+            $tableExists = $db->query(
+                "SELECT 1
+                 FROM information_schema.tables
+                 WHERE table_schema = ?
+                   AND table_name = ?
+                 LIMIT 1",
+                [$db->getDatabase(), 'usuarios_etiquetas']
+            )->getRowArray();
+
+            if (empty($tableExists)) {
+                return $defaults;
+            }
+
+            $rows = $db->table('usuarios_etiquetas')
+                ->select('etiqueta')
+                ->where('user_id', $userId)
+                ->orderBy('id', 'ASC')
+                ->get()
+                ->getResultArray();
+
+            $etiquetas = [];
+            foreach ($rows as $r) {
+                $val = trim((string)($r['etiqueta'] ?? ''));
+                if ($val !== '') $etiquetas[] = $val;
+            }
+
+            return !empty($etiquetas) ? $etiquetas : $defaults;
+        } catch (\Throwable $e) {
+            log_message('error', 'getEtiquetasUsuario ERROR: ' . $e->getMessage());
+            return $defaults;
+        }
     }
 
-    return view('dashboard', [
-        'etiquetasPredeterminadas' => $this->getEtiquetasUsuario(), // <-- si tu método se llama así
+    // =====================================================
+    // VISTA
+    // =====================================================
 
-    ]);
-}
+    public function index()
+    {
+        if (!session()->get('logged_in')) {
+            return redirect()->to('/');
+        }
+
+        return view('dashboard', [
+            'etiquetasPredeterminadas' => $this->getEtiquetasUsuario(),
+        ]);
+    }
+
+    // =====================================================
+    // ENDPOINTS pedidos
+    // =====================================================
 
     public function pedidos()
     {
