@@ -121,7 +121,8 @@ $routes->get('rtest', static function () {
 // ====================================================
 $routes->group('placas', ['filter' => 'auth'], function ($routes) {
     $routes->get('/', 'PlacasController::index');
-    $routes->get('filter', 'PlacasController::filter'); // endpoint para AJAX
-    $routes->post('guardar', 'PlacasController::guardar'); // opcional
+    $routes->get('filter', 'PlacasController::filter');
+    $routes->post('guardar', 'PlacasController::guardar');
 });
+
 

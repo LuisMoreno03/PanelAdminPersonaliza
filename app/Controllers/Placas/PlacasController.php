@@ -6,27 +6,23 @@ class PlacasController extends BaseController
 {
     public function index()
     {
-        // Vista principal del apartado
+  
         return view('placas/index');
     }
 
-    /**
-     * Endpoint de filtro (AJAX)
-     * Ej: /placas/filter?q=ABC&estado=pendiente
-     */
+
     public function filter()
     {
         $q = trim((string) $this->request->getGet('q'));
         $estado = trim((string) $this->request->getGet('estado'));
 
-        // DEMO: datos ficticios (luego lo conectas a DB o Shopify)
+
         $placas = [
-            ['id' => 1, 'codigo' => 'ABC-123', 'cliente' => 'Juan', 'estado' => 'pendiente', 'fecha' => '2026-01-02'],
-            ['id' => 2, 'codigo' => 'XYZ-777', 'cliente' => 'Maria', 'estado' => 'listo',     'fecha' => '2026-01-01'],
-            ['id' => 3, 'codigo' => 'LMN-555', 'cliente' => 'Pedro', 'estado' => 'pendiente', 'fecha' => '2026-01-02'],
+            ['id' => 1, 'codigo' => 'ABC-123', 'cliente' => 'Juan',  'estado' => 'pendiente', 'fecha' => date('Y-m-d')],
+            ['id' => 2, 'codigo' => 'XYZ-777', 'cliente' => 'Maria', 'estado' => 'listo',     'fecha' => date('Y-m-d')],
         ];
 
-        // Filtros
+
         $filtradas = array_filter($placas, function ($p) use ($q, $estado) {
             $okQ = $q === '' || stripos($p['codigo'], $q) !== false || stripos($p['cliente'], $q) !== false;
             $okE = $estado === '' || $p['estado'] === $estado;
@@ -40,9 +36,7 @@ class PlacasController extends BaseController
         ]);
     }
 
-    /**
-     * Guardar placa (opcional)
-     */
+
     public function guardar()
     {
         $codigo  = trim((string) $this->request->getPost('codigo'));
@@ -55,15 +49,11 @@ class PlacasController extends BaseController
             ])->setStatusCode(422);
         }
 
-        // Aquí luego insertas en DB. Por ahora solo demo:
+
         return $this->response->setJSON([
             'success' => true,
             'message' => 'Placa guardada (demo)',
-            'data'    => [
-                'codigo' => $codigo,
-                'cliente' => $cliente,
-                'estado' => 'pendiente',
-            ],
+        
         ]);
     }
 }
