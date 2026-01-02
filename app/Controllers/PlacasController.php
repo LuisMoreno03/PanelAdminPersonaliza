@@ -9,7 +9,7 @@ class PlacasController extends BaseController
     /**
      * Vista principal de pedidos Produccion / preparados
      */
-    public function placas()
+    public function index()
     {
         // Si más adelante traes datos desde modelo:
         // $data['pedidos'] = [];
