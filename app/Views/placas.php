@@ -28,7 +28,7 @@
 
     <!-- Encabezado -->
     <h2 class="text-xl font-semibold text-gray-700 mb-4">
-      Pedidos cargados: <span id="total-pedidos">0</span>
+      Placas cargadas: <span id="total-pedidos">0</span>
     </h2>
 
     <!-- ✅ CONTENEDOR TABLA MEJORADO -->
@@ -39,7 +39,7 @@
     <div>
       <h1 class="text-2xl md:text-3xl font-bold text-gray-900">Placas</h1>
       <p class="text-sm text-gray-500 mt-1">
-        Pedidos cargados: <span id="total-pedidos" class="font-semibold text-gray-800">0</span>
+        Placas montadas: <span id="total-pedidos" class="font-semibold text-gray-800">0</span>
       </p>
     </div>
 
