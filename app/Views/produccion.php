@@ -37,7 +37,7 @@
   <!-- Header de la tabla -->
   <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-5 border-b border-gray-200">
     <div>
-      <h1 class="text-2xl md:text-3xl font-bold text-gray-900">Confirmados</h1>
+      <h1 class="text-2xl md:text-3xl font-bold text-gray-900">Produccion</h1>
       <p class="text-sm text-gray-500 mt-1">
         Pedidos cargados: <span id="total-pedidos" class="font-semibold text-gray-800">0</span>
       </p>
@@ -194,11 +194,11 @@
   <!-- Variables globales para JS -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
-    window.estadoFiltro = "Preparado";
+    window.estadoFiltro = "Confirmacion";
   </script>
 
   <!-- JS principal -->
-  <script src="<?= base_url('js/confirmados.js') ?>" defer></script>
+  <script src="<?= base_url('js/prodducion.js') ?>" defer></script>
 
 </body>
 </html>
