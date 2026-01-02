@@ -170,7 +170,8 @@ class Dashboard extends BaseController
     }
 
     return view('dashboard', [
-        'etiquetasPredeterminadas' => $this->getEtiquetasUsuario(), // o []
+        'etiquetasPredeterminadas' => $this->getEtiquetasUsuario(), // <-- si tu método se llama así
+
     ]);
 }
 
