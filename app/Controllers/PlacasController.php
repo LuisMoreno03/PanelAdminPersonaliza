@@ -2,12 +2,12 @@
 
 namespace App\Controllers;
 
-
+use App\Controllers\PlacasController;
 
 class PlacasController extends BaseController
 {
     /**
-     * Vista principal de pedidos Placas / Produccion
+     * Vista principal de pedidos Produccion / preparados
      */
     public function index()
     {
