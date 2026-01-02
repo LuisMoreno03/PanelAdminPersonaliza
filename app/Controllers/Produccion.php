@@ -10,13 +10,13 @@ class Produccion extends BaseController
             return redirect()->to('/dasboard');
         }
         
-        return "PRODUCCION EN PROCESO...";
+        return view("produccion.php");
     }
 
     public function filter()
     {
         return $this->response->setJSON(['success' => true]);
     }
-}
+}   
 
     
