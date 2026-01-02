@@ -82,26 +82,7 @@
     </div>
   </div>
 
-  <!-- Tabla responsive -->
-  <div class="w-full overflow-x-auto">
-    <table class="min-w-[1400px] w-full text-sm">
-      <thead class="bg-gray-50 sticky top-0 z-10">
-        <tr class="text-left text-xs uppercase tracking-wider text-gray-500">
-          <th class="px-5 py-4">Pedido</th>
-          <th class="px-5 py-4">Fecha</th>
-          <th class="px-5 py-4">Cliente</th>
-          <th class="px-5 py-4">Total</th>
-          <th class="px-5 py-4">Estado</th>
-          <th class="px-5 py-4">Etiquetas</th>
-          <th class="px-5 py-4">Artículos</th>
-          <th class="px-5 py-4">Estado entrega</th>
-          <th class="px-5 py-4">Forma entrega</th>
-          <th class="px-5 py-4 text-right">Detalles</th>
-        </tr>
-      </thead>
-        <tbody id="tablaPedidos" class="text-gray-800"></tbody>
-      </table>
-    </div>
+
 
    <!-- Sistema de cargado de archivos JPG/PNG -->
      <div style="display:flex; gap:10px; align-items:center; margin:12px 0;">
