@@ -95,3 +95,7 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
     $routes->get('/', 'Produccion::index');
     $routes->get('filter', 'Produccion::filter');
 });
+
+$routes->get('rtest', function () {
+    return 'OK ROUTES';
+});
