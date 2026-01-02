@@ -2,14 +2,14 @@
 
 namespace App\Controllers;
 
-use App\Controllers\PlacasController;
+
 
 class PlacasController extends BaseController
 {
     /**
-     * Vista principal de pedidos Produccion / preparados
+     * Vista principal de pedidos Placas / Produccion
      */
-    public function index()
+    public function placas()
     {
         // Si más adelante traes datos desde modelo:
         // $data['pedidos'] = [];
