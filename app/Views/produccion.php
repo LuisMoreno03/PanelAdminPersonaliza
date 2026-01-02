@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
- <title>Produccion - Panel</title>
+  <title>Produccion - Panel</title>
 
   <!-- Estilos -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -194,11 +194,11 @@
   <!-- Variables globales para JS -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
-    window.estadoFiltro = "Confirmacion";
+    window.estadoFiltro = "Preparado";
   </script>
 
   <!-- JS principal -->
-  <script src="<?= base_url('js/prodducion.js') ?>" defer></script>
+  <script src="<?= base_url('js/confirmados.js') ?>" defer></script>
 
 </body>
 </html>

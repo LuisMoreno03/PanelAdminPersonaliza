@@ -9,7 +9,7 @@ class ProduccionController extends BaseController
     /**
      * Vista principal de pedidos Produccion / preparados
      */
-    public function Produccion()
+    public function index()
     {
         // Si más adelante traes datos desde modelo:
         // $data['pedidos'] = [];
