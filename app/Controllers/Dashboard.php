@@ -163,14 +163,16 @@ class Dashboard extends BaseController
         return [$next, $prev];
     }
 
-    public function index()
-    {
-        if (!session()->get('logged_in')) {
-            return redirect()->to('/');
-        }
-
-        return view('dashboard');
+   public function index()
+{
+    if (!session()->get('logged_in')) {
+        return redirect()->to('/');
     }
+
+    return view('dashboard', [
+        'etiquetasPredeterminadas' => $this->getEtiquetasUsuario(), // o []
+    ]);
+}
 
     public function pedidos()
     {
