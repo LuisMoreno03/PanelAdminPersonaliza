@@ -7,7 +7,7 @@ class Produccion extends BaseController
     public function index()
     {
         
-        return "OK PRODUCCION";
+        return "VISUALMENTE HABLANDO YA ESTA MEJOR LA PAGINA";
     }
 
     public function filter()
