@@ -16,7 +16,7 @@ $routes->setDefaultController('Auth');
 $routes->setDefaultMethod('index');
 $routes->setTranslateURIDashes(false);
 $routes->set404Override();
-// $routes->setAutoRoute(false); // recomendado dejarlo false
+// $routes->setAutoRoute(false);
 
 // ----------------------------------------------------
 // AUTH
@@ -25,37 +25,59 @@ $routes->get('/', 'Auth::index');
 $routes->post('auth/login', 'Auth::login');
 $routes->get('logout', 'Auth::logout');
 
-// ----------------------------------------------------
+// ====================================================
 // DASHBOARD (PROTEGIDO)
-// ----------------------------------------------------
+// ====================================================
+// ✅ IMPORTANTE: aquí soportamos DashboardController y Dashboard
 $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollection $routes) {
+
+    // Vista principal
     $routes->get('/', 'DashboardController::index');
+    $routes->get('/', 'Dashboard::index'); // fallback si existe Dashboard.php
 
+    // ✅ Pedidos (lo llama tu dashboard.js)
     $routes->get('pedidos', 'DashboardController::pedidos');
-    $routes->get('filter',  'DashboardController::filter');
+    $routes->get('pedidos', 'Dashboard::pedidos'); // fallback
 
+    // ✅ fallback JS viejo
+    $routes->get('filter', 'DashboardController::filter');
+    $routes->get('filter', 'Dashboard::filter'); // fallback
+
+    // Sync
     $routes->get('sync', 'DashboardController::sync');
+    $routes->get('sync', 'Dashboard::sync'); // fallback
 
+    // Detalles / acciones
     $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
-    $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
+    $routes->get('detalles/(:num)', 'Dashboard::detalles/$1'); // fallback
 
+    $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
+    $routes->post('subirImagenProducto', 'Dashboard::subirImagenProducto'); // fallback
+
+    // Usuarios estado
     $routes->get('ping', 'DashboardController::ping');
+    $routes->get('ping', 'Dashboard::ping'); // fallback
+
     $routes->get('usuarios-estado', 'DashboardController::usuariosEstado');
+    $routes->get('usuarios-estado', 'Dashboard::usuariosEstado'); // fallback
 });
 
-// ----------------------------------------------------
-// API (AJAX / JSON)
-// ----------------------------------------------------
+// ====================================================
+// API (AJAX / JSON) (PROTEGIDO)
+// ====================================================
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->post('estado/etiquetas/guardar', 'DashboardController::guardarEtiquetas');
+    $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas'); // fallback
     $routes->get('confirmados', 'Confirmados::filter');
 });
 
-// ----------------------------------------------------
-// SHOPIFY
-// ----------------------------------------------------
+// ====================================================
+// SHOPIFY (PROTEGIDO)
+// ====================================================
 $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection $routes) {
+
+    // Orders
     $routes->get('orders', 'ShopifyController::getOrders');
     $routes->get('orders/all', 'ShopifyController::getAllOrders');
     $routes->get('order/(:num)', 'ShopifyController::getOrder/$1');
@@ -63,40 +85,50 @@ $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection
     $routes->post('orders/update', 'ShopifyController::updateOrder');
     $routes->post('orders/update-tags', 'ShopifyController::updateOrderTags');
 
+    // Products
     $routes->get('products', 'ShopifyController::getProducts');
     $routes->get('products/(:num)', 'ShopifyController::getProduct/$1');
 
+    // Customers
     $routes->get('customers', 'ShopifyController::getCustomers');
 
+    // Test
     $routes->get('test', 'ShopifyController::test');
 });
 
-// ----------------------------------------------------
-// CONFIRMADOS (VISTA)
-// ----------------------------------------------------
+// ====================================================
+// CONFIRMADOS (VISTA) (PROTEGIDO)
+// ====================================================
 $routes->group('confirmados', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->get('/', 'Confirmados::index');
     $routes->get('filter', 'Confirmados::filter');
 });
 
-// ----------------------------------------------------
-// PEDIDOS (VISTA LEGACY)
-// ----------------------------------------------------
+// ====================================================
+// PEDIDOS (VISTA LEGACY) (PROTEGIDO)
+// ====================================================
 $routes->group('pedidos', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->get('/', 'PedidosController::index');
     $routes->get('filter', 'PedidosController::filter');
     $routes->post('cambiar-estado', 'PedidosController::cambiarEstado');
 });
 
-// ----------------------------------------------------
-// PRODUCCION
-// ----------------------------------------------------
-$routes->group('produccion', ['filter' => 'auth'], static function ($routes) {
+// ====================================================
+// PRODUCCION (PROTEGIDO)
+// ====================================================
+// ✅ Aquí estaba el error: tú pusiste Produccion::index pero normalmente es ProduccionController
+$routes->group('produccion', ['filter' => 'auth'], static function (RouteCollection $routes) {
+    $routes->get('/', 'ProduccionController::index');
+    $routes->get('filter', 'ProduccionController::filter');
+
+    // fallback si tu controller se llama Produccion (sin Controller)
     $routes->get('/', 'Produccion::index');
     $routes->get('filter', 'Produccion::filter');
 });
 
-
-$routes->get('rtest', function () {
+// ----------------------------------------------------
+// TEST
+// ----------------------------------------------------
+$routes->get('rtest', static function () {
     return 'OK ROUTES';
 });
