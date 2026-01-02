@@ -2,16 +2,19 @@
 
 namespace App\Controllers;
 
+use App\Controllers\PlacasController;
+
 class PlacasController extends BaseController
 {
+    /**
+     * Vista principal de pedidos Produccion / preparados
+     */
     public function index()
     {
-  
-        return view('placas.php');
-    }
+        // Si más adelante traes datos desde modelo:
+        // $data['pedidos'] = [];
 
-
-    public function filter()
-    {
-        
+        return view('placas'); 
+        // 👉 cambia 'placas' por el nombre real de tu vista si es otro
     }
+}
