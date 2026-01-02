@@ -6,11 +6,8 @@ class Produccion extends BaseController
 {
     public function index()
     {
-        if (!session()->get('logged_in')) {
-            return redirect()->to('/dasboard');
-        }
-
-        return view('Produccion');
+        
+        return "OK PRODUCCION";
     }
 
     public function filter()
