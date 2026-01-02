@@ -43,6 +43,141 @@
       </p>
     </div>
 
+    <!-- Sistema de cargado de archivos JPG/PNG -->
+     <div style="display:flex; gap:10px; align-items:center; margin:12px 0;">
+  <input id="archivoNombre" placeholder="Nombre (opcional)" style="padding:10px; width:240px;">
+  <input id="archivoInput" type="file" style="padding:10px;">
+  <button onclick="subirArchivo()" style="padding:10px 14px;">Subir</button>
+</div>
+
+<div id="archivosMsg" style="margin:8px 0; font-size:14px;"></div>
+
+<table style="width:100%; border-collapse:collapse; margin-top:10px;">
+  <thead>
+    <tr>
+      <th style="border:1px solid #eee; padding:8px;">Nombre</th>
+      <th style="border:1px solid #eee; padding:8px;">Original</th>
+      <th style="border:1px solid #eee; padding:8px;">Tipo</th>
+      <th style="border:1px solid #eee; padding:8px;">Tamaño</th>
+      <th style="border:1px solid #eee; padding:8px;">Acciones</th>
+    </tr>
+  </thead>
+  <tbody id="archivosBody">
+    <tr><td colspan="5" style="padding:10px;">Cargando...</td></tr>
+  </tbody>
+</table>
+
+<script>
+async function listarArchivos() {
+  const body = document.getElementById('archivosBody');
+  body.innerHTML = `<tr><td colspan="5" style="padding:10px;">Cargando...</td></tr>`;
+
+  const res = await fetch('/placas/archivos/listar');
+  const data = await res.json();
+
+  if (!data.success) {
+    body.innerHTML = `<tr><td colspan="5" style="padding:10px;">Error</td></tr>`;
+    return;
+  }
+
+  if (!data.items.length) {
+    body.innerHTML = `<tr><td colspan="5" style="padding:10px;">No hay archivos</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = '';
+  data.items.forEach(it => {
+    const kb = Math.round((it.size || 0) / 1024);
+    body.innerHTML += `
+      <tr>
+        <td style="border:1px solid #eee; padding:8px;">
+          <input value="${escapeHtml(it.nombre)}" data-id="${it.id}" style="padding:8px; width:100%;">
+        </td>
+        <td style="border:1px solid #eee; padding:8px;">${escapeHtml(it.original || '')}</td>
+        <td style="border:1px solid #eee; padding:8px;">${escapeHtml(it.mime || '')}</td>
+        <td style="border:1px solid #eee; padding:8px;">${kb} KB</td>
+        <td style="border:1px solid #eee; padding:8px; display:flex; gap:8px;">
+          <button onclick="renombrar(${it.id})">Guardar</button>
+          <button onclick="eliminarArchivo(${it.id})">Eliminar</button>
+        </td>
+      </tr>
+    `;
+  });
+}
+
+async function subirArchivo() {
+  const input = document.getElementById('archivoInput');
+  const nombre = document.getElementById('archivoNombre').value.trim();
+  const msg = document.getElementById('archivosMsg');
+
+  if (!input.files || !input.files[0]) {
+    msg.textContent = 'Selecciona un archivo.';
+    return;
+  }
+
+  msg.textContent = 'Subiendo...';
+
+  const fd = new FormData();
+  fd.append('archivo', input.files[0]);
+  fd.append('nombre', nombre);
+
+  const res = await fetch('/placas/archivos/subir', { method: 'POST', body: fd });
+  const data = await res.json();
+
+  msg.textContent = data.message || (data.success ? 'OK' : 'Error');
+
+  if (data.success) {
+    input.value = '';
+    document.getElementById('archivoNombre').value = '';
+    listarArchivos();
+  }
+}
+
+async function renombrar(id) {
+  const msg = document.getElementById('archivosMsg');
+  const input = document.querySelector(`input[data-id="${id}"]`);
+  const nombre = input ? input.value.trim() : '';
+
+  if (!nombre) {
+    msg.textContent = 'El nombre no puede estar vacío.';
+    return;
+  }
+
+  const fd = new FormData();
+  fd.append('id', id);
+  fd.append('nombre', nombre);
+
+  const res = await fetch('/placas/archivos/renombrar', { method: 'POST', body: fd });
+  const data = await res.json();
+
+  msg.textContent = data.message || (data.success ? 'Guardado' : 'Error');
+}
+
+async function eliminarArchivo(id) {
+  if (!confirm('¿Eliminar este archivo?')) return;
+
+  const msg = document.getElementById('archivosMsg');
+  const fd = new FormData();
+  fd.append('id', id);
+
+  const res = await fetch('/placas/archivos/eliminar', { method: 'POST', body: fd });
+  const data = await res.json();
+
+  msg.textContent = data.message || (data.success ? 'Eliminado' : 'Error');
+
+  if (data.success) listarArchivos();
+}
+
+function escapeHtml(str) {
+  return (str || '').replace(/[&<>"']/g, s => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[s]));
+}
+
+listarArchivos();
+</script>
+
+
      <!-- Buscador -->
     <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
       <div class="relative">

@@ -122,6 +122,11 @@ $routes->get('rtest', static function () {
 $routes->group('placas', ['filter' => 'auth'], function ($routes) {
     $routes->get('/', 'PlacasController::index');
 
+// gestor de archivos
+    $routes->post('archivos/subir', 'PlacasArchivosController::subir');
+    $routes->get('archivos/listar', 'PlacasArchivosController::listar');
+    $routes->post('archivos/renombrar', 'PlacasArchivosController::renombrar');
+    $routes->post('archivos/eliminar', 'PlacasArchivosController::eliminar');
 });
 
 
