@@ -6,8 +6,50 @@ use CodeIgniter\HTTP\ResponseInterface;
 
 class Dashboard extends BaseController
 {
-    private $shop  = "962f2d.myshopify.com";
-    private $token = "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";
+    private string $shop = '';
+    private string $token = '';
+    private string $apiVersion = '2024-01';
+
+    public function __construct()
+    {
+        // ✅ Cargar credenciales desde archivo fuera del repo
+        $this->loadShopifySecretsFromFile();
+
+        // Normalizar shop
+        $this->shop = trim($this->shop);
+        $this->shop = preg_replace('#^https?://#', '', $this->shop);
+        $this->shop = preg_replace('#/.*$#', '', $this->shop);
+        $this->shop = rtrim($this->shop, '/');
+
+        $this->token = trim($this->token);
+        $this->apiVersion = trim($this->apiVersion ?: '2024-01');
+    }
+
+    private function loadShopifySecretsFromFile(): void
+    {
+        try {
+            // ✅ ruta real (fuera del repo)
+            $path = '/home/u756064303/.secrets/shopify.php';
+
+            if (!is_file($path)) {
+                log_message('error', "Secrets shopify.php no existe: {$path}");
+                return;
+            }
+
+            $cfg = require $path;
+
+            if (!is_array($cfg)) {
+                log_message('error', "Secrets shopify.php inválido (no retorna array): {$path}");
+                return;
+            }
+
+            $this->shop = (string)($cfg['shop'] ?? '');
+            $this->token = (string)($cfg['token'] ?? '');
+            $this->apiVersion = (string)($cfg['apiVersion'] ?? '2024-01');
+        } catch (\Throwable $e) {
+            log_message('error', 'loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
+        }
+    }
 
     public function index()
     {
@@ -41,32 +83,25 @@ class Dashboard extends BaseController
             $pageInfo = (string) ($this->request->getGet('page_info') ?? '');
             $limit    = 50;
 
-            // página UI
             $page = (int) ($this->request->getGet('page') ?? 1);
             if ($page < 1) $page = 1;
 
-            // debug opcional: ?debug=1
             $debug = (string) ($this->request->getGet('debug') ?? '');
             $debugEnabled = ($debug === '1' || $debug === 'true');
-            
-            
-            $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
-            $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
-            $apiVersion = (string) (env('SHOPIFY_API_VERSION') ?: '2024-01');
+
+            // ✅ Credenciales desde shopify.php
+            $shop  = $this->shop;
+            $token = $this->token;
+            $apiVersion = $this->apiVersion ?: '2024-01';
 
             if (!$shop || !$token) {
                 return $this->response->setJSON([
                     'success' => false,
-                    'message' => 'Falta SHOPIFY_STORE_DOMAIN o SHOPIFY_ADMIN_TOKEN',
+                    'message' => 'Faltan credenciales Shopify en /home/u756064303/.secrets/shopify.php',
                     'orders'  => [],
                     'count'   => 0,
                 ])->setStatusCode(200);
             }
-
-            // normalizar shop
-            $shop = preg_replace('#^https?://#', '', $shop);
-            $shop = preg_replace('#/.*$#', '', $shop);
-            $shop = rtrim($shop, '/');
 
             $client = \Config\Services::curlrequest([
                 'timeout' => 25,
@@ -99,9 +134,8 @@ class Dashboard extends BaseController
                     $totalOrders = (int) ($countJson['count'] ?? 0);
                     cache()->save($cacheKey, $totalOrders, 300);
                 } else {
-                    // Si falla el count, no rompemos nada:
                     $totalOrders = 0;
-                    log_message('error', 'SHOPIFY COUNT HTTP '.$countStatus.': '.$countRaw);
+                    log_message('error', 'SHOPIFY COUNT HTTP ' . $countStatus . ': ' . $countRaw);
                 }
             }
 
@@ -110,9 +144,6 @@ class Dashboard extends BaseController
             // -----------------------------------------------------
             // 2) ORDERS (50 en 50)
             // -----------------------------------------------------
-            // IMPORTANTE:
-            // - cuando usas page_info, Shopify recomienda NO repetir status/order.
-            // - para primera página: status=any & order=created_at desc
             if ($pageInfo !== '') {
                 $url = "https://{$shop}/admin/api/{$apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
             } else {
@@ -131,7 +162,7 @@ class Dashboard extends BaseController
             $json   = json_decode($raw, true) ?: [];
 
             if ($status >= 400) {
-                log_message('error', 'SHOPIFY ORDERS HTTP '.$status.': '.$raw);
+                log_message('error', 'SHOPIFY ORDERS HTTP ' . $status . ': ' . $raw);
 
                 return $this->response->setJSON([
                     'success' => false,
@@ -143,7 +174,6 @@ class Dashboard extends BaseController
                 ])->setStatusCode(200);
             }
 
-            // Si Shopify devuelve "errors" en body (a veces con 200)
             if (!empty($json['errors'])) {
                 return $this->response->setJSON([
                     'success' => false,
@@ -158,7 +188,7 @@ class Dashboard extends BaseController
 
             $ordersRaw = $json['orders'] ?? [];
 
-            // next/prev page_info
+            // next/prev page_info (Link header)
             $linkHeader = $resp->getHeaderLine('Link');
             $nextPageInfo = null;
             $prevPageInfo = null;
@@ -265,8 +295,6 @@ class Dashboard extends BaseController
                     'orders_status' => $status,
                     'link' => $linkHeader,
                     'orders_returned' => count($ordersRaw),
-                    'count_status' => $countStatus,
-                    'count_body' => $countRaw ? substr($countRaw, 0, 300) : null,
                 ];
             }
 
@@ -285,80 +313,84 @@ class Dashboard extends BaseController
     }
 
     // =====================================================
-    // PING (marca activo) - BLINDADO
+    // PING (users.last_seen) - success para tu JS
     // =====================================================
     public function ping()
     {
         try {
             $userId = session('user_id');
             if (!$userId) {
-                return $this->response->setJSON(['ok' => false])->setStatusCode(200);
+                return $this->response->setJSON(['success' => false])->setStatusCode(200);
             }
 
             $db = \Config\Database::connect();
-
-            $hasLastSeen = $this->columnExists($db, 'usuarios', 'last_seen');
-            $hasIsOnline = $this->columnExists($db, 'usuarios', 'is_online');
-
-            $data = [];
-            if ($hasLastSeen) $data['last_seen'] = date('Y-m-d H:i:s');
-            if ($hasIsOnline) $data['is_online'] = 1;
-
-            if (!empty($data)) {
-                $db->table('usuarios')->where('id', $userId)->update($data);
+            if ($this->columnExists($db, 'users', 'last_seen')) {
+                $db->table('users')->where('id', $userId)->update([
+                    'last_seen' => date('Y-m-d H:i:s'),
+                ]);
             }
 
-            return $this->response->setJSON([
-                'ok' => true,
-                'last_seen_enabled' => $hasLastSeen,
-                'is_online_enabled' => $hasIsOnline,
-            ])->setStatusCode(200);
+            return $this->response->setJSON(['success' => true])->setStatusCode(200);
 
         } catch (\Throwable $e) {
             log_message('error', 'PING ERROR: ' . $e->getMessage());
-            return $this->response->setJSON(['ok' => false])->setStatusCode(200);
+            return $this->response->setJSON(['success' => false])->setStatusCode(200);
         }
     }
 
     // =====================================================
-    // USUARIOS ESTADO (últimos 2 min) - BLINDADO
+    // USUARIOS ESTADO - success, users[] con online
     // =====================================================
     public function usuariosEstado()
     {
         try {
             $db = \Config\Database::connect();
 
-            $hasLastSeen = $this->columnExists($db, 'usuarios', 'last_seen');
-
-            if (!$hasLastSeen) {
+            if (!$this->columnExists($db, 'users', 'last_seen')) {
                 return $this->response->setJSON([
-                    'ok' => true,
-                    'conectados' => [],
-                    'count' => 0,
-                    'warning' => 'La columna usuarios.last_seen no existe',
+                    'success' => true,
+                    'online_count' => 0,
+                    'offline_count' => 0,
+                    'users' => [],
                 ])->setStatusCode(200);
             }
 
-            $cutoff = date('Y-m-d H:i:s', time() - 120);
+            $usuarios = $db->table('users')
+                ->select('id, nombre, role, last_seen')
+                ->orderBy('nombre', 'ASC')
+                ->get()
+                ->getResultArray();
 
-            $conectados = $db->table('usuarios')
-                ->select('id, nombre, last_seen')
-                ->where('last_seen >=', $cutoff)
-                ->orderBy('last_seen', 'DESC')
-                ->get()->getResultArray();
+            $now = time();
+            $onlineThreshold = 120;
+
+            foreach ($usuarios as &$u) {
+                $ts = $u['last_seen'] ? strtotime($u['last_seen']) : 0;
+                $u['online'] = ($ts > 0 && ($now - $ts) <= $onlineThreshold);
+            }
+            unset($u);
+
+            $onlineCount = 0;
+            $offlineCount = 0;
+            foreach ($usuarios as $u) {
+                if (!empty($u['online'])) $onlineCount++;
+                else $offlineCount++;
+            }
 
             return $this->response->setJSON([
-                'ok' => true,
-                'conectados' => $conectados,
-                'count' => count($conectados),
+                'success' => true,
+                'online_count' => $onlineCount,
+                'offline_count' => $offlineCount,
+                'users' => $usuarios,
             ])->setStatusCode(200);
 
         } catch (\Throwable $e) {
             log_message('error', 'USUARIOS_ESTADO ERROR: ' . $e->getMessage());
             return $this->response->setJSON([
-                'ok' => false,
-                'conectados' => [],
-                'count' => 0,
+                'success' => false,
+                'online_count' => 0,
+                'offline_count' => 0,
+                'users' => [],
             ])->setStatusCode(200);
         }
     }
