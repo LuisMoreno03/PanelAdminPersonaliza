@@ -66,7 +66,44 @@
       </button>
     </div>
 
-<!-- Sistema de cargado de archivos JPG/PNG -->
+    <!-- Paginación arriba -->
+    <div class="flex items-center gap-2">
+      <button id="btnAnterior"
+        disabled
+        class="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition">
+        Anterior
+      </button>
+
+      <button id="btnSiguiente"
+        onclick="paginaSiguiente()"
+        class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition">
+        Siguiente
+      </button>
+    </div>
+  </div>
+
+  <!-- Tabla responsive -->
+  <div class="w-full overflow-x-auto">
+    <table class="min-w-[1400px] w-full text-sm">
+      <thead class="bg-gray-50 sticky top-0 z-10">
+        <tr class="text-left text-xs uppercase tracking-wider text-gray-500">
+          <th class="px-5 py-4">Pedido</th>
+          <th class="px-5 py-4">Fecha</th>
+          <th class="px-5 py-4">Cliente</th>
+          <th class="px-5 py-4">Total</th>
+          <th class="px-5 py-4">Estado</th>
+          <th class="px-5 py-4">Etiquetas</th>
+          <th class="px-5 py-4">Artículos</th>
+          <th class="px-5 py-4">Estado entrega</th>
+          <th class="px-5 py-4">Forma entrega</th>
+          <th class="px-5 py-4 text-right">Detalles</th>
+        </tr>
+      </thead>
+        <tbody id="tablaPedidos" class="text-gray-800"></tbody>
+      </table>
+    </div>
+
+   <!-- Sistema de cargado de archivos JPG/PNG -->
      <div style="display:flex; gap:10px; align-items:center; margin:12px 0;">
   <input id="archivoNombre" placeholder="Nombre (opcional)" style="padding:10px; width:240px;">
   <input id="archivoInput" type="file" style="padding:10px;">
@@ -200,46 +237,7 @@ function escapeHtml(str) {
 listarArchivos();
 </script>
 
-
-
-
-    <!-- Paginación arriba -->
-    <div class="flex items-center gap-2">
-      <button id="btnAnterior"
-        disabled
-        class="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition">
-        Anterior
-      </button>
-
-      <button id="btnSiguiente"
-        onclick="paginaSiguiente()"
-        class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition">
-        Siguiente
-      </button>
-    </div>
-  </div>
-
-  <!-- Tabla responsive -->
-  <div class="w-full overflow-x-auto">
-    <table class="min-w-[1400px] w-full text-sm">
-      <thead class="bg-gray-50 sticky top-0 z-10">
-        <tr class="text-left text-xs uppercase tracking-wider text-gray-500">
-          <th class="px-5 py-4">Pedido</th>
-          <th class="px-5 py-4">Fecha</th>
-          <th class="px-5 py-4">Cliente</th>
-          <th class="px-5 py-4">Total</th>
-          <th class="px-5 py-4">Estado</th>
-          <th class="px-5 py-4">Etiquetas</th>
-          <th class="px-5 py-4">Artículos</th>
-          <th class="px-5 py-4">Estado entrega</th>
-          <th class="px-5 py-4">Forma entrega</th>
-          <th class="px-5 py-4 text-right">Detalles</th>
-        </tr>
-      </thead>
-        <tbody id="tablaPedidos" class="text-gray-800"></tbody>
-      </table>
-    </div>
-
+   
     <!-- Footer de la tabla (paginación abajo) -->
   <div class="flex items-center justify-between gap-2 p-4 border-t border-gray-200 bg-white">
     <span class="text-xs text-gray-500">
