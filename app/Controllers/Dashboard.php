@@ -6,6 +6,9 @@ use CodeIgniter\HTTP\ResponseInterface;
 
 class Dashboard extends BaseController
 {
+    private $shop  = "962f2d.myshopify.com";
+    private $token = "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";
+
     public function index()
     {
         if (!session()->get('logged_in')) {
