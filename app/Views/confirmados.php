@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Confirmados - Panel</title>
+  <title>Producc - Panel</title>
 
   <!-- Estilos -->
   <script src="https://cdn.tailwindcss.com"></script>
