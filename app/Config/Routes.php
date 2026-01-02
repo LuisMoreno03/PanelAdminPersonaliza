@@ -114,3 +114,14 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 $routes->get('rtest', static function () {
     return 'OK ROUTES';
 });
+
+
+// ====================================================
+// PLACAS (PROTEGIDO)
+// ====================================================
+$routes->group('placas', ['filter' => 'auth'], function ($routes) {
+    $routes->get('/', 'PlacasController::index');
+    $routes->get('filter', 'PlacasController::filter'); // endpoint para AJAX
+    $routes->post('guardar', 'PlacasController::guardar'); // opcional
+});
+
