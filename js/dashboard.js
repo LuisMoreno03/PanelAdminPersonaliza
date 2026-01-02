@@ -311,28 +311,49 @@ function actualizarTabla(pedidos) {
   const tbody = document.getElementById("tablaPedidos");
   const cards = document.getElementById("cardsPedidos");
 
-  // DESKTOP TABLE
+  // =========================
+  // DESKTOP TABLE (11 columnas)
+  // =========================
   if (tbody) {
     tbody.innerHTML = "";
 
     if (!pedidos.length) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="8" class="py-10 text-center text-slate-500">
+          <td colspan="11" class="py-10 text-center text-slate-500">
             No se encontraron pedidos
           </td>
         </tr>`;
     } else {
-      tbody.innerHTML = pedidos.map((p) => {
-        const id = p.id ?? "";
-        const etiquetas = p.etiquetas ?? "";
+      tbody.innerHTML = pedidos
+        .map((p) => {
+          const id = p.id ?? "";
+          const etiquetas = p.etiquetas ?? "";
 
-        return `
+          return `
           <tr class="border-b border-slate-100 hover:bg-slate-50/60 transition">
+
+            <!-- PEDIDO -->
             <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
               ${escapeHtml(p.numero ?? "-")}
             </td>
 
+            <!-- FECHA -->
+            <td class="py-4 px-4 whitespace-nowrap text-slate-700">
+              ${escapeHtml(p.fecha ?? "-")}
+            </td>
+
+            <!-- CLIENTE -->
+            <td class="py-4 px-4 min-w-[180px] text-slate-800 font-semibold">
+              ${escapeHtml(p.cliente ?? "-")}
+            </td>
+
+            <!-- TOTAL -->
+            <td class="py-4 px-4 whitespace-nowrap font-extrabold text-slate-900">
+              ${escapeHtml(p.total ?? "-")}
+            </td>
+
+            <!-- ESTADO -->
             <td class="py-4 px-3">
               <button onclick="abrirModal(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm
@@ -344,14 +365,17 @@ function actualizarTabla(pedidos) {
               </button>
             </td>
 
+            <!-- ÚLTIMO CAMBIO -->
             <td class="py-4 px-4 hidden xl:table-cell" data-lastchange="${id}">
               ${renderLastChangeCompact(p)}
             </td>
 
+            <!-- ETIQUETAS -->
             <td class="py-4 px-4">
               ${renderEtiquetasCompact(etiquetas, id)}
             </td>
 
+            <!-- ARTÍCULOS -->
             <td class="py-4 px-4 hidden lg:table-cell">
               <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-extrabold
                            bg-slate-50 border border-slate-200 text-slate-800 whitespace-nowrap">
@@ -359,10 +383,12 @@ function actualizarTabla(pedidos) {
               </span>
             </td>
 
+            <!-- ESTADO ENTREGA -->
             <td class="py-4 px-4">
               ${renderEntregaPill(p.estado_envio ?? "-")}
             </td>
 
+            <!-- FORMA ENTREGA -->
             <td class="py-4 px-4 hidden xl:table-cell">
               <span class="inline-flex items-center px-3 py-2 rounded-2xl bg-slate-50 border border-slate-200
                            text-[11px] font-extrabold uppercase tracking-wide text-slate-800 whitespace-nowrap">
@@ -370,6 +396,7 @@ function actualizarTabla(pedidos) {
               </span>
             </td>
 
+            <!-- DETALLES -->
             <td class="py-4 px-4 text-right whitespace-nowrap">
               <button onclick="verDetalles(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-blue-600 text-white
@@ -378,12 +405,16 @@ function actualizarTabla(pedidos) {
                 Ver <span class="text-white/90">→</span>
               </button>
             </td>
+
           </tr>`;
-      }).join("");
+        })
+        .join("");
     }
   }
 
-  // MOBILE CARDS
+  // =========================
+  // MOBILE CARDS (ya estaba bien)
+  // =========================
   if (cards) {
     cards.innerHTML = "";
 
@@ -392,15 +423,16 @@ function actualizarTabla(pedidos) {
       return;
     }
 
-    cards.innerHTML = pedidos.map((p) => {
-      const id = p.id ?? "";
-      const numero = escapeHtml(p.numero ?? "-");
-      const fecha = escapeHtml(p.fecha ?? "-");
-      const cliente = escapeHtml(p.cliente ?? "-");
-      const total = escapeHtml(p.total ?? "-");
-      const etiquetas = p.etiquetas ?? "";
+    cards.innerHTML = pedidos
+      .map((p) => {
+        const id = p.id ?? "";
+        const numero = escapeHtml(p.numero ?? "-");
+        const fecha = escapeHtml(p.fecha ?? "-");
+        const cliente = escapeHtml(p.cliente ?? "-");
+        const total = escapeHtml(p.total ?? "-");
+        const etiquetas = p.etiquetas ?? "";
 
-      return `
+        return `
         <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div class="p-4">
             <div class="flex items-start justify-between gap-3">
@@ -434,9 +466,11 @@ function actualizarTabla(pedidos) {
             <div class="mt-3">${renderEtiquetasCompact(etiquetas, id, true)}</div>
           </div>
         </div>`;
-    }).join("");
+      })
+      .join("");
   }
 }
+
 
 /* =====================================================
    ÚLTIMO CAMBIO (COMPACTO)
