@@ -586,8 +586,26 @@ async function cargarUsuariosEstado() {
   try {
     const r = await fetch("/dashboard/usuarios-estado", { headers: { Accept: "application/json" } });
     const d = await r.json().catch(() => null);
-    if (d && (d.ok === true || d.success === true)) renderUsersStatus(d);
+
+    if (!d) return;
+
+    // Soporta ok/success
+    const ok = d.ok === true || d.success === true;
+
+    if (ok) {
+      if (typeof window.renderUsersStatus === "function") {
+        window.renderUsersStatus(d);
+      } else if (typeof window.renderUserStatus === "function") {
+        // por si la función se llama distinto en otro archivo
+        window.renderUserStatus(d);
+      } else {
+        // no romper
+        console.warn("Falta función renderUsersStatus()");
+      }
+    }
   } catch (e) {
     console.error("Error usuarios estado:", e);
   }
 }
+
+
