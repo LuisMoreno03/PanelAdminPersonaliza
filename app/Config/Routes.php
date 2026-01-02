@@ -124,8 +124,6 @@ $routes->group('placas', ['filter' => 'auth'], function ($routes) {
 
 });
 
-$routes->get('test-placas', function () {
-    return 'ruta ok';
-});
+
 
 
