@@ -60,17 +60,9 @@ require $paths->systemDirectory . '/Boot.php';
         
 exit(CodeIgniter\Boot::bootWeb($paths));
 
-// ======= // VISTA DEL AREA DE PRODUCCION // ======== //
-    <!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Producción</title>
-</head>
-<body>
-    <h1>Producción cargada correctamente ✅</h1>
-</body>
-</html>
+
+
+
 
 
 
