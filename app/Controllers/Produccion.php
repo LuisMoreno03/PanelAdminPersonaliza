@@ -10,18 +10,13 @@ class Produccion extends BaseController
             return redirect()->to('/dasboard');
         }
         
-        return view("roduccion");
+        return view("produccion.php");
     }
 
     public function filter()
     {
         return $this->response->setJSON(['success' => true]);
     }
-}   if (!session()->get('logged_in')) {
-        return $this->response->setJSON([
-            'success' => false,
-            'message' => 'No autenticado'
-        ])->setStatusCode(401);
-    }
+}   
 
     
