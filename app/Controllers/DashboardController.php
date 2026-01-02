@@ -8,7 +8,7 @@ use App\Models\PedidoEstadoModel;
 class DashboardController extends Controller
 {
     private $shop  = "962f2d.myshopify.com";
-    private $token = "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";
+    private $token = "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";
 
     // ============================================================
     // GENERAR ETIQUETAS SEGÚN ROL Y USUARIO
