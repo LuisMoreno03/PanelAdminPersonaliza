@@ -25,42 +25,24 @@ $routes->get('/', 'Auth::index');
 $routes->post('auth/login', 'Auth::login');
 $routes->get('logout', 'Auth::logout');
 
-// ====================================================
+// ----------------------------------------------------
 // DASHBOARD (PROTEGIDO)
-// ====================================================
-// ✅ IMPORTANTE: aquí soportamos DashboardController y Dashboard
+// ----------------------------------------------------
 $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollection $routes) {
+    $routes->get('/', 'Dashboard::index');
 
-    // Vista principal
-    $routes->get('/', 'DashboardController::index');
-    $routes->get('/', 'Dashboard::index'); // fallback si existe Dashboard.php
+    $routes->get('pedidos', 'Dashboard::pedidos');
+    $routes->get('filter',  'Dashboard::filter');
 
-    // ✅ Pedidos (lo llama tu dashboard.js)
-    $routes->get('pedidos', 'DashboardController::pedidos');
-    $routes->get('pedidos', 'Dashboard::pedidos'); // fallback
+    $routes->get('sync', 'Dashboard::sync');
 
-    // ✅ fallback JS viejo
-    $routes->get('filter', 'DashboardController::filter');
-    $routes->get('filter', 'Dashboard::filter'); // fallback
+    $routes->get('detalles/(:num)', 'Dashboard::detalles/$1');
+    $routes->post('subirImagenProducto', 'Dashboard::subirImagenProducto');
 
-    // Sync
-    $routes->get('sync', 'DashboardController::sync');
-    $routes->get('sync', 'Dashboard::sync'); // fallback
-
-    // Detalles / acciones
-    $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
-    $routes->get('detalles/(:num)', 'Dashboard::detalles/$1'); // fallback
-
-    $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
-    $routes->post('subirImagenProducto', 'Dashboard::subirImagenProducto'); // fallback
-
-    // Usuarios estado
-    $routes->get('ping', 'DashboardController::ping');
-    $routes->get('ping', 'Dashboard::ping'); // fallback
-
-    $routes->get('usuarios-estado', 'DashboardController::usuariosEstado');
-    $routes->get('usuarios-estado', 'Dashboard::usuariosEstado'); // fallback
+    $routes->get('ping', 'Dashboard::ping');
+    $routes->get('usuarios-estado', 'Dashboard::usuariosEstado');
 });
+
 
 // ====================================================
 // API (AJAX / JSON) (PROTEGIDO)
