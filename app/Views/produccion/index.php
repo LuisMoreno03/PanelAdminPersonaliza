@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Confirmados - Panel</title>
+  <title>Produccion - Panel</title>
 
   <!-- Estilos -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -28,7 +28,7 @@
 
     <!-- Encabezado -->
     <h2 class="text-xl font-semibold text-gray-700 mb-4">
-      Pedidos cargados: <span id="total-pedidos">0</span>
+      Confirmados cargados: <span id="total-pedidos">0</span>
     </h2>
 
     <!-- ✅ CONTENEDOR TABLA MEJORADO -->
@@ -39,7 +39,7 @@
     <div>
       <h1 class="text-2xl md:text-3xl font-bold text-gray-900">Confirmados</h1>
       <p class="text-sm text-gray-500 mt-1">
-        Pedidos cargados: <span id="total-pedidos" class="font-semibold text-gray-800">0</span>
+        Confirmados cargados: <span id="total-pedidos" class="font-semibold text-gray-800">0</span>
       </p>
     </div>
 
@@ -155,7 +155,7 @@
           Todos
         </button>
 
-        <button onclick="filtrarPreparados()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+        <button onclick="filtrarConfirmados()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
           Preparados
         </button>
       </div>
@@ -194,11 +194,11 @@
   <!-- Variables globales para JS -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
-    window.estadoFiltro = "Preparado";
+    window.estadoFiltro = "Confirmado";
   </script>
 
   <!-- JS principal -->
-  <script src="<?= base_url('js/confirmados.js') ?>" defer></script>
+  <script src="<?= base_url('js/Produccion.js') ?>" defer></script>
 
 </body>
 </html>
