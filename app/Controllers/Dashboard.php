@@ -8,27 +8,70 @@ class Dashboard extends BaseController
 {
     private string $shop = '';
     private string $token = '';
-    private string $apiVersion = '2024-01';
+    private string $apiVersion = '2025-10';
 
     public function __construct()
     {
-        // ✅ Cargar credenciales desde archivo fuera del repo
-        $this->loadShopifySecretsFromFile();
+        // 1) Primero intenta leer de app/Config/Shopify.php (lo ideal)
+        $this->loadShopifyFromConfig();
 
-        // Normalizar shop
+        // 2) Si falta algo, intenta leer del archivo fuera del repo
+        if (!$this->shop || !$this->token) {
+            $this->loadShopifySecretsFromFile();
+        }
+
+        // 3) Si aún falta, intenta env() (por si acaso)
+        if (!$this->shop || !$this->token) {
+            $this->loadShopifyFromEnv();
+        }
+
+        // Normalizar shop y apiVersion
         $this->shop = trim($this->shop);
         $this->shop = preg_replace('#^https?://#', '', $this->shop);
         $this->shop = preg_replace('#/.*$#', '', $this->shop);
         $this->shop = rtrim($this->shop, '/');
 
         $this->token = trim($this->token);
-        $this->apiVersion = trim($this->apiVersion ?: '2024-01');
+        $this->apiVersion = trim($this->apiVersion ?: '2025-10');
+    }
+
+    private function loadShopifyFromConfig(): void
+    {
+        try {
+            // En CI4 puedes usar config('Shopify')
+            $cfg = config('Shopify');
+
+            if (!$cfg) return;
+
+            // Soporta distintas formas de declarar en Config/Shopify.php
+            $this->shop       = (string) ($cfg->shop ?? $cfg->SHOP ?? $this->shop);
+            $this->token      = (string) ($cfg->token ?? $cfg->TOKEN ?? $this->token);
+            $this->apiVersion = (string) ($cfg->apiVersion ?? $cfg->version ?? $cfg->API_VERSION ?? $this->apiVersion);
+        } catch (\Throwable $e) {
+            log_message('error', 'loadShopifyFromConfig ERROR: ' . $e->getMessage());
+        }
+    }
+
+    private function loadShopifyFromEnv(): void
+    {
+        try {
+            $shop  = (string) env('SHOPIFY_STORE_DOMAIN');
+            $token = (string) env('SHOPIFY_ADMIN_TOKEN');
+            $ver   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
+
+
+            if ($shop)  $this->shop = $shop;
+            if ($token) $this->token = $token;
+            if ($ver)   $this->apiVersion = $ver;
+        } catch (\Throwable $e) {
+            log_message('error', 'loadShopifyFromEnv ERROR: ' . $e->getMessage());
+        }
     }
 
     private function loadShopifySecretsFromFile(): void
     {
         try {
-            // ✅ ruta real (fuera del repo)
+            // ✅ ruta fuera del repo
             $path = '/home/u756064303/.secrets/shopify.php';
 
             if (!is_file($path)) {
@@ -43,12 +86,81 @@ class Dashboard extends BaseController
                 return;
             }
 
-            $this->shop = (string)($cfg['shop'] ?? '');
-            $this->token = (string)($cfg['token'] ?? '');
-            $this->apiVersion = (string)($cfg['apiVersion'] ?? '2024-01');
+            $this->shop       = (string) ($cfg['shop'] ?? $this->shop);
+            $this->token      = (string) ($cfg['token'] ?? $this->token);
+            $this->apiVersion = (string) ($cfg['apiVersion'] ?? $cfg['version'] ?? $this->apiVersion);
         } catch (\Throwable $e) {
             log_message('error', 'loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * ✅ Request Shopify usando cURL NATIVO (evita bloqueos de hosting con curlrequest)
+     * Devuelve: ['status'=>int, 'body'=>string, 'headers'=>array, 'error'=>string|null]
+     */
+    private function shopifyGet(string $fullUrl): array
+    {
+        $headers = [];
+
+        $ch = curl_init($fullUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTPHEADER     => [
+                "X-Shopify-Access-Token: {$this->token}",
+                "Accept: application/json",
+                "Content-Type: application/json",
+            ],
+            // Captura headers
+            CURLOPT_HEADERFUNCTION => function ($curl, $headerLine) use (&$headers) {
+                $len = strlen($headerLine);
+                $headerLine = trim($headerLine);
+                if ($headerLine === '' || strpos($headerLine, ':') === false) return $len;
+
+                [$name, $value] = explode(':', $headerLine, 2);
+                $name = strtolower(trim($name));
+                $value = trim($value);
+
+                // Shopify puede repetir headers; guardamos como string si es único
+                if (!isset($headers[$name])) $headers[$name] = $value;
+                else {
+                    if (is_array($headers[$name])) $headers[$name][] = $value;
+                    else $headers[$name] = [$headers[$name], $value];
+                }
+                return $len;
+            },
+        ]);
+
+        $body   = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err    = curl_error($ch);
+
+        curl_close($ch);
+
+        return [
+            'status'  => $status,
+            'body'    => is_string($body) ? $body : '',
+            'headers' => $headers,
+            'error'   => $err ?: null,
+        ];
+    }
+
+    private function parseLinkHeaderForPageInfo(?string $linkHeader): array
+    {
+        $next = null;
+        $prev = null;
+
+        if (!$linkHeader) return [$next, $prev];
+
+        if (preg_match('/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="next"/', $linkHeader, $m)) {
+            $next = urldecode($m[1]);
+        }
+        if (preg_match('/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="previous"/', $linkHeader, $m2)) {
+            $prev = urldecode($m2[1]);
+        }
+
+        return [$next, $prev];
     }
 
     public function index()
@@ -89,24 +201,14 @@ class Dashboard extends BaseController
             $debug = (string) ($this->request->getGet('debug') ?? '');
             $debugEnabled = ($debug === '1' || $debug === 'true');
 
-            // ✅ Credenciales desde shopify.php
-            $shop  = $this->shop;
-            $token = $this->token;
-            $apiVersion = $this->apiVersion ?: '2024-01';
-
-            if (!$shop || !$token) {
+            if (!$this->shop || !$this->token) {
                 return $this->response->setJSON([
                     'success' => false,
-                    'message' => 'Faltan credenciales Shopify en /home/u756064303/.secrets/shopify.php',
+                    'message' => 'Faltan credenciales Shopify (Config/Shopify.php o /home/u756064303/.secrets/shopify.php o env)',
                     'orders'  => [],
                     'count'   => 0,
                 ])->setStatusCode(200);
             }
-
-            $client = \Config\Services::curlrequest([
-                'timeout' => 25,
-                'http_errors' => false,
-            ]);
 
             // -----------------------------------------------------
             // 1) COUNT total pedidos (cache 5 min)
@@ -118,16 +220,12 @@ class Dashboard extends BaseController
             $countRaw = null;
 
             if ($totalOrders === null) {
-                $countUrl = "https://{$shop}/admin/api/{$apiVersion}/orders/count.json?status=any";
-                $countResp = $client->get($countUrl, [
-                    'headers' => [
-                        'X-Shopify-Access-Token' => $token,
-                        'Accept' => 'application/json',
-                    ],
-                ]);
+                $countUrl = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/count.json?status=any";
+                $countResp = $this->shopifyGet($countUrl);
 
-                $countStatus = $countResp->getStatusCode();
-                $countRaw = (string) $countResp->getBody();
+                $countStatus = $countResp['status'];
+                $countRaw = $countResp['body'];
+
                 $countJson = json_decode($countRaw, true) ?: [];
 
                 if ($countStatus >= 200 && $countStatus < 300) {
@@ -135,34 +233,44 @@ class Dashboard extends BaseController
                     cache()->save($cacheKey, $totalOrders, 300);
                 } else {
                     $totalOrders = 0;
-                    log_message('error', 'SHOPIFY COUNT HTTP ' . $countStatus . ': ' . $countRaw);
+                    log_message('error', 'SHOPIFY COUNT HTTP ' . $countStatus . ': ' . substr($countRaw ?? '', 0, 500));
                 }
             }
 
             $totalPages = $totalOrders > 0 ? (int) ceil($totalOrders / $limit) : null;
 
             // -----------------------------------------------------
-            // 2) ORDERS (50 en 50)
+            // 2) ORDERS (50 en 50) con page_info
             // -----------------------------------------------------
             if ($pageInfo !== '') {
-                $url = "https://{$shop}/admin/api/{$apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
+                $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
             } else {
-                $url = "https://{$shop}/admin/api/{$apiVersion}/orders.json?limit={$limit}&status=any&order=created_at%20desc";
+                $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&status=any&order=created_at%20desc";
             }
 
-            $resp = $client->get($url, [
-                'headers' => [
-                    'X-Shopify-Access-Token' => $token,
-                    'Accept' => 'application/json',
-                ],
-            ]);
+            $resp = $this->shopifyGet($url);
 
-            $status = $resp->getStatusCode();
-            $raw    = (string) $resp->getBody();
+            $status = $resp['status'];
+            $raw    = $resp['body'];
             $json   = json_decode($raw, true) ?: [];
 
+            // Nota: si hay bloqueo del hosting, aquí suele venir status 0 + error
+            if ($status === 0 || !empty($resp['error'])) {
+                log_message('error', 'SHOPIFY CURL ERROR: ' . ($resp['error'] ?? 'unknown'));
+
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Error conectando con Shopify (cURL)',
+                    'orders'  => [],
+                    'count'   => 0,
+                    'status'  => $status,
+                    'curl_error' => $resp['error'],
+                    'shopify_body' => $debugEnabled ? $raw : null,
+                ])->setStatusCode(200);
+            }
+
             if ($status >= 400) {
-                log_message('error', 'SHOPIFY ORDERS HTTP ' . $status . ': ' . $raw);
+                log_message('error', 'SHOPIFY ORDERS HTTP ' . $status . ': ' . substr($raw ?? '', 0, 500));
 
                 return $this->response->setJSON([
                     'success' => false,
@@ -188,19 +296,11 @@ class Dashboard extends BaseController
 
             $ordersRaw = $json['orders'] ?? [];
 
-            // next/prev page_info (Link header)
-            $linkHeader = $resp->getHeaderLine('Link');
-            $nextPageInfo = null;
-            $prevPageInfo = null;
+            // Link header para page_info
+            $linkHeader = $resp['headers']['link'] ?? null;
+            if (is_array($linkHeader)) $linkHeader = end($linkHeader);
 
-            if ($linkHeader) {
-                if (preg_match('/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="next"/', $linkHeader, $m)) {
-                    $nextPageInfo = urldecode($m[1]);
-                }
-                if (preg_match('/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="previous"/', $linkHeader, $m2)) {
-                    $prevPageInfo = urldecode($m2[1]);
-                }
-            }
+            [$nextPageInfo, $prevPageInfo] = $this->parseLinkHeaderForPageInfo(is_string($linkHeader) ? $linkHeader : null);
 
             // -----------------------------------------------------
             // 3) Mapear formato dashboard
@@ -210,7 +310,7 @@ class Dashboard extends BaseController
                 $orderId = $o['id'] ?? null;
 
                 $numero = $o['name'] ?? ('#' . ($o['order_number'] ?? $orderId));
-                $fecha  = isset($o['created_at']) ? substr($o['created_at'], 0, 10) : '-';
+                $fecha  = isset($o['created_at']) ? substr((string)$o['created_at'], 0, 10) : '-';
 
                 $cliente = '-';
                 if (!empty($o['customer'])) {
@@ -230,6 +330,7 @@ class Dashboard extends BaseController
                     'fecha'        => $fecha,
                     'cliente'      => $cliente,
                     'total'        => $total,
+                    // OJO: tu frontend espera HTML badge a veces; aquí lo dejamos simple
                     'estado'       => (!empty($o['tags']) ? 'Producción' : 'Por preparar'),
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
@@ -289,8 +390,8 @@ class Dashboard extends BaseController
 
             if ($debugEnabled) {
                 $payload['shopify_debug'] = [
-                    'shop' => $shop,
-                    'api_version' => $apiVersion,
+                    'shop' => $this->shop,
+                    'api_version' => $this->apiVersion,
                     'orders_url' => $url,
                     'orders_status' => $status,
                     'link' => $linkHeader,
