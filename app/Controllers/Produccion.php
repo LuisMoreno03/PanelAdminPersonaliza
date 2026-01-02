@@ -16,7 +16,7 @@ class Produccion extends BaseController
     }
 }
 
-    $pageInfo = $this->request->getGet('page_info');
+    $pageInfo = $this->request->getGet();
     $limit = 50;
 
     // =====================================================
