@@ -1,4 +1,11 @@
-<!DOCTYPE html>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Producción</title>
+</head>
+<body>
+  <h1><!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -200,5 +207,7 @@
   <!-- JS principal -->
   <script src="<?= base_url('js/Produccion.js') ?>" defer></script>
 
+</body>
+</html></h1>
 </body>
 </html>
