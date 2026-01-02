@@ -2,7 +2,7 @@
 
 namespace App\Controllers;
 
-class Produccion extends BaseController
+class Placas extends BaseController
 {
     public function index()
     {
