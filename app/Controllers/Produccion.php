@@ -10,7 +10,7 @@ class Produccion extends BaseController
             return redirect()->to('/dasboard');
         }
         
-        return view("produccion");
+        return view("produccion.php");
     }
 
     public function filter()
