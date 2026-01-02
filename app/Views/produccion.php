@@ -194,11 +194,11 @@
   <!-- Variables globales para JS -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
-    window.estadoFiltro = "Confirmacion";
+    window.estadoFiltro = "Preparado";
   </script>
 
   <!-- JS principal -->
-  <script src="<?= base_url('js/prodducion.js') ?>" defer></script>
+  <script src="<?= base_url('js/confirmados.js') ?>" defer></script>
 
 </body>
 </html>
