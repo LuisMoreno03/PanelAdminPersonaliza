@@ -201,8 +201,9 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
   isLoading = true;
   showLoader();
 
-  const base = "/dashboard/pedidos";
-  const fallback = "/dashboard/filter";
+  const base = "/index.php/dashboard/pedidos";
+const fallback = "/index.php/dashboard/filter";
+
 
   // ✅ Si reset => forzar página 1 ANTES de construir la URL
   if (reset) {
