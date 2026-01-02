@@ -4,9 +4,12 @@
 
 class ProduccionController extends BaseController
 {
-    public function index()
+      public function index()
     {
-        return 'Producción OK ✅';
-        // o: return view('produccion/index');
+        if (!session()->get('logged_in')) {
+            return redirect()->to('/dasboard');
+        }
+
+        return view('produccion');
     }
 }
