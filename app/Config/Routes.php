@@ -92,7 +92,7 @@ $routes->group('pedidos', ['filter' => 'auth'], static function (RouteCollection
 // PRODUCCION
 // ----------------------------------------------------
 $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollection $routes) {
-    $routes->get('/', 'Produccion::index');
+    $routes->get('/', 'ProduccionController::index');
     $routes->get('filter', 'Produccion::filter');
 });
 
