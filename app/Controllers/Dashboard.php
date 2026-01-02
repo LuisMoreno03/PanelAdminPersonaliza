@@ -45,10 +45,10 @@ class Dashboard extends BaseController
             // debug opcional: ?debug=1
             $debug = (string) ($this->request->getGet('debug') ?? '');
             $debugEnabled = ($debug === '1' || $debug === 'true');
-
+            
+            
             $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
             $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
-            $apiVersion = (string) (env('SHOPIFY_API_VERSION') ?: '2024-01');
 
             if (!$shop || !$token) {
                 return $this->response->setJSON([
