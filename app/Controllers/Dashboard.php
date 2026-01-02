@@ -49,6 +49,7 @@ class Dashboard extends BaseController
             
             $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
             $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
+            $apiVersion = (string) (env('SHOPIFY_API_VERSION') ?: '2024-01');
 
             if (!$shop || !$token) {
                 return $this->response->setJSON([
