@@ -89,7 +89,7 @@
   </div>
 
 
-  
+
   <style>
     /* Botón azul estilo "Siguiente" */
     .btn-blue{
@@ -142,28 +142,7 @@
   </style>
 </head>
 
-<body style="background:#f3f4f6; padding:24px;">
 
-  <div class="card">
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-      <div>
-        <h1 style="margin:0; font-size:28px; font-weight:900;">PLACAS</h1>
-        <div class="muted" style="margin-top:6px;">
-          Placas hoy: <span id="placasHoy" style="font-weight:900;">0</span>
-        </div>
-      </div>
-
-      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-        <input id="placaFile" type="file" accept="image/*,application/pdf" class="hidden" style="display:none;">
-        <button id="btnSeleccionar" class="btn-blue">Seleccionar archivo</button>
-        <button id="btnSubir" class="btn-blue">Subir placa</button>
-      </div>
-    </div>
-
-    <div id="msg" class="muted" style="margin-top:10px;"></div>
-
-    <div class="grid" id="grid"></div>
-  </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
