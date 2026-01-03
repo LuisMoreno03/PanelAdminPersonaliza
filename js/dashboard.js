@@ -309,102 +309,146 @@ function paginaAnterior() {
 ===================================================== */
 function actualizarTabla(pedidos) {
   const cont = document.getElementById("tablaPedidos");
-  if (!cont) return;
+  const cards = document.getElementById("cardsPedidos");
 
-  cont.innerHTML = "";
+  // DESKTOP GRID
+  if (cont) {
+    cont.innerHTML = "";
 
-  if (!pedidos.length) {
-    cont.innerHTML = `
-      <div class="py-10 text-center text-slate-500">
-        No se encontraron pedidos
-      </div>`;
-    return;
+    if (!pedidos.length) {
+      cont.innerHTML = `
+        <div class="py-10 text-center text-slate-500">
+          No se encontraron pedidos
+        </div>`;
+    } else {
+      cont.innerHTML = pedidos.map((p) => {
+        const id = p.id ?? "";
+
+        return `
+          <div class="orders-grid px-4 py-3 text-[13px] hover:bg-slate-50 transition">
+            <div class="font-extrabold text-slate-900 whitespace-nowrap">
+              ${escapeHtml(p.numero ?? "-")}
+            </div>
+
+            <div class="text-slate-600 whitespace-nowrap">
+              ${escapeHtml(p.fecha ?? "-")}
+            </div>
+
+            <div class="font-semibold text-slate-800 truncate">
+              ${escapeHtml(p.cliente ?? "-")}
+            </div>
+
+            <div class="font-extrabold text-slate-900 whitespace-nowrap">
+              ${escapeHtml(p.total ?? "-")}
+            </div>
+
+            <div>
+              <button onclick="abrirModal(${id})"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+                <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
+                  ${renderEstado(p.estado ?? "-")}
+                </span>
+              </button>
+            </div>
+
+            <div class="text-xs text-slate-600 truncate">
+              ${stripHtml(renderLastChangeCompact(p)) || "—"}
+            </div>
+
+            <div class="truncate">
+              ${renderEtiquetasCompact(p.etiquetas ?? "", id)}
+            </div>
+
+            <div class="text-center font-bold">
+              ${escapeHtml(p.articulos ?? "-")}
+            </div>
+
+            <div>
+              ${renderEntregaPill(p.estado_envio ?? "-")}
+            </div>
+
+            <div class="text-xs text-slate-700 truncate">
+              ${escapeHtml(p.forma_envio ?? "-")}
+            </div>
+
+            <div class="text-right whitespace-nowrap">
+              <button onclick="verDetalles(${id})"
+                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
+                Ver →
+              </button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
   }
 
-  cont.innerHTML = pedidos.map((p) => {
-    const id = p.id ?? "";
+  // MOBILE CARDS (si existe cards)
+  if (cards) {
+    cards.innerHTML = "";
 
-    return `
-      <div
-        class="grid grid-cols-[110px_95px_120px_150px_140px_150px_140px_60px_160px_140px_90px]
-               gap-2 px-4 py-3 items-center text-[13px] hover:bg-slate-50 transition">
+    if (!pedidos.length) {
+      cards.innerHTML = `<div class="py-10 text-center text-slate-500">No se encontraron pedidos</div>`;
+      return;
+    }
 
-        <!-- PEDIDO -->
-        <div class="font-extrabold text-slate-900 whitespace-nowrap">
-          ${escapeHtml(p.numero)}
-        </div>
+    cards.innerHTML = pedidos.map((p) => {
+      const id = p.id ?? "";
+      const numero = escapeHtml(p.numero ?? "-");
+      const fecha = escapeHtml(p.fecha ?? "-");
+      const cliente = escapeHtml(p.cliente ?? "-");
+      const total = escapeHtml(p.total ?? "-");
+      const etiquetas = p.etiquetas ?? "";
 
-        <!-- FECHA -->
-        <div class="text-slate-600 whitespace-nowrap">
-          ${escapeHtml(p.fecha)}
-        </div>
+      return `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-sm font-extrabold text-slate-900">${numero}</div>
+                <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
+                <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${cliente}</div>
+              </div>
+              <div class="text-right whitespace-nowrap">
+                <div class="text-sm font-extrabold text-slate-900">${total}</div>
+              </div>
+            </div>
 
-        <!-- CLIENTE -->
-        <div class="font-semibold text-slate-800 ">
-          ${escapeHtml(p.cliente)}
-        </div>
+            <div class="mt-3 flex items-center justify-between gap-3">
+              <button onclick="abrirModal(${id})"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+                <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
+                  ${renderEstado(p.estado ?? "-")}
+                </span>
+              </button>
 
-        <!-- TOTAL -->
-        <div class="font-extrabold text-slate-900 whitespace-nowrap">
-          ${escapeHtml(p.total)}
-        </div>
+              <button onclick="verDetalles(${id})"
+                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
+                Ver →
+              </button>
+            </div>
 
-        <!-- ESTADO -->
-        <div>
-          <button onclick="abrirModal(${id})"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border shadow-sm">
-            <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-            <span class="text-[11px] font-extrabold uppercase">
-              ${renderEstado(p.estado)}
-            </span>
-          </button>
-        </div>
+            <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+            <div class="mt-3">${renderEtiquetasCompact(etiquetas, id, true)}</div>
 
-        <!-- ÚLTIMO CAMBIO -->
-        <div class="text-xs text-slate-600 truncate">
-          ${stripHtml(renderLastChangeCompact(p)) || "—"}
-        </div>
-
-        <!-- ETIQUETAS -->
-        <div class="truncate">
-          ${renderEtiquetasCompact(p.etiquetas, id)}
-        </div>
-
-        <!-- ARTÍCULOS -->
-        <div class="text-center font-bold">
-          ${p.articulos}
-        </div>
-
-        <!-- ENTREGA -->
-        <div>
-          ${renderEntregaPill(p.estado_envio)}
-        </div>
-
-        <!-- FORMA -->
-        <div class="truncate text-xs">
-          ${escapeHtml(p.forma_envio)}
-        </div>
-
-        <!-- DETALLES -->
-        <div class="text-right">
-          <button onclick="verDetalles(${id})"
-            class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold">
-            Ver →
-          </button>
-        </div>
-      </div>
-    `;
-  }).join("");
+            <div class="mt-3 text-xs text-slate-600 space-y-1">
+              <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
+              <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
+              <div><b>Último cambio:</b> ${stripHtml(renderLastChangeCompact(p)) || "—"}</div>
+            </div>
+          </div>
+        </div>`;
+    }).join("");
+  }
 }
 
 function stripHtml(html) {
   const d = document.createElement("div");
-  d.innerHTML = html || "";
+  d.innerHTML = String(html || "");
   return d.textContent || "";
 }
-
-
-
 
 
 
