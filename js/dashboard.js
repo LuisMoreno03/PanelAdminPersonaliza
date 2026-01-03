@@ -365,8 +365,8 @@ function actualizarTabla(pedidos) {
               </button>
             </td>
 
-            <!-- ÚLTIMO CAMBIO -->
-            <td class="py-4 px-4 hidden xl:table-cell" data-lastchange="${id}">
+            <!-- ÚLTIMO CAMBIO (✅ antes xl, ahora lg) -->
+            <td class="py-4 px-4 hidden lg:table-cell" data-lastchange="${id}">
               ${renderLastChangeCompact(p)}
             </td>
 
@@ -375,7 +375,7 @@ function actualizarTabla(pedidos) {
               ${renderEtiquetasCompact(etiquetas, id)}
             </td>
 
-            <!-- ARTÍCULOS -->
+            <!-- ARTÍCULOS (se muestra desde lg como el head) -->
             <td class="py-4 px-4 hidden lg:table-cell">
               <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-extrabold
                            bg-slate-50 border border-slate-200 text-slate-800 whitespace-nowrap">
@@ -388,8 +388,8 @@ function actualizarTabla(pedidos) {
               ${renderEntregaPill(p.estado_envio ?? "-")}
             </td>
 
-            <!-- FORMA ENTREGA -->
-            <td class="py-4 px-4 hidden xl:table-cell">
+            <!-- FORMA ENTREGA (✅ antes xl, ahora lg) -->
+            <td class="py-4 px-4 hidden lg:table-cell">
               <span class="inline-flex items-center px-3 py-2 rounded-2xl bg-slate-50 border border-slate-200
                            text-[11px] font-extrabold uppercase tracking-wide text-slate-800 whitespace-nowrap">
                 ${escapeHtml(p.forma_envio ?? "-")}
@@ -413,7 +413,7 @@ function actualizarTabla(pedidos) {
   }
 
   // =========================
-  // MOBILE CARDS (ya estaba bien)
+  // MOBILE CARDS
   // =========================
   if (cards) {
     cards.innerHTML = "";
@@ -470,6 +470,8 @@ function actualizarTabla(pedidos) {
       .join("");
   }
 }
+
+
 
 
 /* =====================================================
