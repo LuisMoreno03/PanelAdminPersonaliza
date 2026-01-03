@@ -27,9 +27,10 @@
   <div class="flex-1 md:ml-64 p-8">
 
     <!-- Encabezado -->
-    <h2 class="text-xl font-semibold text-gray-700 mb-4">
-      Placas cargadas: <span id="total-pedidos">0</span>
-    </h2>
+     
+    <div class="text-sm text-gray-500 mb-2">
+  Placas hoy: <span id="placasHoy" class="font-semibold">0</span>
+</div>
 
     <!-- ✅ CONTENEDOR TABLA MEJORADO -->
 <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -82,7 +83,21 @@
     </div>
   </div>
 
-
+  <!-- Vista de los botones -->
+<style>
+    .btn-primary{
+      background:#2563eb;
+      color:#fff;
+      padding:10px 16px;
+      border-radius:12px;
+      font-weight:600;
+      border:1px solid rgba(255,255,255,.12);
+      transition:.15s;
+    }
+    .btn-primary:hover{ filter:brightness(1.05); }
+    .btn-primary:disabled{ opacity:.5; cursor:not-allowed; }
+  </style>
+</head>
 
    <!-- Sistema de cargado de archivos JPG/PNG -->
      <div style="display:flex; gap:10px; align-items:center; margin:12px 0;">
