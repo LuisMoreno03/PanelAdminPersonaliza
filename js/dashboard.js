@@ -326,7 +326,7 @@ function actualizarTabla(pedidos) {
 
     return `
       <div
-        class="grid grid-cols-[110px_95px_2.5fr_150px_140px_150px_140px_60px_160px_140px_90px]
+        class="grid grid-cols-[110px_95px_120px_150px_140px_150px_140px_60px_160px_140px_90px]
                gap-2 px-4 py-3 items-center text-[13px] hover:bg-slate-50 transition">
 
         <!-- PEDIDO -->
