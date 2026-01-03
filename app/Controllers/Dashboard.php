@@ -546,6 +546,9 @@ class Dashboard extends BaseController
 
             foreach ($usuarios as &$u) {
                 $ts = $u['last_seen'] ? strtotime($u['last_seen']) : 0;
+                $u['last_seen_ts'] = $ts;
+                $u['seconds_since_seen'] = ($ts > 0) ? ($now - $ts) : null;
+
                 $u['online'] = ($ts > 0 && ($now - $ts) <= $onlineThreshold);
             }
             unset($u);
