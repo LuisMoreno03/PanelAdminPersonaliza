@@ -102,3 +102,66 @@ class PlacasArchivosController extends BaseController
 
     }
 }
+
+// MODIFICACIONES //
+
+// LISTAR PEDIDO 
+public function listar()
+{
+    $model = new \App\Models\PlacaArchivoModel();
+    $items = $model->orderBy('id', 'DESC')->findAll();
+
+    foreach ($items as &$it) {
+        $it['url'] = base_url($it['ruta']); // public/uploads/placas/...
+        // created_at ya viene si tienes timestamps
+    }
+
+    return $this->response->setJSON([
+        'success' => true,
+        'items' => $items,
+    ]);
+}
+
+// RENAME
+public function renombrar()
+{
+    $id = (int) $this->request->getPost('id');
+    $nombre = trim((string) $this->request->getPost('nombre'));
+
+    if ($id <= 0 || $nombre === '') {
+        return $this->response->setJSON(['success' => false, 'message' => 'Datos inválidos'])->setStatusCode(422);
+    }
+
+    $model = new \App\Models\PlacaArchivoModel();
+    $row = $model->find($id);
+    if (!$row) {
+        return $this->response->setJSON(['success' => false, 'message' => 'No encontrado'])->setStatusCode(404);
+    }
+
+    $model->update($id, ['nombre' => $nombre]);
+
+    return $this->response->setJSON(['success' => true, 'message' => 'Nombre actualizado ✅']);
+}
+
+// DELETE
+public function eliminar()
+{
+    $id = (int) $this->request->getPost('id');
+    if ($id <= 0) {
+        return $this->response->setJSON(['success' => false, 'message' => 'ID inválido'])->setStatusCode(422);
+    }
+
+    $model = new \App\Models\PlacaArchivoModel();
+    $row = $model->find($id);
+    if (!$row) {
+        return $this->response->setJSON(['success' => false, 'message' => 'No encontrado'])->setStatusCode(404);
+    }
+
+    // borrar físico
+    $fullPath = FCPATH . $row['ruta'];
+    if (is_file($fullPath)) @unlink($fullPath);
+
+    $model->delete($id);
+
+    return $this->response->setJSON(['success' => true, 'message' => 'Eliminado ✅']);
+}
