@@ -2,6 +2,77 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
+  <title>Placas - Panel</title>
+
+  <!-- Estilos -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/alpinejs" defer></script>
+
+  <style>
+    body { background: #f3f4f6; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    .animate-fadeIn { animation: fadeIn .2s ease-out; }
+  </style>
+</head>
+
+<body class="flex">
+
+  <!-- Sidebar -->
+  <?= view('layouts/menu') ?>
+
+  <!-- Contenido principal -->
+  <div class="flex-1 md:ml-64 p-8">
+
+    <!-- Encabezado -->
+     
+    <div class="text-sm text-gray-500 mb-2">
+  Placas hoy: <span id="placasHoy" class="font-semibold">0</span>
+</div>
+    
+
+     <!-- Buscador -->
+    <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+      <div class="relative">
+        <input
+          id="inputBuscar"
+          type="text"
+          placeholder="Buscar pedido, cliente, etiqueta..."
+          class="w-[320px] max-w-full pl-10 pr-3 py-2 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+        />
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔎</span>
+      </div>
+
+      <button
+        id="btnLimpiarBusqueda"
+        class="px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition"
+      >
+        Limpiar
+      </button>
+    </div>
+
+    <!-- Paginación arriba -->
+    <div class="flex items-center gap-2">
+      <button id="btnAnterior"
+        disabled
+        class="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition">
+        Anterior
+      </button>
+
+      <button id="btnSiguiente"
+        onclick="paginaSiguiente()"
+        class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition">
+        Siguiente
+      </button>
+    </div>
+  </div>
+
+  <!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PLACAS</title>
 
