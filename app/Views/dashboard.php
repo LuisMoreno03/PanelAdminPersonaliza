@@ -74,45 +74,36 @@
         </section>
 
         <!-- PEDIDOS RESPONSIVE SIN SCROLL -->
-        <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div class="px-4 py-3 border-b border-slate-200 font-semibold text-slate-900">
-            Listado de pedidos
-          </div>
+       <!-- PEDIDOS RESPONSIVE SIN SCROLL -->
+<section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+  <div class="px-4 py-3 border-b border-slate-200 font-semibold text-slate-900">
+    Listado de pedidos
+  </div>
 
-          <!-- ✅ TABLE SOLO EN DESKTOP (lg+) -->
-          <!-- En lg: tabla condensada (sin Último cambio / Forma entrega) -->
-          <!-- En xl: tabla completa -->
-          <div class="hidden lg:block w-full">
-            <table class="w-full table-fixed">
-              <thead class="text-[11px] uppercase tracking-wider text-slate-600">
-                <tr class="border-b border-slate-200 bg-slate-50">
-                  <th class="px-3 py-3 w-[120px]">Pedido</th>
-                  <th class="px-3 py-3 w-[105px]">Fecha</th>
-                  <th class="px-3 py-3 w-[200px]">Cliente</th>
-                  <th class="px-3 py-3 w-[90px]">Total</th>
-                  <th class="px-3 py-3 w-[150px]">Estado</th>
+  <!-- ✅ TABLA (lg+) - 8 columnas reales (sin scroll) -->
+  <div class="hidden lg:block w-full">
+    <table class="w-full table-fixed">
+      <thead class="text-[11px] uppercase tracking-wider text-slate-600">
+        <tr class="border-b border-slate-200 bg-slate-50">
+          <th class="px-3 py-3 w-[120px]">Pedido</th>
+          <th class="px-3 py-3 w-[105px]">Fecha</th>
+          <th class="px-3 py-3 w-[210px]">Cliente</th>
+          <th class="px-3 py-3 w-[95px]">Total</th>
+          <th class="px-3 py-3 w-[150px]">Estado</th>
+          <th class="px-3 py-3 w-[220px]">Etiquetas</th>
+          <th class="px-3 py-3 w-[150px]">Entrega</th>
+          <th class="px-3 py-3 w-[110px] text-right">Detalles</th>
+        </tr>
+      </thead>
 
-                  <!-- Solo XL -->
-                  <th class="px-3 py-3 w-[140px] hidden xl:table-cell">Último cambio</th>
+      <tbody id="tablaPedidos" class="text-slate-800 text-[13px] divide-y divide-slate-100"></tbody>
+    </table>
+  </div>
 
-                  <th class="px-3 py-3 w-[240px]">Etiquetas</th>
-                  <th class="px-3 py-3 w-[90px]">Artículos</th>
-                  <th class="px-3 py-3 w-[170px]">Estado entrega</th>
+  <!-- ✅ CARDS (móvil/tablet) -->
+  <div id="cardsPedidos" class="grid grid-cols-1 gap-4 p-4 lg:hidden"></div>
+</section>
 
-                  <!-- Solo XL -->
-                  <th class="px-3 py-3 w-[170px] hidden xl:table-cell">Forma entrega</th>
-
-                  <th class="px-3 py-3 w-[110px] text-right">Detalles</th>
-                </tr>
-              </thead>
-
-              <tbody id="tablaPedidos" class="text-slate-800 text-[13px] divide-y divide-slate-100"></tbody>
-            </table>
-          </div>
-
-          <!-- ✅ CARDS EN MOVIL/TABLET (sin tabla) -->
-          <div id="cardsPedidos" class="grid grid-cols-1 gap-4 p-4 lg:hidden"></div>
-        </section>
 
         <!-- PAGINACIÓN -->
         <section class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
