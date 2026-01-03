@@ -6,13 +6,13 @@ use App\Models\PlacaArchivoModel;
 
 class PlacasArchivosController extends BaseController
 {
-    private string $uploadDir;
+    private string $publicDir;
 
     public function __construct()
     {
-        $this->uploadDir = WRITEPATH . 'uploads/placas/';
-        if (!is_dir($this->uploadDir)) {
-            @mkdir($this->uploadDir, 0775, true);
+        $this->publicDir = FCPATH . 'uploads/placas/';
+        if (!is_dir($this->publicDir)) {
+            @mkdir($this->publicDir, 0775, true);
         }
     }
 
@@ -21,13 +21,28 @@ class PlacasArchivosController extends BaseController
         $model = new PlacaArchivoModel();
         $items = $model->orderBy('id', 'DESC')->findAll();
 
-        // url pública para descargar: usaremos un endpoint simple via base_url('writable/...') NO funciona por seguridad
-        // En hosting, lo correcto es servir desde /public/uploads. Alternativa rápida: copiar a public/uploads.
-        // Para mantenerlo simple: devolvemos solo metadata (sin link), y tú decides si expones descarga.
+        // Agregar url pública (preview)
+        foreach ($items as &$it) {
+            $it['url'] = base_url('uploads/placas/' . basename($it['ruta']));
+        }
 
         return $this->response->setJSON([
             'success' => true,
-            'items' => $items
+            'items'   => $items,
+        ]);
+    }
+
+    public function stats()
+    {
+        $model = new PlacaArchivoModel();
+        $hoy = date('Y-m-d');
+
+        $totalHoy = $model->where('dia', $hoy)->countAllResults();
+
+        return $this->response->setJSON([
+            'success' => true,
+            'hoy' => $hoy,
+            'totalHoy' => $totalHoy,
         ]);
     }
 
@@ -40,28 +55,26 @@ class PlacasArchivosController extends BaseController
             return $this->response->setJSON(['success' => false, 'message' => 'Archivo inválido'])->setStatusCode(400);
         }
 
-        // Validaciones
-        $maxSize = 10 * 1024 * 1024; // 10MB
+        $maxSize = 15 * 1024 * 1024; // 15MB
         if ($file->getSize() > $maxSize) {
-            return $this->response->setJSON(['success' => false, 'message' => 'Máximo 10MB'])->setStatusCode(422);
+            return $this->response->setJSON(['success' => false, 'message' => 'Máximo 15MB'])->setStatusCode(422);
         }
 
-        $allowed = ['pdf','png','jpg','jpeg','webp','doc','docx','xls','xlsx'];
+        $allowed = ['pdf','png','jpg','jpeg','webp'];
         $ext = strtolower($file->getExtension());
         if (!in_array($ext, $allowed, true)) {
-            return $this->response->setJSON(['success' => false, 'message' => 'Tipo no permitido'])->setStatusCode(422);
+            return $this->response->setJSON(['success' => false, 'message' => 'Solo PDF o imágenes (png/jpg/webp)'])->setStatusCode(422);
         }
 
-        // Nombre visible (si no envías, usamos el original)
         if ($nombre === '') {
-            $nombre = pathinfo($file->getName(), PATHINFO_FILENAME);
+            $nombre = pathinfo($file->getClientName(), PATHINFO_FILENAME);
         }
 
-        // Guardar en disco con nombre random para evitar colisiones
         $newName = $file->getRandomName();
-        $file->move($this->uploadDir, $newName);
+        $file->move($this->publicDir, $newName);
 
-        $ruta = 'uploads/placas/' . $newName; // relativo a WRITEPATH
+        $ruta = 'uploads/placas/' . $newName;
+        $dia  = date('Y-m-d');
 
         $model = new PlacaArchivoModel();
         $id = $model->insert([
@@ -70,12 +83,22 @@ class PlacasArchivosController extends BaseController
             'ruta'     => $ruta,
             'mime'     => $file->getClientMimeType(),
             'size'     => $file->getSize(),
+            'dia'      => $dia,
         ]);
 
         return $this->response->setJSON([
             'success' => true,
-            'message' => 'Archivo subido',
-            'id' => $id
+            'message' => 'Placa subida',
+            'item' => [
+                'id' => $id,
+                'nombre' => $nombre,
+                'original' => $file->getClientName(),
+                'ruta' => $ruta,
+                'mime' => $file->getClientMimeType(),
+                'size' => $file->getSize(),
+                'dia' => $dia,
+                'url' => base_url('uploads/placas/' . $newName),
+            ]
         ]);
     }
 
@@ -96,7 +119,7 @@ class PlacasArchivosController extends BaseController
 
         $model->update($id, ['nombre' => $nombre]);
 
-        return $this->response->setJSON(['success' => true, 'message' => 'Nombre actualizado']);
+        return $this->response->setJSON(['success' => true, 'message' => 'Actualizado']);
     }
 
     public function eliminar()
@@ -112,11 +135,8 @@ class PlacasArchivosController extends BaseController
             return $this->response->setJSON(['success' => false, 'message' => 'No encontrado'])->setStatusCode(404);
         }
 
-        // borrar archivo físico
-        $fullPath = WRITEPATH . $row['ruta'];
-        if (is_file($fullPath)) {
-            @unlink($fullPath);
-        }
+        $fullPath = FCPATH . $row['ruta'];
+        if (is_file($fullPath)) @unlink($fullPath);
 
         $model->delete($id);
 

@@ -61,8 +61,8 @@ require $paths->systemDirectory . '/Boot.php';
 exit(CodeIgniter\Boot::bootWeb($paths));
 
 
-
-
-
+//======================================================================
+// SISTEMA AUTOMATIZADO DE PLACAS AL DÍA
+//======================================================================
 
 

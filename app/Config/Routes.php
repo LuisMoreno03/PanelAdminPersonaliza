@@ -128,6 +128,7 @@ $routes->group('placas', ['filter' => 'auth'], function ($routes) {
     $routes->post('archivos/renombrar', 'PlacasArchivosController::renombrar');
     $routes->post('archivos/eliminar', 'PlacasArchivosController::eliminar');
 });
+    $routes->get('archivos/stats', 'PlacasArchivosController::stats');
 
 
 

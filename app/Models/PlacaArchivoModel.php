@@ -11,3 +11,4 @@ class PlacaArchivoModel extends Model
     protected $allowedFields = ['nombre', 'original', 'ruta', 'mime', 'size'];
     protected $useTimestamps = true;
 }
+    protected $allowedFields = ['nombre','original','ruta','mime','size','dia'];
