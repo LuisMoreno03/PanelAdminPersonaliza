@@ -123,10 +123,15 @@ $routes->group('placas', ['filter' => 'auth'], function ($routes) {
     $routes->get('/', 'PlacasController::index');
 
 
-    // API archivos
+    // API archivos //
     $routes->get('archivos/listar', 'PlacasArchivosController::listar');
     $routes->get('archivos/stats',  'PlacasArchivosController::stats');
     $routes->post('archivos/subir', 'PlacasArchivosController::subir');
+
+    // MODIFICACIONES //
+    $routes->post('archivos/renombrar', 'PlacasArchivosController::renombrar');
+    $routes->post('archivos/eliminar',  'PlacasArchivosController::eliminar');
+
 });
 
 
