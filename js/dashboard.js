@@ -326,7 +326,7 @@ function actualizarTabla(pedidos) {
 
     return `
       <div
-        class="grid grid-cols-[110px_95px_1.5fr_90px_140px_150px_180px_60px_160px_180px_90px]
+        class="grid grid-cols-[110px_95px_2.5fr_90px_140px_150px_180px_60px_160px_180px_90px]
                gap-2 px-4 py-3 items-center text-[13px] hover:bg-slate-50 transition">
 
         <!-- PEDIDO -->
@@ -340,7 +340,7 @@ function actualizarTabla(pedidos) {
         </div>
 
         <!-- CLIENTE -->
-        <div class="font-semibold text-slate-800 whitespace-nowrap">
+        <div class="font-semibold text-slate-800  whitespace-nowrap truncate">
           ${escapeHtml(p.cliente)}
         </div>
 
