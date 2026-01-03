@@ -312,7 +312,7 @@ function actualizarTabla(pedidos) {
   const cards = document.getElementById("cardsPedidos");
 
   // =========================
-  // DESKTOP TABLE (11 columnas)
+  // DESKTOP TABLE (8 columnas + subinfo)
   // =========================
   if (tbody) {
     tbody.innerHTML = "";
@@ -320,41 +320,39 @@ function actualizarTabla(pedidos) {
     if (!pedidos.length) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="11" class="py-10 text-center text-slate-500">
+          <td colspan="8" class="py-10 text-center text-slate-500">
             No se encontraron pedidos
           </td>
         </tr>`;
     } else {
-      tbody.innerHTML = pedidos
-        .map((p) => {
-          const id = p.id ?? "";
-          const etiquetas = p.etiquetas ?? "";
+      tbody.innerHTML = pedidos.map((p) => {
+        const id = p.id ?? "";
+        const etiquetas = p.etiquetas ?? "";
 
-          return `
+        const cliente = escapeHtml(p.cliente ?? "-");
+        const forma = escapeHtml(p.forma_envio ?? "-");
+        const articulos = escapeHtml(p.articulos ?? "-");
+
+        return `
+          <!-- FILA PRINCIPAL (8 columnas) -->
           <tr class="border-b border-slate-100 hover:bg-slate-50/60 transition">
-
-            <!-- PEDIDO -->
-            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
+            <td class="py-3 px-3 font-extrabold text-slate-900 whitespace-nowrap">
               ${escapeHtml(p.numero ?? "-")}
             </td>
 
-            <!-- FECHA -->
-            <td class="py-4 px-4 whitespace-nowrap text-slate-700">
+            <td class="py-3 px-3 whitespace-nowrap text-slate-700">
               ${escapeHtml(p.fecha ?? "-")}
             </td>
 
-            <!-- CLIENTE -->
-            <td class="py-4 px-4 min-w-[180px] text-slate-800 font-semibold">
-              ${escapeHtml(p.cliente ?? "-")}
+            <td class="py-3 px-3 text-slate-800 font-semibold truncate">
+              ${cliente}
             </td>
 
-            <!-- TOTAL -->
-            <td class="py-4 px-4 whitespace-nowrap font-extrabold text-slate-900">
+            <td class="py-3 px-3 whitespace-nowrap font-extrabold text-slate-900">
               ${escapeHtml(p.total ?? "-")}
             </td>
 
-            <!-- ESTADO -->
-            <td class="py-4 px-3">
+            <td class="py-3 px-3">
               <button onclick="abrirModal(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm
                        hover:shadow-md hover:border-slate-300 transition">
@@ -365,39 +363,15 @@ function actualizarTabla(pedidos) {
               </button>
             </td>
 
-            <!-- ÚLTIMO CAMBIO (✅ antes xl, ahora lg) -->
-            <td class="py-4 px-4 hidden lg:table-cell" data-lastchange="${id}">
-              ${renderLastChangeCompact(p)}
-            </td>
-
-            <!-- ETIQUETAS -->
-            <td class="py-4 px-4">
+            <td class="py-3 px-3">
               ${renderEtiquetasCompact(etiquetas, id)}
             </td>
 
-            <!-- ARTÍCULOS (se muestra desde lg como el head) -->
-            <td class="py-4 px-4 hidden lg:table-cell">
-              <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-extrabold
-                           bg-slate-50 border border-slate-200 text-slate-800 whitespace-nowrap">
-                ${escapeHtml(p.articulos ?? "-")}
-              </span>
-            </td>
-
-            <!-- ESTADO ENTREGA -->
-            <td class="py-4 px-4">
+            <td class="py-3 px-3">
               ${renderEntregaPill(p.estado_envio ?? "-")}
             </td>
 
-            <!-- FORMA ENTREGA (✅ antes xl, ahora lg) -->
-            <td class="py-4 px-4 hidden lg:table-cell">
-              <span class="inline-flex items-center px-3 py-2 rounded-2xl bg-slate-50 border border-slate-200
-                           text-[11px] font-extrabold uppercase tracking-wide text-slate-800 whitespace-nowrap">
-                ${escapeHtml(p.forma_envio ?? "-")}
-              </span>
-            </td>
-
-            <!-- DETALLES -->
-            <td class="py-4 px-4 text-right whitespace-nowrap">
+            <td class="py-3 px-3 text-right whitespace-nowrap">
               <button onclick="verDetalles(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-blue-600 text-white
                        text-[11px] font-extrabold uppercase tracking-wide shadow-sm
@@ -405,15 +379,41 @@ function actualizarTabla(pedidos) {
                 Ver <span class="text-white/90">→</span>
               </button>
             </td>
+          </tr>
 
-          </tr>`;
-        })
-        .join("");
+          <!-- SUBFILA (sin perder info) -->
+          <tr class="bg-white">
+            <td colspan="8" class="px-3 pb-3">
+              <div class="mt-1 grid grid-cols-12 gap-2 text-[12px] text-slate-600">
+                <div class="col-span-12 xl:col-span-4">
+                  <span class="font-bold text-slate-800">Cliente:</span>
+                  <span class="text-slate-700"> ${cliente}</span>
+                </div>
+
+                <div class="col-span-6 xl:col-span-2">
+                  <span class="font-bold text-slate-800">Artículos:</span>
+                  <span class="text-slate-700"> ${articulos}</span>
+                </div>
+
+                <div class="col-span-6 xl:col-span-3">
+                  <span class="font-bold text-slate-800">Forma entrega:</span>
+                  <span class="text-slate-700"> ${forma}</span>
+                </div>
+
+                <div class="col-span-12 xl:col-span-3">
+                  <span class="font-bold text-slate-800">Último cambio:</span>
+                  <span class="text-slate-700"> ${stripHtml(renderLastChangeCompact(p)) || "—"}</span>
+                </div>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
     }
   }
 
   // =========================
-  // MOBILE CARDS
+  // MOBILE CARDS (igual que tenías)
   // =========================
   if (cards) {
     cards.innerHTML = "";
@@ -423,16 +423,15 @@ function actualizarTabla(pedidos) {
       return;
     }
 
-    cards.innerHTML = pedidos
-      .map((p) => {
-        const id = p.id ?? "";
-        const numero = escapeHtml(p.numero ?? "-");
-        const fecha = escapeHtml(p.fecha ?? "-");
-        const cliente = escapeHtml(p.cliente ?? "-");
-        const total = escapeHtml(p.total ?? "-");
-        const etiquetas = p.etiquetas ?? "";
+    cards.innerHTML = pedidos.map((p) => {
+      const id = p.id ?? "";
+      const numero = escapeHtml(p.numero ?? "-");
+      const fecha = escapeHtml(p.fecha ?? "-");
+      const cliente = escapeHtml(p.cliente ?? "-");
+      const total = escapeHtml(p.total ?? "-");
+      const etiquetas = p.etiquetas ?? "";
 
-        return `
+      return `
         <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div class="p-4">
             <div class="flex items-start justify-between gap-3">
@@ -441,7 +440,6 @@ function actualizarTabla(pedidos) {
                 <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
                 <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${cliente}</div>
               </div>
-
               <div class="text-right whitespace-nowrap">
                 <div class="text-sm font-extrabold text-slate-900">${total}</div>
               </div>
@@ -464,12 +462,24 @@ function actualizarTabla(pedidos) {
 
             <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
             <div class="mt-3">${renderEtiquetasCompact(etiquetas, id, true)}</div>
+
+            <div class="mt-3 text-xs text-slate-600 space-y-1">
+              <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
+              <div><b>Forma entrega:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
+            </div>
           </div>
         </div>`;
-      })
-      .join("");
+    }).join("");
   }
 }
+
+// helper para quitar tags del HTML del último cambio
+function stripHtml(html) {
+  const tmp = document.createElement("div");
+  tmp.innerHTML = String(html || "");
+  return tmp.textContent || tmp.innerText || "";
+}
+
 
 
 
