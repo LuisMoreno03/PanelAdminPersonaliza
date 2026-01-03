@@ -1,31 +1,84 @@
-<!-- CONTADOR DIARIO -->
-<div class="text-sm text-gray-500 mb-2">
-  Placas hoy: <span id="placasHoy" class="font-semibold">0</span>
-</div>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PLACAS</title>
 
-<!-- ESTILO BOTÓN TIPO "SIGUIENTE" -->
   <style>
-    .btn-primary{
+    /* Botón azul estilo "Siguiente" */
+    .btn-blue{
       background:#2563eb;
       color:#fff;
       padding:10px 16px;
       border-radius:12px;
-      font-weight:600;
-      border:1px solid rgba(255,255,255,.12);
+      font-weight:700;
+      border:none;
+      cursor:pointer;
       transition:.15s;
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
     }
-    .btn-primary:hover{ filter:brightness(1.05); }
-    .btn-primary:disabled{ opacity:.5; cursor:not-allowed; }
+    .btn-blue:hover{ filter:brightness(1.06); }
+    .btn-blue:disabled{ opacity:.55; cursor:not-allowed; }
+
+    .card{
+      background:#fff;
+      border:1px solid #e5e7eb;
+      border-radius:16px;
+      padding:16px;
+    }
+    .muted{ color:#6b7280; font-size:13px; }
+
+    .grid{
+      display:grid;
+      gap:12px;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      margin-top:14px;
+    }
+    .item{
+      border:1px solid #e5e7eb;
+      border-radius:14px;
+      padding:12px;
+      background:#fff;
+    }
+    .item-title{ font-weight:800; margin-top:10px; }
+    .preview{
+      width:100%;
+      height:160px;
+      border-radius:12px;
+      border:1px solid #eee;
+      overflow:hidden;
+      background:#f9fafb;
+    }
+    .preview img{ width:100%; height:100%; object-fit:cover; }
+    .preview iframe{ width:100%; height:100%; border:0; }
   </style>
 </head>
 
-<!-- LISTADO / PREVIEW -->
-<div class="mt-4">
-  <div id="placasMsg" class="text-sm text-gray-500 mb-2"></div>
+<body style="background:#f3f4f6; padding:24px;">
 
-  <div id="placasGrid" class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));">
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+      <div>
+        <h1 style="margin:0; font-size:28px; font-weight:900;">PLACAS</h1>
+        <div class="muted" style="margin-top:6px;">
+          Placas hoy: <span id="placasHoy" style="font-weight:900;">0</span>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <input id="placaFile" type="file" accept="image/*,application/pdf" class="hidden" style="display:none;">
+        <button id="btnSeleccionar" class="btn-blue">Seleccionar archivo</button>
+        <button id="btnSubir" class="btn-blue">Subir placa</button>
+      </div>
+    </div>
+
+    <div id="msg" class="muted" style="margin-top:10px;"></div>
+
+    <div class="grid" id="grid"></div>
   </div>
-</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -36,38 +89,25 @@ function escapeHtml(str) {
   }[s]));
 }
 
-function renderCard(item){
+function card(item){
   const isImg = (item.mime || '').startsWith('image/');
   const isPdf = (item.mime || '').includes('pdf');
 
   const preview = isImg
-    ? `<img src="${item.url}" style="width:100%; height:150px; object-fit:cover; border-radius:10px;" />`
+    ? `<div class="preview"><img src="${item.url}"></div>`
     : isPdf
-      ? `<iframe src="${item.url}" style="width:100%; height:150px; border-radius:10px; border:1px solid #eee;"></iframe>`
-      : `<div style="height:150px; display:flex; align-items:center; justify-content:center; border:1px solid #eee; border-radius:10px;">Archivo</div>`;
+      ? `<div class="preview"><iframe src="${item.url}"></iframe></div>`
+      : `<div class="preview" style="display:flex;align-items:center;justify-content:center;">Archivo</div>`;
+
+  const kb = Math.round((item.size || 0) / 1024);
 
   return `
-    <div style="border:1px solid #e5e7eb; border-radius:14px; padding:12px; background:#fff;">
+    <div class="item">
       ${preview}
-      <div style="margin-top:10px; font-weight:700;">${escapeHtml(item.nombre)}</div>
-      <div style="font-size:12px; color:#6b7280;">${escapeHtml(item.original || '')}</div>
-      <div style="display:flex; gap:8px; margin-top:10px;">
-        <input data-id="${item.id}" value="${escapeHtml(item.nombre)}" style="flex:1; border:1px solid #e5e7eb; border-radius:10px; padding:8px; font-size:13px;">
-        <button onclick="renombrarPlaca(${item.id})" class="btn-primary" style="padding:8px 12px;">Guardar</button>
-        <button onclick="eliminarPlaca(${item.id})" class="btn-primary" style="padding:8px 12px; background:#ef4444;">X</button>
-      </div>
+      <div class="item-title">${escapeHtml(item.nombre)}</div>
+      <div class="muted">${escapeHtml(item.original || '')} • ${kb} KB • ${escapeHtml(item.dia || '')}</div>
     </div>
   `;
-}
-
-async function cargarPlacas(){
-  const res = await fetch('/placas/archivos/listar');
-  const data = await res.json();
-  if (!data.success) {
-    $('placasGrid').innerHTML = '<div>Error cargando placas</div>';
-    return;
-  }
-  $('placasGrid').innerHTML = data.items.map(renderCard).join('');
 }
 
 async function cargarStats(){
@@ -76,74 +116,48 @@ async function cargarStats(){
   if (data.success) $('placasHoy').textContent = data.totalHoy;
 }
 
-async function subirPlaca(){
-  const file = $('placaFile').files[0];
-  const nombre = $('placaNombre').value.trim();
-  if (!file) { $('placasMsg').textContent = 'Selecciona un archivo.'; return; }
+async function cargarLista(){
+  const res = await fetch('/placas/archivos/listar');
+  const data = await res.json();
+  if (!data.success) { $('grid').innerHTML = '<div class="muted">Error cargando archivos</div>'; return; }
+  $('grid').innerHTML = data.items.map(card).join('') || '<div class="muted">Aún no hay placas subidas.</div>';
+}
 
-  $('btnSubirPlaca').disabled = true;
-  $('placasMsg').textContent = 'Subiendo...';
+async function subir(){
+  const file = $('placaFile').files[0];
+  if (!file) { $('msg').textContent = 'Selecciona un archivo primero.'; return; }
+
+  $('btnSubir').disabled = true;
+  $('msg').textContent = 'Subiendo...';
 
   const fd = new FormData();
   fd.append('archivo', file);
-  fd.append('nombre', nombre);
 
   const res = await fetch('/placas/archivos/subir', { method:'POST', body: fd });
   const data = await res.json();
 
-  $('btnSubirPlaca').disabled = false;
+  $('btnSubir').disabled = false;
 
-  if (!data.success) {
-    $('placasMsg').textContent = data.message || 'Error';
-    return;
-  }
+  if (!data.success) { $('msg').textContent = data.message || 'Error'; return; }
 
-  $('placasMsg').textContent = '✅ Placa subida';
+  $('msg').textContent = data.message || '✅ Subido';
   $('placaFile').value = '';
-  $('placaNombre').value = '';
 
-  // Tiempo real: recargar lista + contador
-  await cargarPlacas();
+  // tiempo real
   await cargarStats();
+  await cargarLista();
 }
 
-async function renombrarPlaca(id){
-  const input = document.querySelector(`input[data-id="${id}"]`);
-  const nombre = input ? input.value.trim() : '';
-  if (!nombre) return;
+$('btnSeleccionar').addEventListener('click', () => $('placaFile').click());
+$('btnSubir').addEventListener('click', subir);
 
-  const fd = new FormData();
-  fd.append('id', id);
-  fd.append('nombre', nombre);
-
-  const res = await fetch('/placas/archivos/renombrar', { method:'POST', body: fd });
-  const data = await res.json();
-  $('placasMsg').textContent = data.message || (data.success ? 'Guardado' : 'Error');
-}
-
-async function eliminarPlaca(id){
-  if (!confirm('¿Eliminar esta placa?')) return;
-
-  const fd = new FormData();
-  fd.append('id', id);
-
-  const res = await fetch('/placas/archivos/eliminar', { method:'POST', body: fd });
-  const data = await res.json();
-  $('placasMsg').textContent = data.message || (data.success ? 'Eliminado' : 'Error');
-
-  if (data.success){
-    await cargarPlacas();
-    await cargarStats();
-  }
-}
-
-$('btnSeleccionarPlaca').addEventListener('click', () => $('placaFile').click());
-$('btnSubirPlaca').addEventListener('click', subirPlaca);
-
-// primer render
-cargarPlacas();
+// load inicial
 cargarStats();
+cargarLista();
 
-// (opcional) “tiempo real” por polling cada 10s
-setInterval(() => { cargarStats(); }, 10000);
+// opcional: refrescar conteo cada 10s
+setInterval(cargarStats, 10000);
 </script>
+
+</body>
+</html>

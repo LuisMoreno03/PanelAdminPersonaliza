@@ -8,7 +8,7 @@ class PlacaArchivoModel extends Model
 {
     protected $table = 'placas_archivos';
     protected $primaryKey = 'id';
-    protected $allowedFields = ['nombre', 'original', 'ruta', 'mime', 'size'];
+    protected $allowedFields = ['nombre','original','ruta','mime','size','dia'];
     protected $useTimestamps = true;
 }
-    protected $allowedFields = ['nombre','original','ruta','mime','size','dia'];
+
