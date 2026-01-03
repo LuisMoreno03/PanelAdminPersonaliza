@@ -21,13 +21,46 @@
     .soft-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
     .soft-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
 
-    thead th {
-      position: sticky;
-      top: 0;
-      z-index: 10;
-      background: #f8fafc;
+    /* ✅ Layout con menú */
+    .layout {
+      transition: padding-left .2s ease;
+      padding-left: 16rem; /* 256px (md:w-64) */
     }
-    button { -webkit-tap-highlight-color: transparent; }
+    .layout.menu-collapsed {
+      padding-left: 5.25rem; /* 84px colapsado */
+    }
+    @media (max-width: 768px) {
+      .layout, .layout.menu-collapsed { padding-left: 0 !important; }
+    }
+
+    /* ✅ Grid sin scroll para filas desktop (se adapta a ancho real) */
+    .orders-grid {
+      display: grid;
+      align-items: center;
+      gap: .5rem;
+      grid-template-columns:
+        95px                         /* Pedido */
+        85px                         /* Fecha */
+        clamp(140px, 18vw, 220px)    /* Cliente */
+        78px                         /* Total */
+        128px                        /* Estado */
+        clamp(90px, 12vw, 140px)     /* Último cambio */
+        clamp(130px, 16vw, 200px)    /* Etiquetas */
+        42px                         /* Art */
+        128px                        /* Entrega */
+        clamp(120px, 14vw, 180px)    /* Forma */
+        70px;                        /* Ver */
+    }
+
+    /* ✅ Cuando el ancho baja demasiado, pasamos a cards */
+    @media (max-width: 1180px) {
+      .desktop-orders { display: none !important; }
+      .mobile-orders  { display: block !important; }
+    }
+    @media (min-width: 1181px) {
+      .desktop-orders { display: block !important; }
+      .mobile-orders  { display: none !important; }
+    }
   </style>
 </head>
 
@@ -36,15 +69,17 @@
   <!-- MENU -->
   <?= view('layouts/menu') ?>
 
-  <main class="md:ml-64">
+  <main id="mainLayout" class="layout">
     <div class="p-4 sm:p-6 lg:p-8">
-      <div class="mx-auto w-full max-w-[1400px]">
+      <div class="mx-auto w-full max-w-[1600px]">
 
         <!-- HEADER -->
         <section class="mb-6">
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
-            <h1 class="text-3xl font-extrabold text-slate-900">Pedidos</h1>
-            <p class="text-slate-500 mt-1">Estados, etiquetas, últimos cambios y detalles</p>
+          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex items-start justify-between gap-4">
+            <div>
+              <h1 class="text-3xl font-extrabold text-slate-900">Pedidos</h1>
+              <p class="text-slate-500 mt-1">Estados, etiquetas, últimos cambios y detalles</p>
+            </div>
           </div>
         </section>
 
@@ -73,33 +108,35 @@
           </div>
         </section>
 
-        <!-- LISTADO PEDIDOS – GRID ROWS -->
-<section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-  <div class="px-4 py-3 border-b border-slate-200 font-semibold text-slate-900">
-    Listado de pedidos
-  </div>
+        <!-- PEDIDOS -->
+        <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+            <div class="font-semibold text-slate-900">Listado de pedidos</div>
+            <div class="text-xs text-slate-500 hidden sm:block">Sin scroll horizontal · filas en una sola línea</div>
+          </div>
 
-  <!-- HEADER VISUAL -->
-  <div class="hidden lg:grid grid-cols-[110px_95px_2.5fr_90px_140px_150px_180px_60px_160px_180px_90px]
-              gap-2 px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
-    <div>Pedido</div>
-    <div>Fecha</div>
-    <div>Cliente</div>
-    <div>Total</div>
-    <div>Estado</div>
-    <div>Último cambio</div>
-    <div>Etiquetas</div>
-    <div>Art.</div>
-    <div>Entrega</div>
-    <div>Forma</div>
-    <div class="text-right">Detalles</div>
-  </div>
+          <!-- DESKTOP GRID -->
+          <div class="desktop-orders">
+            <div class="orders-grid px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
+              <div>Pedido</div>
+              <div>Fecha</div>
+              <div>Cliente</div>
+              <div>Total</div>
+              <div>Estado</div>
+              <div>Último cambio</div>
+              <div>Etiquetas</div>
+              <div class="text-center">Art</div>
+              <div>Entrega</div>
+              <div>Forma</div>
+              <div class="text-right">Ver</div>
+            </div>
 
-  <!-- ROWS -->
-  <div id="tablaPedidos" class="divide-y"></div>
-</section>
+            <div id="tablaPedidos" class="divide-y"></div>
+          </div>
 
-
+          <!-- MOBILE/TABLET CARDS -->
+          <div id="cardsPedidos" class="mobile-orders p-4"></div>
+        </section>
 
         <!-- PAGINACIÓN -->
         <section class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -109,13 +146,11 @@
             ← Anterior
           </button>
 
-          <div class="flex items-center justify-center gap-2">
-            <span id="pillPagina"
-                  class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
+          <div class="flex items-center gap-2">
+            <span id="pillPagina" class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
               Página 1
             </span>
-            <span id="pillPaginaTotal"
-                  class="px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm">
+            <span id="pillPaginaTotal" class="px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm">
               Página 1
             </span>
           </div>
@@ -134,9 +169,8 @@
   <?= view('layouts/modales_estados', ['etiquetasPredeterminadas' => $etiquetasPredeterminadas]) ?>
 
   <!-- LOADER -->
-  <div id="globalLoader"
-       class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-    <div class="bg-white p-6 rounded-3xl shadow-xl text-center">
+  <div id="globalLoader" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-3xl shadow-xl text-center animate-fadeIn">
       <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
       <p class="mt-3 font-semibold">Cargando...</p>
     </div>
@@ -146,7 +180,25 @@
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
   </script>
 
-  <!-- ✅ Romper caché para que SIEMPRE tome cambios -->
+  <!-- ✅ romper caché -->
   <script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>
+
+  <!-- ✅ aplicar colapso si está guardado -->
+  <script>
+    (function () {
+      const main = document.getElementById('mainLayout');
+      if (!main) return;
+
+      const collapsed = localStorage.getItem('menuCollapsed') === '1';
+      main.classList.toggle('menu-collapsed', collapsed);
+
+      window.setMenuCollapsed = function (v) {
+        main.classList.toggle('menu-collapsed', !!v);
+        localStorage.setItem('menuCollapsed', v ? '1' : '0');
+        window.dispatchEvent(new Event('resize'));
+      };
+    })();
+  </script>
+
 </body>
 </html>

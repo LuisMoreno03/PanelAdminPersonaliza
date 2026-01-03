@@ -3,7 +3,8 @@
 // - Página 1: refresca en vivo (trae últimos 50 pedidos)
 // - Si el usuario navega a página 2+: pausa live automáticamente
 // - Paginación Shopify REAL (page_info)
-// - Pills: "Página X" / "Página X de Y"
+// - Render Desktop: GRID (1 línea) sin scroll horizontal
+// - Render Mobile/Tablet: CARDS
 // =====================================================
 
 /* =====================================================
@@ -12,15 +13,11 @@
 let nextPageInfo = null;
 let prevPageInfo = null;
 let isLoading = false;
-
 let currentPage = 1;
 
 // ✅ LIVE MODE
 let liveMode = true;
 let liveInterval = null;
-
-window.imagenesCargadas = [];
-window.imagenesLocales = {};
 
 let userPingInterval = null;
 let userStatusInterval = null;
@@ -70,6 +67,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ✅ LIVE refresca la página 1 cada 12s
   startLive(12000);
+
+  // ✅ refresca render según ancho (desktop/cards)
+  window.addEventListener("resize", () => {
+    // solo fuerza re-render visual si ya hay contenido
+    // (no vuelve a pedir al backend)
+    const cont = document.getElementById("tablaPedidos");
+    if (cont && cont.dataset.lastOrders) {
+      try {
+        const orders = JSON.parse(cont.dataset.lastOrders);
+        actualizarTabla(orders);
+      } catch {}
+    }
+  });
 });
 
 /* =====================================================
@@ -79,32 +89,18 @@ function startLive(ms = 12000) {
   if (liveInterval) clearInterval(liveInterval);
 
   liveInterval = setInterval(() => {
-    // Solo refrescar si:
-    // - liveMode activo
-    // - estás en página 1
-    // - no estás cargando
     if (liveMode && currentPage === 1 && !isLoading) {
-      cargarPedidos({ reset: false, page_info: "" }); // refresca top 50
+      cargarPedidos({ reset: false, page_info: "" });
     }
   }, ms);
 }
 
-function pauseLive() {
-  liveMode = false;
-}
-
-function resumeLiveIfOnFirstPage() {
-  if (currentPage === 1) liveMode = true;
-}
+function pauseLive() { liveMode = false; }
+function resumeLiveIfOnFirstPage() { if (currentPage === 1) liveMode = true; }
 
 /* =====================================================
    HELPERS
 ===================================================== */
-function esImagen(url) {
-  if (!url) return false;
-  return /\.(jpeg|jpg|png|gif|webp|svg)$/i.test(url);
-}
-
 function escapeHtml(str) {
   return String(str ?? "")
     .replaceAll("&", "&amp;")
@@ -126,6 +122,12 @@ function esBadgeHtml(valor) {
 function renderEstado(valor) {
   if (esBadgeHtml(valor)) return String(valor);
   return escapeHtml(valor ?? "-");
+}
+
+function stripHtml(html) {
+  const d = document.createElement("div");
+  d.innerHTML = String(html || "");
+  return d.textContent || "";
 }
 
 /* =====================================================
@@ -179,7 +181,7 @@ function setPaginaUI({ totalPages = null } = {}) {
 }
 
 /* =====================================================
-   RESET a página 1 (FIX: tu código mandaba page=2 aunque reset)
+   RESET a página 1
 ===================================================== */
 function resetToFirstPage({ withFetch = false } = {}) {
   currentPage = 1;
@@ -202,10 +204,8 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
   showLoader();
 
   const base = "/index.php/dashboard/pedidos";
-const fallback = "/index.php/dashboard/filter";
+  const fallback = "/index.php/dashboard/filter";
 
-
-  // ✅ Si reset => forzar página 1 ANTES de construir la URL
   if (reset) {
     currentPage = 1;
     nextPageInfo = null;
@@ -244,6 +244,7 @@ const fallback = "/index.php/dashboard/filter";
 
       actualizarTabla(data.orders || []);
 
+      // total pedidos (si tienes el badge)
       const total = document.getElementById("total-pedidos");
       if (total) total.textContent = (data.total_orders ?? data.count ?? 0);
 
@@ -286,142 +287,55 @@ function actualizarControlesPaginacion() {
 
 function paginaSiguiente() {
   if (!nextPageInfo) return;
-
-  // ✅ al navegar, pausa live
   pauseLive();
-
   currentPage += 1;
   cargarPedidos({ page_info: nextPageInfo });
 }
 
 function paginaAnterior() {
   if (!prevPageInfo || currentPage <= 1) return;
-
   currentPage -= 1;
   cargarPedidos({ page_info: prevPageInfo });
-
-  // ✅ si vuelves a página 1, retoma live
   resumeLiveIfOnFirstPage();
 }
 
 /* =====================================================
-   TABLA (tbody) - FIX colspan (son 8 columnas)
-===================================================== */
-function actualizarTabla(pedidos) {
-  const cont = document.getElementById("tablaPedidos");
-  if (!cont) return;
-
-  cont.innerHTML = "";
-
-  if (!pedidos.length) {
-    cont.innerHTML = `
-      <div class="py-10 text-center text-slate-500">
-        No se encontraron pedidos
-      </div>`;
-    return;
-  }
-
-  cont.innerHTML = pedidos.map((p) => {
-    const id = p.id ?? "";
-
-    return `
-      <div
-        class="grid grid-cols-[110px_95px_120px_150px_140px_150px_140px_60px_160px_140px_90px]
-               gap-2 px-4 py-3 items-center text-[13px] hover:bg-slate-50 transition">
-
-        <!-- PEDIDO -->
-        <div class="font-extrabold text-slate-900 whitespace-nowrap">
-          ${escapeHtml(p.numero)}
-        </div>
-
-        <!-- FECHA -->
-        <div class="text-slate-600 whitespace-nowrap">
-          ${escapeHtml(p.fecha)}
-        </div>
-
-        <!-- CLIENTE -->
-        <div class="font-semibold text-slate-800 ">
-          ${escapeHtml(p.cliente)}
-        </div>
-
-        <!-- TOTAL -->
-        <div class="font-extrabold text-slate-900 whitespace-nowrap">
-          ${escapeHtml(p.total)}
-        </div>
-
-        <!-- ESTADO -->
-        <div>
-          <button onclick="abrirModal(${id})"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border shadow-sm">
-            <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-            <span class="text-[11px] font-extrabold uppercase">
-              ${renderEstado(p.estado)}
-            </span>
-          </button>
-        </div>
-
-        <!-- ÚLTIMO CAMBIO -->
-        <div class="text-xs text-slate-600 truncate">
-          ${stripHtml(renderLastChangeCompact(p)) || "—"}
-        </div>
-
-        <!-- ETIQUETAS -->
-        <div class="truncate">
-          ${renderEtiquetasCompact(p.etiquetas, id)}
-        </div>
-
-        <!-- ARTÍCULOS -->
-        <div class="text-center font-bold">
-          ${p.articulos}
-        </div>
-
-        <!-- ENTREGA -->
-        <div>
-          ${renderEntregaPill(p.estado_envio)}
-        </div>
-
-        <!-- FORMA -->
-        <div class="truncate text-xs">
-          ${escapeHtml(p.forma_envio)}
-        </div>
-
-        <!-- DETALLES -->
-        <div class="text-right">
-          <button onclick="verDetalles(${id})"
-            class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold">
-            Ver →
-          </button>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-function stripHtml(html) {
-  const d = document.createElement("div");
-  d.innerHTML = html || "";
-  return d.textContent || "";
-}
-
-
-
-
-
-
-/* =====================================================
-   ÚLTIMO CAMBIO (COMPACTO)
+   RENDER ÚLTIMO CAMBIO (compacto)
 ===================================================== */
 function renderLastChangeCompact(p) {
   const info = p?.last_status_change;
-  if (!info || !info.changed_at) return `<span class="text-slate-400 text-sm">—</span>`;
+  if (!info || !info.changed_at) return "—";
 
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
+  const ago = timeAgo(info.changed_at);
+
+  // ✅ en desktop: 2 líneas reales, sin HTML raro
   return `
-    <div class="text-xs text-slate-600 leading-tight">
-      <div class="font-bold text-slate-900">${user}</div>
-      <div class="text-slate-500">${escapeHtml(timeAgo(info.changed_at))}</div>
+    <div class="leading-tight">
+      <div class="text-[12px] font-bold text-slate-900 truncate">${user}</div>
+      <div class="text-[11px] text-slate-500">${escapeHtml(ago)}</div>
     </div>
   `;
+}
+
+/* =====================================================
+   TIME AGO
+===================================================== */
+function timeAgo(dtStr) {
+  if (!dtStr) return "";
+  const d = new Date(String(dtStr).replace(" ", "T"));
+  if (isNaN(d)) return "";
+
+  const diff = Date.now() - d.getTime();
+  const sec = Math.floor(diff / 1000);
+  const min = Math.floor(sec / 60);
+  const hr = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+
+  if (day > 0) return `${day}d ${hr % 24}h`;
+  if (hr > 0) return `${hr}h ${min % 60}m`;
+  if (min > 0) return `${min}m`;
+  return `${sec}s`;
 }
 
 /* =====================================================
@@ -457,7 +371,7 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
       <button onclick="${onClick}"
         class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
                bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide
-               hover:shadow-md transition">
+               hover:shadow-md transition whitespace-nowrap">
         Etiquetas <span class="text-blue-700">＋</span>
       </button>`;
   }
@@ -468,7 +382,7 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
       <button onclick="${onClick}"
         class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
                bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide
-               hover:bg-slate-800 transition shadow-sm">
+               hover:bg-slate-800 transition shadow-sm whitespace-nowrap">
         Etiquetas <span class="text-white/80">✎</span>
       </button>
     </div>`;
@@ -482,27 +396,177 @@ function colorEtiqueta(tag) {
 }
 
 /* =====================================================
-   TIME AGO
+   TABLA / GRID + CARDS
 ===================================================== */
-function timeAgo(dtStr) {
-  if (!dtStr) return "";
-  const d = new Date(String(dtStr).replace(" ", "T"));
-  if (isNaN(d)) return "";
+function actualizarTabla(pedidos) {
+  const cont = document.getElementById("tablaPedidos");
+  const cards = document.getElementById("cardsPedidos");
 
-  const diff = Date.now() - d.getTime();
-  const sec = Math.floor(diff / 1000);
-  const min = Math.floor(sec / 60);
-  const hr = Math.floor(min / 60);
-  const day = Math.floor(hr / 24);
+  // guardo para re-render al resize sin volver a pedir
+  if (cont) cont.dataset.lastOrders = JSON.stringify(pedidos || []);
 
-  if (day > 0) return `${day}d ${hr % 24}h`;
-  if (hr > 0) return `${hr}h ${min % 60}m`;
-  if (min > 0) return `${min}m`;
-  return `${sec}s`;
+  // decide modo por ancho
+  const useCards = window.innerWidth <= 1180;
+
+  // ---------- DESKTOP GRID (1 línea) ----------
+  if (cont) {
+    cont.innerHTML = "";
+
+    if (useCards) {
+      // si estamos en modo cards, limpio desktop
+      cont.innerHTML = "";
+    } else {
+      if (!pedidos.length) {
+        cont.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
+      } else {
+        cont.innerHTML = pedidos.map((p) => {
+          const id = p.id ?? "";
+          const etiquetas = p.etiquetas ?? "";
+
+          return `
+          <div class="orders-grid px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
+            <!-- Pedido -->
+            <div class="font-extrabold text-slate-900 whitespace-nowrap">
+              ${escapeHtml(p.numero ?? "-")}
+            </div>
+
+            <!-- Fecha -->
+            <div class="text-slate-600 whitespace-nowrap">
+              ${escapeHtml(p.fecha ?? "-")}
+            </div>
+
+            <!-- Cliente -->
+            <div class="font-semibold text-slate-800 truncate">
+              ${escapeHtml(p.cliente ?? "-")}
+            </div>
+
+            <!-- Total -->
+            <div class="font-extrabold text-slate-900 whitespace-nowrap">
+              ${escapeHtml(p.total ?? "-")}
+            </div>
+
+            <!-- Estado -->
+            <div class="whitespace-nowrap">
+              <button onclick="abrirModal(${id})"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+                <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
+                  ${renderEstado(p.estado ?? "-")}
+                </span>
+              </button>
+            </div>
+
+            <!-- Último cambio -->
+            <div class="min-w-0">
+              ${renderLastChangeCompact(p)}
+            </div>
+
+            <!-- Etiquetas -->
+            <div class="min-w-0">
+              ${renderEtiquetasCompact(etiquetas, id)}
+            </div>
+
+            <!-- Art -->
+            <div class="text-center font-extrabold">
+              ${escapeHtml(p.articulos ?? "-")}
+            </div>
+
+            <!-- Entrega -->
+            <div class="whitespace-nowrap">
+              ${renderEntregaPill(p.estado_envio ?? "-")}
+            </div>
+
+            <!-- Forma -->
+            <div class="text-xs text-slate-700 truncate">
+              ${escapeHtml(p.forma_envio ?? "-")}
+            </div>
+
+            <!-- Ver -->
+            <div class="text-right whitespace-nowrap">
+              <button onclick="verDetalles(${id})"
+                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
+                Ver →
+              </button>
+            </div>
+          </div>`;
+        }).join("");
+      }
+    }
+  }
+
+  // ---------- CARDS (tablet/móvil) ----------
+  if (cards) {
+    cards.innerHTML = "";
+
+    if (!useCards) {
+      // si estamos en modo desktop, limpio cards
+      cards.innerHTML = "";
+      return;
+    }
+
+    if (!pedidos.length) {
+      cards.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
+      return;
+    }
+
+    cards.innerHTML = pedidos.map((p) => {
+      const id = p.id ?? "";
+      const numero = escapeHtml(p.numero ?? "-");
+      const fecha = escapeHtml(p.fecha ?? "-");
+      const cliente = escapeHtml(p.cliente ?? "-");
+      const total = escapeHtml(p.total ?? "-");
+      const etiquetas = p.etiquetas ?? "";
+
+      const last = p?.last_status_change?.changed_at
+        ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(timeAgo(p.last_status_change.changed_at))}`
+        : "—";
+
+      return `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
+          <div class="p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-sm font-extrabold text-slate-900">${numero}</div>
+                <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
+                <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${cliente}</div>
+              </div>
+
+              <div class="text-right whitespace-nowrap">
+                <div class="text-sm font-extrabold text-slate-900">${total}</div>
+              </div>
+            </div>
+
+            <div class="mt-3 flex items-center justify-between gap-3">
+              <button onclick="abrirModal(${id})"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+                <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
+                  ${renderEstado(p.estado ?? "-")}
+                </span>
+              </button>
+
+              <button onclick="verDetalles(${id})"
+                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
+                Ver →
+              </button>
+            </div>
+
+            <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+            <div class="mt-3">${renderEtiquetasCompact(etiquetas, id, true)}</div>
+
+            <div class="mt-3 text-xs text-slate-600 space-y-1">
+              <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
+              <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
+              <div><b>Último cambio:</b> ${last}</div>
+            </div>
+          </div>
+        </div>`;
+    }).join("");
+  }
 }
 
 /* =====================================================
-   MODAL ESTADO (igual que tenías)
+   MODAL ESTADO
 ===================================================== */
 function abrirModal(orderId) {
   const idInput = document.getElementById("modalOrderId");
@@ -534,7 +598,7 @@ async function guardarEstado(nuevoEstado) {
 }
 
 /* =====================================================
-   DETALLES (igual que tenías)
+   DETALLES (tu función real está en otro lado)
 ===================================================== */
 function abrirModalDetalles() {
   document.getElementById("modalDetalles")?.classList.remove("hidden");
@@ -543,39 +607,25 @@ function cerrarModalDetalles() {
   document.getElementById("modalDetalles")?.classList.add("hidden");
 }
 
-// ... tu verDetalles/subirImagenProducto/validarEstadoFinal quedan igual ...
-// (no los repito aquí para no tocar tu lógica)
-
+/* =====================================================
+   USERS STATUS
+===================================================== */
 async function pingUsuario() {
-  try {
-    await fetch("/dashboard/ping", { headers: { Accept: "application/json" } });
-  } catch (e) {}
+  try { await fetch("/dashboard/ping", { headers: { Accept: "application/json" } }); } catch (e) {}
 }
 
 async function cargarUsuariosEstado() {
   try {
     const r = await fetch("/dashboard/usuarios-estado", { headers: { Accept: "application/json" } });
     const d = await r.json().catch(() => null);
-
     if (!d) return;
 
-    // Soporta ok/success
     const ok = d.ok === true || d.success === true;
-
     if (ok) {
-      if (typeof window.renderUsersStatus === "function") {
-        window.renderUsersStatus(d);
-      } else if (typeof window.renderUserStatus === "function") {
-        // por si la función se llama distinto en otro archivo
-        window.renderUserStatus(d);
-      } else {
-        // no romper
-        console.warn("Falta función renderUsersStatus()");
-      }
+      if (typeof window.renderUsersStatus === "function") window.renderUsersStatus(d);
+      else if (typeof window.renderUserStatus === "function") window.renderUserStatus(d);
     }
   } catch (e) {
     console.error("Error usuarios estado:", e);
   }
 }
-
-
