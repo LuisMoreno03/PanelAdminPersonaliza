@@ -30,10 +30,14 @@
     <!-- ENCABEZADO -->
 <h1 style="font-size:28px;font-weight:900;">PLACAS</h1>
 
+<div class="text-sm text-gray-500 mb-2">
+  Placas hoy: <span id="placasHoy">0</span>
+</div>
 
-
-
-
+<!-- BOTONES -->
+<div style="display:flex; gap:10px; margin-bottom:12px;">
+  <button id="btnSeleccionar" class="btn-blue">Seleccionar archivo</button>
+  <button id="btnSubir" class="btn-blue">Subir placa</button>
 </div>
 
 <!-- 🔽 🔽 🔽 AQUÍ VA LO QUE PREGUNTAS 🔽 🔽 🔽 -->
