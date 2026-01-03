@@ -73,56 +73,68 @@
           </div>
         </section>
 
-        <!-- TABLA PEDIDOS -->
+        <!-- PEDIDOS RESPONSIVE SIN SCROLL -->
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div class="px-4 py-3 border-b border-slate-200 font-semibold text-slate-900">
             Listado de pedidos
           </div>
 
-          <table class="w-full table-auto">
-            <thead class="hidden lg:table-header-group text-[11px] uppercase tracking-wider text-slate-600">
-              <tr>
-                <th class="px-4 py-3">Pedido</th>
-                <th class="px-4 py-3">Fecha</th>
-                <th class="px-4 py-3">Cliente</th>
-                <th class="px-4 py-3">Total</th>
-                <th class="px-2 py-3">Estado</th>
-                <th class="px-4 py-3">Último cambio</th>
-                <th class="px-2 py-3">Etiquetas</th>
-                <th class="px-4 py-3">Artículos</th>
-                <th class="px-4 py-3">Estado entrega</th>
-                <th class="px-4 py-3">Forma entrega</th>
-                <th class="px-4 py-3">Detalles</th>
-              </tr>
-            </thead>
+          <!-- ✅ TABLE SOLO EN DESKTOP (lg+) -->
+          <!-- En lg: tabla condensada (sin Último cambio / Forma entrega) -->
+          <!-- En xl: tabla completa -->
+          <div class="hidden lg:block w-full">
+            <table class="w-full table-fixed">
+              <thead class="text-[11px] uppercase tracking-wider text-slate-600">
+                <tr class="border-b border-slate-200 bg-slate-50">
+                  <th class="px-3 py-3 w-[120px]">Pedido</th>
+                  <th class="px-3 py-3 w-[105px]">Fecha</th>
+                  <th class="px-3 py-3 w-[200px]">Cliente</th>
+                  <th class="px-3 py-3 w-[90px]">Total</th>
+                  <th class="px-3 py-3 w-[150px]">Estado</th>
 
-            <tbody id="tablaPedidos"
-                   class="text-slate-800 text-sm divide-y divide-slate-100">
-            </tbody>
-          </table>
+                  <!-- Solo XL -->
+                  <th class="px-3 py-3 w-[140px] hidden xl:table-cell">Último cambio</th>
+
+                  <th class="px-3 py-3 w-[240px]">Etiquetas</th>
+                  <th class="px-3 py-3 w-[90px]">Artículos</th>
+                  <th class="px-3 py-3 w-[170px]">Estado entrega</th>
+
+                  <!-- Solo XL -->
+                  <th class="px-3 py-3 w-[170px] hidden xl:table-cell">Forma entrega</th>
+
+                  <th class="px-3 py-3 w-[110px] text-right">Detalles</th>
+                </tr>
+              </thead>
+
+              <tbody id="tablaPedidos" class="text-slate-800 text-[13px] divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+
+          <!-- ✅ CARDS EN MOVIL/TABLET (sin tabla) -->
+          <div id="cardsPedidos" class="grid grid-cols-1 gap-4 p-4 lg:hidden"></div>
         </section>
 
         <!-- PAGINACIÓN -->
         <section class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <button id="btnAnterior"
                   disabled
-                  class="px-5 py-3 rounded-2xl bg-slate-200 text-slate-700 font-bold opacity-50 cursor-not-allowed">
+                  class="w-full sm:w-auto px-5 py-3 rounded-2xl bg-slate-200 text-slate-700 font-bold opacity-50 cursor-not-allowed">
             ← Anterior
           </button>
 
-          <div class="flex items-center gap-2">
+          <div class="flex items-center justify-center gap-2">
             <span id="pillPagina"
-                  class="px-4 py-2 rounded-2xl bg-white border font-extrabold">
+                  class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
               Página 1
             </span>
             <span id="pillPaginaTotal"
-                  class="px-4 py-2 rounded-2xl bg-slate-50 border font-bold">
+                  class="px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm">
               Página 1
             </span>
           </div>
 
           <button id="btnSiguiente"
-                  class="px-5 py-3 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-700">
+                  class="w-full sm:w-auto px-5 py-3 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-700">
             Siguiente →
           </button>
         </section>
@@ -147,6 +159,7 @@
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
   </script>
 
-  <script src="<?= base_url('js/dashboard.js') ?>"></script>
+  <!-- ✅ Romper caché para que SIEMPRE tome cambios -->
+  <script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>
 </body>
 </html>
