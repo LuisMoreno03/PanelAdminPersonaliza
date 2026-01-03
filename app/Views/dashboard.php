@@ -80,7 +80,7 @@
   </div>
 
   <!-- HEADER VISUAL -->
-  <div class="hidden lg:grid grid-cols-[110px_95px_1.5fr_90px_140px_150px_180px_60px_160px_180px_90px]
+  <div class="hidden lg:grid grid-cols-[110px_95px_2.5fr_90px_140px_150px_180px_60px_160px_180px_90px]
               gap-2 px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
     <div>Pedido</div>
     <div>Fecha</div>
