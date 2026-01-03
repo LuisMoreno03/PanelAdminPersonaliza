@@ -5,6 +5,8 @@
 // - Paginación Shopify REAL (page_info)
 // - Render Desktop: GRID (1 línea) sin scroll horizontal
 // - Render Mobile/Tablet: CARDS
+// - ✅ Estado pedido: cambio LOCAL instantáneo + persistencia backend
+// - ✅ Usuarios: tiempo conectado/desconectado
 // =====================================================
 
 /* =====================================================
@@ -14,6 +16,10 @@ let nextPageInfo = null;
 let prevPageInfo = null;
 let isLoading = false;
 let currentPage = 1;
+
+// ✅ cache local para actualizar estados sin recargar
+let ordersCache = [];              // lista actual
+let ordersById = new Map();        // acceso rápido por id
 
 // ✅ LIVE MODE
 let liveMode = true;
@@ -68,10 +74,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // ✅ LIVE refresca la página 1 cada 12s
   startLive(12000);
 
-  // ✅ refresca render según ancho (desktop/cards)
+  // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
   window.addEventListener("resize", () => {
-    // solo fuerza re-render visual si ya hay contenido
-    // (no vuelve a pedir al backend)
     const cont = document.getElementById("tablaPedidos");
     if (cont && cont.dataset.lastOrders) {
       try {
@@ -232,6 +236,8 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     .then((data) => {
       if (!data || !data.success) {
         actualizarTabla([]);
+        ordersCache = [];
+        ordersById = new Map();
         nextPageInfo = null;
         prevPageInfo = null;
         actualizarControlesPaginacion();
@@ -242,9 +248,12 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       nextPageInfo = data.next_page_info ?? null;
       prevPageInfo = data.prev_page_info ?? null;
 
-      actualizarTabla(data.orders || []);
+      // ✅ cache local (para cambios instantáneos)
+      ordersCache = Array.isArray(data.orders) ? data.orders : [];
+      ordersById = new Map(ordersCache.map(o => [String(o.id), o]));
 
-      // total pedidos (si tienes el badge)
+      actualizarTabla(ordersCache);
+
       const total = document.getElementById("total-pedidos");
       if (total) total.textContent = (data.total_orders ?? data.count ?? 0);
 
@@ -254,6 +263,8 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     .catch((err) => {
       console.error("Error cargando pedidos:", err);
       actualizarTabla([]);
+      ordersCache = [];
+      ordersById = new Map();
       nextPageInfo = null;
       prevPageInfo = null;
       actualizarControlesPaginacion();
@@ -309,7 +320,6 @@ function renderLastChangeCompact(p) {
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
   const ago = timeAgo(info.changed_at);
 
-  // ✅ en desktop: 2 líneas reales, sin HTML raro
   return `
     <div class="leading-tight">
       <div class="text-[12px] font-bold text-slate-900 truncate">${user}</div>
@@ -402,20 +412,14 @@ function actualizarTabla(pedidos) {
   const cont = document.getElementById("tablaPedidos");
   const cards = document.getElementById("cardsPedidos");
 
-  // guardo para re-render al resize sin volver a pedir
   if (cont) cont.dataset.lastOrders = JSON.stringify(pedidos || []);
-
-  // decide modo por ancho
   const useCards = window.innerWidth <= 1180;
 
-  // ---------- DESKTOP GRID (1 línea) ----------
+  // ---------- DESKTOP GRID ----------
   if (cont) {
     cont.innerHTML = "";
 
-    if (useCards) {
-      // si estamos en modo cards, limpio desktop
-      cont.innerHTML = "";
-    } else {
+    if (!useCards) {
       if (!pedidos.length) {
         cont.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
       } else {
@@ -425,27 +429,11 @@ function actualizarTabla(pedidos) {
 
           return `
           <div class="orders-grid px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
-            <!-- Pedido -->
-            <div class="font-extrabold text-slate-900 whitespace-nowrap">
-              ${escapeHtml(p.numero ?? "-")}
-            </div>
+            <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</div>
+            <div class="text-slate-600 whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</div>
+            <div class="font-semibold text-slate-800 truncate">${escapeHtml(p.cliente ?? "-")}</div>
+            <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
 
-            <!-- Fecha -->
-            <div class="text-slate-600 whitespace-nowrap">
-              ${escapeHtml(p.fecha ?? "-")}
-            </div>
-
-            <!-- Cliente -->
-            <div class="font-semibold text-slate-800 truncate">
-              ${escapeHtml(p.cliente ?? "-")}
-            </div>
-
-            <!-- Total -->
-            <div class="font-extrabold text-slate-900 whitespace-nowrap">
-              ${escapeHtml(p.total ?? "-")}
-            </div>
-
-            <!-- Estado -->
             <div class="whitespace-nowrap">
               <button onclick="abrirModal(${id})"
                 class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
@@ -456,32 +444,12 @@ function actualizarTabla(pedidos) {
               </button>
             </div>
 
-            <!-- Último cambio -->
-            <div class="min-w-0">
-              ${renderLastChangeCompact(p)}
-            </div>
+            <div class="min-w-0">${renderLastChangeCompact(p)}</div>
+            <div class="min-w-0">${renderEtiquetasCompact(etiquetas, id)}</div>
+            <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
+            <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+            <div class="text-xs text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
 
-            <!-- Etiquetas -->
-            <div class="min-w-0">
-              ${renderEtiquetasCompact(etiquetas, id)}
-            </div>
-
-            <!-- Art -->
-            <div class="text-center font-extrabold">
-              ${escapeHtml(p.articulos ?? "-")}
-            </div>
-
-            <!-- Entrega -->
-            <div class="whitespace-nowrap">
-              ${renderEntregaPill(p.estado_envio ?? "-")}
-            </div>
-
-            <!-- Forma -->
-            <div class="text-xs text-slate-700 truncate">
-              ${escapeHtml(p.forma_envio ?? "-")}
-            </div>
-
-            <!-- Ver -->
             <div class="text-right whitespace-nowrap">
               <button onclick="verDetalles(${id})"
                 class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
@@ -494,15 +462,11 @@ function actualizarTabla(pedidos) {
     }
   }
 
-  // ---------- CARDS (tablet/móvil) ----------
+  // ---------- CARDS ----------
   if (cards) {
     cards.innerHTML = "";
 
-    if (!useCards) {
-      // si estamos en modo desktop, limpio cards
-      cards.innerHTML = "";
-      return;
-    }
+    if (!useCards) return;
 
     if (!pedidos.length) {
       cards.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
@@ -580,20 +544,58 @@ function cerrarModal() {
   if (modal) modal.classList.add("hidden");
 }
 
+/* =====================================================
+   ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
+===================================================== */
 async function guardarEstado(nuevoEstado) {
-  const id = document.getElementById("modalOrderId")?.value;
+  const id = String(document.getElementById("modalOrderId")?.value || "");
+  if (!id) return;
 
-  const r = await fetch("/api/estado/guardar", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, estado: nuevoEstado }),
-  });
+  const order = ordersById.get(id);
+  const prevEstado = order?.estado ?? null;
+  const prevLast = order?.last_status_change ?? null;
 
-  const d = await r.json().catch(() => null);
+  // 1) Cambia en UI al instante
+  if (order) {
+    order.estado = nuevoEstado;
+    order.last_status_change = {
+      user_name: "Tú",
+      changed_at: new Date().toISOString().slice(0, 19).replace("T", " "),
+    };
+    actualizarTabla(ordersCache);
+  }
 
-  if (d?.success) {
-    cerrarModal();
-    resetToFirstPage({ withFetch: true });
+  cerrarModal();
+
+  // 2) Guarda en backend
+  try {
+    const r = await fetch("/api/estado/guardar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, estado: nuevoEstado }),
+    });
+
+    const d = await r.json().catch(() => null);
+    if (!d?.success) throw new Error(d?.message || "No se pudo guardar");
+
+    // Si backend devuelve el estado real, lo sincronizamos
+    if (d?.order && order) {
+      order.estado = d.order.estado ?? order.estado;
+      order.last_status_change = d.order.last_status_change ?? order.last_status_change;
+      actualizarTabla(ordersCache);
+    }
+
+  } catch (e) {
+    console.error("guardarEstado error:", e);
+
+    // 3) Revertir si falla
+    if (order) {
+      order.estado = prevEstado;
+      order.last_status_change = prevLast;
+      actualizarTabla(ordersCache);
+    }
+
+    alert("No se pudo guardar el estado. Se revirtió el cambio.");
   }
 }
 
@@ -632,6 +634,8 @@ async function cargarUsuariosEstado() {
 
 // =====================================================
 // UI: USUARIOS ONLINE/OFFLINE + TIEMPO CONECTADO/DESCONECTADO
+// - usa seconds_since_seen si existe
+// - fallback: calcula con last_seen
 // =====================================================
 window.renderUsersStatus = function (payload) {
   const onlineEl = document.getElementById("onlineUsers");
@@ -642,8 +646,20 @@ window.renderUsersStatus = function (payload) {
   if (!onlineEl || !offlineEl) return;
 
   const users = payload?.users || [];
-  const online = users.filter((u) => u.online);
-  const offline = users.filter((u) => !u.online);
+
+  // normaliza seconds_since_seen
+  const normalized = users.map(u => {
+    const secs =
+      u.seconds_since_seen != null
+        ? Number(u.seconds_since_seen)
+        : u.last_seen
+          ? Math.max(0, Math.floor((Date.now() - new Date(String(u.last_seen).replace(" ", "T")).getTime()) / 1000))
+          : null;
+    return { ...u, seconds_since_seen: isNaN(secs) ? null : secs };
+  });
+
+  const online = normalized.filter((u) => u.online);
+  const offline = normalized.filter((u) => !u.online);
 
   if (onlineCountEl) onlineCountEl.textContent = String(payload.online_count ?? online.length);
   if (offlineCountEl) offlineCountEl.textContent = String(payload.offline_count ?? offline.length);
@@ -699,4 +715,3 @@ function formatDuration(seconds) {
   if (m > 0) return `${m}m`;
   return `${sec}s`;
 }
-// =====================================================
