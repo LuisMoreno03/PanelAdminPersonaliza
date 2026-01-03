@@ -26,11 +26,25 @@
   <!-- Contenido principal -->
   <div class="flex-1 md:ml-64 p-8">
 
-    <!-- Encabezado -->
      
-    <div class="text-sm text-gray-500 mb-2">
-  Placas hoy: <span id="placasHoy" class="font-semibold">0</span>
+    <!-- ENCABEZADO -->
+<h1 style="font-size:28px;font-weight:900;">PLACAS</h1>
+
+<div class="text-sm text-gray-500 mb-2">
+  Placas hoy: <span id="placasHoy">0</span>
 </div>
+
+<!-- BOTONES -->
+<div style="display:flex; gap:10px; margin-bottom:12px;">
+  <button id="btnSeleccionar" class="btn-blue">Seleccionar archivo</button>
+  <button id="btnSubir" class="btn-blue">Subir placa</button>
+</div>
+
+<!-- 🔽 🔽 🔽 AQUÍ VA LO QUE PREGUNTAS 🔽 🔽 🔽 -->
+<div id="gridPlacas" class="grid gap-3 mt-3"></div>
+<div id="placasMsg" class="text-sm text-gray-500 mt-2"></div>
+<!-- 🔼 🔼 🔼 FIN 🔼 🔼 🔼 -->
+
     
 
      <!-- Buscador -->
@@ -74,13 +88,8 @@
     </div>
   </div>
 
-  <!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PLACAS</title>
 
+  
   <style>
     /* Botón azul estilo "Siguiente" */
     .btn-blue{
@@ -235,197 +244,8 @@ cargarLista();
 setInterval(cargarStats, 10000);
 
 
-</script>
 
-<div id="modalBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999;">
-  <div style="max-width:720px; margin:6vh auto; background:#fff; border-radius:16px; overflow:hidden;">
-    <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee;">
-      <div style="font-weight:900;">Editar placa</div>
-      <button id="modalClose" class="btn-blue">Cerrar</button>
-    </div>
 
-    <div style="padding:16px;">
-      <div id="modalPreview" style="width:100%; height:260px; border:1px solid #eee; border-radius:14px; overflow:hidden; background:#f9fafb;"></div>
-
-      <div style="margin-top:12px;">
-        <div class="text-sm text-gray-600">Nombre</div>
-        <input id="modalNombre" style="width:100%; border:1px solid #e5e7eb; border-radius:12px; padding:10px;" />
-      </div>
-
-      <div style="margin-top:10px;" class="text-sm text-gray-600">
-        Fecha de subida: <span id="modalFecha"></span>
-      </div>
-
-      <div style="display:flex; gap:10px; margin-top:14px; justify-content:flex-end;">
-        <button id="btnGuardarNombre" class="btn-blue">Guardar</button>
-        <button id="btnEliminarArchivo" class="btn-blue" style="background:#ef4444;">Eliminar</button>
-      </div>
-
-      <div id="modalMsg" class="text-sm text-gray-500 mt-2"></div>
-    </div>
-  </div>
-</div>
-</body>
-
-<script>
-const $ = (id) => document.getElementById(id);
-
-let modalItem = null;
-
-// Formatear fecha bonita
-function formatFecha(fechaISO){
-  if (!fechaISO) return '';
-  const d = new Date(fechaISO.replace(' ', 'T')); // "YYYY-MM-DD HH:mm:ss"
-  if (isNaN(d)) return fechaISO;
-  return d.toLocaleString('es-ES', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
-}
-
-function escapeHtml(str) {
-  return (str || '').replace(/[&<>"']/g, s => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[s]));
-}
-
-function renderCard(item){
-  const mime = item.mime || '';
-  const isImg = mime.startsWith('image/');
-  const isPdf = mime.includes('pdf');
-  const fecha = formatFecha(item.created_at);
-
-  const preview = isImg
-    ? `<img src="${item.url}" style="width:100%;height:160px;object-fit:cover;">`
-    : isPdf
-      ? `<iframe src="${item.url}" style="width:100%;height:160px;border:0;"></iframe>`
-      : `<div style="height:160px;display:flex;align-items:center;justify-content:center;">Archivo</div>`;
-
-  return `
-    <div onclick='openModal(${item.id})' style="cursor:pointer;border:1px solid #e5e7eb;border-radius:14px;padding:12px;background:#fff;">
-      <div style="border:1px solid #eee;border-radius:12px;overflow:hidden;background:#f9fafb;">${preview}</div>
-      <div style="font-weight:900;margin-top:10px;">${escapeHtml(item.nombre)}</div>
-      <div style="font-size:12px;color:#6b7280;margin-top:4px;">
-        ${escapeHtml(item.original || '')}<br>
-        <b>Subido:</b> ${escapeHtml(fecha)}
-      </div>
-      <div style="margin-top:10px;">
-        <button class="btn-blue" onclick="event.stopPropagation(); openModal(${item.id})">Modificar</button>
-      </div>
-    </div>
-  `;
-}
-
-async function cargarPlacas(){
-  try{
-    const res = await fetch('/placas/archivos/listar', { cache: 'no-store' });
-    const data = await res.json();
-
-    if (!data.success) throw new Error('Respuesta inválida');
-
-    // Guardamos para modal
-    window.__placas = data.items || [];
-
-    $('gridPlacas').innerHTML =
-      (data.items && data.items.length)
-        ? data.items.map(renderCard).join('')
-        : `<div class="text-sm text-gray-500">Aún no hay placas subidas.</div>`;
-
-    $('placasMsg').textContent = '';
-  }catch(e){
-    $('gridPlacas').innerHTML = '';
-    $('placasMsg').textContent = 'Error cargando archivos';
-  }
-}
-
-async function cargarStats(){
-  try{
-    const res = await fetch('/placas/archivos/stats', { cache: 'no-store' });
-    const data = await res.json();
-    if (data.success) {
-      // si tienes un span de "Placas hoy" en tu UI:
-      const el = document.getElementById('placasHoy');
-      if (el) el.textContent = data.totalHoy;
-    }
-  }catch(e){}
-}
-
-// ===== Modal =====
-function openModal(id){
-  const item = (window.__placas || []).find(x => Number(x.id) === Number(id));
-  if (!item) return;
-
-  modalItem = item;
-
-  // Preview
-  const mime = item.mime || '';
-  const isImg = mime.startsWith('image/');
-  const isPdf = mime.includes('pdf');
-
-  $('modalPreview').innerHTML = isImg
-    ? `<img src="${item.url}" style="width:100%;height:100%;object-fit:contain;">`
-    : isPdf
-      ? `<iframe src="${item.url}" style="width:100%;height:100%;border:0;"></iframe>`
-      : `<div style="height:100%;display:flex;align-items:center;justify-content:center;">Archivo</div>`;
-
-  $('modalNombre').value = item.nombre || '';
-  $('modalFecha').textContent = formatFecha(item.created_at);
-  $('modalMsg').textContent = '';
-
-  $('modalBackdrop').style.display = 'block';
-}
-
-function closeModal(){
-  $('modalBackdrop').style.display = 'none';
-  modalItem = null;
-}
-
-$('modalClose').addEventListener('click', closeModal);
-$('modalBackdrop').addEventListener('click', (e) => { if (e.target.id === 'modalBackdrop') closeModal(); });
-
-$('btnGuardarNombre').addEventListener('click', async () => {
-  if (!modalItem) return;
-  const nuevo = $('modalNombre').value.trim();
-  if (!nuevo) { $('modalMsg').textContent = 'El nombre no puede estar vacío.'; return; }
-
-  const fd = new FormData();
-  fd.append('id', modalItem.id);
-  fd.append('nombre', nuevo);
-
-  const res = await fetch('/placas/archivos/renombrar', { method:'POST', body: fd });
-  const data = await res.json();
-  $('modalMsg').textContent = data.message || (data.success ? 'Guardado' : 'Error');
-
-  if (data.success){
-    await cargarPlacas(); // tiempo real
-  }
-});
-
-$('btnEliminarArchivo').addEventListener('click', async () => {
-  if (!modalItem) return;
-  if (!confirm('¿Eliminar esta placa?')) return;
-
-  const fd = new FormData();
-  fd.append('id', modalItem.id);
-
-  const res = await fetch('/placas/archivos/eliminar', { method:'POST', body: fd });
-  const data = await res.json();
-  $('modalMsg').textContent = data.message || (data.success ? 'Eliminado' : 'Error');
-
-  if (data.success){
-    closeModal();
-    await cargarPlacas();
-    await cargarStats();
-  }
-});
-
-// ===== “Tiempo real” =====
-// 1) carga inicial
-cargarPlacas();
-cargarStats();
-
-// 2) refresco automático (si alguien más sube en otra PC)
-setInterval(() => {
-  cargarStats();
-  cargarPlacas();
-}, 15000); // cada 15s
 </script>
 
 </body>
