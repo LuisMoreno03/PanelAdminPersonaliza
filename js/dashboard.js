@@ -340,7 +340,7 @@ function actualizarTabla(pedidos) {
         </div>
 
         <!-- CLIENTE -->
-        <div class="font-semibold text-slate-800  whitespace-nowrap">
+        <div class="font-semibold text-slate-800 ">
           ${escapeHtml(p.cliente)}
         </div>
 
