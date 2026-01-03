@@ -629,3 +629,74 @@ async function cargarUsuariosEstado() {
     console.error("Error usuarios estado:", e);
   }
 }
+
+// =====================================================
+// UI: USUARIOS ONLINE/OFFLINE + TIEMPO CONECTADO/DESCONECTADO
+// =====================================================
+window.renderUsersStatus = function (payload) {
+  const onlineEl = document.getElementById("onlineUsers");
+  const offlineEl = document.getElementById("offlineUsers");
+  const onlineCountEl = document.getElementById("onlineCount");
+  const offlineCountEl = document.getElementById("offlineCount");
+
+  if (!onlineEl || !offlineEl) return;
+
+  const users = payload?.users || [];
+  const online = users.filter((u) => u.online);
+  const offline = users.filter((u) => !u.online);
+
+  if (onlineCountEl) onlineCountEl.textContent = String(payload.online_count ?? online.length);
+  if (offlineCountEl) offlineCountEl.textContent = String(payload.offline_count ?? offline.length);
+
+  onlineEl.innerHTML = online.length
+    ? online.map(renderUserRow("online")).join("")
+    : `<li class="text-sm text-emerald-800/80">No hay usuarios conectados</li>`;
+
+  offlineEl.innerHTML = offline.length
+    ? offline.map(renderUserRow("offline")).join("")
+    : `<li class="text-sm text-rose-800/80">No hay usuarios desconectados</li>`;
+};
+
+function renderUserRow(mode) {
+  return (u) => {
+    const nombre = escapeHtml(u.nombre ?? "—");
+    const role = escapeHtml(u.role ?? "");
+    const since = formatDuration(u.seconds_since_seen);
+
+    const badge =
+      mode === "online"
+        ? `<span class="px-3 py-1 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-200 whitespace-nowrap">
+            Conectado · ${since}
+          </span>`
+        : `<span class="px-3 py-1 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-900 border border-rose-200 whitespace-nowrap">
+            Desconectado · ${since}
+          </span>`;
+
+    return `
+      <li class="flex items-center justify-between gap-3 p-3 rounded-2xl border ${mode === "online" ? "border-emerald-200 bg-white/70" : "border-rose-200 bg-white/70"}">
+        <div class="min-w-0">
+          <div class="font-extrabold text-slate-900 truncate">${nombre}</div>
+          <div class="text-xs text-slate-500 truncate">${role ? role : "—"}</div>
+        </div>
+        ${badge}
+      </li>
+    `;
+  };
+}
+
+// "seconds_since_seen" → "5s", "3m", "2h 10m", "1d 3h"
+function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined) return "—";
+
+  const s = Math.max(0, Number(seconds));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${sec}s`;
+}
+// =====================================================
