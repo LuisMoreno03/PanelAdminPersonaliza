@@ -80,14 +80,6 @@
               <h1 class="text-3xl font-extrabold text-slate-900">Pedidos</h1>
               <p class="text-slate-500 mt-1">Estados, etiquetas, últimos cambios y detalles</p>
             </div>
-
-            <!-- ✅ Botón colapsar menú (usa la función del menú) -->
-            <button
-              onclick="window.setMenuCollapsed && window.setMenuCollapsed(!(localStorage.getItem('menuCollapsed')==='1'))"
-              class="hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-2xl border border-slate-200 bg-white shadow-sm
-                     text-slate-800 font-bold text-sm hover:bg-slate-50 transition">
-              ☰ Menú
-            </button>
           </div>
         </section>
 
