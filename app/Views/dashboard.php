@@ -21,63 +21,45 @@
     .soft-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
     .soft-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
 
-    /* ✅ GRID columnas: se adapta sin scroll (clamp) */
-    .orders-grid {
-      display: grid;
-      gap: .5rem;
-      align-items: center;
-      grid-template-columns:
-        110px  /* Pedido */
-        95px   /* Fecha */
-        minmax(150px, 1.6fr) /* Cliente */
-        90px   /* Total */
-        138px  /* Estado */
-        minmax(120px, 1fr)   /* Último cambio */
-        minmax(170px, 1.2fr) /* Etiquetas */
-        54px   /* Art */
-        150px  /* Entrega */
-        minmax(150px, 1fr)   /* Forma */
-        84px;  /* Ver */
-    }
-
-    /* ✅ En pantallas "normales" (laptop) compacta más */
-    @media (max-width: 1400px) {
-      .orders-grid {
-        grid-template-columns:
-          100px
-          90px
-          minmax(140px, 1.3fr)
-          86px
-          132px
-          minmax(110px, .9fr)
-          minmax(160px, 1.1fr)
-          50px
-          140px
-          minmax(130px, .9fr)
-          78px;
-      }
-    }
-
-    /* ✅ Si baja a < 1180px, cambiamos a cards (sin tabla) */
-    @media (max-width: 1180px) {
-      .desktop-orders { display: none !important; }
-      .mobile-orders { display: block !important; }
-    }
-    @media (min-width: 1181px) {
-      .desktop-orders { display: block !important; }
-      .mobile-orders { display: none !important; }
-    }
-
-    /* ✅ Layout con menú colapsable */
+    /* ✅ Layout con menú */
     .layout {
       transition: padding-left .2s ease;
-      padding-left: 16rem; /* 256px expanded */
+      padding-left: 16rem; /* 256px (md:w-64) */
     }
     .layout.menu-collapsed {
-      padding-left: 5.25rem; /* 84px collapsed */
+      padding-left: 5.25rem; /* 84px colapsado */
     }
     @media (max-width: 768px) {
       .layout, .layout.menu-collapsed { padding-left: 0 !important; }
+    }
+
+    /* ✅ Grid sin scroll para filas desktop (se adapta a ancho real) */
+    .orders-grid {
+      display: grid;
+      align-items: center;
+      gap: .5rem;
+      grid-template-columns:
+        95px                         /* Pedido */
+        85px                         /* Fecha */
+        clamp(140px, 18vw, 220px)    /* Cliente */
+        78px                         /* Total */
+        128px                        /* Estado */
+        clamp(90px, 12vw, 140px)     /* Último cambio */
+        clamp(130px, 16vw, 200px)    /* Etiquetas */
+        42px                         /* Art */
+        128px                        /* Entrega */
+        clamp(120px, 14vw, 180px)    /* Forma */
+        70px;                        /* Ver */
+    }
+
+    /* ✅ Cuando el ancho baja demasiado, pasamos a cards */
+    @media (max-width: 1180px) {
+      .desktop-orders { display: none !important; }
+      .mobile-orders  { display: block !important; }
+    }
+    @media (min-width: 1181px) {
+      .desktop-orders { display: block !important; }
+      .mobile-orders  { display: none !important; }
     }
   </style>
 </head>
@@ -87,10 +69,9 @@
   <!-- MENU -->
   <?= view('layouts/menu') ?>
 
-  <!-- ✅ MAIN con soporte colapso -->
   <main id="mainLayout" class="layout">
     <div class="p-4 sm:p-6 lg:p-8">
-      <div class="mx-auto w-full max-w-[1400px]">
+      <div class="mx-auto w-full max-w-[1600px]">
 
         <!-- HEADER -->
         <section class="mb-6">
@@ -100,8 +81,9 @@
               <p class="text-slate-500 mt-1">Estados, etiquetas, últimos cambios y detalles</p>
             </div>
 
-            <!-- ✅ Botón colapsar menú (si tu menú no lo trae) -->
-            <button id="btnToggleMenu"
+            <!-- ✅ Botón colapsar menú (usa la función del menú) -->
+            <button
+              onclick="window.setMenuCollapsed && window.setMenuCollapsed(!(localStorage.getItem('menuCollapsed')==='1'))"
               class="hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-2xl border border-slate-200 bg-white shadow-sm
                      text-slate-800 font-bold text-sm hover:bg-slate-50 transition">
               ☰ Menú
@@ -136,13 +118,13 @@
 
         <!-- PEDIDOS -->
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div class="px-4 py-3 border-b border-slate-200 font-semibold text-slate-900">
-            Listado de pedidos
+          <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+            <div class="font-semibold text-slate-900">Listado de pedidos</div>
+            <div class="text-xs text-slate-500 hidden sm:block">Sin scroll horizontal · filas en una sola línea</div>
           </div>
 
-          <!-- ✅ DESKTOP: una sola línea (sin scroll) -->
+          <!-- DESKTOP GRID -->
           <div class="desktop-orders">
-            <!-- HEADER GRID -->
             <div class="orders-grid px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
               <div>Pedido</div>
               <div>Fecha</div>
@@ -157,11 +139,10 @@
               <div class="text-right">Ver</div>
             </div>
 
-            <!-- ROWS -->
             <div id="tablaPedidos" class="divide-y"></div>
           </div>
 
-          <!-- ✅ MOBILE/TABLET: cards -->
+          <!-- MOBILE/TABLET CARDS -->
           <div id="cardsPedidos" class="mobile-orders p-4"></div>
         </section>
 
@@ -174,12 +155,10 @@
           </button>
 
           <div class="flex items-center gap-2">
-            <span id="pillPagina"
-                  class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
+            <span id="pillPagina" class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
               Página 1
             </span>
-            <span id="pillPaginaTotal"
-                  class="px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm">
+            <span id="pillPaginaTotal" class="px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm">
               Página 1
             </span>
           </div>
@@ -198,8 +177,7 @@
   <?= view('layouts/modales_estados', ['etiquetasPredeterminadas' => $etiquetasPredeterminadas]) ?>
 
   <!-- LOADER -->
-  <div id="globalLoader"
-       class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+  <div id="globalLoader" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
     <div class="bg-white p-6 rounded-3xl shadow-xl text-center animate-fadeIn">
       <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
       <p class="mt-3 font-semibold">Cargando...</p>
@@ -210,41 +188,25 @@
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
   </script>
 
-  <!-- ✅ Romper caché -->
+  <!-- ✅ romper caché -->
   <script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>
 
-  <!-- ✅ Toggle menú (sin depender de tu view menu) -->
+  <!-- ✅ aplicar colapso si está guardado -->
   <script>
     (function () {
       const main = document.getElementById('mainLayout');
-      const btn = document.getElementById('btnToggleMenu');
+      if (!main) return;
 
-      function apply(state) {
-        if (!main) return;
-        if (state) main.classList.add('menu-collapsed');
-        else main.classList.remove('menu-collapsed');
-      }
+      const collapsed = localStorage.getItem('menuCollapsed') === '1';
+      main.classList.toggle('menu-collapsed', collapsed);
 
-      const saved = localStorage.getItem('menuCollapsed') === '1';
-      apply(saved);
-
-      if (btn) {
-        btn.addEventListener('click', () => {
-          const next = !main.classList.contains('menu-collapsed');
-          apply(next);
-          localStorage.setItem('menuCollapsed', next ? '1' : '0');
-          window.dispatchEvent(new Event('resize')); // recalcula layouts
-        });
-      }
-
-      // Si tu menú lateral tiene un botón propio, puedes disparar:
-      // localStorage.setItem('menuCollapsed','1/0') y llamar apply(...)
       window.setMenuCollapsed = function (v) {
-        apply(!!v);
+        main.classList.toggle('menu-collapsed', !!v);
         localStorage.setItem('menuCollapsed', v ? '1' : '0');
         window.dispatchEvent(new Event('resize'));
       };
     })();
   </script>
+
 </body>
 </html>
