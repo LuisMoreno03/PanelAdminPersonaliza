@@ -38,8 +38,11 @@
   <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-5 border-b border-gray-200">
     <div>
       <h1 class="text-2xl md:text-3xl font-bold text-gray-900">Placas</h1>
-      <p class="text-sm text-gray-500 mt-1">
-        Placas montadas: <span id="total-pedidos" class="font-semibold text-gray-800">0</span>
+      
+       <!-- CONTADOR DIARIO -->
+<div class="text-sm text-gray-500 mb-2">
+  Placas hoy: <span id="placasHoy" class="font-semibold">0</span>
+</div>
       </p>
     </div>
 
