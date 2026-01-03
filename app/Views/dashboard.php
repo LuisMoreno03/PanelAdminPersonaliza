@@ -73,36 +73,32 @@
           </div>
         </section>
 
-        <!-- PEDIDOS RESPONSIVE SIN SCROLL -->
-       <!-- PEDIDOS RESPONSIVE SIN SCROLL -->
+        <!-- LISTADO PEDIDOS – GRID ROWS -->
 <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
   <div class="px-4 py-3 border-b border-slate-200 font-semibold text-slate-900">
     Listado de pedidos
   </div>
 
-  <!-- ✅ TABLA (lg+) - 8 columnas reales (sin scroll) -->
-  <div class="hidden lg:block w-full">
-    <table class="w-full table-fixed">
-      <thead class="text-[11px] uppercase tracking-wider text-slate-600">
-        <tr class="border-b border-slate-200 bg-slate-50">
-          <th class="px-3 py-3 w-[120px]">Pedido</th>
-          <th class="px-3 py-3 w-[105px]">Fecha</th>
-          <th class="px-3 py-3 w-[210px]">Cliente</th>
-          <th class="px-3 py-3 w-[95px]">Total</th>
-          <th class="px-3 py-3 w-[150px]">Estado</th>
-          <th class="px-3 py-3 w-[220px]">Etiquetas</th>
-          <th class="px-3 py-3 w-[150px]">Entrega</th>
-          <th class="px-3 py-3 w-[110px] text-right">Detalles</th>
-        </tr>
-      </thead>
-
-      <tbody id="tablaPedidos" class="text-slate-800 text-[13px] divide-y divide-slate-100"></tbody>
-    </table>
+  <!-- HEADER VISUAL -->
+  <div class="hidden lg:grid grid-cols-[110px_95px_1.5fr_90px_140px_150px_180px_60px_160px_180px_90px]
+              gap-2 px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
+    <div>Pedido</div>
+    <div>Fecha</div>
+    <div>Cliente</div>
+    <div>Total</div>
+    <div>Estado</div>
+    <div>Último cambio</div>
+    <div>Etiquetas</div>
+    <div>Art.</div>
+    <div>Entrega</div>
+    <div>Forma</div>
+    <div class="text-right">Detalles</div>
   </div>
 
-  <!-- ✅ CARDS (móvil/tablet) -->
-  <div id="cardsPedidos" class="grid grid-cols-1 gap-4 p-4 lg:hidden"></div>
+  <!-- ROWS -->
+  <div id="tablaPedidos" class="divide-y"></div>
 </section>
+
 
 
         <!-- PAGINACIÓN -->
