@@ -308,135 +308,105 @@ function paginaAnterior() {
    TABLA (tbody) - FIX colspan (son 8 columnas)
 ===================================================== */
 function actualizarTabla(pedidos) {
-  const tbody = document.getElementById("tablaPedidos");
-  const cards = document.getElementById("cardsPedidos");
+  const cont = document.getElementById("tablaPedidos");
+  if (!cont) return;
 
-  // DESKTOP TABLE
-  if (tbody) {
-    tbody.innerHTML = "";
+  cont.innerHTML = "";
 
-    if (!pedidos.length) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="8" class="py-10 text-center text-slate-500">
-            No se encontraron pedidos
-          </td>
-        </tr>`;
-    } else {
-      tbody.innerHTML = pedidos.map((p) => {
-        const id = p.id ?? "";
-        const etiquetas = p.etiquetas ?? "";
-
-        return `
-          <tr class="border-b border-slate-100 hover:bg-slate-50/60 transition">
-            <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">
-              ${escapeHtml(p.numero ?? "-")}
-            </td>
-
-            <td class="py-4 px-3">
-              <button onclick="abrirModal(${id})"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm
-                       hover:shadow-md hover:border-slate-300 transition">
-                <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-                <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
-                  ${renderEstado(p.estado ?? "-")}
-                </span>
-              </button>
-            </td>
-
-            <td class="py-4 px-4 hidden xl:table-cell" data-lastchange="${id}">
-              ${renderLastChangeCompact(p)}
-            </td>
-
-            <td class="py-4 px-4">
-              ${renderEtiquetasCompact(etiquetas, id)}
-            </td>
-
-            <td class="py-4 px-4 hidden lg:table-cell">
-              <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-extrabold
-                           bg-slate-50 border border-slate-200 text-slate-800 whitespace-nowrap">
-                ${escapeHtml(p.articulos ?? "-")}
-              </span>
-            </td>
-
-            <td class="py-4 px-4">
-              ${renderEntregaPill(p.estado_envio ?? "-")}
-            </td>
-
-            <td class="py-4 px-4 hidden xl:table-cell">
-              <span class="inline-flex items-center px-3 py-2 rounded-2xl bg-slate-50 border border-slate-200
-                           text-[11px] font-extrabold uppercase tracking-wide text-slate-800 whitespace-nowrap">
-                ${escapeHtml(p.forma_envio ?? "-")}
-              </span>
-            </td>
-
-            <td class="py-4 px-4 text-right whitespace-nowrap">
-              <button onclick="verDetalles(${id})"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-blue-600 text-white
-                       text-[11px] font-extrabold uppercase tracking-wide shadow-sm
-                       hover:bg-blue-700 transition">
-                Ver <span class="text-white/90">→</span>
-              </button>
-            </td>
-          </tr>`;
-      }).join("");
-    }
+  if (!pedidos.length) {
+    cont.innerHTML = `
+      <div class="py-10 text-center text-slate-500">
+        No se encontraron pedidos
+      </div>`;
+    return;
   }
 
-  // MOBILE CARDS
-  if (cards) {
-    cards.innerHTML = "";
+  cont.innerHTML = pedidos.map((p) => {
+    const id = p.id ?? "";
 
-    if (!pedidos.length) {
-      cards.innerHTML = `<div class="py-10 text-center text-slate-500">No se encontraron pedidos</div>`;
-      return;
-    }
+    return `
+      <div
+        class="grid grid-cols-[110px_95px_120px_150px_140px_150px_140px_60px_160px_140px_90px]
+               gap-2 px-4 py-3 items-center text-[13px] hover:bg-slate-50 transition">
 
-    cards.innerHTML = pedidos.map((p) => {
-      const id = p.id ?? "";
-      const numero = escapeHtml(p.numero ?? "-");
-      const fecha = escapeHtml(p.fecha ?? "-");
-      const cliente = escapeHtml(p.cliente ?? "-");
-      const total = escapeHtml(p.total ?? "-");
-      const etiquetas = p.etiquetas ?? "";
+        <!-- PEDIDO -->
+        <div class="font-extrabold text-slate-900 whitespace-nowrap">
+          ${escapeHtml(p.numero)}
+        </div>
 
-      return `
-        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div class="p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="text-sm font-extrabold text-slate-900">${numero}</div>
-                <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
-                <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${cliente}</div>
-              </div>
+        <!-- FECHA -->
+        <div class="text-slate-600 whitespace-nowrap">
+          ${escapeHtml(p.fecha)}
+        </div>
 
-              <div class="text-right whitespace-nowrap">
-                <div class="text-sm font-extrabold text-slate-900">${total}</div>
-              </div>
-            </div>
+        <!-- CLIENTE -->
+        <div class="font-semibold text-slate-800 ">
+          ${escapeHtml(p.cliente)}
+        </div>
 
-            <div class="mt-3 flex items-center justify-between gap-3">
-              <button onclick="abrirModal(${id})"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-                <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
-                  ${renderEstado(p.estado ?? "-")}
-                </span>
-              </button>
+        <!-- TOTAL -->
+        <div class="font-extrabold text-slate-900 whitespace-nowrap">
+          ${escapeHtml(p.total)}
+        </div>
 
-              <button onclick="verDetalles(${id})"
-                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
-                Ver →
-              </button>
-            </div>
+        <!-- ESTADO -->
+        <div>
+          <button onclick="abrirModal(${id})"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border shadow-sm">
+            <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+            <span class="text-[11px] font-extrabold uppercase">
+              ${renderEstado(p.estado)}
+            </span>
+          </button>
+        </div>
 
-            <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-            <div class="mt-3">${renderEtiquetasCompact(etiquetas, id, true)}</div>
-          </div>
-        </div>`;
-    }).join("");
-  }
+        <!-- ÚLTIMO CAMBIO -->
+        <div class="text-xs text-slate-600 truncate">
+          ${stripHtml(renderLastChangeCompact(p)) || "—"}
+        </div>
+
+        <!-- ETIQUETAS -->
+        <div class="truncate">
+          ${renderEtiquetasCompact(p.etiquetas, id)}
+        </div>
+
+        <!-- ARTÍCULOS -->
+        <div class="text-center font-bold">
+          ${p.articulos}
+        </div>
+
+        <!-- ENTREGA -->
+        <div>
+          ${renderEntregaPill(p.estado_envio)}
+        </div>
+
+        <!-- FORMA -->
+        <div class="truncate text-xs">
+          ${escapeHtml(p.forma_envio)}
+        </div>
+
+        <!-- DETALLES -->
+        <div class="text-right">
+          <button onclick="verDetalles(${id})"
+            class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold">
+            Ver →
+          </button>
+        </div>
+      </div>
+    `;
+  }).join("");
 }
+
+function stripHtml(html) {
+  const d = document.createElement("div");
+  d.innerHTML = html || "";
+  return d.textContent || "";
+}
+
+
+
+
+
 
 /* =====================================================
    ÚLTIMO CAMBIO (COMPACTO)

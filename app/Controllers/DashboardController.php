@@ -13,58 +13,45 @@ class DashboardController extends Controller
     // ============================================================
     // GENERAR ETIQUETAS SEGÚN ROL Y USUARIO
     // ============================================================
-    private function getEtiquetasUsuario()
-    {
-        $db = \Config\Database::connect();
-        $session = session();
+    private function getEtiquetasUsuario(): array
+{
+    $db = \Config\Database::connect();
+    $session = session();
 
-        $userId = $session->get('user_id');
+    $userId = $session->get('user_id');
+    if (!$userId) return ["General"];
 
-        if (!$userId) {
-            return ["Sin usuario"];
-        }
+    $usuario = $db->table('users')->where('id', $userId)->get()->getRow();
+    if (!$usuario) return ["General"];
 
-        $usuario = $db->table('users')->where('id', $userId)->get()->getRow();
-        if (!$usuario) {
-            return ["Sin usuario"];
-        }
+    $nombre = ucfirst((string) $usuario->nombre);
+    $rol = strtolower((string) $usuario->role);
 
-        $nombre = ucfirst($usuario->nombre);
-        $rol = strtolower($usuario->role);
+    if ($rol === "confirmacion") return ["D.$nombre"];
+    if ($rol === "produccion") return ["D.$nombre", "P.$nombre"];
 
-        if ($rol === "confirmacion") {
-            return ["D.$nombre"];
-        }
+    if ($rol === "admin") {
+        $usuarios = $db->table('users')->get()->getResult();
+        $etiquetas = [];
 
-        if ($rol === "produccion") {
-            return [
-                "D.$nombre",
-                "P.$nombre"
-            ];
-        }
+        foreach ($usuarios as $u) {
+            $nombreU = ucfirst((string) $u->nombre);
+            $rolU = strtolower((string) $u->role);
 
-        if ($rol === "admin") {
-            $usuarios = $db->table('users')->get()->getResult();
-            $etiquetas = [];
-
-            foreach ($usuarios as $u) {
-                $nombreU = ucfirst($u->nombre);
-                $rolU = strtolower($u->role);
-
-                if ($rolU === "confirmacion") {
-                    $etiquetas[] = "D.$nombreU";
-                }
-                if ($rolU === "produccion") {
-                    $etiquetas[] = "D.$nombreU";
-                    $etiquetas[] = "P.$nombreU";
-                }
+            if ($rolU === "confirmacion") {
+                $etiquetas[] = "D.$nombreU";
+            } elseif ($rolU === "produccion") {
+                $etiquetas[] = "D.$nombreU";
+                $etiquetas[] = "P.$nombreU";
             }
-
-            return $etiquetas;
         }
 
-        return ["General"];
+        return array_values(array_unique($etiquetas));
     }
+
+    return ["General"];
+}
+
 
 
     // ============================================================
