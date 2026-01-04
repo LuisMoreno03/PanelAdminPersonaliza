@@ -5,8 +5,10 @@
 // - Paginación Shopify REAL (page_info)
 // - Render Desktop: GRID (1 línea) sin scroll horizontal
 // - Render Mobile/Tablet: CARDS
-// - ✅ Estado pedido: cambio LOCAL instantáneo + persistencia backend
+// - ✅ Estado pedido: cambio LOCAL instantáneo + persistencia backend + revert
 // - ✅ Usuarios: tiempo conectado/desconectado
+// - ✅ FIX CSRF: envía token si existe meta csrf-token/csrf-header
+// - ✅ FIX rutas: usa /index.php si existe (fallback automático)
 // =====================================================
 
 /* =====================================================
@@ -18,8 +20,8 @@ let isLoading = false;
 let currentPage = 1;
 
 // ✅ cache local para actualizar estados sin recargar
-let ordersCache = [];              // lista actual
-let ordersById = new Map();        // acceso rápido por id
+let ordersCache = [];
+let ordersById = new Map();
 
 // ✅ LIVE MODE
 let liveMode = true;
@@ -27,6 +29,34 @@ let liveInterval = null;
 
 let userPingInterval = null;
 let userStatusInterval = null;
+
+/* =====================================================
+   CONFIG / HELPERS DE RUTAS
+===================================================== */
+function hasIndexPhp() {
+  return window.location.pathname.includes("/index.php/");
+}
+
+function apiUrl(path) {
+  // path ejemplo: "/api/estado/guardar" o "/dashboard/pedidos"
+  if (!path.startsWith("/")) path = "/" + path;
+  if (hasIndexPhp()) {
+    // si ya estás en /index.php/... mantén consistencia
+    return "/index.php" + path;
+  }
+  return path;
+}
+
+function jsonHeaders() {
+  const headers = { "Content-Type": "application/json", Accept: "application/json" };
+
+  // ✅ CSRF (si existe en tu HTML)
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+  const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
+  if (csrfToken) headers[csrfHeader] = csrfToken;
+
+  return headers;
+}
 
 /* =====================================================
    Loader global
@@ -80,7 +110,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (cont && cont.dataset.lastOrders) {
       try {
         const orders = JSON.parse(cont.dataset.lastOrders);
-        actualizarTabla(orders);
+        actualizarTabla(Array.isArray(orders) ? orders : []);
       } catch {}
     }
   });
@@ -99,8 +129,12 @@ function startLive(ms = 12000) {
   }, ms);
 }
 
-function pauseLive() { liveMode = false; }
-function resumeLiveIfOnFirstPage() { if (currentPage === 1) liveMode = true; }
+function pauseLive() {
+  liveMode = false;
+}
+function resumeLiveIfOnFirstPage() {
+  if (currentPage === 1) liveMode = true;
+}
 
 /* =====================================================
    HELPERS
@@ -207,8 +241,8 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
   isLoading = true;
   showLoader();
 
-  const base = "/index.php/dashboard/pedidos";
-  const fallback = "/index.php/dashboard/filter";
+  const base = apiUrl("/dashboard/pedidos");
+  const fallback = apiUrl("/dashboard/filter");
 
   if (reset) {
     currentPage = 1;
@@ -250,12 +284,12 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
       // ✅ cache local (para cambios instantáneos)
       ordersCache = Array.isArray(data.orders) ? data.orders : [];
-      ordersById = new Map(ordersCache.map(o => [String(o.id), o]));
+      ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
 
       actualizarTabla(ordersCache);
 
       const total = document.getElementById("total-pedidos");
-      if (total) total.textContent = (data.total_orders ?? data.count ?? 0);
+      if (total) total.textContent = String(data.total_orders ?? data.count ?? 0);
 
       setPaginaUI({ totalPages: data.total_pages ?? null });
       actualizarControlesPaginacion();
@@ -318,15 +352,18 @@ function renderLastChangeCompact(p) {
   if (!info || !info.changed_at) return "—";
 
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
+  const exact = formatDateTime(info.changed_at);
   const ago = timeAgo(info.changed_at);
 
   return `
-    <div class="leading-tight">
-      <div class="text-[12px] font-bold text-slate-900 truncate">${user}</div>
-      <div class="text-[11px] text-slate-500">${escapeHtml(ago)}</div>
+    <div class="leading-tight min-w-0">
+      <div class="text-[12px] font-extrabold text-slate-900 truncate">${user}</div>
+      <div class="text-[11px] text-slate-600 whitespace-nowrap">${escapeHtml(exact)}</div>
+      <div class="text-[11px] text-slate-500 whitespace-nowrap">${escapeHtml(ago)}</div>
     </div>
   `;
 }
+
 
 /* =====================================================
    TIME AGO
@@ -359,22 +396,26 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
   const visibles = list.slice(0, max);
   const rest = list.length - visibles.length;
 
-  const pills = visibles.map((tag) => {
-    const cls = colorEtiqueta(tag);
-    return `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${cls}">
-      ${escapeHtml(tag)}
-    </span>`;
-  }).join("");
+  const pills = visibles
+    .map((tag) => {
+      const cls = colorEtiqueta(tag);
+      return `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${cls}">
+        ${escapeHtml(tag)}
+      </span>`;
+    })
+    .join("");
 
-  const more = rest > 0
-    ? `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border bg-white border-slate-200 text-slate-700">
-      +${rest}
-    </span>`
-    : "";
+  const more =
+    rest > 0
+      ? `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border bg-white border-slate-200 text-slate-700">
+        +${rest}
+      </span>`
+      : "";
 
-  const onClick = typeof window.abrirModalEtiquetas === "function"
-    ? `abrirModalEtiquetas(${orderId}, '${escapeJsString(raw)}')`
-    : `alert('Falta implementar abrirModalEtiquetas()');`;
+  const onClick =
+    typeof window.abrirModalEtiquetas === "function"
+      ? `abrirModalEtiquetas(${orderId}, '${escapeJsString(raw)}')`
+      : `alert('Falta implementar abrirModalEtiquetas()');`;
 
   if (!list.length) {
     return `
@@ -413,6 +454,7 @@ function actualizarTabla(pedidos) {
   const cards = document.getElementById("cardsPedidos");
 
   if (cont) cont.dataset.lastOrders = JSON.stringify(pedidos || []);
+
   const useCards = window.innerWidth <= 1180;
 
   // ---------- DESKTOP GRID ----------
@@ -423,41 +465,43 @@ function actualizarTabla(pedidos) {
       if (!pedidos.length) {
         cont.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
       } else {
-        cont.innerHTML = pedidos.map((p) => {
-          const id = p.id ?? "";
-          const etiquetas = p.etiquetas ?? "";
+        cont.innerHTML = pedidos
+          .map((p) => {
+            const id = p.id ?? "";
+            const etiquetas = p.etiquetas ?? "";
 
-          return `
-          <div class="orders-grid px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
-            <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</div>
-            <div class="text-slate-600 whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</div>
-            <div class="font-semibold text-slate-800 truncate">${escapeHtml(p.cliente ?? "-")}</div>
-            <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
+            return `
+            <div class="orders-grid px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
+              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</div>
+              <div class="text-slate-600 whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</div>
+              <div class="font-semibold text-slate-800 truncate">${escapeHtml(p.cliente ?? "-")}</div>
+              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
 
-            <div class="whitespace-nowrap">
-              <button onclick="abrirModal(${id})"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-                <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
-                  ${renderEstado(p.estado ?? "-")}
-                </span>
-              </button>
-            </div>
+              <div class="whitespace-nowrap">
+                <button onclick="abrirModal('${String(id)}')"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                  <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+                  <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
+                    ${renderEstado(p.estado ?? "-")}
+                  </span>
+                </button>
+              </div>
 
-            <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-            <div class="min-w-0">${renderEtiquetasCompact(etiquetas, id)}</div>
-            <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
-            <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-            <div class="text-xs text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
+              <div class="min-w-0">${renderLastChangeCompact(p)}</div>
+              <div class="min-w-0">${renderEtiquetasCompact(etiquetas, id)}</div>
+              <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
+              <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+              <div class="text-xs text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
 
-            <div class="text-right whitespace-nowrap">
-              <button onclick="verDetalles(${id})"
-                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
-                Ver →
-              </button>
-            </div>
-          </div>`;
-        }).join("");
+              <div class="text-right whitespace-nowrap">
+                <button onclick="verDetalles(${id})"
+                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
+                  Ver →
+                </button>
+              </div>
+            </div>`;
+          })
+          .join("");
       }
     }
   }
@@ -473,59 +517,61 @@ function actualizarTabla(pedidos) {
       return;
     }
 
-    cards.innerHTML = pedidos.map((p) => {
-      const id = p.id ?? "";
-      const numero = escapeHtml(p.numero ?? "-");
-      const fecha = escapeHtml(p.fecha ?? "-");
-      const cliente = escapeHtml(p.cliente ?? "-");
-      const total = escapeHtml(p.total ?? "-");
-      const etiquetas = p.etiquetas ?? "";
+    cards.innerHTML = pedidos
+      .map((p) => {
+        const id = p.id ?? "";
+        const numero = escapeHtml(p.numero ?? "-");
+        const fecha = escapeHtml(p.fecha ?? "-");
+        const cliente = escapeHtml(p.cliente ?? "-");
+        const total = escapeHtml(p.total ?? "-");
+        const etiquetas = p.etiquetas ?? "";
 
-      const last = p?.last_status_change?.changed_at
-        ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(timeAgo(p.last_status_change.changed_at))}`
-        : "—";
+        const last = p?.last_status_change?.changed_at
+          ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(timeAgo(p.last_status_change.changed_at))}`
+          : "—";
 
-      return `
-        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
-          <div class="p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="text-sm font-extrabold text-slate-900">${numero}</div>
-                <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
-                <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${cliente}</div>
+        return `
+          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
+            <div class="p-4">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm font-extrabold text-slate-900">${numero}</div>
+                  <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
+                  <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${cliente}</div>
+                </div>
+
+                <div class="text-right whitespace-nowrap">
+                  <div class="text-sm font-extrabold text-slate-900">${total}</div>
+                </div>
               </div>
 
-              <div class="text-right whitespace-nowrap">
-                <div class="text-sm font-extrabold text-slate-900">${total}</div>
+              <div class="mt-3 flex items-center justify-between gap-3">
+                <button onclick="abrirModal('${String(id)}')"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                  <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+                  <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
+                    ${renderEstado(p.estado ?? "-")}
+                  </span>
+                </button>
+
+                <button onclick="verDetalles(${id})"
+                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
+                  Ver →
+                </button>
+              </div>
+
+              <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+              <div class="mt-3">${renderEtiquetasCompact(etiquetas, id, true)}</div>
+
+              <div class="mt-3 text-xs text-slate-600 space-y-1">
+                <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
+                <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
+                <div><b>Último cambio:</b> ${last}</div>
               </div>
             </div>
-
-            <div class="mt-3 flex items-center justify-between gap-3">
-              <button onclick="abrirModal(${id})"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-                <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
-                  ${renderEstado(p.estado ?? "-")}
-                </span>
-              </button>
-
-              <button onclick="verDetalles(${id})"
-                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
-                Ver →
-              </button>
-            </div>
-
-            <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-            <div class="mt-3">${renderEtiquetasCompact(etiquetas, id, true)}</div>
-
-            <div class="mt-3 text-xs text-slate-600 space-y-1">
-              <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
-              <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
-              <div><b>Último cambio:</b> ${last}</div>
-            </div>
-          </div>
-        </div>`;
-    }).join("");
+          </div>`;
+      })
+      .join("");
   }
 }
 
@@ -534,7 +580,7 @@ function actualizarTabla(pedidos) {
 ===================================================== */
 function abrirModal(orderId) {
   const idInput = document.getElementById("modalOrderId");
-  if (idInput) idInput.value = orderId;
+  if (idInput) idInput.value = String(orderId ?? "");
 
   const modal = document.getElementById("modalEstado");
   if (modal) modal.classList.remove("hidden");
@@ -546,6 +592,8 @@ function cerrarModal() {
 
 /* =====================================================
    ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
+   - FIX: ahora SÍ envía CSRF si está en el HTML
+   - FIX: usa /index.php si aplica
 ===================================================== */
 async function guardarEstado(nuevoEstado) {
   const id = String(document.getElementById("modalOrderId")?.value || "");
@@ -555,40 +603,55 @@ async function guardarEstado(nuevoEstado) {
   const prevEstado = order?.estado ?? null;
   const prevLast = order?.last_status_change ?? null;
 
-  // 1) Cambia en UI al instante
+  // 1) Cambia en UI al instante (optimistic)
   if (order) {
-    order.estado = nuevoEstado;
-    order.last_status_change = {
-      user_name: "Tú",
-      changed_at: new Date().toISOString().slice(0, 19).replace("T", " "),
-    };
-    actualizarTabla(ordersCache);
-  }
+  const userName = window.CURRENT_USER || "Sistema";
+  const nowLocal = new Date();
+  const nowStr = nowLocal.toISOString().slice(0, 19).replace("T", " "); // YYYY-MM-DD HH:MM:SS
+
+  order.estado = nuevoEstado;
+  order.last_status_change = {
+    user_name: userName,
+    changed_at: nowStr,
+  };
+
+  actualizarTabla(ordersCache);
+}
 
   cerrarModal();
 
   // 2) Guarda en backend
   try {
-    const r = await fetch("/api/estado/guardar", {
+    // intenta con /api...
+    let r = await fetch(apiUrl("/api/estado/guardar"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ id, estado: nuevoEstado }),
     });
 
-    const d = await r.json().catch(() => null);
-    if (!d?.success) throw new Error(d?.message || "No se pudo guardar");
+    // fallback por si tu servidor NO usa index.php pero la app sí (o al revés)
+    if (r.status === 404) {
+      const alt = hasIndexPhp() ? "/api/estado/guardar" : "/index.php/api/estado/guardar";
+      r = await fetch(alt, { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ id, estado: nuevoEstado }) });
+    }
 
-    // Si backend devuelve el estado real, lo sincronizamos
+    const d = await r.json().catch(() => null);
+
+    if (!r.ok || !d?.success) {
+      const msg = d?.message || `HTTP ${r.status}`;
+      throw new Error(msg);
+    }
+
+    // 3) Si backend devuelve el estado real, sincroniza
     if (d?.order && order) {
       order.estado = d.order.estado ?? order.estado;
       order.last_status_change = d.order.last_status_change ?? order.last_status_change;
       actualizarTabla(ordersCache);
     }
-
   } catch (e) {
     console.error("guardarEstado error:", e);
 
-    // 3) Revertir si falla
+    // 4) Revertir si falla
     if (order) {
       order.estado = prevEstado;
       order.last_status_change = prevLast;
@@ -613,12 +676,14 @@ function cerrarModalDetalles() {
    USERS STATUS
 ===================================================== */
 async function pingUsuario() {
-  try { await fetch("/dashboard/ping", { headers: { Accept: "application/json" } }); } catch (e) {}
+  try {
+    await fetch(apiUrl("/dashboard/ping"), { headers: { Accept: "application/json" } });
+  } catch (e) {}
 }
 
 async function cargarUsuariosEstado() {
   try {
-    const r = await fetch("/dashboard/usuarios-estado", { headers: { Accept: "application/json" } });
+    const r = await fetch(apiUrl("/dashboard/usuarios-estado"), { headers: { Accept: "application/json" } });
     const d = await r.json().catch(() => null);
     if (!d) return;
 
@@ -648,13 +713,17 @@ window.renderUsersStatus = function (payload) {
   const users = payload?.users || [];
 
   // normaliza seconds_since_seen
-  const normalized = users.map(u => {
+  const normalized = users.map((u) => {
     const secs =
       u.seconds_since_seen != null
         ? Number(u.seconds_since_seen)
         : u.last_seen
-          ? Math.max(0, Math.floor((Date.now() - new Date(String(u.last_seen).replace(" ", "T")).getTime()) / 1000))
-          : null;
+        ? Math.max(
+            0,
+            Math.floor((Date.now() - new Date(String(u.last_seen).replace(" ", "T")).getTime()) / 1000)
+          )
+        : null;
+
     return { ...u, seconds_since_seen: isNaN(secs) ? null : secs };
   });
 
@@ -689,7 +758,9 @@ function renderUserRow(mode) {
           </span>`;
 
     return `
-      <li class="flex items-center justify-between gap-3 p-3 rounded-2xl border ${mode === "online" ? "border-emerald-200 bg-white/70" : "border-rose-200 bg-white/70"}">
+      <li class="flex items-center justify-between gap-3 p-3 rounded-2xl border ${
+        mode === "online" ? "border-emerald-200 bg-white/70" : "border-rose-200 bg-white/70"
+      }">
         <div class="min-w-0">
           <div class="font-extrabold text-slate-900 truncate">${nombre}</div>
           <div class="text-xs text-slate-500 truncate">${role ? role : "—"}</div>
