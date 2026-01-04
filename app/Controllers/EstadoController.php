@@ -7,7 +7,7 @@ use App\Models\OrderStatusHistoryModel;
 
 class EstadoController extends BaseController
 {
-    // ✅ Cambia aquí si tu tabla no se llama "orders"
+    // Cambia si tu tabla NO se llama orders
     private string $ordersTable = 'orders';
 
     public function guardar(): ResponseInterface
@@ -20,8 +20,8 @@ class EstadoController extends BaseController
         }
 
         $payload = $this->request->getJSON(true) ?? [];
-        $orderId = isset($payload['id']) ? trim((string) $payload['id']) : '';
-        $nuevoEstado = isset($payload['estado']) ? trim((string) $payload['estado']) : '';
+        $orderId = isset($payload['id']) ? trim((string)$payload['id']) : '';
+        $nuevoEstado = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
 
         if ($orderId === '' || $nuevoEstado === '') {
             return $this->response->setStatusCode(422)->setJSON([
@@ -30,18 +30,20 @@ class EstadoController extends BaseController
             ]);
         }
 
-        // Datos usuario desde sesión (ajusta nombres si tu sesión usa otras keys)
-        $userId   = session()->get('user_id'); // puede ser null
+        $userId   = session()->get('user_id');
         $userName = session()->get('nombre') ?? session()->get('user_name') ?? 'Sistema';
-
         $now = date('Y-m-d H:i:s');
+
+        // ✅ FIX user_agent (evita 500)
+        $uaObj = $this->request->getUserAgent();
+        $uaString = $uaObj ? $uaObj->getAgentString() : '';
 
         $db = db_connect();
 
         try {
             $db->transStart();
 
-            // 1) Obtener estado previo
+            // 1) Buscar pedido
             $row = $db->table($this->ordersTable)
                 ->select('id, estado')
                 ->where('id', $orderId)
@@ -58,10 +60,8 @@ class EstadoController extends BaseController
 
             $prevEstado = $row['estado'] ?? null;
 
-            // 2) Armar update solo con columnas que existan (evita 500)
-            $updateData = [
-                'estado' => $nuevoEstado,
-            ];
+            // 2) Update seguro (solo columnas existentes)
+            $updateData = ['estado' => $nuevoEstado];
 
             if ($db->fieldExists('updated_at', $this->ordersTable)) {
                 $updateData['updated_at'] = $now;
@@ -77,17 +77,16 @@ class EstadoController extends BaseController
                 ->where('id', $orderId)
                 ->update($updateData);
 
-            // 3) Insertar historial (NO castear order_id a int)
+            // 3) Insert historial
             $history = new OrderStatusHistoryModel();
-
             $history->insert([
-                'order_id'     => $orderId, // ✅ string
+                'order_id'     => $orderId, // mejor string
                 'prev_estado'  => $prevEstado,
                 'nuevo_estado' => $nuevoEstado,
-                'user_id'      => $userId !== null ? (int) $userId : null,
-                'user_name'    => (string) $userName,
+                'user_id'      => $userId !== null ? (int)$userId : null,
+                'user_name'    => (string)$userName,
                 'ip'           => $this->request->getIPAddress(),
-                'user_agent'   => substr((string) $this->request->getUserAgent()->getAgentString(), 0, 255),
+                'user_agent'   => substr($uaString, 0, 255),
                 'created_at'   => $now,
             ]);
 
@@ -113,36 +112,12 @@ class EstadoController extends BaseController
             ]);
 
         } catch (\Throwable $e) {
-            // ✅ así ves el error real en logs
-            log_message('error', 'EstadoController::guardar ERROR: ' . $e->getMessage());
+            log_message('error', 'EstadoController guardar ERROR: ' . $e->getMessage());
 
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
                 'message' => 'Error interno al guardar',
             ]);
         }
-    }
-
-    public function historial($orderId = null): ResponseInterface
-    {
-        $orderId = trim((string) $orderId);
-        if ($orderId === '') {
-            return $this->response->setStatusCode(422)->setJSON([
-                'success' => false,
-                'message' => 'Falta orderId',
-            ]);
-        }
-
-        $history = new OrderStatusHistoryModel();
-
-        $rows = $history->where('order_id', $orderId)
-            ->orderBy('id', 'DESC')
-            ->findAll(200);
-
-        return $this->response->setJSON([
-            'success' => true,
-            'order_id' => $orderId,
-            'history' => $rows,
-        ]);
     }
 }
