@@ -89,7 +89,7 @@ class PlacasArchivosController extends BaseController
      * RENOMBRAR ARCHIVO
      * POST /placas/archivos/renombrar
      */
-    public function renombrar()
+   { public function renombrar()
 {
     $id = (int) $this->request->getPost('id');
     $nombre = trim((string) $this->request->getPost('nombre'));
@@ -130,4 +130,6 @@ public function eliminar()
     return $this->response->setJSON(['success'=>true,'message'=>'Eliminado ✅']);
 }
     }  
-        }
+
+}
+
