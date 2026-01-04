@@ -347,12 +347,36 @@ function paginaAnterior() {
 /* =====================================================
    RENDER ÚLTIMO CAMBIO (compacto)
 ===================================================== */
+function formatDateTime(dtStr) {
+  if (!dtStr) return "—";
+
+  // soporta "YYYY-MM-DD HH:MM:SS" y "YYYY-MM-DDTHH:MM:SS"
+  const safe = String(dtStr).includes("T")
+    ? String(dtStr)
+    : String(dtStr).replace(" ", "T");
+
+  const d = new Date(safe);
+  if (isNaN(d)) return "—";
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const day = pad(d.getDate());
+  const mon = pad(d.getMonth() + 1);
+  const yr  = d.getFullYear();
+  const hh  = pad(d.getHours());
+  const mm  = pad(d.getMinutes());
+
+  return `${day}/${mon}/${yr} ${hh}:${mm}`;
+}
+
 function renderLastChangeCompact(p) {
   const info = p?.last_status_change;
   if (!info || !info.changed_at) return "—";
 
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
-  const exact = formatDateTime(info.changed_at);
+  const exact = (typeof formatDateTime === "function")
+  ? formatDateTime(info.changed_at)
+  : String(info.changed_at);
+
   const ago = timeAgo(info.changed_at);
 
   return `
@@ -363,6 +387,7 @@ function renderLastChangeCompact(p) {
     </div>
   `;
 }
+
 
 
 /* =====================================================
