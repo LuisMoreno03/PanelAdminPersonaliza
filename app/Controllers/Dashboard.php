@@ -406,43 +406,47 @@ class Dashboard extends BaseController
 
                 $tbl = $db->query(
                     "SELECT 1 FROM information_schema.tables
-                     WHERE table_schema = ? AND table_name = ?
-                     LIMIT 1",
+                    WHERE table_schema = ? AND table_name = ?
+                    LIMIT 1",
                     [$dbName, 'pedidos_estado']
                 )->getRowArray();
 
                 if (!empty($tbl)) {
-                    $hasPedidoId = $this->columnExists($db, 'pedidos_estado', 'pedido_id');
-                    $hasOrderId  = $this->columnExists($db, 'pedidos_estado', 'order_id');
-                    $hasId = $this->columnExists($db, 'pedidos_estado', 'id');
 
-                    $hasEstado    = $this->columnExists($db, 'pedidos_estado', 'estado');
-                    $hasUserName  = $this->columnExists($db, 'pedidos_estado', 'user_name');
-                    $hasUserId    = $this->columnExists($db, 'pedidos_estado', 'user_id');
-                    $hasCreatedAt = $this->columnExists($db, 'pedidos_estado', 'created_at');
-
-                    $usersHasNombre = $this->columnExists($db, 'users', 'nombre');
+                    // Detectar columnas
+                    $hasPedidoId   = $this->columnExists($db, 'pedidos_estado', 'pedido_id');
+                    $hasOrderId    = $this->columnExists($db, 'pedidos_estado', 'order_id');
+                    $hasId         = $this->columnExists($db, 'pedidos_estado', 'id');          // tu caso
+                    $hasEstado     = $this->columnExists($db, 'pedidos_estado', 'estado');
+                    $hasUserName   = $this->columnExists($db, 'pedidos_estado', 'user_name');
+                    $hasUserId     = $this->columnExists($db, 'pedidos_estado', 'user_id');
+                    $hasCreatedAt  = $this->columnExists($db, 'pedidos_estado', 'created_at');
+                    $hasActualizado= $this->columnExists($db, 'pedidos_estado', 'actualizado'); // tu caso
 
                     foreach ($orders as &$ord) {
                         $orderId = $ord['id'] ?? null;
                         if (!$orderId) continue;
 
-                        if (!$hasPedidoId && !$hasOrderId) continue;
-
+                        // Si no hay FK clásica, pero existe "id" (orderId), lo usamos
                         $q = $db->table('pedidos_estado');
 
                         $select = [];
-                        if ($hasEstado)    $select[] = 'estado';
-                        if ($hasUserName)  $select[] = 'user_name';
-                        if ($hasUserId)    $select[] = 'user_id';
-                        if ($hasCreatedAt) $select[] = 'created_at';
+                        if ($hasEstado)      $select[] = 'estado';
+                        if ($hasUserName)    $select[] = 'user_name';
+                        if ($hasUserId)      $select[] = 'user_id';
+                        if ($hasActualizado) $select[] = 'actualizado';
+                        if ($hasCreatedAt)   $select[] = 'created_at';
                         if (!empty($select)) $q->select(implode(',', $select));
 
-                        if ($hasPedidoId) $q->where('pedido_id', $orderId);
-                        elseif ($hasOrderId) $q->where('order_id', $orderId);
-                        else $q->where('id', $orderId);
-                        if ($hasCreatedAt) $q->orderBy('created_at', 'DESC');
-                        else               $q->orderBy('id', 'DESC');
+                        if ($hasPedidoId)      $q->where('pedido_id', $orderId);
+                        else if ($hasOrderId)  $q->where('order_id', $orderId);
+                        else if ($hasId)       $q->where('id', $orderId);
+                        else continue;
+
+                        // Orden: preferir actualizado > created_at > id
+                        if ($hasActualizado)      $q->orderBy('actualizado', 'DESC');
+                        else if ($hasCreatedAt)   $q->orderBy('created_at', 'DESC');
+                        else                      $q->orderBy('id', 'DESC');
 
                         $row = $q->limit(1)->get()->getRowArray();
 
@@ -451,26 +455,34 @@ class Dashboard extends BaseController
                                 $ord['estado'] = $row['estado'];
                             }
 
-                            // Resolver nombre
-                            $resolvedName = 'Sistema';
+                            // user_name: si no está guardado en pedidos_estado, lo buscamos en users por user_id
+                            $uName = null;
                             if ($hasUserName && !empty($row['user_name'])) {
-                                $resolvedName = (string) $row['user_name'];
-                            } elseif ($hasUserId && !empty($row['user_id']) && $usersHasNombre) {
-                                $u = $db->table('users')->select('nombre')->where('id', (int)$row['user_id'])->get()->getRowArray();
-                                if (!empty($u['nombre'])) $resolvedName = (string)$u['nombre'];
+                                $uName = $row['user_name'];
+                            } elseif ($hasUserId && !empty($row['user_id'])) {
+                                try {
+                                    $u = $db->table('users')->select('nombre')->where('id', (int)$row['user_id'])->get()->getRowArray();
+                                    $uName = $u['nombre'] ?? null;
+                                } catch (\Throwable $e) {}
                             }
 
+                            $changedAt = null;
+                            if ($hasActualizado && !empty($row['actualizado'])) $changedAt = $row['actualizado'];
+                            else if ($hasCreatedAt && !empty($row['created_at'])) $changedAt = $row['created_at'];
+
                             $ord['last_status_change'] = [
-                                'user_name'  => $resolvedName,
-                                'changed_at' => ($hasCreatedAt && !empty($row['created_at'])) ? $row['created_at'] : null,
+                                'user_name'  => $uName ?: 'Sistema',
+                                'changed_at' => $changedAt,
                             ];
                         }
                     }
                     unset($ord);
                 }
+
             } catch (\Throwable $e) {
                 log_message('error', 'Bloque pedidos_estado falló: ' . $e->getMessage());
             }
+
 
             // -----------------------------------------------------
             // 5) Respuesta final + debug opcional
