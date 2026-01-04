@@ -420,37 +420,77 @@ class Dashboard extends BaseController
             }
 
             // -----------------------------------------------------
-            // 4) Último cambio desde BD
-            // -----------------------------------------------------
-            $db = \Config\Database::connect();
+// 4) Último cambio desde BD (NO ROMPER si algo falla)
+// -----------------------------------------------------
+try {
+    $db = \Config\Database::connect();
 
-            foreach ($orders as &$ord) {
-                $orderId = $ord['id'] ?? null;
-                if (!$orderId) {
-                    $ord['last_status_change'] = null;
-                    continue;
+    // ✅ verifica si existe la tabla pedidos_estado
+    $dbName = $db->getDatabase();
+    $tbl = $db->query(
+        "SELECT 1 FROM information_schema.tables
+         WHERE table_schema = ? AND table_name = ?
+         LIMIT 1",
+        [$dbName, 'pedidos_estado']
+    )->getRowArray();
+
+    if (!empty($tbl)) {
+
+        // ✅ detecta si la FK es pedido_id o order_id
+        $hasPedidoId = $this->columnExists($db, 'pedidos_estado', 'pedido_id');
+        $hasOrderId  = $this->columnExists($db, 'pedidos_estado', 'order_id');
+
+        // ✅ detecta columnas opcionales
+        $hasEstado    = $this->columnExists($db, 'pedidos_estado', 'estado');
+        $hasUserName  = $this->columnExists($db, 'pedidos_estado', 'user_name');
+        $hasCreatedAt = $this->columnExists($db, 'pedidos_estado', 'created_at');
+
+        foreach ($orders as &$ord) {
+            $orderId = $ord['id'] ?? null;
+            if (!$orderId) continue;
+
+            // Si no hay columna FK, no hacemos nada
+            if (!$hasPedidoId && !$hasOrderId) {
+                $ord['last_status_change'] = $ord['last_status_change'] ?? null;
+                continue;
+            }
+
+            $q = $db->table('pedidos_estado');
+
+            // select solo lo que existe
+            if ($hasEstado)    $q->select('estado');
+            if ($hasUserName)  $q->select('user_name');
+            if ($hasCreatedAt) $q->select('created_at');
+
+            if ($hasPedidoId) $q->where('pedido_id', $orderId);
+            else              $q->where('order_id',  $orderId);
+
+            if ($hasCreatedAt) $q->orderBy('created_at', 'DESC');
+            else               $q->orderBy('id', 'DESC');
+
+            $row = $q->limit(1)->get()->getRowArray();
+
+            if ($row) {
+                // Si existe estado, lo usamos como estado real
+                if ($hasEstado && !empty($row['estado'])) {
+                    $ord['estado'] = $row['estado'];
                 }
 
-                $row = $db->table('pedidos_estado')
-                    ->select('created_at, user_id')
-                    ->where('id', $orderId)
-                    ->orderBy('created_at', 'DESC')
-                    ->limit(1)
-                    ->get()
-                    ->getRowArray();
-
-                $userName = 'Sistema';
-                if (!empty($row['user_id'])) {
-                    $u = $db->table('users')->where('id', $row['user_id'])->get()->getRowArray();
-                    if ($u && !empty($u['nombre'])) $userName = $u['nombre'];
-                }
-
+                // last_status_change para el front
                 $ord['last_status_change'] = [
-                    'user_name'  => $userName,
-                    'changed_at' => $row['created_at'] ?? null,
+                    'user_name'  => ($hasUserName && !empty($row['user_name'])) ? $row['user_name'] : 'Sistema',
+                    'changed_at' => ($hasCreatedAt && !empty($row['created_at'])) ? $row['created_at'] : null,
                 ];
             }
-            unset($ord);
+        }
+        unset($ord);
+    }
+
+} catch (\Throwable $e) {
+    // ✅ IMPORTANTÍSIMO: NO romper pedidos si BD falla
+    log_message('error', 'Bloque pedidos_estado falló: ' . $e->getMessage());
+}
+
 
             // -----------------------------------------------------
             // 5) Respuesta final + debug opcional
