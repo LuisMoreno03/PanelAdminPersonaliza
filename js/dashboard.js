@@ -352,15 +352,18 @@ function renderLastChangeCompact(p) {
   if (!info || !info.changed_at) return "—";
 
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
+  const exact = formatDateTime(info.changed_at);
   const ago = timeAgo(info.changed_at);
 
   return `
-    <div class="leading-tight">
-      <div class="text-[12px] font-bold text-slate-900 truncate">${user}</div>
-      <div class="text-[11px] text-slate-500">${escapeHtml(ago)}</div>
+    <div class="leading-tight min-w-0">
+      <div class="text-[12px] font-extrabold text-slate-900 truncate">${user}</div>
+      <div class="text-[11px] text-slate-600 whitespace-nowrap">${escapeHtml(exact)}</div>
+      <div class="text-[11px] text-slate-500 whitespace-nowrap">${escapeHtml(ago)}</div>
     </div>
   `;
 }
+
 
 /* =====================================================
    TIME AGO
@@ -602,13 +605,18 @@ async function guardarEstado(nuevoEstado) {
 
   // 1) Cambia en UI al instante (optimistic)
   if (order) {
-    order.estado = nuevoEstado;
-    order.last_status_change = {
-      user_name: "Tú",
-      changed_at: new Date().toISOString().slice(0, 19).replace("T", " "),
-    };
-    actualizarTabla(ordersCache);
-  }
+  const userName = window.CURRENT_USER || "Sistema";
+  const nowLocal = new Date();
+  const nowStr = nowLocal.toISOString().slice(0, 19).replace("T", " "); // YYYY-MM-DD HH:MM:SS
+
+  order.estado = nuevoEstado;
+  order.last_status_change = {
+    user_name: userName,
+    changed_at: nowStr,
+  };
+
+  actualizarTabla(ordersCache);
+}
 
   cerrarModal();
 
