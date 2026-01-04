@@ -183,8 +183,9 @@
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
   </script>
   <script>
-    window.CURRENT_USER = <?= json_encode(session('nombre') ?? 'Sistema') ?>;
-  </script>
+  window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
+</script>
+
 
   <!-- ✅ romper caché -->
   <script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>

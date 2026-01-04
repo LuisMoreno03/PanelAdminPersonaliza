@@ -7,43 +7,37 @@ use App\Models\OrderStatusHistoryModel;
 
 class EstadoController extends BaseController
 {
-    // Cambia si tu tabla NO se llama orders
-    private string $ordersTable = 'orders';
+    // AJUSTA aquí tu tabla real:
+    private string $ordersTable = 'orders'; // <-- cambia si tu tabla se llama distinto
 
     public function guardar(): ResponseInterface
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
-
-        $payload = $this->request->getJSON(true) ?? [];
-        $orderId = isset($payload['id']) ? trim((string)$payload['id']) : '';
-        $nuevoEstado = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
-
-        if ($orderId === '' || $nuevoEstado === '') {
-            return $this->response->setStatusCode(422)->setJSON([
-                'success' => false,
-                'message' => 'Faltan parámetros: id / estado',
-            ]);
-        }
-
-        $userId   = session()->get('user_id');
-        $userName = session()->get('nombre') ?? session()->get('user_name') ?? 'Sistema';
-        $now = date('Y-m-d H:i:s');
-
-        // ✅ FIX user_agent (evita 500)
-        $uaObj = $this->request->getUserAgent();
-        $uaString = $uaObj ? $uaObj->getAgentString() : '';
-
-        $db = db_connect();
-
         try {
-            $db->transStart();
+            if (!session()->get('logged_in')) {
+                return $this->response->setStatusCode(401)->setJSON([
+                    'success' => false,
+                    'message' => 'No autenticado',
+                ]);
+            }
 
-            // 1) Buscar pedido
+            $payload = $this->request->getJSON(true) ?? [];
+            $orderId = isset($payload['id']) ? trim((string)$payload['id']) : '';
+            $nuevoEstado = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
+
+            if ($orderId === '' || $nuevoEstado === '') {
+                return $this->response->setStatusCode(422)->setJSON([
+                    'success' => false,
+                    'message' => 'Faltan parámetros: id / estado',
+                ]);
+            }
+
+            $userId   = session()->get('user_id') ?? null;
+            $userName = session()->get('nombre') ?? session()->get('username') ?? 'Sistema';
+            $now = date('Y-m-d H:i:s');
+
+            $db = db_connect();
+
+            // 1) Pedido existe?
             $row = $db->table($this->ordersTable)
                 ->select('id, estado')
                 ->where('id', $orderId)
@@ -51,7 +45,6 @@ class EstadoController extends BaseController
                 ->getRowArray();
 
             if (!$row) {
-                $db->transComplete();
                 return $this->response->setStatusCode(404)->setJSON([
                     'success' => false,
                     'message' => 'Pedido no encontrado en BD local',
@@ -60,33 +53,38 @@ class EstadoController extends BaseController
 
             $prevEstado = $row['estado'] ?? null;
 
-            // 2) Update seguro (solo columnas existentes)
-            $updateData = ['estado' => $nuevoEstado];
+            $db->transStart();
 
+            // 2) Update estado (sin asumir columnas que no existen)
+            $update = [
+                'estado' => $nuevoEstado,
+            ];
+
+            // Si tienes estas columnas, las llenamos (si no, no rompe)
             if ($db->fieldExists('updated_at', $this->ordersTable)) {
-                $updateData['updated_at'] = $now;
+                $update['updated_at'] = $now;
             }
             if ($db->fieldExists('last_change_user', $this->ordersTable)) {
-                $updateData['last_change_user'] = $userName;
+                $update['last_change_user'] = $userName;
             }
             if ($db->fieldExists('last_change_at', $this->ordersTable)) {
-                $updateData['last_change_at'] = $now;
+                $update['last_change_at'] = $now;
             }
 
             $db->table($this->ordersTable)
                 ->where('id', $orderId)
-                ->update($updateData);
+                ->update($update);
 
-            // 3) Insert historial
+            // 3) Historial (registro de todos los cambios y usuarios)
             $history = new OrderStatusHistoryModel();
             $history->insert([
-                'order_id'     => $orderId, // mejor string
-                'prev_estado'  => $prevEstado,
-                'nuevo_estado' => $nuevoEstado,
+                'order_id'     => (int)$orderId,
+                'prev_estado'  => (string)($prevEstado ?? ''),
+                'nuevo_estado' => (string)$nuevoEstado,
                 'user_id'      => $userId !== null ? (int)$userId : null,
                 'user_name'    => (string)$userName,
-                'ip'           => $this->request->getIPAddress(),
-                'user_agent'   => substr($uaString, 0, 255),
+                'ip'           => (string)$this->request->getIPAddress(),
+                'user_agent'   => substr((string)$this->request->getUserAgent(), 0, 255),
                 'created_at'   => $now,
             ]);
 
@@ -95,7 +93,7 @@ class EstadoController extends BaseController
             if ($db->transStatus() === false) {
                 return $this->response->setStatusCode(500)->setJSON([
                     'success' => false,
-                    'message' => 'No se pudo guardar el cambio (transacción falló)',
+                    'message' => 'Transacción fallida (update/insert)',
                 ]);
             }
 
@@ -110,14 +108,33 @@ class EstadoController extends BaseController
                     ],
                 ],
             ]);
-
         } catch (\Throwable $e) {
-            log_message('error', 'EstadoController guardar ERROR: ' . $e->getMessage());
+            // TEMPORAL: para ver el error real en Network → Response
+            log_message('error', 'EstadoController::guardar ERROR: {msg} {file}:{line}', [
+                'msg' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
 
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
-                'message' => 'Error interno al guardar',
+                'message' => 'ERROR: ' . $e->getMessage(),
+                'where' => basename($e->getFile()) . ':' . $e->getLine(),
             ]);
         }
+    }
+
+    public function historial(int $orderId): ResponseInterface
+    {
+        $history = new OrderStatusHistoryModel();
+        $rows = $history->where('order_id', $orderId)
+            ->orderBy('id', 'DESC')
+            ->findAll(200);
+
+        return $this->response->setJSON([
+            'success' => true,
+            'order_id' => $orderId,
+            'history' => $rows,
+        ]);
     }
 }

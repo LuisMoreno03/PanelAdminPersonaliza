@@ -9,14 +9,8 @@ class OrderStatusHistoryModel extends Model
     protected $table = 'order_status_history';
     protected $primaryKey = 'id';
     protected $allowedFields = [
-        'order_id',
-        'prev_estado',
-        'nuevo_estado',
-        'user_id',
-        'user_name',
-        'ip',
-        'user_agent',
-        'created_at',
+        'order_id','prev_estado','nuevo_estado',
+        'user_id','user_name','ip','user_agent','created_at'
     ];
-    protected $useTimestamps = false;
+    public $useTimestamps = false;
 }
