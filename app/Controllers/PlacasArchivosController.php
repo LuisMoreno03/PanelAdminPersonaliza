@@ -70,11 +70,13 @@ class PlacasArchivosController extends BaseController
 
         $model = new PlacaArchivoModel();
         $model->insert([
-            'nombre'   => pathinfo($file->getName(), PATHINFO_FILENAME),
-            'original' => $file->getName(),
-            'ruta'     => $ruta,
-            'mime'     => $file->getClientMimeType(),
-            'size'     => $file->getSize(),
+            'nombre'       => pathinfo($file->getName(), PATHINFO_FILENAME),
+            'producto'     => $producto ?: null,
+            'numero_placa' => $numeroPlaca ?: null,
+            'original'     => $file->getName(),
+            'ruta'         => $ruta,
+            'mime'         => $file->getClientMimeType(),
+            'size'         => $file->getSize(),
       
         ]);
 

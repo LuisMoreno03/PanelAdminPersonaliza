@@ -82,10 +82,11 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <input id="placaFile" type="file" accept="image/*,application/pdf" class="hidden" style="display:none;">
-          <button id="btnSeleccionar" class="btn-blue">Seleccionar archivo</button>
-          <button id="btnSubir" class="btn-blue">Subir placa</button>
-        </div>
+  <button id="btnAbrirModalCarga" class="btn-blue">
+    Cargar placa
+  </button>
+</div>
+
       </div>
 
       <div id="msg" class="muted mt-2"></div>
@@ -306,6 +307,109 @@
     cargarStats();
     cargarLista();
   }, 15000);
+</script>
+
+
+<!-- CARGA DE NUEVA PLACA-->
+
+<div id="modalCargaBackdrop" class="fixed inset-0 bg-black/50 hidden z-[10000] flex items-center justify-center">
+  <div class="bg-white rounded-xl w-[420px] p-6 animate-fadeIn">
+
+    <h2 class="text-xl font-black mb-4">Cargar placa</h2>
+
+    <div class="space-y-3">
+      <input id="cargaProducto" type="text" placeholder="Producto"
+        class="w-full border rounded-xl px-3 py-2">
+
+      <input id="cargaNumero" type="text" placeholder="Número de placa"
+        class="w-full border rounded-xl px-3 py-2">
+
+      <input id="cargaArchivo" type="file" accept="image/*"
+        class="w-full">
+
+      <div id="cargaPreview"
+        class="h-40 border rounded-xl flex items-center justify-center text-gray-400">
+        Vista previa
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="btnCerrarCarga" class="btn-blue bg-gray-400">
+        Cancelar
+      </button>
+      <button id="btnGuardarCarga" class="btn-blue">
+        Guardar
+      </button>
+    </div>
+
+    <div id="cargaMsg" class="muted mt-2"></div>
+
+  </div>
+</div>
+
+<script>
+
+// PANTALLA EMERGENTE DE PLACA //
+
+const modalCarga = q('modalCargaBackdrop');
+
+q('btnAbrirModalCarga').onclick = () => {
+  modalCarga.classList.remove('hidden');
+};
+
+q('btnCerrarCarga').onclick = () => {
+  modalCarga.classList.add('hidden');
+  q('cargaArchivo').value = '';
+  q('cargaPreview').innerHTML = 'Vista previa';
+  q('cargaMsg').textContent = '';
+};
+
+q('cargaArchivo').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const img = document.createElement('img');
+  img.src = URL.createObjectURL(file);
+  img.className = 'w-full h-full object-contain';
+
+  q('cargaPreview').innerHTML = '';
+  q('cargaPreview').appendChild(img);
+};
+
+q('btnGuardarCarga').onclick = async () => {
+  const producto = q('cargaProducto').value.trim();
+  const numero   = q('cargaNumero').value.trim();
+  const archivo  = q('cargaArchivo').files[0];
+
+  if (!archivo || !numero) {
+    q('cargaMsg').textContent = 'Número de placa y archivo son obligatorios';
+    return;
+  }
+
+  const fd = new FormData();
+  fd.append('archivo', archivo);
+  fd.append('producto', producto);
+  fd.append('numero_placa', numero);
+
+  q('cargaMsg').textContent = 'Subiendo...';
+
+  const res = await fetch(API.subir, {
+    method: 'POST',
+    body: fd
+  });
+
+  const data = await res.json();
+
+  if (!data.success) {
+    q('cargaMsg').textContent = data.message || 'Error al subir';
+    return;
+  }
+
+  modalCarga.classList.add('hidden');
+  await cargarStats();
+  await cargarLista();
+};
+
 </script>
 
 </body>
