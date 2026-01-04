@@ -294,9 +294,7 @@
     }
   });
 
-  // Eventos
-  q('btnSeleccionar').addEventListener('click', () => q('placaFile').click());
-  q('btnSubir').addEventListener('click', subir);
+
 
   // Inicial
   cargarStats();
@@ -423,68 +421,43 @@ q('btnGuardarCarga').onclick = async () => {
   if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
 
   q('btnGuardarCarga').disabled = true;
-  q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
 
-  // Subida en lote (una request con varios archivos)
-  const fd = new FormData();
-  fd.append('producto', producto);
-  fd.append('numero_placa', numero);
+  for (let i = 0; i < filesSeleccionados.length; i++) {
+    const file = filesSeleccionados[i];
+    q('cargaMsg').textContent = `Subiendo ${i+1}/${filesSeleccionados.length}...`;
 
-  filesSeleccionados.forEach((file) => {
-    fd.append('archivos[]', file); // 👈 importante: "archivos[]"
-  });
+    const fd = new FormData();
+    fd.append('archivo', file);            // 👈 como tu backend actual
+    fd.append('producto', producto);
+    fd.append('numero_placa', numero);
 
-  const res = await fetch(API.subir, { method:'POST', body: fd });
-  const data = await res.json();
+    const res = await fetch(API.subir, { method:'POST', body: fd });
+    const data = await res.json();
 
-  q('btnGuardarCarga').disabled = false;
-
-  if (!data.success) {
-    q('cargaMsg').textContent = data.message || 'Error al subir';
-    return;
+    if (!data.success) {
+      q('btnGuardarCarga').disabled = false;
+      q('cargaMsg').textContent = data.message || 'Error al subir';
+      return;
+    }
   }
 
+  q('btnGuardarCarga').disabled = false;
   q('cargaMsg').textContent = '✅ Subidos correctamente';
+
   // cerrar + limpiar
   q('modalCargaBackdrop').classList.add('hidden');
   q('cargaArchivo').value = '';
   filesSeleccionados = [];
   q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
 
-  // refrescar listado
+  // refrescar
   await cargarStats();
   await cargarLista();
 };
 
 
-  if (!archivo || !numero) {
-    q('cargaMsg').textContent = 'Número de placa y archivo son obligatorios';
-    return;
-  }
 
-  const fd = new FormData();
-  fd.append('archivo', archivo);
-  fd.append('producto', producto);
-  fd.append('numero_placa', numero);
 
-  q('cargaMsg').textContent = 'Subiendo...';
-
-  const res = await fetch(API.subir, {
-    method: 'POST',
-    body: fd
-  });
-
-  const data = await res.json();
-
-  if (!data.success) {
-    q('cargaMsg').textContent = data.message || 'Error al subir';
-    return;
-  }
-
-  modalCarga.classList.add('hidden');
-  await cargarStats();
-  await cargarLista();
-};
 
 </script>
 
