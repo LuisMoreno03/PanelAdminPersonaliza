@@ -42,11 +42,9 @@ class Dashboard extends BaseController
     private function loadShopifyFromConfig(): void
     {
         try {
-            // En CI4 puedes usar config('Shopify')
             $cfg = config('Shopify');
             if (!$cfg) return;
 
-            // Soporta distintas formas de declarar en Config/Shopify.php
             $this->shop       = (string) ($cfg->shop ?? $cfg->SHOP ?? $this->shop);
             $this->token      = (string) ($cfg->token ?? $cfg->TOKEN ?? $this->token);
             $this->apiVersion = (string) ($cfg->apiVersion ?? $cfg->version ?? $cfg->API_VERSION ?? $this->apiVersion);
@@ -73,7 +71,6 @@ class Dashboard extends BaseController
     private function loadShopifySecretsFromFile(): void
     {
         try {
-            // ✅ ruta fuera del repo
             $path = '/home/u756064303/.secrets/shopify.php';
 
             if (!is_file($path)) {
@@ -100,10 +97,6 @@ class Dashboard extends BaseController
     // SHOPIFY CURL GET
     // =====================================================
 
-    /**
-     * ✅ Request Shopify usando cURL NATIVO (evita bloqueos de hosting con curlrequest)
-     * Devuelve: ['status'=>int, 'body'=>string, 'headers'=>array, 'error'=>string|null]
-     */
     private function shopifyGet(string $fullUrl): array
     {
         $headers = [];
@@ -118,7 +111,6 @@ class Dashboard extends BaseController
                 "Accept: application/json",
                 "Content-Type: application/json",
             ],
-            // Captura headers
             CURLOPT_HEADERFUNCTION => function ($curl, $headerLine) use (&$headers) {
                 $len = strlen($headerLine);
                 $headerLine = trim($headerLine);
@@ -128,7 +120,6 @@ class Dashboard extends BaseController
                 $name = strtolower(trim($name));
                 $value = trim($value);
 
-                // Shopify puede repetir headers; guardamos como string si es único
                 if (!isset($headers[$name])) $headers[$name] = $value;
                 else {
                     if (is_array($headers[$name])) $headers[$name][] = $value;
@@ -170,14 +161,9 @@ class Dashboard extends BaseController
     }
 
     // =====================================================
-    // ✅ ETIQUETAS (FIX DEL ERROR: método faltante)
+    // ETIQUETAS
     // =====================================================
 
-    /**
-     * Devuelve etiquetas disponibles para el usuario.
-     * - Si existe tabla usuarios_etiquetas, trae las del usuario.
-     * - Si no existe (o falla), devuelve defaults sin romper dashboard.
-     */
     private function getEtiquetasUsuario(): array
     {
         $defaults = [
@@ -190,15 +176,11 @@ class Dashboard extends BaseController
         ];
 
         $userId = session()->get('user_id');
-        if (!$userId) {
-            return $defaults;
-        }
+        if (!$userId) return $defaults;
 
         try {
             $db = \Config\Database::connect();
 
-            // Si no tienes esa tabla, no rompas el dashboard
-            // Cambia "usuarios_etiquetas" y columnas si tu BD usa otros nombres
             $tableExists = $db->query(
                 "SELECT 1
                  FROM information_schema.tables
@@ -208,9 +190,7 @@ class Dashboard extends BaseController
                 [$db->getDatabase(), 'usuarios_etiquetas']
             )->getRowArray();
 
-            if (empty($tableExists)) {
-                return $defaults;
-            }
+            if (empty($tableExists)) return $defaults;
 
             $rows = $db->table('usuarios_etiquetas')
                 ->select('etiqueta')
@@ -333,7 +313,6 @@ class Dashboard extends BaseController
             $raw    = $resp['body'];
             $json   = json_decode($raw, true) ?: [];
 
-            // Nota: si hay bloqueo del hosting, aquí suele venir status 0 + error
             if ($status === 0 || !empty($resp['error'])) {
                 log_message('error', 'SHOPIFY CURL ERROR: ' . ($resp['error'] ?? 'unknown'));
 
@@ -409,7 +388,6 @@ class Dashboard extends BaseController
                     'fecha'        => $fecha,
                     'cliente'      => $cliente,
                     'total'        => $total,
-                    // OJO: tu frontend espera HTML badge a veces; aquí lo dejamos simple
                     'estado'       => (!empty($o['tags']) ? 'Producción' : 'Por preparar'),
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
@@ -426,71 +404,73 @@ class Dashboard extends BaseController
                 $db = \Config\Database::connect();
                 $dbName = $db->getDatabase();
 
-                // ✅ existe la tabla?
                 $tbl = $db->query(
                     "SELECT 1 FROM information_schema.tables
-                    WHERE table_schema = ? AND table_name = ?
-                    LIMIT 1",
+                     WHERE table_schema = ? AND table_name = ?
+                     LIMIT 1",
                     [$dbName, 'pedidos_estado']
                 )->getRowArray();
 
                 if (!empty($tbl)) {
-
-                    // ✅ detectar FK
                     $hasPedidoId = $this->columnExists($db, 'pedidos_estado', 'pedido_id');
                     $hasOrderId  = $this->columnExists($db, 'pedidos_estado', 'order_id');
+                    $hasId = $this->columnExists($db, 'pedidos_estado', 'id');
 
-                    // ✅ detectar columnas opcionales
                     $hasEstado    = $this->columnExists($db, 'pedidos_estado', 'estado');
                     $hasUserName  = $this->columnExists($db, 'pedidos_estado', 'user_name');
+                    $hasUserId    = $this->columnExists($db, 'pedidos_estado', 'user_id');
                     $hasCreatedAt = $this->columnExists($db, 'pedidos_estado', 'created_at');
+
+                    $usersHasNombre = $this->columnExists($db, 'users', 'nombre');
 
                     foreach ($orders as &$ord) {
                         $orderId = $ord['id'] ?? null;
                         if (!$orderId) continue;
 
-                        // Si no hay FK válida, no tocar
                         if (!$hasPedidoId && !$hasOrderId) continue;
 
                         $q = $db->table('pedidos_estado');
 
-                        // ✅ seleccionar SOLO lo que exista
                         $select = [];
                         if ($hasEstado)    $select[] = 'estado';
                         if ($hasUserName)  $select[] = 'user_name';
+                        if ($hasUserId)    $select[] = 'user_id';
                         if ($hasCreatedAt) $select[] = 'created_at';
                         if (!empty($select)) $q->select(implode(',', $select));
 
-                        // ✅ where por FK correcta
                         if ($hasPedidoId) $q->where('pedido_id', $orderId);
-                        else              $q->where('order_id',  $orderId);
-
-                        // ✅ orderBy según columna disponible
+                        elseif ($hasOrderId) $q->where('order_id', $orderId);
+                        else $q->where('id', $orderId);
                         if ($hasCreatedAt) $q->orderBy('created_at', 'DESC');
                         else               $q->orderBy('id', 'DESC');
 
                         $row = $q->limit(1)->get()->getRowArray();
 
                         if ($row) {
-                            // ✅ estado real si existe
                             if ($hasEstado && !empty($row['estado'])) {
                                 $ord['estado'] = $row['estado'];
                             }
 
-                            // ✅ last_status_change para el front
+                            // Resolver nombre
+                            $resolvedName = 'Sistema';
+                            if ($hasUserName && !empty($row['user_name'])) {
+                                $resolvedName = (string) $row['user_name'];
+                            } elseif ($hasUserId && !empty($row['user_id']) && $usersHasNombre) {
+                                $u = $db->table('users')->select('nombre')->where('id', (int)$row['user_id'])->get()->getRowArray();
+                                if (!empty($u['nombre'])) $resolvedName = (string)$u['nombre'];
+                            }
+
                             $ord['last_status_change'] = [
-                                'user_name'  => ($hasUserName && !empty($row['user_name'])) ? $row['user_name'] : 'Sistema',
+                                'user_name'  => $resolvedName,
                                 'changed_at' => ($hasCreatedAt && !empty($row['created_at'])) ? $row['created_at'] : null,
                             ];
                         }
                     }
                     unset($ord);
                 }
-
             } catch (\Throwable $e) {
                 log_message('error', 'Bloque pedidos_estado falló: ' . $e->getMessage());
             }
-
 
             // -----------------------------------------------------
             // 5) Respuesta final + debug opcional
@@ -535,6 +515,7 @@ class Dashboard extends BaseController
     // =====================================================
     // PING (users.last_seen) - success para tu JS
     // =====================================================
+
     public function ping()
     {
         try {
@@ -561,6 +542,7 @@ class Dashboard extends BaseController
     // =====================================================
     // USUARIOS ESTADO - success, users[] con online
     // =====================================================
+
     public function usuariosEstado()
     {
         try {
@@ -588,7 +570,6 @@ class Dashboard extends BaseController
                 $ts = $u['last_seen'] ? strtotime($u['last_seen']) : 0;
                 $u['last_seen_ts'] = $ts;
                 $u['seconds_since_seen'] = ($ts > 0) ? ($now - $ts) : null;
-
                 $u['online'] = ($ts > 0 && ($now - $ts) <= $onlineThreshold);
             }
             unset($u);

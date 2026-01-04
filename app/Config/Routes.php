@@ -8,9 +8,6 @@ use Config\Services;
  */
 $routes = Services::routes();
 
-// ----------------------------------------------------
-// Settings base
-// ----------------------------------------------------
 $routes->setDefaultNamespace('App\Controllers');
 $routes->setDefaultController('Auth');
 $routes->setDefaultMethod('index');
@@ -34,11 +31,14 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     $routes->get('pedidos', 'Dashboard::pedidos');
     $routes->get('filter',  'Dashboard::filter');
 
-    $routes->get('sync', 'Dashboard::sync');
+    // ❌ si NO existe el método sync en Dashboard.php, comenta o elimina
+    // $routes->get('sync', 'Dashboard::sync');
 
-    $routes->get('detalles/(:num)', 'Dashboard::detalles/$1');
-    $routes->post('subirImagenProducto', 'Dashboard::subirImagenProducto');
+    // ✅ Opción B: si estos métodos están en DashboardController (legacy)
+    $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
+    $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
 
+    // ✅ usuarios online
     $routes->get('ping', 'Dashboard::ping');
     $routes->get('usuarios-estado', 'Dashboard::usuariosEstado');
 });
@@ -49,18 +49,18 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
+
+    // etiquetas (Shopify tags)
     $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
+
     $routes->get('confirmados', 'Confirmados::filter');
 });
-
-
 
 // ====================================================
 // SHOPIFY (PROTEGIDO)
 // ====================================================
 $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection $routes) {
 
-    // Orders
     $routes->get('orders', 'ShopifyController::getOrders');
     $routes->get('orders/all', 'ShopifyController::getAllOrders');
     $routes->get('order/(:num)', 'ShopifyController::getOrder/$1');
@@ -68,14 +68,11 @@ $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection
     $routes->post('orders/update', 'ShopifyController::updateOrder');
     $routes->post('orders/update-tags', 'ShopifyController::updateOrderTags');
 
-    // Products
     $routes->get('products', 'ShopifyController::getProducts');
     $routes->get('products/(:num)', 'ShopifyController::getProduct/$1');
 
-    // Customers
     $routes->get('customers', 'ShopifyController::getCustomers');
 
-    // Test
     $routes->get('test', 'ShopifyController::test');
 });
 
@@ -100,7 +97,6 @@ $routes->group('pedidos', ['filter' => 'auth'], static function (RouteCollection
 // PRODUCCION (PROTEGIDO)
 // ====================================================
 $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollection $routes) {
-    // ✅ deja SOLO uno. El bueno es ProduccionController
     $routes->get('/', 'ProduccionController::index');
     $routes->get('filter', 'ProduccionController::filter');
 });
@@ -111,24 +107,18 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->get('/', 'PlacasController::index');
 
-    // API archivos
     $routes->get('archivos/listar', 'PlacasArchivosController::listar');
     $routes->get('archivos/stats',  'PlacasArchivosController::stats');
     $routes->post('archivos/subir', 'PlacasArchivosController::subir');
 
-    // Modificaciones
     $routes->post('archivos/renombrar', 'PlacasArchivosController::renombrar');
     $routes->post('archivos/eliminar',  'PlacasArchivosController::eliminar');
+
     $routes->post('placas/archivos/subir', 'PlacasArchivosController::subir', ['filter' => 'auth']);
-
-
 });
+
 // ----------------------------------------------------
 // TEST FUNCIONAL
 // ----------------------------------------------------
-$routes->get('rtest', static function () {
-    return 'OK ROUTES';
-});
-$routes->get('zz-check-routes', static function () {
-    return 'ROUTES_OK_' . date('Y-m-d_H:i:s');
-});
+$routes->get('rtest', static function () { return 'OK ROUTES'; });
+$routes->get('zz-check-routes', static function () { return 'ROUTES_OK_' . date('Y-m-d_H:i:s'); });

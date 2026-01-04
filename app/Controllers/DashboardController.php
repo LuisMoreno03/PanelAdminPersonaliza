@@ -3,255 +3,220 @@
 namespace App\Controllers;
 
 use CodeIgniter\Controller;
-use App\Models\PedidoEstadoModel;
 
 class DashboardController extends Controller
 {
-    private $shop  = "962f2d.myshopify.com";
-    private $token = "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";
+    private string $shop = '';
+    private string $token = '';
+    private string $apiVersion = '2025-10';
 
-    // ============================================================
-    // GENERAR ETIQUETAS SEGÚN ROL Y USUARIO
-    // ============================================================
-    private function getEtiquetasUsuario(): array
-{
-    $db = \Config\Database::connect();
-    $session = session();
+    public function __construct()
+    {
+        $this->loadShopifyFromConfig();
 
-    $userId = $session->get('user_id');
-    if (!$userId) return ["General"];
-
-    $usuario = $db->table('users')->where('id', $userId)->get()->getRow();
-    if (!$usuario) return ["General"];
-
-    $nombre = ucfirst((string) $usuario->nombre);
-    $rol = strtolower((string) $usuario->role);
-
-    if ($rol === "confirmacion") return ["D.$nombre"];
-    if ($rol === "produccion") return ["D.$nombre", "P.$nombre"];
-
-    if ($rol === "admin") {
-        $usuarios = $db->table('users')->get()->getResult();
-        $etiquetas = [];
-
-        foreach ($usuarios as $u) {
-            $nombreU = ucfirst((string) $u->nombre);
-            $rolU = strtolower((string) $u->role);
-
-            if ($rolU === "confirmacion") {
-                $etiquetas[] = "D.$nombreU";
-            } elseif ($rolU === "produccion") {
-                $etiquetas[] = "D.$nombreU";
-                $etiquetas[] = "P.$nombreU";
-            }
+        if (!$this->shop || !$this->token) {
+            $this->loadShopifySecretsFromFile();
         }
 
-        return array_values(array_unique($etiquetas));
+        if (!$this->shop || !$this->token) {
+            $this->loadShopifyFromEnv();
+        }
+
+        // Normalizar
+        $this->shop = trim($this->shop);
+        $this->shop = preg_replace('#^https?://#', '', $this->shop);
+        $this->shop = preg_replace('#/.*$#', '', $this->shop);
+        $this->shop = rtrim($this->shop, '/');
+
+        $this->token = trim($this->token);
+        $this->apiVersion = trim($this->apiVersion ?: '2025-10');
     }
 
-    return ["General"];
-}
+    // =====================================================
+    // CONFIG LOADERS (igual que Dashboard.php)
+    // =====================================================
 
-
-
-    // ============================================================
-    // DETALLES DEL PEDIDO + IMÁGENES LOCALES
-    // ============================================================
-    public function detalles($orderId)
+    private function loadShopifyFromConfig(): void
     {
-        $url = "https://{$this->shop}/admin/api/2024-01/orders/{$orderId}.json";
+        try {
+            $cfg = config('Shopify');
+            if (!$cfg) return;
+
+            $this->shop       = (string) ($cfg->shop ?? $cfg->SHOP ?? $this->shop);
+            $this->token      = (string) ($cfg->token ?? $cfg->TOKEN ?? $this->token);
+            $this->apiVersion = (string) ($cfg->apiVersion ?? $cfg->version ?? $cfg->API_VERSION ?? $this->apiVersion);
+        } catch (\Throwable $e) {
+            log_message('error', 'DashboardController loadShopifyFromConfig ERROR: ' . $e->getMessage());
+        }
+    }
+
+    private function loadShopifyFromEnv(): void
+    {
+        try {
+            $shop  = (string) env('SHOPIFY_STORE_DOMAIN');
+            $token = (string) env('SHOPIFY_ADMIN_TOKEN');
+            $ver   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
+
+            if (!empty(trim($shop)))  $this->shop = $shop;
+            if (!empty(trim($token))) $this->token = $token;
+            if (!empty(trim($ver)))   $this->apiVersion = $ver;
+        } catch (\Throwable $e) {
+            log_message('error', 'DashboardController loadShopifyFromEnv ERROR: ' . $e->getMessage());
+        }
+    }
+
+    private function loadShopifySecretsFromFile(): void
+    {
+        try {
+            $path = '/home/u756064303/.secrets/shopify.php';
+
+            if (!is_file($path)) return;
+
+            $cfg = require $path;
+
+            if (!is_array($cfg)) return;
+
+            $this->shop       = (string) ($cfg['shop'] ?? $this->shop);
+            $this->token      = (string) ($cfg['token'] ?? $this->token);
+            $this->apiVersion = (string) ($cfg['apiVersion'] ?? $cfg['version'] ?? $this->apiVersion);
+        } catch (\Throwable $e) {
+            log_message('error', 'DashboardController loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
+        }
+    }
+
+    // =====================================================
+    // HELPERS
+    // =====================================================
+
+    private function columnExists($db, string $table, string $column): bool
+    {
+        try {
+            $dbName = $db->getDatabase();
+
+            $row = $db->query(
+                "SELECT 1
+                 FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = ?
+                   AND TABLE_NAME = ?
+                   AND COLUMN_NAME = ?
+                 LIMIT 1",
+                [$dbName, $table, $column]
+            )->getRowArray();
+
+            return !empty($row);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function parseLinkHeaderForPageInfo(?string $linkHeader): array
+    {
+        $next = null;
+        $prev = null;
+
+        if (!$linkHeader) return [$next, $prev];
+
+        if (preg_match('/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="next"/', $linkHeader, $m)) {
+            $next = urldecode($m[1]);
+        }
+        if (preg_match('/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="previous"/', $linkHeader, $m2)) {
+            $prev = urldecode($m2[1]);
+        }
+
+        return [$next, $prev];
+    }
+
+    private function curlShopify(string $url, string $method = 'GET', ?array $payload = null): array
+    {
+        $headers = [];
 
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER => [
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_CUSTOMREQUEST  => $method,
+            CURLOPT_HTTPHEADER     => [
+                "Accept: application/json",
                 "Content-Type: application/json",
-                "X-Shopify-Access-Token: {$this->token}"
-            ]
+                "X-Shopify-Access-Token: {$this->token}",
+            ],
+            CURLOPT_HEADERFUNCTION => function ($curl, $headerLine) use (&$headers) {
+                $len = strlen($headerLine);
+                $headerLine = trim($headerLine);
+                if ($headerLine === '' || strpos($headerLine, ':') === false) return $len;
+
+                [$name, $value] = explode(':', $headerLine, 2);
+                $name = strtolower(trim($name));
+                $value = trim($value);
+
+                if (!isset($headers[$name])) $headers[$name] = $value;
+                else {
+                    if (is_array($headers[$name])) $headers[$name][] = $value;
+                    else $headers[$name] = [$headers[$name], $value];
+                }
+                return $len;
+            },
         ]);
 
-        $response = curl_exec($ch);
+        if ($payload !== null) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        }
+
+        $body   = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err    = curl_error($ch);
         curl_close($ch);
 
-        if (!$response) {
-            return $this->response->setJSON([
-                "success" => false,
-                "message" => "No se recibió respuesta de Shopify"
-            ]);
-        }
-
-        $data = json_decode($response, true);
-
-        if (!isset($data["order"])) {
-            return $this->response->setJSON([
-                "success" => false,
-                "message" => "Shopify no devolvió el pedido",
-                "raw"     => $data
-            ]);
-        }
-
-        $order = $data["order"];
-
-        // ====================================================
-        // LEER IMÁGENES GUARDADAS LOCALMENTE
-        // ====================================================
-        $folder = FCPATH . "uploads/pedidos/$orderId/";
-        $imagenesLocales = [];
-
-        if (is_dir($folder)) {
-            foreach (scandir($folder) as $archivo) {
-
-                if ($archivo === "." || $archivo === "..") continue;
-
-                // archivo -> ejemplo: 0.jpg
-                $parts = explode(".", $archivo);
-                $index = intval($parts[0]);
-
-                $imagenesLocales[$index] = base_url("uploads/pedidos/$orderId/$archivo");
-            }
-        }
-
-        return $this->response->setJSON([
-            "success"          => true,
-            "order"            => $order,
-            "imagenes_locales" => $imagenesLocales
-        ]);
+        return [
+            'status'  => $status,
+            'body'    => is_string($body) ? $body : '',
+            'headers' => $headers,
+            'error'   => $err ?: null,
+        ];
     }
-
-
 
     // ============================================================
-    // BADGE DEL ESTADO
+    // ETIQUETAS SEGÚN ROL Y USUARIO (tu lógica, sin romper)
     // ============================================================
-    private function badgeEstado(string $estado): string
-{
-    $estilos = [
-        "Por preparar" => "bg-yellow-100 text-yellow-800 border border-yellow-300",
-        "Preparado"    => "bg-green-100 text-green-800 border border-green-300",
-        "Enviado"      => "bg-blue-100 text-blue-800 border border-blue-300",
-        "Entregado"    => "bg-emerald-100 text-emerald-800 border border-emerald-300",
-        "Cancelado"    => "bg-red-100 text-red-800 border border-red-300",
-        "Devuelto"     => "bg-purple-100 text-purple-800 border border-purple-300",
-    ];
-
-    $clase = $estilos[$estado] ?? "bg-gray-100 text-gray-800 border border-gray-300";
-
-    $estadoEsc = htmlspecialchars($estado, ENT_QUOTES, 'UTF-8');
-
-    return '<span class="px-3 py-1 rounded-full text-xs font-bold tracking-wide ' . $clase . '">' . $estadoEsc . '</span>';
-}
-
-
-// ============================================================
-// PING (marca al usuario como activo)
-// ============================================================
-public function ping()
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setJSON(['success' => false])->setStatusCode(401);
-    }
-
-    $userId = session()->get('user_id');
-    if (!$userId) {
-        return $this->response->setJSON(['success' => false])->setStatusCode(401);
-    }
-
-    $db = \Config\Database::connect();
-    $db->table('users')->where('id', $userId)->update([
-        'last_seen' => date('Y-m-d H:i:s'),
-    ]);
-
-    return $this->response->setJSON(['success' => true]);
-}
-
-// ============================================================
-// LISTA USUARIOS + ONLINE/OFFLINE
-// ============================================================
-public function usuariosEstado()
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setJSON(['success' => false])->setStatusCode(401);
-    }
-
-    $db = \Config\Database::connect();
-
-    $usuarios = $db->table('users')
-        ->select('id, nombre, role, last_seen')
-        ->orderBy('nombre', 'ASC')
-        ->get()
-        ->getResultArray();
-
-    $now = time();
-    $onlineThreshold = 120; // 2 minutos
-
-    foreach ($usuarios as &$u) {
-        $ts = $u['last_seen'] ? strtotime($u['last_seen']) : 0;
-        $u['online'] = ($ts > 0 && ($now - $ts) <= $onlineThreshold);
-    }
-    unset($u);
-
-    $onlineCount = 0;
-    $offlineCount = 0;
-    foreach ($usuarios as $u) {
-        if (!empty($u['online'])) $onlineCount++;
-        else $offlineCount++;
-    }
-
-    return $this->response->setJSON([
-        'success' => true,
-        'online_count' => $onlineCount,
-        'offline_count' => $offlineCount,
-        'users' => $usuarios,
-    ]);
-}
-
-
-    // ============================================================
-    // ESTADO INTERNO
-    // ============================================================
-    private function obtenerEstadoInterno($orderId)
+    private function getEtiquetasUsuario(): array
     {
         $db = \Config\Database::connect();
+        $session = session();
 
-        $row = $db->table("pedidos_estado")
-                 ->where("id", $orderId)
-                 ->get()
-                 ->getRow();
+        $userId = $session->get('user_id');
+        if (!$userId) return ["General"];
 
-        return $row->estado ?? "Por preparar";
-    }
+        $usuario = $db->table('users')->where('id', $userId)->get()->getRow();
+        if (!$usuario) return ["General"];
 
+        $nombre = ucfirst((string) $usuario->nombre);
+        $rol = strtolower((string) $usuario->role);
 
-    // ============================================================
-    // CONSULTAR SHOPIFY
-    // ============================================================
-    private function queryShopify($params = "")
-    {
-        $url = "https://{$this->shop}/admin/api/2024-01/orders.json?$params";
+        if ($rol === "confirmacion") return ["D.$nombre"];
+        if ($rol === "produccion") return ["D.$nombre", "P.$nombre"];
 
-        $headers = [
-            "Content-Type: application/json",
-            "X-Shopify-Access-Token: {$this->token}"
-        ];
+        if ($rol === "admin") {
+            $usuarios = $db->table('users')->get()->getResult();
+            $etiquetas = [];
 
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => $url,
-            CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 20
-        ]);
+            foreach ($usuarios as $u) {
+                $nombreU = ucfirst((string) $u->nombre);
+                $rolU = strtolower((string) $u->role);
 
-        $response = curl_exec($ch);
+                if ($rolU === "confirmacion") {
+                    $etiquetas[] = "D.$nombreU";
+                } elseif ($rolU === "produccion") {
+                    $etiquetas[] = "D.$nombreU";
+                    $etiquetas[] = "P.$nombreU";
+                }
+            }
 
-        if (curl_errno($ch)) {
-            return ["success" => false, "message" => curl_error($ch)];
+            return array_values(array_unique($etiquetas));
         }
 
-        curl_close($ch);
-        return json_decode($response, true);
+        return ["General"];
     }
-
 
     // ============================================================
     // VISTA PRINCIPAL
@@ -263,38 +228,264 @@ public function usuariosEstado()
         ]);
     }
 
+    // ============================================================
+    // DETALLES DEL PEDIDO + IMÁGENES LOCALES
+    // ============================================================
+    public function detalles($orderId)
+    {
+        $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/{$orderId}.json";
+        $resp = $this->curlShopify($url, 'GET');
+
+        if ($resp['status'] === 0 || !empty($resp['error'])) {
+            return $this->response->setJSON([
+                "success" => false,
+                "message" => "Error conectando con Shopify (cURL)",
+                "curl_error" => $resp['error'],
+            ]);
+        }
+
+        $data = json_decode($resp['body'], true) ?: [];
+        if (!isset($data["order"])) {
+            return $this->response->setJSON([
+                "success" => false,
+                "message" => "Shopify no devolvió el pedido",
+                "raw"     => $data
+            ]);
+        }
+
+        $order = $data["order"];
+
+        // leer imágenes locales
+        $folder = FCPATH . "uploads/pedidos/$orderId/";
+        $imagenesLocales = [];
+
+        if (is_dir($folder)) {
+            foreach (scandir($folder) as $archivo) {
+                if ($archivo === "." || $archivo === "..") continue;
+                $parts = explode(".", $archivo);
+                $index = intval($parts[0]);
+                $imagenesLocales[$index] = base_url("uploads/pedidos/$orderId/$archivo");
+            }
+        }
+
+        return $this->response->setJSON([
+            "success"          => true,
+            "order"            => $order,
+            "imagenes_locales" => $imagenesLocales
+        ]);
+    }
 
     // ============================================================
-    // GUARDAR ESTADO
+    // BADGE DEL ESTADO
     // ============================================================
-    public function guardarEstado()
+    private function badgeEstado(string $estado): string
     {
-        $json = $this->request->getJSON(true);
-        $id = $json["id"];
-        $estado = $json["estado"];
+        $estilos = [
+            "Por preparar" => "bg-yellow-100 text-yellow-800 border border-yellow-300",
+            "Preparado"    => "bg-green-100 text-green-800 border border-green-300",
+            "Enviado"      => "bg-blue-100 text-blue-800 border border-blue-300",
+            "Entregado"    => "bg-emerald-100 text-emerald-800 border border-emerald-300",
+            "Cancelado"    => "bg-red-100 text-red-800 border border-red-300",
+            "Devuelto"     => "bg-purple-100 text-purple-800 border border-purple-300",
+        ];
+
+        $clase = $estilos[$estado] ?? "bg-gray-100 text-gray-800 border border-gray-300";
+        $estadoEsc = htmlspecialchars($estado, ENT_QUOTES, 'UTF-8');
+
+        return '<span class="px-3 py-1 rounded-full text-xs font-bold tracking-wide ' . $clase . '">' . $estadoEsc . '</span>';
+    }
+
+    // ============================================================
+    // PING / USUARIOS ESTADO (no romper si falta last_seen)
+    // ============================================================
+    public function ping()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setJSON(['success' => false])->setStatusCode(401);
+        }
+
+        $userId = session()->get('user_id');
+        if (!$userId) {
+            return $this->response->setJSON(['success' => false])->setStatusCode(401);
+        }
+
+        $db = \Config\Database::connect();
+        if ($this->columnExists($db, 'users', 'last_seen')) {
+            $db->table('users')->where('id', $userId)->update([
+                'last_seen' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        return $this->response->setJSON(['success' => true]);
+    }
+
+    public function usuariosEstado()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setJSON(['success' => false])->setStatusCode(401);
+        }
 
         $db = \Config\Database::connect();
 
-        $db->table("pedidos_estado")->replace([
-            "id" => $id,
-            "estado" => $estado
-        ]);
+        if (!$this->columnExists($db, 'users', 'last_seen')) {
+            return $this->response->setJSON([
+                'success' => true,
+                'online_count' => 0,
+                'offline_count' => 0,
+                'users' => [],
+            ]);
+        }
 
-        return $this->response->setJSON(["success" => true]);
+        $usuarios = $db->table('users')
+            ->select('id, nombre, role, last_seen')
+            ->orderBy('nombre', 'ASC')
+            ->get()
+            ->getResultArray();
+
+        $now = time();
+        $onlineThreshold = 120;
+
+        foreach ($usuarios as &$u) {
+            $ts = $u['last_seen'] ? strtotime($u['last_seen']) : 0;
+            $u['seconds_since_seen'] = ($ts > 0) ? ($now - $ts) : null;
+            $u['online'] = ($ts > 0 && ($now - $ts) <= $onlineThreshold);
+        }
+        unset($u);
+
+        $onlineCount = 0;
+        $offlineCount = 0;
+        foreach ($usuarios as $u) {
+            if (!empty($u['online'])) $onlineCount++;
+            else $offlineCount++;
+        }
+
+        return $this->response->setJSON([
+            'success' => true,
+            'online_count' => $onlineCount,
+            'offline_count' => $offlineCount,
+            'users' => $usuarios,
+        ]);
     }
 
+    // ============================================================
+    // ESTADO INTERNO (arreglado: id vs order_id/pedido_id)
+    // ============================================================
+    private function obtenerEstadoInterno($orderId): string
+    {
+        try {
+            $db = \Config\Database::connect();
+
+            // si no existe tabla, no romper
+            $dbName = $db->getDatabase();
+            $tbl = $db->query(
+                "SELECT 1 FROM information_schema.tables
+                 WHERE table_schema = ? AND table_name = ?
+                 LIMIT 1",
+                [$dbName, 'pedidos_estado']
+            )->getRowArray();
+
+            if (empty($tbl)) return "Por preparar";
+
+            $hasOrderId  = $this->columnExists($db, 'pedidos_estado', 'order_id');
+            $hasPedidoId = $this->columnExists($db, 'pedidos_estado', 'pedido_id');
+            $hasEstado   = $this->columnExists($db, 'pedidos_estado', 'estado');
+
+            if (!$hasEstado) return "Por preparar";
+
+            $q = $db->table('pedidos_estado')->select('estado');
+
+            if ($hasOrderId)      $q->where('order_id', $orderId);
+            elseif ($hasPedidoId) $q->where('pedido_id', $orderId);
+            else                  $q->where('id', $orderId); // último fallback
+
+            $row = $q->orderBy('id', 'DESC')->limit(1)->get()->getRowArray();
+
+            return $row['estado'] ?? "Por preparar";
+        } catch (\Throwable $e) {
+            return "Por preparar";
+        }
+    }
 
     // ============================================================
-    // GUARDAR ETIQUETAS
+    // GUARDAR ESTADO (robusto: histórico si se puede)
+    // ============================================================
+    public function guardarEstado()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setJSON(['success' => false, 'message' => 'No autenticado'])->setStatusCode(401);
+        }
+
+        $json = $this->request->getJSON(true) ?? [];
+        $orderId = (string)($json["id"] ?? '');
+        $estado  = (string)($json["estado"] ?? '');
+
+        if ($orderId === '' || $estado === '') {
+            return $this->response->setJSON(['success' => false, 'message' => 'Faltan parámetros'])->setStatusCode(422);
+        }
+
+        $db = \Config\Database::connect();
+
+        // si no existe tabla, no romper
+        try {
+            $dbName = $db->getDatabase();
+            $tbl = $db->query(
+                "SELECT 1 FROM information_schema.tables
+                 WHERE table_schema = ? AND table_name = ?
+                 LIMIT 1",
+                [$dbName, 'pedidos_estado']
+            )->getRowArray();
+
+            if (empty($tbl)) {
+                return $this->response->setJSON(['success' => false, 'message' => 'No existe tabla pedidos_estado'])->setStatusCode(500);
+            }
+
+            $hasOrderId  = $this->columnExists($db, 'pedidos_estado', 'order_id');
+            $hasPedidoId = $this->columnExists($db, 'pedidos_estado', 'pedido_id');
+
+            $hasEstado   = $this->columnExists($db, 'pedidos_estado', 'estado');
+            $hasUserId   = $this->columnExists($db, 'pedidos_estado', 'user_id');
+            $hasCreated  = $this->columnExists($db, 'pedidos_estado', 'created_at');
+
+            // si hay columnas “histórico”, insertamos
+            if ($hasEstado && ($hasOrderId || $hasPedidoId) && ($hasUserId || $hasCreated)) {
+                $insert = [];
+                if ($hasOrderId)  $insert['order_id'] = $orderId;
+                if ($hasPedidoId) $insert['pedido_id'] = $orderId; // por si tu esquema usa esa
+
+                $insert['estado'] = $estado;
+
+                if ($hasUserId)  $insert['user_id'] = (int)(session()->get('user_id') ?? 0);
+                if ($hasCreated) $insert['created_at'] = date('Y-m-d H:i:s');
+
+                $db->table('pedidos_estado')->insert($insert);
+            } else {
+                // fallback simple (tu replace original)
+                $db->table("pedidos_estado")->replace([
+                    "id" => $orderId,
+                    "estado" => $estado
+                ]);
+            }
+
+            return $this->response->setJSON(["success" => true]);
+        } catch (\Throwable $e) {
+            return $this->response->setJSON(["success" => false, "message" => $e->getMessage()])->setStatusCode(500);
+        }
+    }
+
+    // ============================================================
+    // GUARDAR ETIQUETAS (Shopify PUT)
     // ============================================================
     public function guardarEtiquetas()
     {
-        $json = $this->request->getJSON(true);
+        $json = $this->request->getJSON(true) ?? [];
+        $orderId = (string)($json["id"] ?? '');
+        $tags    = (string)($json["tags"] ?? '');
 
-        $orderId = $json["id"];
-        $tags    = $json["tags"];
+        if ($orderId === '') {
+            return $this->response->setJSON(["success" => false, "message" => "Falta id"])->setStatusCode(422);
+        }
 
-        $url = "https://{$this->shop}/admin/api/2024-01/orders/{$orderId}.json";
+        $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/{$orderId}.json";
 
         $data = [
             "order" => [
@@ -303,27 +494,16 @@ public function usuariosEstado()
             ]
         ];
 
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CUSTOMREQUEST  => "PUT",
-            CURLOPT_POSTFIELDS     => json_encode($data),
-            CURLOPT_HTTPHEADER     => [
-                "X-Shopify-Access-Token: {$this->token}",
-                "Content-Type: application/json"
-            ]
-        ]);
+        $resp = $this->curlShopify($url, 'PUT', $data);
 
-        $response = curl_exec($ch);
-        curl_close($ch);
-
-        $decoded = json_decode($response, true);
+        $decoded = json_decode($resp['body'], true) ?: [];
 
         if (!isset($decoded["order"])) {
             return $this->response->setJSON([
                 "success" => false,
                 "message" => "Error actualizando etiquetas",
-                "raw"     => $response
+                "status"  => $resp['status'],
+                "raw"     => $resp['body']
             ]);
         }
 
@@ -333,47 +513,56 @@ public function usuariosEstado()
         ]);
     }
 
-
     // ============================================================
-    // LISTAR TODOS LOS PEDIDOS
+    // LISTAR TODOS LOS PEDIDOS (con paginación REAL Link header)
     // ============================================================
     public function filter()
     {
         $allOrders = [];
         $limit = 250;
+
         $pageInfo = null;
+        $loops = 0;
 
         do {
-            $params = "limit=$limit&status=any&order=created_at%20desc";
+            $loops++;
+            if ($loops > 30) break; // safety
 
             if ($pageInfo) {
-                $params .= "&page_info=$pageInfo";
+                $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
+            } else {
+                $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&status=any&order=created_at%20desc";
             }
 
-            $response = $this->queryShopify($params);
+            $resp = $this->curlShopify($url, 'GET');
+            if ($resp['status'] >= 400 || $resp['status'] === 0) break;
 
-            if (!isset($response["orders"])) break;
+            $decoded = json_decode($resp['body'], true) ?: [];
+            if (!isset($decoded["orders"])) break;
 
-            $allOrders = array_merge($allOrders, $response["orders"]);
+            $allOrders = array_merge($allOrders, $decoded["orders"]);
 
-            $pageInfo = $response["next_page_info"] ?? null;
+            $linkHeader = $resp['headers']['link'] ?? null;
+            if (is_array($linkHeader)) $linkHeader = end($linkHeader);
+
+            [$nextPageInfo, $prev] = $this->parseLinkHeaderForPageInfo(is_string($linkHeader) ? $linkHeader : null);
+
+            $pageInfo = $nextPageInfo;
 
         } while ($pageInfo);
-
 
         $resultado = [];
 
         foreach ($allOrders as $o) {
-
             $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
             $badge         = $this->badgeEstado($estadoInterno);
 
             $resultado[] = [
                 "id"           => $o["id"],
-                "numero"       => $o["name"],
-                "fecha"        => substr($o["created_at"], 0, 10),
+                "numero"       => $o["name"] ?? ("#" . ($o["order_number"] ?? $o["id"])),
+                "fecha"        => isset($o["created_at"]) ? substr((string)$o["created_at"], 0, 10) : "-",
                 "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
-                "total"        => $o["total_price"] . " €",
+                "total"        => ($o["total_price"] ?? "-") . " €",
                 "estado"       => $badge,
                 "estado_raw"   => $estadoInterno,
                 "etiquetas"    => $o["tags"] ?? "-",
@@ -389,7 +578,6 @@ public function usuariosEstado()
             "count"   => count($resultado)
         ]);
     }
-
 
     // ============================================================
     // SUBIR IMAGEN LOCAL DEL PRODUCTO
@@ -407,19 +595,14 @@ public function usuariosEstado()
             ]);
         }
 
-        // Crear carpeta del pedido
         $folder = FCPATH . "uploads/pedidos/$orderId/";
         if (!is_dir($folder)) {
             mkdir($folder, 0777, true);
         }
 
-        // Extensión real del archivo
         $ext = $file->getExtension();
-
-        // Nombre fijo por índice del producto
         $newName = $index . "." . $ext;
 
-        // Guardar / sobreescribir
         $file->move($folder, $newName, true);
 
         $url = base_url("uploads/pedidos/$orderId/$newName");
@@ -430,4 +613,3 @@ public function usuariosEstado()
         ]);
     }
 }
-
