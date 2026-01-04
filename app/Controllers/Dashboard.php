@@ -414,6 +414,7 @@ class Dashboard extends BaseController
                 if (!empty($tbl)) {
                     $hasPedidoId = $this->columnExists($db, 'pedidos_estado', 'pedido_id');
                     $hasOrderId  = $this->columnExists($db, 'pedidos_estado', 'order_id');
+                    $hasId = $this->columnExists($db, 'pedidos_estado', 'id');
 
                     $hasEstado    = $this->columnExists($db, 'pedidos_estado', 'estado');
                     $hasUserName  = $this->columnExists($db, 'pedidos_estado', 'user_name');
@@ -438,8 +439,8 @@ class Dashboard extends BaseController
                         if (!empty($select)) $q->select(implode(',', $select));
 
                         if ($hasPedidoId) $q->where('pedido_id', $orderId);
-                        else              $q->where('order_id',  $orderId);
-
+                        elseif ($hasOrderId) $q->where('order_id', $orderId);
+                        else $q->where('id', $orderId);
                         if ($hasCreatedAt) $q->orderBy('created_at', 'DESC');
                         else               $q->orderBy('id', 'DESC');
 
