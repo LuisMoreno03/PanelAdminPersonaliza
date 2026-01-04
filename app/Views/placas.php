@@ -324,8 +324,8 @@
       <input id="cargaNumero" type="text" placeholder="Número de placa"
         class="w-full border rounded-xl px-3 py-2">
 
-      <input id="cargaArchivo" type="file" accept="image/*"
-        class="w-full">
+      <input id="cargaArchivo" type="file" accept="image/*,application/pdf" multiple class="w-full">
+
 
       <div id="cargaPreview"
         class="h-40 border rounded-xl flex items-center justify-center text-gray-400">
@@ -364,22 +364,98 @@ q('btnCerrarCarga').onclick = () => {
   q('cargaMsg').textContent = '';
 };
 
+// ===== MULTIUPLOAD (modal) =====
+let filesSeleccionados = [];
+
 q('cargaArchivo').onchange = (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  filesSeleccionados = Array.from(e.target.files || []);
+  const box = q('cargaPreview');
 
-  const img = document.createElement('img');
-  img.src = URL.createObjectURL(file);
-  img.className = 'w-full h-full object-contain';
+  if (!filesSeleccionados.length) {
+    box.innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
+    return;
+  }
 
-  q('cargaPreview').innerHTML = '';
-  q('cargaPreview').appendChild(img);
+  // Render thumbnails
+  box.innerHTML = `
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; padding:8px;">
+      ${filesSeleccionados.map((f, i) => {
+        const isImg = f.type.startsWith('image/');
+        const url = isImg ? URL.createObjectURL(f) : '';
+        return `
+          <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; background:#f9fafb; height:72px; display:flex; align-items:center; justify-content:center; position:relative;">
+            ${isImg
+              ? `<img src="${url}" style="width:100%; height:100%; object-fit:cover;">`
+              : `<div style="font-size:12px; color:#6b7280; padding:6px; text-align:center;">${f.name}</div>`
+            }
+            <button type="button"
+              onclick="window.quitarArchivoSeleccionado(${i})"
+              style="position:absolute; top:6px; right:6px; background:rgba(0,0,0,.6); color:#fff; border:0; width:22px; height:22px; border-radius:999px; cursor:pointer;">
+              ×
+            </button>
+          </div>
+        `;
+      }).join('')}
+    </div>
+    <div class="muted" style="padding:0 8px 8px;">
+      ${filesSeleccionados.length} archivo(s) seleccionado(s)
+    </div>
+  `;
+};
+
+window.quitarArchivoSeleccionado = (idx) => {
+  filesSeleccionados.splice(idx, 1);
+
+  // reconstruir FileList
+  const dt = new DataTransfer();
+  filesSeleccionados.forEach(f => dt.items.add(f));
+  q('cargaArchivo').files = dt.files;
+
+  // refrescar preview
+  q('cargaArchivo').dispatchEvent(new Event('change'));
 };
 
 q('btnGuardarCarga').onclick = async () => {
   const producto = q('cargaProducto').value.trim();
   const numero   = q('cargaNumero').value.trim();
-  const archivo  = q('cargaArchivo').files[0];
+
+  if (!numero) { q('cargaMsg').textContent = 'Número de placa es obligatorio.'; return; }
+  if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
+
+  q('btnGuardarCarga').disabled = true;
+  q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
+
+  // Subida en lote (una request con varios archivos)
+  const fd = new FormData();
+  fd.append('producto', producto);
+  fd.append('numero_placa', numero);
+
+  filesSeleccionados.forEach((file) => {
+    fd.append('archivos[]', file); // 👈 importante: "archivos[]"
+  });
+
+  const res = await fetch(API.subir, { method:'POST', body: fd });
+  const data = await res.json();
+
+  q('btnGuardarCarga').disabled = false;
+
+  if (!data.success) {
+    q('cargaMsg').textContent = data.message || 'Error al subir';
+    return;
+  }
+
+  q('cargaMsg').textContent = '✅ Subidos correctamente';
+  // cerrar + limpiar
+  q('modalCargaBackdrop').classList.add('hidden');
+  q('cargaArchivo').value = '';
+  filesSeleccionados = [];
+  q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
+
+  // refrescar listado
+  await cargarStats();
+  await cargarLista();
+};
+
 
   if (!archivo || !numero) {
     q('cargaMsg').textContent = 'Número de placa y archivo son obligatorios';
