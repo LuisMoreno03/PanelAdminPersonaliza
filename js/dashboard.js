@@ -362,26 +362,6 @@ function renderLastChangeCompact(p) {
 }
 
 /* =====================================================
-   TIME AGO (solo para CARDS si lo quieres, no para desktop último cambio)
-===================================================== */
-function timeAgo(dtStr) {
-  if (!dtStr) return "";
-  const d = new Date(String(dtStr).replace(" ", "T"));
-  if (isNaN(d)) return "";
-
-  const diff = Date.now() - d.getTime();
-  const sec = Math.floor(diff / 1000);
-  const min = Math.floor(sec / 60);
-  const hr = Math.floor(min / 60);
-  const day = Math.floor(hr / 24);
-
-  if (day > 0) return `${day}d ${hr % 24}h`;
-  if (hr > 0) return `${hr}h ${min % 60}m`;
-  if (min > 0) return `${min}m`;
-  return `${sec}s`;
-}
-
-/* =====================================================
    ETIQUETAS
 ===================================================== */
 function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
@@ -450,7 +430,6 @@ function actualizarTabla(pedidos) {
   const cards = document.getElementById("cardsPedidos");
 
   if (cont) cont.dataset.lastOrders = JSON.stringify(pedidos || []);
-
   const useCards = window.innerWidth <= 1180;
 
   // ---------- DESKTOP GRID ----------
@@ -505,7 +484,6 @@ function actualizarTabla(pedidos) {
   // ---------- CARDS ----------
   if (cards) {
     cards.innerHTML = "";
-
     if (!useCards) return;
 
     if (!pedidos.length) {
@@ -522,7 +500,7 @@ function actualizarTabla(pedidos) {
         const total = escapeHtml(p.total ?? "-");
         const etiquetas = p.etiquetas ?? "";
 
-        // en cards puedes mostrar exacto o "hace..." si quieres
+        // ✅ en cards también usamos SOLO fecha/hora exacta
         const last = p?.last_status_change?.changed_at
           ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(formatDateTime(p.last_status_change.changed_at))}`
           : "—";
