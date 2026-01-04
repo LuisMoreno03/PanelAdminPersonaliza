@@ -2,95 +2,16 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Placas - Panel</title>
 
-  <!-- Estilos -->
+  <!-- Tailwind / Alpine -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/alpinejs" defer></script>
 
   <style>
     body { background: #f3f4f6; }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: scale(0.95); }
-      to   { opacity: 1; transform: scale(1); }
-    }
-    .animate-fadeIn { animation: fadeIn .2s ease-out; }
-  </style>
-</head>
 
-<body class="flex">
-
-  <!-- Sidebar -->
-  <?= view('layouts/menu') ?>
-
-  <!-- Contenido principal -->
-  <div class="flex-1 md:ml-64 p-8">
-
-     
-    <!-- ENCABEZADO -->
-<h1 style="font-size:28px;font-weight:900;">PLACAS</h1>
-
-<div class="text-sm text-gray-500 mb-2">
-  Placas hoy: <span id="placasHoy">0</span>
-</div>
-
-<!-- BOTONES -->
-<div style="display:flex; gap:10px; margin-bottom:12px;">
-  <button id="btnSeleccionar" class="btn-blue">Seleccionar archivo</button>
-  <button id="btnSubir" class="btn-blue">Subir placa</button>
-</div>
-
-<!-- 🔽 🔽 🔽 AQUÍ VA LO QUE PREGUNTAS 🔽 🔽 🔽 -->
-<div id="gridPlacas" class="grid gap-3 mt-3"></div>
-<div id="placasMsg" class="text-sm text-gray-500 mt-2"></div>
-<!-- 🔼 🔼 🔼 FIN 🔼 🔼 🔼 -->
-
-    
-
-     <!-- Buscador -->
-    <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
-      <div class="relative">
-        <input
-          id="inputBuscar"
-          type="text"
-          placeholder="Buscar pedido, cliente, etiqueta..."
-          class="w-[320px] max-w-full pl-10 pr-3 py-2 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-        />
-        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔎</span>
-      </div>
-
-      <button
-        id="btnLimpiarBusqueda"
-        class="px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition"
-      >
-        Limpiar
-      </button>
-    </div>
-
-    <!-- Vista Previa -->
-      <div id="gridPlacas" class="grid gap-3 mt-3"></div>
-    <div id="placasMsg" class="text-sm text-gray-500 mt-2"></div>
-    
-    
-    <!-- Paginación arriba -->
-    <div class="flex items-center gap-2">
-      <button id="btnAnterior"
-        disabled
-        class="px-4 py-2 rounded-xl border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition">
-        Anterior
-      </button>
-
-      <button id="btnSiguiente"
-        onclick="paginaSiguiente()"
-        class="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.99] transition">
-        Siguiente
-      </button>
-    </div>
-  </div>
-
-
-  
-  <style>
     /* Botón azul estilo "Siguiente" */
     .btn-blue{
       background:#2563eb;
@@ -142,27 +63,36 @@
   </style>
 </head>
 
-<body style="background:#f3f4f6; padding:24px;">
+<body class="flex">
 
-  <div class="card">
-    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
-      <div>
-        <h1 style="margin:0; font-size:28px; font-weight:900;">PLACAS</h1>
-        <div class="muted" style="margin-top:6px;">
-          Placas hoy: <span id="placasHoy" style="font-weight:900;">0</span>
+  <!-- Sidebar -->
+  <?= view('layouts/menu') ?>
+
+  <!-- Contenido principal -->
+  <div class="flex-1 md:ml-64 p-8">
+
+    <div class="card">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-black">PLACAS</h1>
+          <div class="muted mt-1">
+            Placas hoy: <span id="placasHoy" class="font-black">0</span>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <input id="placaFile" type="file" accept="image/*,application/pdf" class="hidden" style="display:none;">
+          <button id="btnSeleccionar" class="btn-blue">Seleccionar archivo</button>
+          <button id="btnSubir" class="btn-blue">Subir placa</button>
         </div>
       </div>
 
-      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-        <input id="placaFile" type="file" accept="image/*,application/pdf" class="hidden" style="display:none;">
-        <button id="btnSeleccionar" class="btn-blue">Seleccionar archivo</button>
-        <button id="btnSubir" class="btn-blue">Subir placa</button>
-      </div>
+      <div id="msg" class="muted mt-2"></div>
+
+      <!-- Aquí se renderizan las previews -->
+      <div class="grid" id="grid"></div>
     </div>
 
-    <div id="msg" class="muted" style="margin-top:10px;"></div>
-
-    <div class="grid" id="grid"></div>
   </div>
 
 <script>
@@ -182,30 +112,46 @@ function card(item){
     ? `<div class="preview"><img src="${item.url}"></div>`
     : isPdf
       ? `<div class="preview"><iframe src="${item.url}"></iframe></div>`
-      : `<div class="preview" style="display:flex;align-items:center;justify-content:center;">Archivo</div>`;
+      : `<div class="preview flex items-center justify-center">Archivo</div>`;
 
   const kb = Math.round((item.size || 0) / 1024);
+
+  // Si tu API devuelve created_at, lo mostramos; si no, mostramos dia
+  const fecha = item.created_at ? item.created_at : (item.dia || '');
 
   return `
     <div class="item">
       ${preview}
       <div class="item-title">${escapeHtml(item.nombre)}</div>
-      <div class="muted">${escapeHtml(item.original || '')} • ${kb} KB • ${escapeHtml(item.dia || '')}</div>
+      <div class="muted">${escapeHtml(item.original || '')} • ${kb} KB • ${escapeHtml(fecha)}</div>
     </div>
   `;
 }
 
 async function cargarStats(){
-  const res = await fetch('/placas/archivos/stats');
-  const data = await res.json();
-  if (data.success) $('placasHoy').textContent = data.totalHoy;
+  try{
+    const res = await fetch('/placas/archivos/stats', { cache:'no-store' });
+    const data = await res.json();
+    if (data.success) $('placasHoy').textContent = data.totalHoy;
+  }catch(e){}
 }
 
 async function cargarLista(){
-  const res = await fetch('/placas/archivos/listar');
-  const data = await res.json();
-  if (!data.success) { $('grid').innerHTML = '<div class="muted">Error cargando archivos</div>'; return; }
-  $('grid').innerHTML = data.items.map(card).join('') || '<div class="muted">Aún no hay placas subidas.</div>';
+  try{
+    const res = await fetch('/placas/archivos/listar', { cache:'no-store' });
+    const data = await res.json();
+
+    if (!data.success) {
+      $('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
+      return;
+    }
+
+    $('grid').innerHTML = (data.items && data.items.length)
+      ? data.items.map(card).join('')
+      : '<div class="muted">Aún no hay placas subidas.</div>';
+  }catch(e){
+    $('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
+  }
 }
 
 async function subir(){
@@ -228,7 +174,7 @@ async function subir(){
   $('msg').textContent = data.message || '✅ Subido';
   $('placaFile').value = '';
 
-  // tiempo real
+ 
   await cargarStats();
   await cargarLista();
 }
@@ -236,16 +182,15 @@ async function subir(){
 $('btnSeleccionar').addEventListener('click', () => $('placaFile').click());
 $('btnSubir').addEventListener('click', subir);
 
-// load inicial
+
 cargarStats();
 cargarLista();
 
-// opcional: refrescar conteo cada 10s
-setInterval(cargarStats, 10000);
-
-
-
-
+// refresco “tiempo real” (por si otro usuario sube)
+setInterval(() => {
+  cargarStats();
+  cargarLista();
+}, 15000);
 </script>
 
 </body>
