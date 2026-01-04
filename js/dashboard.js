@@ -1,5 +1,6 @@
 // =====================================================
 // DASHBOARD.JS (COMPLETO) - REAL TIME + PAGINACIÓN ESTABLE
+// + PROTECCIÓN ANTI-OVERWRITE (12 usuarios)
 // =====================================================
 
 /* =====================================================
@@ -20,6 +21,13 @@ let liveInterval = null;
 
 let userPingInterval = null;
 let userStatusInterval = null;
+
+// ✅ evita que un fetch viejo pise uno nuevo
+let lastFetchToken = 0;
+
+// ✅ protege cambios recientes (evita que LIVE sobrescriba el estado recién guardado)
+const dirtyOrders = new Map(); // id -> { until:number, estado:string, last_status_change:{} }
+const DIRTY_TTL_MS = 15000; // 15s
 
 /* =====================================================
    CONFIG / HELPERS DE RUTAS
@@ -94,8 +102,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // ✅ Inicial pedidos (página 1)
   resetToFirstPage({ withFetch: true });
 
-  // ✅ LIVE refresca la página 1 cada 12s
-  startLive(12000);
+  // ✅ LIVE refresca la página 1 (recomendado 20s con 12 usuarios)
+  startLive(20000);
 
   // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
   window.addEventListener("resize", () => {
@@ -112,7 +120,7 @@ document.addEventListener("DOMContentLoaded", () => {
 /* =====================================================
    LIVE CONTROL
 ===================================================== */
-function startLive(ms = 12000) {
+function startLive(ms = 20000) {
   if (liveInterval) clearInterval(liveInterval);
 
   liveInterval = setInterval(() => {
@@ -218,12 +226,14 @@ function resetToFirstPage({ withFetch = false } = {}) {
 }
 
 /* =====================================================
-   CARGAR PEDIDOS
+   CARGAR PEDIDOS (con protección anti-overwrite)
 ===================================================== */
 function cargarPedidos({ page_info = "", reset = false } = {}) {
   if (isLoading) return;
   isLoading = true;
   showLoader();
+
+  const fetchToken = ++lastFetchToken;
 
   const base = apiUrl("/dashboard/pedidos");
   const fallback = apiUrl("/dashboard/filter");
@@ -252,6 +262,9 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       return res.json();
     })
     .then((data) => {
+      // ✅ si llegó una respuesta vieja, la ignoramos
+      if (fetchToken !== lastFetchToken) return;
+
       if (!data || !data.success) {
         actualizarTabla([]);
         ordersCache = [];
@@ -266,7 +279,28 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       nextPageInfo = data.next_page_info ?? null;
       prevPageInfo = data.prev_page_info ?? null;
 
-      ordersCache = Array.isArray(data.orders) ? data.orders : [];
+      let incoming = Array.isArray(data.orders) ? data.orders : [];
+
+      // ✅ aplicar "dirty protection"
+      const now = Date.now();
+      incoming = incoming.map((o) => {
+        const id = String(o.id ?? "");
+        if (!id) return o;
+
+        const dirty = dirtyOrders.get(id);
+        if (dirty && dirty.until > now) {
+          return {
+            ...o,
+            estado: dirty.estado,
+            last_status_change: dirty.last_status_change,
+          };
+        } else if (dirty) {
+          dirtyOrders.delete(id);
+        }
+        return o;
+      });
+
+      ordersCache = incoming;
       ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
 
       actualizarTabla(ordersCache);
@@ -278,6 +312,8 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       actualizarControlesPaginacion();
     })
     .catch((err) => {
+      if (fetchToken !== lastFetchToken) return;
+
       console.error("Error cargando pedidos:", err);
       actualizarTabla([]);
       ordersCache = [];
@@ -288,6 +324,7 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       setPaginaUI({ totalPages: null });
     })
     .finally(() => {
+      if (fetchToken !== lastFetchToken) return;
       isLoading = false;
       hideLoader();
     });
@@ -543,24 +580,35 @@ function cerrarModal() {
 
 /* =====================================================
    ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
+   + pause live + dirty TTL
 ===================================================== */
 async function guardarEstado(nuevoEstado) {
   const id = String(document.getElementById("modalOrderId")?.value || "");
   if (!id) return;
 
+  pauseLive();
+
   const order = ordersById.get(id);
   const prevEstado = order?.estado ?? null;
   const prevLast = order?.last_status_change ?? null;
 
-  // 1) UI instantánea
+  // 1) UI instantánea + dirty
+  const userName = window.CURRENT_USER || "Sistema";
+  const now = new Date();
+  const nowStr = now.toISOString().slice(0, 19).replace("T", " ");
+  const optimisticLast = { user_name: userName, changed_at: nowStr };
+
   if (order) {
-    const userName = window.CURRENT_USER || "Sistema";
-    const now = new Date();
-    const nowStr = now.toISOString().slice(0, 19).replace("T", " ");
     order.estado = nuevoEstado;
-    order.last_status_change = { user_name: userName, changed_at: nowStr };
+    order.last_status_change = optimisticLast;
     actualizarTabla(ordersCache);
   }
+
+  dirtyOrders.set(id, {
+    until: Date.now() + DIRTY_TTL_MS,
+    estado: nuevoEstado,
+    last_status_change: optimisticLast,
+  });
 
   cerrarModal();
 
@@ -595,8 +643,19 @@ async function guardarEstado(nuevoEstado) {
           order.estado = d.order.estado ?? order.estado;
           order.last_status_change = d.order.last_status_change ?? order.last_status_change;
           actualizarTabla(ordersCache);
+
+          dirtyOrders.set(id, {
+            until: Date.now() + DIRTY_TTL_MS,
+            estado: order.estado,
+            last_status_change: order.last_status_change,
+          });
         }
-        return; // ✅ éxito
+
+        // refresca si estás en pág 1
+        if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
+
+        resumeLiveIfOnFirstPage();
+        return;
       } catch (e) {
         lastErr = e;
       }
@@ -606,7 +665,9 @@ async function guardarEstado(nuevoEstado) {
   } catch (e) {
     console.error("guardarEstado error:", e);
 
-    // 4) Revert
+    // Revert
+    dirtyOrders.delete(id);
+
     if (order) {
       order.estado = prevEstado;
       order.last_status_change = prevLast;
@@ -614,6 +675,7 @@ async function guardarEstado(nuevoEstado) {
     }
 
     alert("No se pudo guardar el estado. Se revirtió el cambio.");
+    resumeLiveIfOnFirstPage();
   }
 }
 
@@ -625,7 +687,6 @@ window.abrirModalEtiquetas = function (orderId, rawTags) {
   const order = ordersById.get(id);
   const current = String(rawTags ?? order?.etiquetas ?? "").trim();
 
-  // Si existe un modal en tu layout, intentamos usarlo
   const modal = document.getElementById("modalEtiquetas") || document.getElementById("modalEtiquetasPedido");
   const inputId = document.getElementById("modalEtiquetasOrderId") || document.getElementById("modalEtiquetasId");
   const inputTags = document.getElementById("modalEtiquetasTags") || document.getElementById("inputEtiquetas");
@@ -637,7 +698,6 @@ window.abrirModalEtiquetas = function (orderId, rawTags) {
     return;
   }
 
-  // Fallback sin romper nada
   const nuevo = prompt("Editar etiquetas (separadas por coma):", current);
   if (nuevo === null) return;
   guardarEtiquetas(id, nuevo);
@@ -698,7 +758,6 @@ window.verDetalles = async function (orderId) {
 
   const url = apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`);
 
-  // Si tienes un modal de detalles en tu layout, lo puedes poblar aquí
   const modal = document.getElementById("modalDetalles");
   const pre = document.getElementById("modalDetallesJson");
 
@@ -715,7 +774,6 @@ window.verDetalles = async function (orderId) {
       return;
     }
 
-    // Fallback: abre JSON en pestaña nueva
     window.open(url, "_blank");
   } catch (e) {
     console.error("verDetalles error:", e);

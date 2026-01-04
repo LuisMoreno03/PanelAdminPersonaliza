@@ -34,6 +34,10 @@ class EstadoController extends BaseController
         $db = db_connect();
         $dbName = $db->getDatabase();
 
+        $userId   = session()->get('user_id') ?? null;
+        $userName = session()->get('nombre') ?? session()->get('username') ?? 'Sistema';
+        $now      = date('Y-m-d H:i:s');
+
         // ---------------------------------------------------------
         // 0) Detectar si existe tabla pedidos (soft-check)
         // ---------------------------------------------------------
@@ -48,6 +52,7 @@ class EstadoController extends BaseController
             $pedido = $db->table($this->pedidosTable)
                 ->select('id')
                 ->where('id', $orderId)
+                ->limit(1)
                 ->get()
                 ->getRowArray();
 
@@ -58,17 +63,16 @@ class EstadoController extends BaseController
         }
 
         // ---------------------------------------------------------
-        // 1) Detectar columnas reales en pedidos_estado (tu esquema)
-        //    En tu BD: id, estado, actualizado, created_at, user_id
+        // 1) Validar esquema de pedidos_estado (estado ACTUAL)
+        //    Tu BD: id, estado, actualizado, created_at, user_id
         // ---------------------------------------------------------
         $hasId          = $db->fieldExists('id', $this->estadoTable);
         $hasEstado      = $db->fieldExists('estado', $this->estadoTable);
         $hasActualizado = $db->fieldExists('actualizado', $this->estadoTable);
         $hasCreatedAt   = $db->fieldExists('created_at', $this->estadoTable);
-        $hasUserId      = $db->fieldExists('user_id', $this->estadoTable);
-        $hasUserName    = $db->fieldExists('user_name', $this->estadoTable); // por si algún día existe
+        $hasUserIdCol   = $db->fieldExists('user_id', $this->estadoTable);
+        $hasUserNameCol = $db->fieldExists('user_name', $this->estadoTable); // por si existe
 
-        // Si tu tabla NO tiene id+estado no podemos hacer nada
         if (!$hasId || !$hasEstado) {
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
@@ -76,26 +80,53 @@ class EstadoController extends BaseController
             ]);
         }
 
-        $userId   = session()->get('user_id') ?? null;
-        $userName = session()->get('nombre') ?? session()->get('username') ?? 'Sistema';
-        $now      = date('Y-m-d H:i:s');
+        // ---------------------------------------------------------
+        // 2) Detectar tabla historial (si existe)
+        // ---------------------------------------------------------
+        $histTable = 'pedidos_estado_historial';
+        $histExists = $db->query(
+            "SELECT 1 FROM information_schema.tables
+             WHERE table_schema = ? AND table_name = ?
+             LIMIT 1",
+            [$dbName, $histTable]
+        )->getRowArray();
 
         $db->transStart();
 
         // ---------------------------------------------------------
-        // 2) Guardar estado ACTUAL (UPSERT por id)
-        //    ✅ REPLACE funciona si "id" es PK/UNIQUE (lo normal en tu tabla)
+        // 3) Insert en HISTORIAL (si existe)
+        // ---------------------------------------------------------
+        if (!empty($histExists)) {
+            $hist = [
+                'order_id'   => (int)$orderId,
+                'estado'     => (string)$estado,
+                'user_id'    => ($userId !== null) ? (int)$userId : null,
+                'user_name'  => (string)$userName,
+                'created_at' => $now,
+            ];
+
+            // robusto por si tu tabla historial no tiene todas las columnas
+            foreach (array_keys($hist) as $col) {
+                if (!$db->fieldExists($col, $histTable)) {
+                    unset($hist[$col]);
+                }
+            }
+
+            $db->table($histTable)->insert($hist);
+        }
+
+        // ---------------------------------------------------------
+        // 4) Guardar estado ACTUAL (UPSERT por id)
         // ---------------------------------------------------------
         $data = [
             'id'     => (string)$orderId,
             'estado' => (string)$estado,
         ];
 
-        // tu tabla usa actualizado como "fecha de último cambio"
+        // ✅ tu tabla usa actualizado como "último cambio"
         if ($hasActualizado) $data['actualizado'] = $now;
 
-        // si tienes created_at, opcional: solo setearlo si la fila NO existía
-        // (si quieres siempre actualizarlo, comenta el if y asigna directo)
+        // created_at: setear SOLO si la fila no existía
         if ($hasCreatedAt) {
             $existsRow = $db->table($this->estadoTable)
                 ->select('id')
@@ -107,14 +138,14 @@ class EstadoController extends BaseController
             if (!$existsRow) $data['created_at'] = $now;
         }
 
-        if ($hasUserId)   $data['user_id'] = ($userId !== null) ? (int)$userId : null;
-        if ($hasUserName) $data['user_name'] = (string)$userName;
+        if ($hasUserIdCol)   $data['user_id'] = ($userId !== null) ? (int)$userId : null;
+        if ($hasUserNameCol) $data['user_name'] = (string)$userName;
 
-        // ✅ REPLACE (insert si no existe, update si existe)
+        // ✅ REPLACE = insert si no existe, update si existe (requiere PK/UNIQUE en id)
         $db->table($this->estadoTable)->replace($data);
 
         // ---------------------------------------------------------
-        // 3) Actualiza last_change_user/at en pedidos (si existen)
+        // 5) Actualiza last_change_user/at en pedidos (si existen)
         // ---------------------------------------------------------
         if (!empty($pedidosExists)) {
             $update = [];
@@ -141,7 +172,7 @@ class EstadoController extends BaseController
                 'id' => $orderId,
                 'estado' => $estado,
                 'last_status_change' => [
-                    'user_name' => $userName,
+                    'user_name'  => $userName,
                     'changed_at' => $now,
                 ],
             ],
@@ -160,6 +191,7 @@ class EstadoController extends BaseController
         ]);
     }
 }
+
 
 
     public function historial(int $orderId): ResponseInterface
