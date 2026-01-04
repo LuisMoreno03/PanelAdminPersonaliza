@@ -9,6 +9,7 @@
 // - ✅ Usuarios: tiempo conectado/desconectado
 // - ✅ FIX CSRF: envía token si existe meta csrf-token/csrf-header
 // - ✅ FIX rutas: usa /index.php si existe (fallback automático)
+// - ✅ Quita cuenta regresiva en "Último cambio" (solo fecha/hora)
 // =====================================================
 
 /* =====================================================
@@ -38,17 +39,12 @@ function hasIndexPhp() {
 }
 
 function apiUrl(path) {
-  // path ejemplo: "/api/estado/guardar" o "/dashboard/pedidos"
   if (!path.startsWith("/")) path = "/" + path;
-  if (hasIndexPhp()) {
-    // si ya estás en /index.php/... mantén consistencia
-    return "/index.php" + path;
-  }
-  return path;
+  return hasIndexPhp() ? "/index.php" + path : path;
 }
 
 function jsonHeaders() {
-  const headers = { "Content-Type": "application/json", Accept: "application/json" };
+  const headers = { Accept: "application/json", "Content-Type": "application/json" };
 
   // ✅ CSRF (si existe en tu HTML)
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
@@ -162,12 +158,6 @@ function renderEstado(valor) {
   return escapeHtml(valor ?? "-");
 }
 
-function stripHtml(html) {
-  const d = document.createElement("div");
-  d.innerHTML = String(html || "");
-  return d.textContent || "";
-}
-
 /* =====================================================
    ENTREGA PILL
 ===================================================== */
@@ -213,8 +203,7 @@ function setPaginaUI({ totalPages = null } = {}) {
 
   const pillTotal = document.getElementById("pillPaginaTotal");
   if (pillTotal) {
-    if (totalPages) pillTotal.textContent = `Página ${currentPage} de ${totalPages}`;
-    else pillTotal.textContent = `Página ${currentPage}`;
+    pillTotal.textContent = totalPages ? `Página ${currentPage} de ${totalPages}` : `Página ${currentPage}`;
   }
 }
 
@@ -282,7 +271,6 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       nextPageInfo = data.next_page_info ?? null;
       prevPageInfo = data.prev_page_info ?? null;
 
-      // ✅ cache local (para cambios instantáneos)
       ordersCache = Array.isArray(data.orders) ? data.orders : [];
       ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
 
@@ -345,28 +333,36 @@ function paginaAnterior() {
 }
 
 /* =====================================================
-   RENDER ÚLTIMO CAMBIO (compacto)
+   ÚLTIMO CAMBIO (SIN CUENTA REGRESIVA)
 ===================================================== */
+function formatDateTime(dtStr) {
+  if (!dtStr) return "—";
+
+  const safe = String(dtStr).includes("T") ? String(dtStr) : String(dtStr).replace(" ", "T");
+  const d = new Date(safe);
+  if (isNaN(d)) return "—";
+
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function renderLastChangeCompact(p) {
   const info = p?.last_status_change;
   if (!info || !info.changed_at) return "—";
 
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
   const exact = formatDateTime(info.changed_at);
-  const ago = timeAgo(info.changed_at);
 
   return `
     <div class="leading-tight min-w-0">
       <div class="text-[12px] font-extrabold text-slate-900 truncate">${user}</div>
       <div class="text-[11px] text-slate-600 whitespace-nowrap">${escapeHtml(exact)}</div>
-      <div class="text-[11px] text-slate-500 whitespace-nowrap">${escapeHtml(ago)}</div>
     </div>
   `;
 }
 
-
 /* =====================================================
-   TIME AGO
+   TIME AGO (solo para CARDS si lo quieres, no para desktop último cambio)
 ===================================================== */
 function timeAgo(dtStr) {
   if (!dtStr) return "";
@@ -526,8 +522,9 @@ function actualizarTabla(pedidos) {
         const total = escapeHtml(p.total ?? "-");
         const etiquetas = p.etiquetas ?? "";
 
+        // en cards puedes mostrar exacto o "hace..." si quieres
         const last = p?.last_status_change?.changed_at
-          ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(timeAgo(p.last_status_change.changed_at))}`
+          ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(formatDateTime(p.last_status_change.changed_at))}`
           : "—";
 
         return `
@@ -592,8 +589,6 @@ function cerrarModal() {
 
 /* =====================================================
    ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
-   - FIX: ahora SÍ envía CSRF si está en el HTML
-   - FIX: usa /index.php si aplica
 ===================================================== */
 async function guardarEstado(nuevoEstado) {
   const id = String(document.getElementById("modalOrderId")?.value || "");
@@ -603,33 +598,28 @@ async function guardarEstado(nuevoEstado) {
   const prevEstado = order?.estado ?? null;
   const prevLast = order?.last_status_change ?? null;
 
-  // 1) Cambia en UI al instante (optimistic)
+  // 1) Cambia UI al instante
   if (order) {
-  const userName = window.CURRENT_USER || "Sistema";
-  const nowLocal = new Date();
-  const nowStr = nowLocal.toISOString().slice(0, 19).replace("T", " "); // YYYY-MM-DD HH:MM:SS
+    const userName = window.CURRENT_USER || "Sistema";
+    const now = new Date();
+    const nowStr = now.toISOString().slice(0, 19).replace("T", " "); // YYYY-MM-DD HH:MM:SS
 
-  order.estado = nuevoEstado;
-  order.last_status_change = {
-    user_name: userName,
-    changed_at: nowStr,
-  };
-
-  actualizarTabla(ordersCache);
-}
+    order.estado = nuevoEstado;
+    order.last_status_change = { user_name: userName, changed_at: nowStr };
+    actualizarTabla(ordersCache);
+  }
 
   cerrarModal();
 
-  // 2) Guarda en backend
+  // 2) Guardar en backend
   try {
-    // intenta con /api...
     let r = await fetch(apiUrl("/api/estado/guardar"), {
       method: "POST",
       headers: jsonHeaders(),
       body: JSON.stringify({ id, estado: nuevoEstado }),
     });
 
-    // fallback por si tu servidor NO usa index.php pero la app sí (o al revés)
+    // fallback invertido
     if (r.status === 404) {
       const alt = hasIndexPhp() ? "/api/estado/guardar" : "/index.php/api/estado/guardar";
       r = await fetch(alt, { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ id, estado: nuevoEstado }) });
@@ -642,7 +632,7 @@ async function guardarEstado(nuevoEstado) {
       throw new Error(msg);
     }
 
-    // 3) Si backend devuelve el estado real, sincroniza
+    // 3) Sync desde backend (si devuelve datos)
     if (d?.order && order) {
       order.estado = d.order.estado ?? order.estado;
       order.last_status_change = d.order.last_status_change ?? order.last_status_change;
@@ -651,7 +641,7 @@ async function guardarEstado(nuevoEstado) {
   } catch (e) {
     console.error("guardarEstado error:", e);
 
-    // 4) Revertir si falla
+    // 4) Revert
     if (order) {
       order.estado = prevEstado;
       order.last_status_change = prevLast;
@@ -660,16 +650,6 @@ async function guardarEstado(nuevoEstado) {
 
     alert("No se pudo guardar el estado. Se revirtió el cambio.");
   }
-}
-
-/* =====================================================
-   DETALLES (tu función real está en otro lado)
-===================================================== */
-function abrirModalDetalles() {
-  document.getElementById("modalDetalles")?.classList.remove("hidden");
-}
-function cerrarModalDetalles() {
-  document.getElementById("modalDetalles")?.classList.add("hidden");
 }
 
 /* =====================================================
@@ -699,8 +679,6 @@ async function cargarUsuariosEstado() {
 
 // =====================================================
 // UI: USUARIOS ONLINE/OFFLINE + TIEMPO CONECTADO/DESCONECTADO
-// - usa seconds_since_seen si existe
-// - fallback: calcula con last_seen
 // =====================================================
 window.renderUsersStatus = function (payload) {
   const onlineEl = document.getElementById("onlineUsers");
@@ -712,16 +690,12 @@ window.renderUsersStatus = function (payload) {
 
   const users = payload?.users || [];
 
-  // normaliza seconds_since_seen
   const normalized = users.map((u) => {
     const secs =
       u.seconds_since_seen != null
         ? Number(u.seconds_since_seen)
         : u.last_seen
-        ? Math.max(
-            0,
-            Math.floor((Date.now() - new Date(String(u.last_seen).replace(" ", "T")).getTime()) / 1000)
-          )
+        ? Math.max(0, Math.floor((Date.now() - new Date(String(u.last_seen).replace(" ", "T")).getTime()) / 1000))
         : null;
 
     return { ...u, seconds_since_seen: isNaN(secs) ? null : secs };
@@ -771,7 +745,6 @@ function renderUserRow(mode) {
   };
 }
 
-// "seconds_since_seen" → "5s", "3m", "2h 10m", "1d 3h"
 function formatDuration(seconds) {
   if (seconds === null || seconds === undefined) return "—";
 

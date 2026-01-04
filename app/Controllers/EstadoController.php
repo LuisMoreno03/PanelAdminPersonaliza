@@ -2,67 +2,122 @@
 
 namespace App\Controllers;
 
-use CodeIgniter\Controller;
 use CodeIgniter\HTTP\ResponseInterface;
+use App\Models\OrderStatusHistoryModel;
 
-class EstadoController extends Controller
+class EstadoController extends BaseController
 {
     public function guardar(): ResponseInterface
     {
-        try {
-            // ✅ Seguridad: debe estar logueado
-            if (!session()->get('logged_in')) {
-                return $this->response->setStatusCode(401)->setJSON([
-                    'success' => false,
-                    'message' => 'No autenticado',
-                ]);
-            }
-
-            // ✅ Leer JSON (o fallback POST)
-            $data = $this->request->getJSON(true);
-            if (!is_array($data)) $data = $this->request->getPost();
-
-            $id = (string)($data['id'] ?? '');
-            $estado = trim((string)($data['estado'] ?? ''));
-
-            if ($id === '' || $estado === '') {
-                return $this->response->setStatusCode(200)->setJSON([
-                    'success' => false,
-                    'message' => 'Faltan datos (id/estado)',
-                ]);
-            }
-
-            $db = \Config\Database::connect();
-
-            // ✅ Guarda estado en tu tabla pedidos_estado
-            // IMPORTANTE: ajusta nombres de columnas si difieren
-            $db->table('pedidos_estado')->insert([
-                'id'         => $id,
-                'estado'     => $estado,
-                'user_id'    => session('user_id'),
-                'created_at' => date('Y-m-d H:i:s'),
-            ]);
-
-            // ✅ Respuesta para sincronizar UI
-            return $this->response->setStatusCode(200)->setJSON([
-                'success' => true,
-                'order' => [
-                    'id' => $id,
-                    'estado' => $estado,
-                    'last_status_change' => [
-                        'user_name'  => session('nombre') ?? 'Sistema',
-                        'changed_at' => date('Y-m-d H:i:s'),
-                    ],
-                ],
-            ]);
-
-        } catch (\Throwable $e) {
-            log_message('error', 'EstadoController::guardar ERROR: ' . $e->getMessage());
-
-            return $this->response->setStatusCode(500)->setJSON([
+        // Si usas AuthFilter, ya estás protegido.
+        // Aun así, validamos sesión.
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
                 'success' => false,
-                'message' => 'Error interno guardando estado',
+                'message' => 'No autenticado',
             ]);
         }
+
+        $payload = $this->request->getJSON(true) ?? [];
+        $orderId = isset($payload['id']) ? (string)$payload['id'] : '';
+        $nuevoEstado = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
+
+        if ($orderId === '' || $nuevoEstado === '') {
+            return $this->response->setStatusCode(422)->setJSON([
+                'success' => false,
+                'message' => 'Faltan parámetros: id / estado',
+            ]);
+        }
+
+        // Datos de usuario (desde sesión)
+        $userId = session()->get('user_id');      // ajusta si tu sesión se llama distinto
+        $userName = session()->get('nombre') ?? 'Sistema';
+
+        $now = date('Y-m-d H:i:s');
+
+        $db = db_connect();
+
+        // 🔒 Transacción: actualiza + inserta historial
+        $db->transStart();
+
+        // 1) Obtener estado previo (ajusta nombre de tu tabla/campos)
+        // Si tu tabla se llama "orders_local" o similar, cambia esto:
+        $row = $db->table('orders')
+            ->select('id, estado')
+            ->where('id', $orderId)
+            ->get()
+            ->getRowArray();
+
+        if (!$row) {
+            $db->transComplete();
+            return $this->response->setStatusCode(404)->setJSON([
+                'success' => false,
+                'message' => 'Pedido no encontrado en BD local',
+            ]);
+        }
+
+        $prevEstado = $row['estado'] ?? null;
+
+        // 2) Actualizar estado actual en la tabla principal (TU TABLA)
+        $db->table('orders')
+            ->where('id', $orderId)
+            ->update([
+                'estado' => $nuevoEstado,
+                'updated_at' => $now, // si existe
+                // si tienes campos para último cambio:
+                'last_change_user' => $userName,
+                'last_change_at' => $now,
+            ]);
+
+        // 3) Insertar historial
+        $history = new OrderStatusHistoryModel();
+
+        $history->insert([
+            'order_id' => (int)$orderId,
+            'prev_estado' => $prevEstado,
+            'nuevo_estado' => $nuevoEstado,
+            'user_id' => $userId ? (int)$userId : null,
+            'user_name' => (string)$userName,
+            'ip' => $this->request->getIPAddress(),
+            'user_agent' => substr((string)$this->request->getUserAgent(), 0, 255),
+            'created_at' => $now,
+        ]);
+
+        $db->transComplete();
+
+        if ($db->transStatus() === false) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => 'No se pudo guardar el cambio',
+            ]);
+        }
+
+        // Devuelve lo necesario para que tu dashboard.js sincronice
+        return $this->response->setJSON([
+            'success' => true,
+            'order' => [
+                'id' => $orderId,
+                'estado' => $nuevoEstado,
+                'last_status_change' => [
+                    'user_name' => $userName,
+                    'changed_at' => $now,
+                ],
+            ],
+        ]);
     }
+    public function historial(int $orderId): ResponseInterface
+{
+    $history = new \App\Models\OrderStatusHistoryModel();
+
+    $rows = $history->where('order_id', $orderId)
+        ->orderBy('id', 'DESC')
+        ->findAll(200);
+
+    return $this->response->setJSON([
+        'success' => true,
+        'order_id' => $orderId,
+        'history' => $rows,
+    ]);
+}
+
 }

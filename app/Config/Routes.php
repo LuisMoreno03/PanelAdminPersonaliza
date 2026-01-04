@@ -46,6 +46,10 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 // ====================================================
 // API (AJAX / JSON) (PROTEGIDO)
 // ====================================================
+$routes->group('api', ['filter' => 'auth'], static function ($routes) {
+    $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
+});
+
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
 
     // ✅ guardar estado local del pedido
