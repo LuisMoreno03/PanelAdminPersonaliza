@@ -7,10 +7,11 @@ use App\Models\OrderStatusHistoryModel;
 
 class EstadoController extends BaseController
 {
+    // ✅ Cambia aquí si tu tabla no se llama "orders"
+    private string $ordersTable = 'orders';
+
     public function guardar(): ResponseInterface
     {
-        // Si usas AuthFilter, ya estás protegido.
-        // Aun así, validamos sesión.
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
                 'success' => false,
@@ -19,8 +20,8 @@ class EstadoController extends BaseController
         }
 
         $payload = $this->request->getJSON(true) ?? [];
-        $orderId = isset($payload['id']) ? (string)$payload['id'] : '';
-        $nuevoEstado = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
+        $orderId = isset($payload['id']) ? trim((string) $payload['id']) : '';
+        $nuevoEstado = isset($payload['estado']) ? trim((string) $payload['estado']) : '';
 
         if ($orderId === '' || $nuevoEstado === '') {
             return $this->response->setStatusCode(422)->setJSON([
@@ -29,95 +30,119 @@ class EstadoController extends BaseController
             ]);
         }
 
-        // Datos de usuario (desde sesión)
-        $userId = session()->get('user_id');      // ajusta si tu sesión se llama distinto
-        $userName = session()->get('nombre') ?? 'Sistema';
+        // Datos usuario desde sesión (ajusta nombres si tu sesión usa otras keys)
+        $userId   = session()->get('user_id'); // puede ser null
+        $userName = session()->get('nombre') ?? session()->get('user_name') ?? 'Sistema';
 
         $now = date('Y-m-d H:i:s');
 
         $db = db_connect();
 
-        // 🔒 Transacción: actualiza + inserta historial
-        $db->transStart();
+        try {
+            $db->transStart();
 
-        // 1) Obtener estado previo (ajusta nombre de tu tabla/campos)
-        // Si tu tabla se llama "orders_local" o similar, cambia esto:
-        $row = $db->table('orders')
-            ->select('id, estado')
-            ->where('id', $orderId)
-            ->get()
-            ->getRowArray();
+            // 1) Obtener estado previo
+            $row = $db->table($this->ordersTable)
+                ->select('id, estado')
+                ->where('id', $orderId)
+                ->get()
+                ->getRowArray();
 
-        if (!$row) {
-            $db->transComplete();
-            return $this->response->setStatusCode(404)->setJSON([
-                'success' => false,
-                'message' => 'Pedido no encontrado en BD local',
-            ]);
-        }
+            if (!$row) {
+                $db->transComplete();
+                return $this->response->setStatusCode(404)->setJSON([
+                    'success' => false,
+                    'message' => 'Pedido no encontrado en BD local',
+                ]);
+            }
 
-        $prevEstado = $row['estado'] ?? null;
+            $prevEstado = $row['estado'] ?? null;
 
-        // 2) Actualizar estado actual en la tabla principal (TU TABLA)
-        $db->table('orders')
-            ->where('id', $orderId)
-            ->update([
+            // 2) Armar update solo con columnas que existan (evita 500)
+            $updateData = [
                 'estado' => $nuevoEstado,
-                'updated_at' => $now, // si existe
-                // si tienes campos para último cambio:
-                'last_change_user' => $userName,
-                'last_change_at' => $now,
+            ];
+
+            if ($db->fieldExists('updated_at', $this->ordersTable)) {
+                $updateData['updated_at'] = $now;
+            }
+            if ($db->fieldExists('last_change_user', $this->ordersTable)) {
+                $updateData['last_change_user'] = $userName;
+            }
+            if ($db->fieldExists('last_change_at', $this->ordersTable)) {
+                $updateData['last_change_at'] = $now;
+            }
+
+            $db->table($this->ordersTable)
+                ->where('id', $orderId)
+                ->update($updateData);
+
+            // 3) Insertar historial (NO castear order_id a int)
+            $history = new OrderStatusHistoryModel();
+
+            $history->insert([
+                'order_id'     => $orderId, // ✅ string
+                'prev_estado'  => $prevEstado,
+                'nuevo_estado' => $nuevoEstado,
+                'user_id'      => $userId !== null ? (int) $userId : null,
+                'user_name'    => (string) $userName,
+                'ip'           => $this->request->getIPAddress(),
+                'user_agent'   => substr((string) $this->request->getUserAgent()->getAgentString(), 0, 255),
+                'created_at'   => $now,
             ]);
 
-        // 3) Insertar historial
-        $history = new OrderStatusHistoryModel();
+            $db->transComplete();
 
-        $history->insert([
-            'order_id' => (int)$orderId,
-            'prev_estado' => $prevEstado,
-            'nuevo_estado' => $nuevoEstado,
-            'user_id' => $userId ? (int)$userId : null,
-            'user_name' => (string)$userName,
-            'ip' => $this->request->getIPAddress(),
-            'user_agent' => substr((string)$this->request->getUserAgent(), 0, 255),
-            'created_at' => $now,
-        ]);
+            if ($db->transStatus() === false) {
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'No se pudo guardar el cambio (transacción falló)',
+                ]);
+            }
 
-        $db->transComplete();
+            return $this->response->setJSON([
+                'success' => true,
+                'order' => [
+                    'id' => $orderId,
+                    'estado' => $nuevoEstado,
+                    'last_status_change' => [
+                        'user_name' => $userName,
+                        'changed_at' => $now,
+                    ],
+                ],
+            ]);
 
-        if ($db->transStatus() === false) {
+        } catch (\Throwable $e) {
+            // ✅ así ves el error real en logs
+            log_message('error', 'EstadoController::guardar ERROR: ' . $e->getMessage());
+
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
-                'message' => 'No se pudo guardar el cambio',
+                'message' => 'Error interno al guardar',
+            ]);
+        }
+    }
+
+    public function historial($orderId = null): ResponseInterface
+    {
+        $orderId = trim((string) $orderId);
+        if ($orderId === '') {
+            return $this->response->setStatusCode(422)->setJSON([
+                'success' => false,
+                'message' => 'Falta orderId',
             ]);
         }
 
-        // Devuelve lo necesario para que tu dashboard.js sincronice
+        $history = new OrderStatusHistoryModel();
+
+        $rows = $history->where('order_id', $orderId)
+            ->orderBy('id', 'DESC')
+            ->findAll(200);
+
         return $this->response->setJSON([
             'success' => true,
-            'order' => [
-                'id' => $orderId,
-                'estado' => $nuevoEstado,
-                'last_status_change' => [
-                    'user_name' => $userName,
-                    'changed_at' => $now,
-                ],
-            ],
+            'order_id' => $orderId,
+            'history' => $rows,
         ]);
     }
-    public function historial(int $orderId): ResponseInterface
-{
-    $history = new \App\Models\OrderStatusHistoryModel();
-
-    $rows = $history->where('order_id', $orderId)
-        ->orderBy('id', 'DESC')
-        ->findAll(200);
-
-    return $this->response->setJSON([
-        'success' => true,
-        'order_id' => $orderId,
-        'history' => $rows,
-    ]);
-}
-
 }
