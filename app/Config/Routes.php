@@ -52,7 +52,7 @@ $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $ro
     $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
     $routes->get('confirmados', 'Confirmados::filter');
 });
-    
+
 
 
 // ====================================================
@@ -123,14 +123,6 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 
 
 });
-
-// ✅ FIX: rutas directas para hosting que no enruta bien los groups
-$routes->post('api/estado/guardar', 'EstadoController::guardar', ['filter' => 'auth']);
-$routes->get('api/estado/historial/(:num)', 'EstadoController::historial/$1', ['filter' => 'auth']);
-
-// (opcional) por si a veces pegan sin /api
-$routes->post('estado/guardar', 'EstadoController::guardar', ['filter' => 'auth']);
-
 // ----------------------------------------------------
 // TEST
 // ----------------------------------------------------
