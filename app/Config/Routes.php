@@ -124,7 +124,7 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 
 });
 // ----------------------------------------------------
-// TEST
+// TEST FUNCIONAL
 // ----------------------------------------------------
 $routes->get('rtest', static function () {
     return 'OK ROUTES';
