@@ -716,3 +716,10 @@ function formatDuration(seconds) {
   if (m > 0) return `${m}m`;
   return `${sec}s`;
 }
+function apiUrl(path) {
+  if (!path.startsWith("/")) path = "/" + path;
+
+  // ✅ siempre usa site_url() (detecta index.php automáticamente)
+  const base = window.API_BASE || "";
+  return base + path;
+}

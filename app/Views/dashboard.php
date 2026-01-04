@@ -185,6 +185,9 @@
   <script>
   window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
 </script>
+<script>
+  window.API_BASE = "<?= rtrim(site_url(), '/') ?>";
+</script>
 
 
   <!-- ✅ romper caché -->
