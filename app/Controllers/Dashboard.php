@@ -467,6 +467,13 @@ try {
 
             if ($hasCreatedAt) $q->orderBy('created_at', 'DESC');
             else               $q->orderBy('id', 'DESC');
+            $row = $db->table('pedidos_estado')
+                ->select('estado, created_at, user_id')
+                ->where('order_id', $orderId)
+                ->orderBy('id', 'DESC')
+                ->limit(1)
+                ->get()
+                ->getRowArray();
 
             $row = $q->limit(1)->get()->getRowArray();
 

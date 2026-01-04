@@ -16,7 +16,7 @@ $routes->setDefaultController('Auth');
 $routes->setDefaultMethod('index');
 $routes->setTranslateURIDashes(false);
 $routes->set404Override();
-// $routes->setAutoRoute(false);
+$routes->setAutoRoute(false);
 
 // ----------------------------------------------------
 // AUTH
@@ -46,22 +46,14 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 // ====================================================
 // API (AJAX / JSON) (PROTEGIDO)
 // ====================================================
-$routes->group('api', ['filter' => 'auth'], static function ($routes) {
-    $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
-});
-
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
-
-    // ✅ guardar estado local del pedido
     $routes->post('estado/guardar', 'EstadoController::guardar');
-
-    // ✅ guardar etiquetas (DEJA SOLO UNA RUTA, y apúntala al controlador real)
-    // Si tu método está en Dashboard::guardarEtiquetas, deja esta:
+    $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
     $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
-
-    // confirmados por ajax
     $routes->get('confirmados', 'Confirmados::filter');
 });
+
+
 
 // ====================================================
 // SHOPIFY (PROTEGIDO)
@@ -131,17 +123,12 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 
 
 });
-
-// ✅ FIX: rutas directas para hosting que no enruta bien los groups
-$routes->post('api/estado/guardar', 'EstadoController::guardar', ['filter' => 'auth']);
-$routes->get('api/estado/historial/(:num)', 'EstadoController::historial/$1', ['filter' => 'auth']);
-
-// (opcional) por si a veces pegan sin /api
-$routes->post('estado/guardar', 'EstadoController::guardar', ['filter' => 'auth']);
-
 // ----------------------------------------------------
 // TEST
 // ----------------------------------------------------
 $routes->get('rtest', static function () {
     return 'OK ROUTES';
+});
+$routes->get('zz-check-routes', static function () {
+    return 'ROUTES_OK_' . date('Y-m-d_H:i:s');
 });

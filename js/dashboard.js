@@ -718,8 +718,5 @@ function formatDuration(seconds) {
 }
 function apiUrl(path) {
   if (!path.startsWith("/")) path = "/" + path;
-
-  // ✅ siempre usa site_url() (detecta index.php automáticamente)
-  const base = window.API_BASE || "";
-  return base + path;
+  return (window.API_BASE || "") + path;
 }
