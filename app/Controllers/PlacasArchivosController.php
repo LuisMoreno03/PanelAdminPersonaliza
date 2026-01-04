@@ -52,40 +52,77 @@ class PlacasArchivosController extends BaseController
      * POST /placas/archivos/subir
      */
     public function subir()
-    {
-        $file = $this->request->getFile('archivo');
+{
+    $producto = trim((string) $this->request->getPost('producto'));
+    $numeroPlaca = trim((string) $this->request->getPost('numero_placa'));
 
+    // 1) Puede venir un solo archivo (archivo) o múltiples (archivos[])
+    $files = $this->request->getFiles();
+    $lista = [];
 
+    if (isset($files['archivos'])) {
+        $lista = $files['archivos'];            // múltiples
+    } elseif ($this->request->getFile('archivo')) {
+        $lista = [$this->request->getFile('archivo')]; // uno solo (compat)
+    }
+
+    if (!$lista || !is_array($lista)) {
+        return $this->response->setJSON(['success' => false, 'message' => 'No se recibieron archivos.']);
+    }
+
+    $model = new \App\Models\PlacaArchivoModel();
+
+    $guardados = 0;
+    $errores = [];
+
+    foreach ($lista as $file) {
         if (!$file || !$file->isValid()) {
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => 'Archivo inválido'
-            ]);
+            $errores[] = 'Archivo inválido';
+            continue;
         }
 
-        $nombreFinal = $file->getRandomName();
-        $ruta = 'uploads/placas/' . $nombreFinal;
+        // Validación básica
+        $mime = $file->getClientMimeType();
+        $permitidos = ['image/jpeg','image/png','image/webp','application/pdf'];
+        if (!in_array($mime, $permitidos, true)) {
+            $errores[] = $file->getName().' (tipo no permitido)';
+            continue;
+        }
 
-        $file->move(FCPATH . 'uploads/placas', $nombreFinal);
+        $newName = time().'_'.bin2hex(random_bytes(8)).'.'.$file->getExtension();
+        $dir = FCPATH.'uploads/placas';
 
-        $model = new PlacaArchivoModel();
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+
+        if (!$file->move($dir, $newName)) {
+            $errores[] = $file->getName().' (no se pudo mover)';
+            continue;
+        }
+
+        $ruta = 'uploads/placas/'.$newName;
+
         $model->insert([
-            'nombre'       => pathinfo($file->getName(), PATHINFO_FILENAME),
-            'producto'     => $producto ?: null,
-            'numero_placa' => $numeroPlaca ?: null,
-            'original'     => $file->getName(),
-            'ruta'         => $ruta,
-            'mime'         => $file->getClientMimeType(),
-            'size'         => $file->getSize(),
-      
+            'nombre'        => pathinfo($file->getName(), PATHINFO_FILENAME),
+            'producto'      => $producto ?: null,
+            'numero_placa'  => $numeroPlaca ?: null,
+            'original'      => $file->getName(),
+            'ruta'          => $ruta,
+            'mime'          => $mime,
+            'size'          => $file->getSize(),
         ]);
 
-        return $this->response->setJSON([
-            'success' => true,
-            'message' => 'Placa subida correctamente'
-        ]);
-
+        $guardados++;
     }
+
+    return $this->response->setJSON([
+        'success' => $guardados > 0,
+        'message' => $guardados > 0
+            ? "✅ Subidos: {$guardados}".(count($errores) ? " | Errores: ".count($errores) : '')
+            : 'No se pudo subir ningún archivo.',
+        'errores' => $errores
+    ]);
+}
+
 
     /**
      * RENOMBRAR ARCHIVO
