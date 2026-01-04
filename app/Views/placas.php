@@ -181,33 +181,21 @@
   }
 
   async function cargarLista(){
-  const res = await fetch(API.listar, { cache:'no-store' });
-  const data = await res.json();
+    const res = await fetch(API.listar, { cache:'no-store' });
+    const data = await res.json();
 
-  if (!data.success) {
-    q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
-    return;
-  }
+    if (!data.success) {
+      q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
+      return;
+    }
 
-  const grupos = data.grupos || [];
+    placas = data.items || [];
 
-  q('grid').innerHTML = grupos.map(g => {
-    const titulo = g.lote_nombre ? g.lote_nombre : `Lote ${g.lote_id}`;
-    const fecha = g.created_at ? formatFecha(g.created_at) : '';
-    const cantidad = (g.items || []).length;
+    q('grid').innerHTML = placas.length
+      ? placas.map(renderCard).join('')
+      : '<div class="muted">Aún no hay placas subidas.</div>';
 
-    return `
-      <div style="grid-column:1/-1; background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:12px; margin-top:6px;">
-        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-          <div style="font-weight:900;">${escapeHtml(titulo)} <span class="muted">(${cantidad} archivos)</span></div>
-          <div class="muted">${escapeHtml(fecha)}</div>
-        </div>
-      </div>
-      ${(g.items || []).map(renderCard).join('')}
-    `;
-  }).join('') || '<div class="muted">Aún no hay placas subidas.</div>';
-}
-
+    }
 
   async function cargarStats(){
     const res = await fetch(API.stats, { cache:'no-store' });

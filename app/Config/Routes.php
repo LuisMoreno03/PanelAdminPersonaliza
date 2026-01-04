@@ -115,6 +115,9 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
     $routes->post('archivos/eliminar',  'PlacasArchivosController::eliminar');
 
     $routes->post('placas/archivos/subir', 'PlacasArchivosController::subir', ['filter' => 'auth']);
+    $routes->post('placas/archivos/lote/renombrar', 'PlacasArchivosController::renombrarLote');
+    $routes->post('placas/archivos/lote/eliminar', 'PlacasArchivosController::eliminarLote');
+
 });
 
 // ----------------------------------------------------
