@@ -373,20 +373,20 @@ function renderLastChangeCompact(p) {
   if (!info || !info.changed_at) return "—";
 
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
-  const exact = (typeof formatDateTime === "function")
-  ? formatDateTime(info.changed_at)
-  : String(info.changed_at);
-
-  const ago = timeAgo(info.changed_at);
+  const exact = formatDateTime(info.changed_at);
 
   return `
     <div class="leading-tight min-w-0">
-      <div class="text-[12px] font-extrabold text-slate-900 truncate">${user}</div>
-      <div class="text-[11px] text-slate-600 whitespace-nowrap">${escapeHtml(exact)}</div>
-      <div class="text-[11px] text-slate-500 whitespace-nowrap">${escapeHtml(ago)}</div>
+      <div class="text-[12px] font-extrabold text-slate-900 truncate">
+        ${user}
+      </div>
+      <div class="text-[11px] text-slate-600 whitespace-nowrap">
+        ${escapeHtml(exact)}
+      </div>
     </div>
   `;
 }
+
 
 
 
