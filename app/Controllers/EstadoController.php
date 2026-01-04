@@ -7,8 +7,12 @@ use App\Models\OrderStatusHistoryModel;
 
 class EstadoController extends BaseController
 {
-    // AJUSTA aquí tu tabla real:
-    private string $ordersTable = 'orders'; // <-- cambia si tu tabla se llama distinto
+    /**
+     * ✅ Tabla REAL en tu BD (según tu captura)
+     * Antes estaba 'orders' y por eso daba:
+     * "Table ... orders doesn't exist"
+     */
+    private string $ordersTable = 'pedidos';
 
     public function guardar(): ResponseInterface
     {
@@ -21,8 +25,8 @@ class EstadoController extends BaseController
             }
 
             $payload = $this->request->getJSON(true) ?? [];
-            $orderId = isset($payload['id']) ? trim((string)$payload['id']) : '';
-            $nuevoEstado = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
+            $orderId = isset($payload['id']) ? trim((string) $payload['id']) : '';
+            $nuevoEstado = isset($payload['estado']) ? trim((string) $payload['estado']) : '';
 
             if ($orderId === '' || $nuevoEstado === '') {
                 return $this->response->setStatusCode(422)->setJSON([
@@ -76,15 +80,19 @@ class EstadoController extends BaseController
                 ->update($update);
 
             // 3) Historial (registro de todos los cambios y usuarios)
+            // ✅ Mantengo OrderStatusHistoryModel porque en tu BD existe order_status_history.
+            // Si luego quieres, lo migramos a pedidos_estado.
             $history = new OrderStatusHistoryModel();
             $history->insert([
-                'order_id'     => (int)$orderId,
-                'prev_estado'  => (string)($prevEstado ?? ''),
-                'nuevo_estado' => (string)$nuevoEstado,
-                'user_id'      => $userId !== null ? (int)$userId : null,
-                'user_name'    => (string)$userName,
-                'ip'           => (string)$this->request->getIPAddress(),
-                'user_agent'   => substr((string)$this->request->getUserAgent(), 0, 255),
+                // ✅ IMPORTANTE:
+                // dejo el id como string para que no reviente si tu id no es int (Shopify a veces no es "123")
+                'order_id'     => (string) $orderId,
+                'prev_estado'  => (string) ($prevEstado ?? ''),
+                'nuevo_estado' => (string) $nuevoEstado,
+                'user_id'      => $userId !== null ? (int) $userId : null,
+                'user_name'    => (string) $userName,
+                'ip'           => (string) $this->request->getIPAddress(),
+                'user_agent'   => substr((string) $this->request->getUserAgent(), 0, 255),
                 'created_at'   => $now,
             ]);
 
@@ -109,7 +117,6 @@ class EstadoController extends BaseController
                 ],
             ]);
         } catch (\Throwable $e) {
-            // TEMPORAL: para ver el error real en Network → Response
             log_message('error', 'EstadoController::guardar ERROR: {msg} {file}:{line}', [
                 'msg' => $e->getMessage(),
                 'file' => $e->getFile(),
