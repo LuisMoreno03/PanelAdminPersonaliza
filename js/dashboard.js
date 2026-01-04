@@ -30,7 +30,7 @@ function hasIndexPhp() {
 
 function apiUrl(path) {
   if (!path.startsWith("/")) path = "/" + path;
-  return hasIndexPhp() ? "/index.php" + path : path;
+  return (window.API_BASE || "") + path;
 }
 
 function jsonHeaders() {
@@ -563,8 +563,9 @@ async function guardarEstado(nuevoEstado) {
   // 2) Guardar backend (✅ robusto aunque tu URL tenga index.php duplicado)
   try {
     const endpoints = [
+       apiUrl("/api/estado/guardar"),
       "/index.php/api/estado/guardar",
-      "/api/estado/guardar",
+      "/api/estado/guardar",  
     ];
 
     let lastErr = null;
@@ -715,8 +716,4 @@ function formatDuration(seconds) {
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m`;
   return `${sec}s`;
-}
-function apiUrl(path) {
-  if (!path.startsWith("/")) path = "/" + path;
-  return (window.API_BASE || "") + path;
 }
