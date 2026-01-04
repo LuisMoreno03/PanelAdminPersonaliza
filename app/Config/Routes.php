@@ -43,14 +43,19 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     $routes->get('usuarios-estado', 'Dashboard::usuariosEstado');
 });
 
-
 // ====================================================
 // API (AJAX / JSON) (PROTEGIDO)
 // ====================================================
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
+
+    // ✅ guardar estado local del pedido
     $routes->post('estado/guardar', 'EstadoController::guardar');
-    $routes->post('estado/etiquetas/guardar', 'DashboardController::guardarEtiquetas');
-    $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas'); // fallback
+
+    // ✅ guardar etiquetas (DEJA SOLO UNA RUTA, y apúntala al controlador real)
+    // Si tu método está en Dashboard::guardarEtiquetas, deja esta:
+    $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
+
+    // confirmados por ajax
     $routes->get('confirmados', 'Confirmados::filter');
 });
 
@@ -98,14 +103,26 @@ $routes->group('pedidos', ['filter' => 'auth'], static function (RouteCollection
 // ====================================================
 // PRODUCCION (PROTEGIDO)
 // ====================================================
-// ✅ Aquí estaba el error: tú pusiste Produccion::index pero normalmente es ProduccionController
 $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollection $routes) {
+    // ✅ deja SOLO uno. El bueno es ProduccionController
     $routes->get('/', 'ProduccionController::index');
     $routes->get('filter', 'ProduccionController::filter');
+});
 
-    // fallback si tu controller se llama Produccion (sin Controller)
-    $routes->get('/', 'Produccion::index');
-    $routes->get('filter', 'Produccion::filter');
+// ====================================================
+// PLACAS (PROTEGIDO)
+// ====================================================
+$routes->group('placas', ['filter' => 'auth'], static function (RouteCollection $routes) {
+    $routes->get('/', 'PlacasController::index');
+
+    // API archivos
+    $routes->get('archivos/listar', 'PlacasArchivosController::listar');
+    $routes->get('archivos/stats',  'PlacasArchivosController::stats');
+    $routes->post('archivos/subir', 'PlacasArchivosController::subir');
+
+    // Modificaciones
+    $routes->post('archivos/renombrar', 'PlacasArchivosController::renombrar');
+    $routes->post('archivos/eliminar',  'PlacasArchivosController::eliminar');
 });
 
 // ----------------------------------------------------
@@ -114,27 +131,3 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 $routes->get('rtest', static function () {
     return 'OK ROUTES';
 });
-
-
-// ====================================================
-// PLACAS (PROTEGIDO)
-// ====================================================
-$routes->group('placas', ['filter' => 'auth'], function ($routes) {
-    $routes->get('/', 'PlacasController::index');
-
-
-    // API archivos //
-    $routes->get('archivos/listar', 'PlacasArchivosController::listar');
-    $routes->get('archivos/stats',  'PlacasArchivosController::stats');
-    $routes->post('archivos/subir', 'PlacasArchivosController::subir');
-
-    // MODIFICACIONES //
-    $routes->post('archivos/renombrar', 'PlacasArchivosController::renombrar');
-    $routes->post('archivos/eliminar',  'PlacasArchivosController::eliminar');
-
-});
-
-
-
-
-
