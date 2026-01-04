@@ -47,13 +47,12 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 // API (AJAX / JSON) (PROTEGIDO)
 // ====================================================
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
-
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
-
     $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
     $routes->get('confirmados', 'Confirmados::filter');
 });
+    
 
 
 // ====================================================
@@ -137,4 +136,7 @@ $routes->post('estado/guardar', 'EstadoController::guardar', ['filter' => 'auth'
 // ----------------------------------------------------
 $routes->get('rtest', static function () {
     return 'OK ROUTES';
+});
+$routes->get('zz-check-routes', static function () {
+    return 'ROUTES_OK_' . date('Y-m-d_H:i:s');
 });
