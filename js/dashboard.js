@@ -28,9 +28,16 @@ function hasIndexPhp() {
   return window.location.pathname.includes("/index.php/");
 }
 
+function normalizeBase(base) {
+  base = String(base || "").trim();
+  base = base.replace(/\/+$/, "");
+  return base;
+}
+
 function apiUrl(path) {
   if (!path.startsWith("/")) path = "/" + path;
-  return (window.API_BASE || "") + path;
+  const base = normalizeBase(window.API_BASE || "");
+  return base ? base + path : path;
 }
 
 function jsonHeaders() {
@@ -372,10 +379,7 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
       </span>`
       : "";
 
-  const onClick =
-    typeof window.abrirModalEtiquetas === "function"
-      ? `abrirModalEtiquetas(${orderId}, '${escapeJsString(raw)}')`
-      : `alert('Falta implementar abrirModalEtiquetas()');`;
+  const onClick = `abrirModalEtiquetas(${Number(orderId)}, '${escapeJsString(raw)}')`;
 
   if (!list.length) {
     return `
@@ -450,7 +454,7 @@ function actualizarTabla(pedidos) {
               <div class="text-xs text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
 
               <div class="text-right whitespace-nowrap">
-                <button onclick="verDetalles(${id})"
+                <button onclick="verDetalles(${Number(id)})"
                   class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
                   Ver →
                 </button>
@@ -502,7 +506,7 @@ function actualizarTabla(pedidos) {
                   </span>
                 </button>
 
-                <button onclick="verDetalles(${id})"
+                <button onclick="verDetalles(${Number(id)})"
                   class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
                   Ver →
                 </button>
@@ -560,12 +564,12 @@ async function guardarEstado(nuevoEstado) {
 
   cerrarModal();
 
-  // 2) Guardar backend (✅ robusto aunque tu URL tenga index.php duplicado)
+  // 2) Guardar backend
   try {
     const endpoints = [
-       apiUrl("/api/estado/guardar"),
+      apiUrl("/api/estado/guardar"),
       "/index.php/api/estado/guardar",
-      "/api/estado/guardar",  
+      "/api/estado/guardar",
     ];
 
     let lastErr = null;
@@ -612,6 +616,114 @@ async function guardarEstado(nuevoEstado) {
     alert("No se pudo guardar el estado. Se revirtió el cambio.");
   }
 }
+
+/* =====================================================
+   ETIQUETAS (MODAL + SAVE)
+===================================================== */
+window.abrirModalEtiquetas = function (orderId, rawTags) {
+  const id = String(orderId ?? "");
+  const order = ordersById.get(id);
+  const current = String(rawTags ?? order?.etiquetas ?? "").trim();
+
+  // Si existe un modal en tu layout, intentamos usarlo
+  const modal = document.getElementById("modalEtiquetas") || document.getElementById("modalEtiquetasPedido");
+  const inputId = document.getElementById("modalEtiquetasOrderId") || document.getElementById("modalEtiquetasId");
+  const inputTags = document.getElementById("modalEtiquetasTags") || document.getElementById("inputEtiquetas");
+
+  if (modal && inputId && inputTags) {
+    inputId.value = id;
+    inputTags.value = current;
+    modal.classList.remove("hidden");
+    return;
+  }
+
+  // Fallback sin romper nada
+  const nuevo = prompt("Editar etiquetas (separadas por coma):", current);
+  if (nuevo === null) return;
+  guardarEtiquetas(id, nuevo);
+};
+
+window.cerrarModalEtiquetas = function () {
+  const modal = document.getElementById("modalEtiquetas") || document.getElementById("modalEtiquetasPedido");
+  if (modal) modal.classList.add("hidden");
+};
+
+window.guardarEtiquetasDesdeModal = function () {
+  const inputId = document.getElementById("modalEtiquetasOrderId") || document.getElementById("modalEtiquetasId");
+  const inputTags = document.getElementById("modalEtiquetasTags") || document.getElementById("inputEtiquetas");
+  const id = String(inputId?.value || "");
+  const tags = String(inputTags?.value || "");
+  if (!id) return;
+  guardarEtiquetas(id, tags);
+  window.cerrarModalEtiquetas();
+};
+
+async function guardarEtiquetas(orderId, tagsStr) {
+  const id = String(orderId || "");
+  const order = ordersById.get(id);
+  const prev = order?.etiquetas ?? "";
+
+  // UI instant
+  if (order) {
+    order.etiquetas = String(tagsStr ?? "");
+    actualizarTabla(ordersCache);
+  }
+
+  try {
+    const url = apiUrl("/api/estado/etiquetas/guardar");
+    const r = await fetch(url, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ id: Number(id), tags: String(tagsStr ?? "") }),
+    });
+
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d?.success) throw new Error(d?.message || `HTTP ${r.status}`);
+  } catch (e) {
+    console.error("guardarEtiquetas error:", e);
+    if (order) {
+      order.etiquetas = prev;
+      actualizarTabla(ordersCache);
+    }
+    alert("No se pudo guardar etiquetas. Se revirtió el cambio.");
+  }
+}
+
+/* =====================================================
+   DETALLES
+===================================================== */
+window.verDetalles = async function (orderId) {
+  const id = String(orderId || "");
+  if (!id) return;
+
+  const url = apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`);
+
+  // Si tienes un modal de detalles en tu layout, lo puedes poblar aquí
+  const modal = document.getElementById("modalDetalles");
+  const pre = document.getElementById("modalDetallesJson");
+
+  try {
+    showLoader();
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    const d = await r.json().catch(() => null);
+
+    if (!r.ok || !d) throw new Error(`HTTP ${r.status}`);
+
+    if (modal && pre) {
+      pre.textContent = JSON.stringify(d, null, 2);
+      modal.classList.remove("hidden");
+      return;
+    }
+
+    // Fallback: abre JSON en pestaña nueva
+    window.open(url, "_blank");
+  } catch (e) {
+    console.error("verDetalles error:", e);
+    alert("No se pudieron cargar los detalles del pedido.");
+  } finally {
+    hideLoader();
+  }
+};
 
 /* =====================================================
    USERS STATUS
