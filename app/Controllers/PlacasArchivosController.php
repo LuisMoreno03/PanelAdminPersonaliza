@@ -82,6 +82,13 @@ class PlacasArchivosController extends BaseController
             'success' => true,
             'message' => 'Placa subida correctamente'
         ]);
+
+    }
+
+    /**
+     * RENOMBRAR ARCHIVO
+     * POST /placas/archivos/renombrar
+     */
     public function renombrar()
 {
     $id = (int) $this->request->getPost('id');
