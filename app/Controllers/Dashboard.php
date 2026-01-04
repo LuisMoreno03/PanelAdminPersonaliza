@@ -420,37 +420,40 @@ class Dashboard extends BaseController
             }
 
             // -----------------------------------------------------
-            // 4) Último cambio desde BD
-            // -----------------------------------------------------
-            $db = \Config\Database::connect();
+// 4) Último cambio desde BD (FIX)
+// -----------------------------------------------------
+$db = \Config\Database::connect();
 
-            foreach ($orders as &$ord) {
-                $orderId = $ord['id'] ?? null;
-                if (!$orderId) {
-                    $ord['last_status_change'] = null;
-                    continue;
-                }
+foreach ($orders as &$ord) {
+    $orderId = $ord['id'] ?? null;
+    if (!$orderId) {
+        $ord['last_status_change'] = null;
+        continue;
+    }
 
-                $row = $db->table('pedidos_estado')
-                    ->select('created_at, user_id')
-                    ->where('id', $orderId)
-                    ->orderBy('created_at', 'DESC')
-                    ->limit(1)
-                    ->get()
-                    ->getRowArray();
+    // ✅ OJO: en pedidos_estado la columna debe ser pedido_id
+    $row = $db->table('pedidos_estado')
+        ->select('estado, user_name, created_at')
+        ->where('pedido_id', $orderId)
+        ->orderBy('created_at', 'DESC')
+        ->limit(1)
+        ->get()
+        ->getRowArray();
 
-                $userName = 'Sistema';
-                if (!empty($row['user_id'])) {
-                    $u = $db->table('users')->where('id', $row['user_id'])->get()->getRowArray();
-                    if ($u && !empty($u['nombre'])) $userName = $u['nombre'];
-                }
+    if ($row) {
+        // ✅ ahora el estado real viene de pedidos_estado
+        $ord['estado'] = $row['estado'] ?? $ord['estado'];
 
-                $ord['last_status_change'] = [
-                    'user_name'  => $userName,
-                    'changed_at' => $row['created_at'] ?? null,
-                ];
-            }
-            unset($ord);
+        $ord['last_status_change'] = [
+            'user_name'  => $row['user_name'] ?? 'Sistema',
+            'changed_at' => $row['created_at'] ?? null,
+        ];
+    } else {
+        $ord['last_status_change'] = null;
+    }
+}
+unset($ord);
+
 
             // -----------------------------------------------------
             // 5) Respuesta final + debug opcional

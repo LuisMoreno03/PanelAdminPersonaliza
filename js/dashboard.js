@@ -1,15 +1,5 @@
 // =====================================================
 // DASHBOARD.JS (COMPLETO) - REAL TIME + PAGINACIÓN ESTABLE
-// - Página 1: refresca en vivo (trae últimos 50 pedidos)
-// - Si el usuario navega a página 2+: pausa live automáticamente
-// - Paginación Shopify REAL (page_info)
-// - Render Desktop: GRID (1 línea) sin scroll horizontal
-// - Render Mobile/Tablet: CARDS
-// - ✅ Estado pedido: cambio LOCAL instantáneo + persistencia backend + revert
-// - ✅ Usuarios: tiempo conectado/desconectado
-// - ✅ FIX CSRF: envía token si existe meta csrf-token/csrf-header
-// - ✅ FIX rutas: usa /index.php si existe (fallback automático)
-// - ✅ Quita cuenta regresiva en "Último cambio" (solo fecha/hora)
 // =====================================================
 
 /* =====================================================
@@ -202,9 +192,7 @@ function setPaginaUI({ totalPages = null } = {}) {
   if (pill) pill.textContent = `Página ${currentPage}`;
 
   const pillTotal = document.getElementById("pillPaginaTotal");
-  if (pillTotal) {
-    pillTotal.textContent = totalPages ? `Página ${currentPage} de ${totalPages}` : `Página ${currentPage}`;
-  }
+  if (pillTotal) pillTotal.textContent = totalPages ? `Página ${currentPage} de ${totalPages}` : `Página ${currentPage}`;
 }
 
 /* =====================================================
@@ -223,7 +211,7 @@ function resetToFirstPage({ withFetch = false } = {}) {
 }
 
 /* =====================================================
-   CARGAR PEDIDOS (50 en 50)
+   CARGAR PEDIDOS
 ===================================================== */
 function cargarPedidos({ page_info = "", reset = false } = {}) {
   if (isLoading) return;
@@ -333,15 +321,13 @@ function paginaAnterior() {
 }
 
 /* =====================================================
-   ÚLTIMO CAMBIO (SIN CUENTA REGRESIVA)
+   ÚLTIMO CAMBIO
 ===================================================== */
 function formatDateTime(dtStr) {
   if (!dtStr) return "—";
-
   const safe = String(dtStr).includes("T") ? String(dtStr) : String(dtStr).replace(" ", "T");
   const d = new Date(safe);
   if (isNaN(d)) return "—";
-
   const pad = (n) => String(n).padStart(2, "0");
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -349,10 +335,8 @@ function formatDateTime(dtStr) {
 function renderLastChangeCompact(p) {
   const info = p?.last_status_change;
   if (!info || !info.changed_at) return "—";
-
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
   const exact = formatDateTime(info.changed_at);
-
   return `
     <div class="leading-tight min-w-0">
       <div class="text-[12px] font-extrabold text-slate-900 truncate">${user}</div>
@@ -432,10 +416,8 @@ function actualizarTabla(pedidos) {
   if (cont) cont.dataset.lastOrders = JSON.stringify(pedidos || []);
   const useCards = window.innerWidth <= 1180;
 
-  // ---------- DESKTOP GRID ----------
   if (cont) {
     cont.innerHTML = "";
-
     if (!useCards) {
       if (!pedidos.length) {
         cont.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
@@ -444,7 +426,6 @@ function actualizarTabla(pedidos) {
           .map((p) => {
             const id = p.id ?? "";
             const etiquetas = p.etiquetas ?? "";
-
             return `
             <div class="orders-grid px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
               <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</div>
@@ -481,7 +462,6 @@ function actualizarTabla(pedidos) {
     }
   }
 
-  // ---------- CARDS ----------
   if (cards) {
     cards.innerHTML = "";
     if (!useCards) return;
@@ -494,13 +474,7 @@ function actualizarTabla(pedidos) {
     cards.innerHTML = pedidos
       .map((p) => {
         const id = p.id ?? "";
-        const numero = escapeHtml(p.numero ?? "-");
-        const fecha = escapeHtml(p.fecha ?? "-");
-        const cliente = escapeHtml(p.cliente ?? "-");
-        const total = escapeHtml(p.total ?? "-");
         const etiquetas = p.etiquetas ?? "";
-
-        // ✅ en cards también usamos SOLO fecha/hora exacta
         const last = p?.last_status_change?.changed_at
           ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(formatDateTime(p.last_status_change.changed_at))}`
           : "—";
@@ -510,13 +484,12 @@ function actualizarTabla(pedidos) {
             <div class="p-4">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <div class="text-sm font-extrabold text-slate-900">${numero}</div>
-                  <div class="text-xs text-slate-500 mt-0.5">${fecha}</div>
-                  <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${cliente}</div>
+                  <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.numero ?? "-")}</div>
+                  <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(p.fecha ?? "-")}</div>
+                  <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${escapeHtml(p.cliente ?? "-")}</div>
                 </div>
-
                 <div class="text-right whitespace-nowrap">
-                  <div class="text-sm font-extrabold text-slate-900">${total}</div>
+                  <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.total ?? "-")}</div>
                 </div>
               </div>
 
@@ -556,7 +529,6 @@ function actualizarTabla(pedidos) {
 function abrirModal(orderId) {
   const idInput = document.getElementById("modalOrderId");
   if (idInput) idInput.value = String(orderId ?? "");
-
   const modal = document.getElementById("modalEstado");
   if (modal) modal.classList.remove("hidden");
 }
@@ -576,12 +548,11 @@ async function guardarEstado(nuevoEstado) {
   const prevEstado = order?.estado ?? null;
   const prevLast = order?.last_status_change ?? null;
 
-  // 1) Cambia UI al instante
+  // 1) UI instantánea
   if (order) {
     const userName = window.CURRENT_USER || "Sistema";
     const now = new Date();
-    const nowStr = now.toISOString().slice(0, 19).replace("T", " "); // YYYY-MM-DD HH:MM:SS
-
+    const nowStr = now.toISOString().slice(0, 19).replace("T", " ");
     order.estado = nuevoEstado;
     order.last_status_change = { user_name: userName, changed_at: nowStr };
     actualizarTabla(ordersCache);
@@ -589,33 +560,44 @@ async function guardarEstado(nuevoEstado) {
 
   cerrarModal();
 
-  // 2) Guardar en backend
+  // 2) Guardar backend (✅ robusto aunque tu URL tenga index.php duplicado)
   try {
-    let r = await fetch(apiUrl("/api/estado/guardar"), {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ id, estado: nuevoEstado }),
-    });
+    const endpoints = [
+      "/index.php/api/estado/guardar",
+      "/api/estado/guardar",
+    ];
 
-    // fallback invertido
-    if (r.status === 404) {
-      const alt = hasIndexPhp() ? "/api/estado/guardar" : "/index.php/api/estado/guardar";
-      r = await fetch(alt, { method: "POST", headers: jsonHeaders(), body: JSON.stringify({ id, estado: nuevoEstado }) });
+    let lastErr = null;
+
+    for (const url of endpoints) {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ id, estado: nuevoEstado }),
+        });
+
+        if (r.status === 404) continue;
+
+        const d = await r.json().catch(() => null);
+
+        if (!r.ok || !d?.success) {
+          throw new Error(d?.message || `HTTP ${r.status}`);
+        }
+
+        // 3) Sync desde backend
+        if (d?.order && order) {
+          order.estado = d.order.estado ?? order.estado;
+          order.last_status_change = d.order.last_status_change ?? order.last_status_change;
+          actualizarTabla(ordersCache);
+        }
+        return; // ✅ éxito
+      } catch (e) {
+        lastErr = e;
+      }
     }
 
-    const d = await r.json().catch(() => null);
-
-    if (!r.ok || !d?.success) {
-      const msg = d?.message || `HTTP ${r.status}`;
-      throw new Error(msg);
-    }
-
-    // 3) Sync desde backend (si devuelve datos)
-    if (d?.order && order) {
-      order.estado = d.order.estado ?? order.estado;
-      order.last_status_change = d.order.last_status_change ?? order.last_status_change;
-      actualizarTabla(ordersCache);
-    }
+    throw lastErr || new Error("Endpoint no encontrado (404).");
   } catch (e) {
     console.error("guardarEstado error:", e);
 
@@ -655,9 +637,6 @@ async function cargarUsuariosEstado() {
   }
 }
 
-// =====================================================
-// UI: USUARIOS ONLINE/OFFLINE + TIEMPO CONECTADO/DESCONECTADO
-// =====================================================
 window.renderUsersStatus = function (payload) {
   const onlineEl = document.getElementById("onlineUsers");
   const offlineEl = document.getElementById("offlineUsers");
