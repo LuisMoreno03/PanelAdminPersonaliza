@@ -678,6 +678,11 @@ async function guardarEstado(nuevoEstado) {
     resumeLiveIfOnFirstPage();
   }
 }
+// ✅ asegurar funciones globales para onclick=""
+window.abrirModal = abrirModal;
+window.cerrarModal = cerrarModal;
+window.guardarEstado = guardarEstado;
+
 /* =====================================================
    DETALLES
 ===================================================== */
