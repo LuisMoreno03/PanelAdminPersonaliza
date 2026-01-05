@@ -730,5 +730,98 @@ try {
     }
 
 
+    public function guardarEtiquetas()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ])->setStatusCode(401);
+        }
+
+        try {
+            // Acepta JSON con: {id, tags} o {id, etiquetas}
+            $data = $this->request->getJSON(true);
+            if (!is_array($data)) $data = [];
+
+            $id = (string)($data['id'] ?? '');
+            $tags = (string)($data['tags'] ?? ($data['etiquetas'] ?? ''));
+
+            $id = trim($id);
+            $tags = trim($tags);
+
+            if ($id === '') {
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'ID inválido',
+                ])->setStatusCode(200);
+            }
+
+            // 1) Actualizar tags en Shopify
+            if (!$this->shop || !$this->token) {
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Faltan credenciales Shopify',
+                ])->setStatusCode(200);
+            }
+
+            $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/{$id}.json";
+
+            $payload = json_encode([
+                'order' => [
+                    'id'   => (int)$id,
+                    'tags' => $tags,
+                ]
+            ]);
+
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CUSTOMREQUEST  => 'PUT',
+                CURLOPT_TIMEOUT        => 30,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_HTTPHEADER     => [
+                    "X-Shopify-Access-Token: {$this->token}",
+                    "Accept: application/json",
+                    "Content-Type: application/json",
+                ],
+                CURLOPT_POSTFIELDS => $payload,
+            ]);
+
+            $body = curl_exec($ch);
+            $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $err = curl_error($ch);
+            curl_close($ch);
+
+            if ($status === 0 || $err) {
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Error cURL: ' . ($err ?: 'unknown'),
+                ])->setStatusCode(200);
+            }
+
+            if ($status >= 400) {
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Shopify HTTP ' . $status,
+                    'shopify_body' => substr((string)$body, 0, 500),
+                ])->setStatusCode(200);
+            }
+
+            return $this->response->setJSON([
+                'success' => true,
+                'message' => 'Etiquetas guardadas',
+            ])->setStatusCode(200);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'guardarEtiquetas ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error interno guardando etiquetas',
+            ])->setStatusCode(200);
+        }
+    }
+
+
 
 }
