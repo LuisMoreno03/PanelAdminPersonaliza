@@ -32,7 +32,8 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     $routes->get('filter',  'Dashboard::filter');
     // ✅ Etiquetas disponibles para el modal
     $routes->get('dashboard/etiquetas-disponibles', 'Dashboard::etiquetasDisponibles', ['filter' => 'auth']);
-
+    //mostrar etiquetas disponibles 
+    $routes->get('etiquetas-disponibles', 'Dashboard::etiquetasDisponibles');
     // ✅ Si tienes un controlador Usuarios para crear:
     $routes->post('usuarios/crear', 'Usuarios::crear', ['filter' => 'auth']);
 

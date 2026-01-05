@@ -1064,7 +1064,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function updateCounter() {
   const c = document.getElementById("etqCounter");
-  if (c) c.textContent = `${_etqSelected.size} / 2`;
+  if (c) c.textContent = `${_etqSelected.size} / 6`;
 }
 
 function chip(tag, selected) {
