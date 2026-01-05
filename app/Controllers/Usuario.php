@@ -193,29 +193,34 @@ class Usuario extends BaseController
         $nombre = trim($nombre);
         $rol = mb_strtolower(trim($rol));
 
-        // limpiar nombre para tag
         $nombreTag = preg_replace('/\s+/', ' ', $nombre);
         $nombreTag = str_replace([',', ';'], '', $nombreTag);
 
         $tags = [];
 
+        // ✅ Producción: P + D
         if ($rol === 'produccion' || $rol === 'producción') {
             $tags[] = 'P.' . $nombreTag;
+            $tags[] = 'D.' . $nombreTag;
         }
 
+        // Diseño: solo D
         if ($rol === 'diseno' || $rol === 'diseño') {
             $tags[] = 'D.' . $nombreTag;
         }
 
+        // Confirmación: D
         if ($rol === 'confirmacion' || $rol === 'confirmación') {
             $tags[] = 'D.' . $nombreTag;
         }
 
+        // Admin: ambas
         if ($rol === 'admin') {
-            $tags[] = 'D.' . $nombreTag;
             $tags[] = 'P.' . $nombreTag;
+            $tags[] = 'D.' . $nombreTag;
         }
 
         return array_values(array_unique(array_filter($tags)));
     }
+
 }
