@@ -905,7 +905,7 @@ function renderOpcionesEtiquetas({ selected = [] } = {}) {
         // limitar cantidad
         if (set.size >= max) {
           // si max=1, reemplaza; si max=2, no deja añadir más
-          if (max === 1) {
+          if (max === 6) {
             set.clear();
             set.add(tag);
           } else {
@@ -1057,7 +1057,7 @@ function renderOpcionesEtiquetasSimple({ selected = [] } = {}) {
         set.delete(tag);
       } else {
         if (set.size >= max) {
-          if (max === 1) {
+          if (max === 6) {
             set.clear();
             set.add(tag);
           } else {
@@ -1096,7 +1096,7 @@ function chip(tag, selected) {
 
 function updateCounter() {
   const c = document.getElementById("etqCounter");
-  if (c) c.textContent = `${_etqSelected.size} / 2`;
+  if (c) c.textContent = `${_etqSelected.size} / 6`;
 }
 
 function renderSelected() {
@@ -1121,7 +1121,7 @@ function renderSelected() {
         .join("")
     : `<span class="text-sm text-slate-500">Ninguna</span>`;
 
-  if (hint) hint.classList.toggle("hidden", arr.length <= 2);
+  if (hint) hint.classList.toggle("hidden", arr.length <= 6);
   updateCounter();
 }
 
@@ -1159,7 +1159,7 @@ window.toggleEtiqueta = function (tag) {
   if (_etqSelected.has(tag)) {
     _etqSelected.delete(tag);
   } else {
-    if (_etqSelected.size >= 2) {
+    if (_etqSelected.size >= 6) {
       const hint = document.getElementById("etqLimitHint");
       if (hint) hint.classList.remove("hidden");
       return;
