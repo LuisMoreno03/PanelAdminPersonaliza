@@ -838,7 +838,7 @@ function maxEtiquetasPermitidas() {
   // producción => 2 (D.Nombre, P.Nombre)
   // admin => depende de lo que venga, pero normalmente >= 2
   if (disponibles.length <= 1) return 1;
-  return 2;
+  return 6;
 }
 
 function parseTags(tagsStr) {
@@ -997,7 +997,7 @@ function getEtiquetasDisponiblesSimple() {
 function maxEtiquetasPermitidasSimple() {
   const disponibles = getEtiquetasDisponiblesSimple();
   if (disponibles.length <= 1) return 1;
-  return 2;
+  return 6;
 }
 
 function parseTags(tagsStr) {
