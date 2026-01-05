@@ -41,7 +41,7 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     // ✅ Si existe el controlador Usuarios
     $routes->post('usuarios/crear', 'Usuarios::crear');
 
-    // ✅ Legacy (si existen esos controladores/métodos)
+    // ✅ Legacy (si existen)
     $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
     $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
 });
@@ -51,21 +51,23 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 // ====================================================
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
 
+    // ✅ TEST POST para verificar que CI4 está leyendo rutas
+    // URL final: /api/_test_post
+    $routes->post('_test_post', static function () {
+        return json_encode(['ok' => true, 'time' => date('Y-m-d H:i:s')]);
+    });
+
     // estado pedidos
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
 
-    // ✅ etiquetas (FIX DEFINITIVO)
-    // Registramos AMBAS rutas para que funcione con cualquiera de tus JS:
-    // - /api/estado/etiquetas/guardar
-    // - /api/estado_etiquetas/guardar
+    // ✅ Guardar etiquetas (2 rutas)
+    // URL final:
+    //   POST /api/estado/etiquetas/guardar
+    //   POST /api/estado_etiquetas/guardar
     $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
     $routes->post('estado_etiquetas/guardar', 'Dashboard::guardarEtiquetas');
 
-    // (Opcional) alias extra por si en algún punto llamas "tags/guardar"
-    // $routes->post('estado/tags/guardar', 'Dashboard::guardarEtiquetas');
-
-    // si lo usas en API
     $routes->get('confirmados', 'Confirmados::filter');
 });
 
