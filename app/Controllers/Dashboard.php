@@ -680,6 +680,7 @@ try {
                 'ok' => false,
                 'diseno' => [],
                 'produccion' => [],
+                'admin' => [],
                 'message' => 'No autenticado',
             ])->setStatusCode(401);
         }
@@ -717,6 +718,7 @@ try {
                 'ok' => true,
                 'diseno' => array_values(array_unique($diseno)),
                 'produccion' => array_values(array_unique($produccion)),
+                'admin' => array_values(array_unique(array_merge($diseno, $produccion))),
             ])->setStatusCode(200);
 
         } catch (\Throwable $e) {
