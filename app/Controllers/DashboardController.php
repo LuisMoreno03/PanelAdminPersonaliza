@@ -10,6 +10,15 @@ class DashboardController extends Controller
     private string $token = '';
     private string $apiVersion = '2025-10';
 
+    // ✅ Estados nuevos permitidos
+    private array $allowedEstados = [
+        'Por preparar',
+        'A medias',
+        'Produccion',
+        'Fabricando',
+        'Enviado',
+    ];
+
     public function __construct()
     {
         $this->loadShopifyFromConfig();
@@ -69,11 +78,9 @@ class DashboardController extends Controller
     {
         try {
             $path = '/home/u756064303/.secrets/shopify.php';
-
             if (!is_file($path)) return;
 
             $cfg = require $path;
-
             if (!is_array($cfg)) return;
 
             $this->shop       = (string) ($cfg['shop'] ?? $this->shop);
@@ -177,6 +184,48 @@ class DashboardController extends Controller
     }
 
     // ============================================================
+    // ✅ NORMALIZAR ESTADOS (viejos -> nuevos)
+    // ============================================================
+    private function normalizeEstado(?string $estado): string
+    {
+        $s = trim((string)($estado ?? ''));
+        if ($s === '') return 'Por preparar';
+
+        $lower = mb_strtolower($s);
+
+        $map = [
+            'por preparar' => 'Por preparar',
+            'pendiente'    => 'Por preparar',
+
+            'a medias'     => 'A medias',
+            'amedias'      => 'A medias',
+
+            'producción'   => 'Produccion',
+            'produccion'   => 'Produccion',
+            'producción '  => 'Produccion',
+
+            'fabricando'   => 'Fabricando',
+            'preparado'    => 'Fabricando',
+
+            'enviado'      => 'Enviado',
+            'entregado'    => 'Enviado',
+
+            // antiguos que ya no existen -> default
+            'cancelado'    => 'Por preparar',
+            'devuelto'     => 'Por preparar',
+        ];
+
+        if (isset($map[$lower])) return $map[$lower];
+
+        // si ya viene alguno válido con otra capitalización
+        foreach ($this->allowedEstados as $ok) {
+            if (mb_strtolower($ok) === $lower) return $ok;
+        }
+
+        return 'Por preparar';
+    }
+
+    // ============================================================
     // ETIQUETAS SEGÚN ROL Y USUARIO (tu lógica, sin romper)
     // ============================================================
     private function getEtiquetasUsuario(): array
@@ -276,23 +325,24 @@ class DashboardController extends Controller
     }
 
     // ============================================================
-    // BADGE DEL ESTADO
+    // ✅ BADGE DEL ESTADO (colores nuevos)
     // ============================================================
     private function badgeEstado(string $estado): string
     {
+        $estado = $this->normalizeEstado($estado);
+
         $estilos = [
-            "Por preparar" => "bg-yellow-100 text-yellow-800 border border-yellow-300",
-            "Preparado"    => "bg-green-100 text-green-800 border border-green-300",
-            "Enviado"      => "bg-blue-100 text-blue-800 border border-blue-300",
-            "Entregado"    => "bg-emerald-100 text-emerald-800 border border-emerald-300",
-            "Cancelado"    => "bg-red-100 text-red-800 border border-red-300",
-            "Devuelto"     => "bg-purple-100 text-purple-800 border border-purple-300",
+            "Por preparar" => "bg-slate-100 text-slate-800 border border-slate-300",
+            "A medias"     => "bg-amber-100 text-amber-900 border border-amber-200",
+            "Produccion"   => "bg-purple-100 text-purple-900 border border-purple-200",
+            "Fabricando"   => "bg-blue-100 text-blue-900 border border-blue-200",
+            "Enviado"      => "bg-emerald-100 text-emerald-900 border border-emerald-200",
         ];
 
         $clase = $estilos[$estado] ?? "bg-gray-100 text-gray-800 border border-gray-300";
         $estadoEsc = htmlspecialchars($estado, ENT_QUOTES, 'UTF-8');
 
-        return '<span class="px-3 py-1 rounded-full text-xs font-bold tracking-wide ' . $clase . '">' . $estadoEsc . '</span>';
+        return '<span class="px-3 py-1 rounded-full text-xs font-extrabold tracking-wide ' . $clase . '">' . $estadoEsc . '</span>';
     }
 
     // ============================================================
@@ -375,7 +425,6 @@ class DashboardController extends Controller
         try {
             $db = \Config\Database::connect();
 
-            // si no existe tabla, no romper
             $dbName = $db->getDatabase();
             $tbl = $db->query(
                 "SELECT 1 FROM information_schema.tables
@@ -396,18 +445,18 @@ class DashboardController extends Controller
 
             if ($hasOrderId)      $q->where('order_id', $orderId);
             elseif ($hasPedidoId) $q->where('pedido_id', $orderId);
-            else                  $q->where('id', $orderId); // último fallback
+            else                  $q->where('id', $orderId);
 
             $row = $q->orderBy('id', 'DESC')->limit(1)->get()->getRowArray();
 
-            return $row['estado'] ?? "Por preparar";
+            return $this->normalizeEstado($row['estado'] ?? "Por preparar");
         } catch (\Throwable $e) {
             return "Por preparar";
         }
     }
 
     // ============================================================
-    // GUARDAR ESTADO (robusto: histórico si se puede)
+    // GUARDAR ESTADO (valida 5 estados nuevos)
     // ============================================================
     public function guardarEstado()
     {
@@ -419,13 +468,20 @@ class DashboardController extends Controller
         $orderId = (string)($json["id"] ?? '');
         $estado  = (string)($json["estado"] ?? '');
 
-        if ($orderId === '' || $estado === '') {
-            return $this->response->setJSON(['success' => false, 'message' => 'Faltan parámetros'])->setStatusCode(422);
+        $orderId = trim($orderId);
+        $estado  = $this->normalizeEstado($estado);
+
+        if ($orderId === '') {
+            return $this->response->setJSON(['success' => false, 'message' => 'Falta id'])->setStatusCode(422);
+        }
+
+        // ✅ valida contra lista final
+        if (!in_array($estado, $this->allowedEstados, true)) {
+            return $this->response->setJSON(['success' => false, 'message' => 'Estado inválido'])->setStatusCode(422);
         }
 
         $db = \Config\Database::connect();
 
-        // si no existe tabla, no romper
         try {
             $dbName = $db->getDatabase();
             $tbl = $db->query(
@@ -446,11 +502,11 @@ class DashboardController extends Controller
             $hasUserId   = $this->columnExists($db, 'pedidos_estado', 'user_id');
             $hasCreated  = $this->columnExists($db, 'pedidos_estado', 'created_at');
 
-            // si hay columnas “histórico”, insertamos
             if ($hasEstado && ($hasOrderId || $hasPedidoId) && ($hasUserId || $hasCreated)) {
                 $insert = [];
+
                 if ($hasOrderId)  $insert['order_id'] = $orderId;
-                if ($hasPedidoId) $insert['pedido_id'] = $orderId; // por si tu esquema usa esa
+                if ($hasPedidoId) $insert['pedido_id'] = $orderId;
 
                 $insert['estado'] = $estado;
 
@@ -459,21 +515,20 @@ class DashboardController extends Controller
 
                 $db->table('pedidos_estado')->insert($insert);
             } else {
-                // fallback simple (tu replace original)
                 $db->table("pedidos_estado")->replace([
                     "id" => $orderId,
                     "estado" => $estado
                 ]);
             }
 
-            return $this->response->setJSON(["success" => true]);
+            return $this->response->setJSON(["success" => true, "estado" => $estado]);
         } catch (\Throwable $e) {
             return $this->response->setJSON(["success" => false, "message" => $e->getMessage()])->setStatusCode(500);
         }
     }
 
     // ============================================================
-    // GUARDAR ETIQUETAS (Shopify PUT)
+    // GUARDAR ETIQUETAS (Shopify PUT) - lo dejo igual
     // ============================================================
 
     public function guardarEtiquetas()
@@ -496,11 +551,9 @@ class DashboardController extends Controller
             ]);
         }
 
-        // Normaliza tags (máx 6)
         $tags = array_values(array_filter(array_map('trim', explode(',', $tagsRaw))));
         $tags = array_slice($tags, 0, 6);
 
-        // Guardar tags en Shopify
         $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
         $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
         $apiVersion = '2024-01';
@@ -555,9 +608,9 @@ class DashboardController extends Controller
         ]);
     }
 
-
     // ============================================================
     // LISTAR TODOS LOS PEDIDOS (con paginación REAL Link header)
+    // ✅ ARREGLADO: devuelve estado TEXTO + badge opcional
     // ============================================================
     public function filter()
     {
@@ -569,7 +622,7 @@ class DashboardController extends Controller
 
         do {
             $loops++;
-            if ($loops > 30) break; // safety
+            if ($loops > 30) break;
 
             if ($pageInfo) {
                 $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
@@ -589,7 +642,6 @@ class DashboardController extends Controller
             if (is_array($linkHeader)) $linkHeader = end($linkHeader);
 
             [$nextPageInfo, $prev] = $this->parseLinkHeaderForPageInfo(is_string($linkHeader) ? $linkHeader : null);
-
             $pageInfo = $nextPageInfo;
 
         } while ($pageInfo);
@@ -597,17 +649,23 @@ class DashboardController extends Controller
         $resultado = [];
 
         foreach ($allOrders as $o) {
-            $estadoInterno = $this->obtenerEstadoInterno($o["id"]);
+            $estadoInterno = $this->obtenerEstadoInterno($o["id"]); // ✅ texto normalizado
             $badge         = $this->badgeEstado($estadoInterno);
 
             $resultado[] = [
                 "id"           => $o["id"],
                 "numero"       => $o["name"] ?? ("#" . ($o["order_number"] ?? $o["id"])),
                 "fecha"        => isset($o["created_at"]) ? substr((string)$o["created_at"], 0, 10) : "-",
-                "cliente"      => $o["customer"]["first_name"] ?? "Desconocido",
+                "cliente"      => trim(($o["customer"]["first_name"] ?? "Desconocido") . ' ' . ($o["customer"]["last_name"] ?? "")),
                 "total"        => ($o["total_price"] ?? "-") . " €",
-                "estado"       => $badge,
+
+                // ✅ IMPORTANTE: estado como TEXTO para tu dashboard.js
+                "estado"       => $estadoInterno,
                 "estado_raw"   => $estadoInterno,
+
+                // (opcional) si quieres un badge HTML para otros usos
+                "estado_badge" => $badge,
+
                 "etiquetas"    => $o["tags"] ?? "-",
                 "articulos"    => count($o["line_items"] ?? []),
                 "estado_envio" => $o["fulfillment_status"] ?? "-",
@@ -656,4 +714,3 @@ class DashboardController extends Controller
         ]);
     }
 }
-
