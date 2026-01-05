@@ -1184,25 +1184,70 @@ async function guardarEtiquetas(orderId, tagsStr) {
     actualizarTabla(ordersCache);
   }
 
-  try {
-    const url = apiUrl("/api/estado/etiquetas/guardar");
-    const r = await fetch(url, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ id: Number(id), tags: String(tagsStr ?? "") }),
-    });
+  // Endpoints posibles (con y sin index.php, con underscore y con slashes)
+  const endpoints = [
+    apiUrl("/api/estado_etiquetas/guardar"),
+    apiUrl("/api/estado/etiquetas/guardar"),
+    "/index.php/api/estado_etiquetas/guardar",
+    "/index.php/api/estado/etiquetas/guardar",
+    "/api/estado_etiquetas/guardar",
+    "/api/estado/etiquetas/guardar",
+  ];
 
-    const d = await r.json().catch(() => null);
-    if (!r.ok || !d?.success) throw new Error(d?.message || `HTTP ${r.status}`);
+  // Payload compatible (manda ambos nombres por si el backend espera uno u otro)
+  const payload = {
+    id: Number(id),
+    tags: String(tagsStr ?? ""),
+    etiquetas: String(tagsStr ?? ""),
+  };
+
+  try {
+    let lastErr = null;
+
+    for (const url of endpoints) {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: jsonHeaders(), // incluye CSRF si existe
+          body: JSON.stringify(payload),
+        });
+
+        if (r.status === 404) continue;
+
+        const d = await r.json().catch(() => null);
+
+        const ok =
+          (r.ok && (d?.success === true || d?.ok === true)) ||
+          (d?.success === true || d?.ok === true);
+
+        if (!ok) throw new Error(d?.message || `HTTP ${r.status}`);
+
+        // ✅ si el backend devuelve etiquetas normalizadas, sincroniza
+        if (order && (d?.tags || d?.etiquetas)) {
+          order.etiquetas = String(d.tags ?? d.etiquetas ?? order.etiquetas);
+          actualizarTabla(ordersCache);
+        }
+
+        return; // ✅ guardado OK
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    throw lastErr || new Error("No se encontró un endpoint válido (404).");
   } catch (e) {
     console.error("guardarEtiquetas error:", e);
+
+    // Revert
     if (order) {
       order.etiquetas = prev;
       actualizarTabla(ordersCache);
     }
+
     alert("No se pudo guardar etiquetas. Se revirtió el cambio.");
   }
 }
+
 
 /** =========================
  *  ABRIR/CERRAR MODAL (ÚNICO)
@@ -1299,9 +1344,9 @@ window.guardarEtiquetasModal = async function () {
 
   if (!_etqOrderId) return;
 
-  if (_etqSelected.size > 2) {
+  if (_etqSelected.size > 6) {
     if (err) {
-      err.textContent = "Máximo 2 etiquetas.";
+      err.textContent = "Máximo 6 etiquetas.";
       err.classList.remove("hidden");
     }
     return;
