@@ -396,7 +396,7 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
   const raw = String(etiquetas || "").trim();
   const list = raw ? raw.split(",").map((t) => t.trim()).filter(Boolean) : [];
 
-  const max = mobile ? 3 : 2;
+  const max = mobile ? 6 : 6;
   const visibles = list.slice(0, max);
   const rest = list.length - visibles.length;
 
