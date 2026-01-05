@@ -1,6 +1,7 @@
 // =====================================================
-// DASHBOARD.JS (COMPLETO) - REAL TIME + PAGINACIÓN ESTABLE
-// + PROTECCIÓN ANTI-OVERWRITE (12 usuarios)
+// DASHBOARD.JS (LIMPIO) - REAL TIME + PAGINACIÓN ESTABLE
+// + PROTECCIÓN ANTI-OVERWRITE
+// + MODAL ESTADO + MODAL ETIQUETAS (chips + fallback)
 // =====================================================
 
 /* =====================================================
@@ -11,35 +12,31 @@ let prevPageInfo = null;
 let isLoading = false;
 let currentPage = 1;
 
-// ✅ cache local para actualizar estados sin recargar
 let ordersCache = [];
 let ordersById = new Map();
 
-// ✅ LIVE MODE
 let liveMode = true;
 let liveInterval = null;
 
 let userPingInterval = null;
 let userStatusInterval = null;
 
-// ✅ evita que un fetch viejo pise uno nuevo
 let lastFetchToken = 0;
 
 // ✅ protege cambios recientes (evita que LIVE sobrescriba el estado recién guardado)
 const dirtyOrders = new Map(); // id -> { until:number, estado:string, last_status_change:{} }
-const DIRTY_TTL_MS = 15000; // 15s
+const DIRTY_TTL_MS = 15000;
 
 /* =====================================================
    CONFIG / HELPERS DE RUTAS
 ===================================================== */
 function hasIndexPhp() {
-  return window.location.pathname.includes("/");
+  return window.location.pathname.includes("/index.php/");
 }
 
 function normalizeBase(base) {
   base = String(base || "").trim();
-  base = base.replace(/\/+$/, "");
-  return base;
+  return base.replace(/\/+$/, "");
 }
 
 function apiUrl(path) {
@@ -51,7 +48,6 @@ function apiUrl(path) {
 function jsonHeaders() {
   const headers = { Accept: "application/json", "Content-Type": "application/json" };
 
-  // ✅ CSRF (si existe en tu HTML)
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
   const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
   if (csrfToken) headers[csrfHeader] = csrfToken;
@@ -60,7 +56,44 @@ function jsonHeaders() {
 }
 
 /* =====================================================
-   Loader global
+   HELPERS
+===================================================== */
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapeJsString(str) {
+  return String(str ?? "").replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+}
+
+function parseTags(tagsStr) {
+  return String(tagsStr || "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function serializeTags(tagsArr) {
+  return Array.from(new Set((tagsArr || []).map((t) => String(t).trim()).filter(Boolean))).join(", ");
+}
+
+function esBadgeHtml(valor) {
+  const s = String(valor ?? "").trim();
+  return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
+}
+
+function renderEstado(valor) {
+  if (esBadgeHtml(valor)) return String(valor);
+  return escapeHtml(valor ?? "-");
+}
+
+/* =====================================================
+   Loader
 ===================================================== */
 function showLoader() {
   const el = document.getElementById("globalLoader");
@@ -99,13 +132,18 @@ document.addEventListener("DOMContentLoaded", () => {
   cargarUsuariosEstado();
   userStatusInterval = setInterval(cargarUsuariosEstado, 15000);
 
-  // ✅ Inicial pedidos (página 1)
+  // Inicial pedidos (página 1)
   resetToFirstPage({ withFetch: true });
 
-  // ✅ LIVE refresca la página 1 (recomendado 20s con 12 usuarios)
+  // LIVE refresca página 1
   startLive(20000);
 
-  // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
+  // si existe modal completo, precarga etiquetas BD
+  if (document.getElementById("etqGeneralesList")) {
+    cargarEtiquetasDisponiblesBD();
+  }
+
+  // rerender responsive
   window.addEventListener("resize", () => {
     const cont = document.getElementById("tablaPedidos");
     if (cont && cont.dataset.lastOrders) {
@@ -138,68 +176,6 @@ function resumeLiveIfOnFirstPage() {
 }
 
 /* =====================================================
-   HELPERS
-===================================================== */
-function escapeHtml(str) {
-  return String(str ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function escapeJsString(str) {
-  return String(str ?? "").replaceAll("\\", "\\\\").replaceAll("'", "\\'");
-}
-
-function esBadgeHtml(valor) {
-  const s = String(valor ?? "").trim();
-  return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
-}
-
-function renderEstado(valor) {
-  if (esBadgeHtml(valor)) return String(valor);
-  return escapeHtml(valor ?? "-");
-}
-
-/* =====================================================
-   ENTREGA PILL
-===================================================== */
-function entregaStyle(estado) {
-  const s = String(estado || "").toLowerCase().trim();
-
-  if (!s || s === "-" || s === "null") {
-    return { wrap: "bg-slate-50 border-slate-200 text-slate-800", dot: "bg-slate-400", icon: "📦", label: "Sin estado" };
-  }
-  if (s.includes("entregado") || s.includes("delivered")) {
-    return { wrap: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "✅", label: "Entregado" };
-  }
-  if (s.includes("enviado") || s.includes("shipped")) {
-    return { wrap: "bg-blue-50 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🚚", label: "Enviado" };
-  }
-  if (s.includes("prepar") || s.includes("pendiente") || s.includes("processing")) {
-    return { wrap: "bg-amber-50 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "⏳", label: "Preparando" };
-  }
-  if (s.includes("cancel") || s.includes("devuelto") || s.includes("return")) {
-    return { wrap: "bg-rose-50 border-rose-200 text-rose-900", dot: "bg-rose-500", icon: "⛔", label: "Incidencia" };
-  }
-  return { wrap: "bg-slate-50 border-slate-200 text-slate-900", dot: "bg-slate-400", icon: "📍", label: estado || "—" };
-}
-
-function renderEntregaPill(estadoEnvio) {
-  const st = entregaStyle(estadoEnvio);
-  return `
-    <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border ${st.wrap}
-                 shadow-sm font-extrabold text-[11px] uppercase tracking-wide whitespace-nowrap">
-      <span class="h-2.5 w-2.5 rounded-full ${st.dot}"></span>
-      <span class="text-sm leading-none">${st.icon}</span>
-      <span class="leading-none">${escapeHtml(st.label)}</span>
-    </span>
-  `;
-}
-
-/* =====================================================
    PÍLDORA PÁGINA
 ===================================================== */
 function setPaginaUI({ totalPages = null } = {}) {
@@ -210,9 +186,6 @@ function setPaginaUI({ totalPages = null } = {}) {
   if (pillTotal) pillTotal.textContent = totalPages ? `Página ${currentPage} de ${totalPages}` : `Página ${currentPage}`;
 }
 
-/* =====================================================
-   RESET a página 1
-===================================================== */
 function resetToFirstPage({ withFetch = false } = {}) {
   currentPage = 1;
   nextPageInfo = null;
@@ -226,7 +199,7 @@ function resetToFirstPage({ withFetch = false } = {}) {
 }
 
 /* =====================================================
-   CARGAR PEDIDOS (con protección anti-overwrite)
+   CARGAR PEDIDOS (anti-overwrite)
 ===================================================== */
 function cargarPedidos({ page_info = "", reset = false } = {}) {
   if (isLoading) return;
@@ -262,7 +235,6 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       return res.json();
     })
     .then((data) => {
-      // ✅ si llegó una respuesta vieja, la ignoramos
       if (fetchToken !== lastFetchToken) return;
 
       if (!data || !data.success) {
@@ -281,7 +253,7 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
       let incoming = Array.isArray(data.orders) ? data.orders : [];
 
-      // ✅ aplicar "dirty protection"
+      // dirty protection
       const now = Date.now();
       incoming = incoming.map((o) => {
         const id = String(o.id ?? "");
@@ -289,11 +261,7 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
         const dirty = dirtyOrders.get(id);
         if (dirty && dirty.until > now) {
-          return {
-            ...o,
-            estado: dirty.estado,
-            last_status_change: dirty.last_status_change,
-          };
+          return { ...o, estado: dirty.estado, last_status_change: dirty.last_status_change };
         } else if (dirty) {
           dirtyOrders.delete(id);
         }
@@ -331,7 +299,7 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 }
 
 /* =====================================================
-   CONTROLES PAGINACIÓN
+   PAGINACIÓN
 ===================================================== */
 function actualizarControlesPaginacion() {
   const btnSig = document.getElementById("btnSiguiente");
@@ -390,8 +358,51 @@ function renderLastChangeCompact(p) {
 }
 
 /* =====================================================
-   ETIQUETAS
+   ENTREGA PILL
 ===================================================== */
+function entregaStyle(estado) {
+  const s = String(estado || "").toLowerCase().trim();
+
+  if (!s || s === "-" || s === "null") {
+    return { wrap: "bg-slate-50 border-slate-200 text-slate-800", dot: "bg-slate-400", icon: "📦", label: "Sin estado" };
+  }
+  if (s.includes("entregado") || s.includes("delivered")) {
+    return { wrap: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "✅", label: "Entregado" };
+  }
+  if (s.includes("enviado") || s.includes("shipped")) {
+    return { wrap: "bg-blue-50 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🚚", label: "Enviado" };
+  }
+  if (s.includes("prepar") || s.includes("pendiente") || s.includes("processing")) {
+    return { wrap: "bg-amber-50 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "⏳", label: "Preparando" };
+  }
+  if (s.includes("cancel") || s.includes("devuelto") || s.includes("return")) {
+    return { wrap: "bg-rose-50 border-rose-200 text-rose-900", dot: "bg-rose-500", icon: "⛔", label: "Incidencia" };
+  }
+  return { wrap: "bg-slate-50 border-slate-200 text-slate-900", dot: "bg-slate-400", icon: "📍", label: estado || "—" };
+}
+
+function renderEntregaPill(estadoEnvio) {
+  const st = entregaStyle(estadoEnvio);
+  return `
+    <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border ${st.wrap}
+                 shadow-sm font-extrabold text-[11px] uppercase tracking-wide whitespace-nowrap">
+      <span class="h-2.5 w-2.5 rounded-full ${st.dot}"></span>
+      <span class="text-sm leading-none">${st.icon}</span>
+      <span class="leading-none">${escapeHtml(st.label)}</span>
+    </span>
+  `;
+}
+
+/* =====================================================
+   ETIQUETAS (pills compact)
+===================================================== */
+function colorEtiqueta(tag) {
+  tag = String(tag).toLowerCase().trim();
+  if (tag.startsWith("d.")) return "bg-emerald-50 border-emerald-200 text-emerald-900";
+  if (tag.startsWith("p.")) return "bg-amber-50 border-amber-200 text-amber-900";
+  return "bg-slate-50 border-slate-200 text-slate-800";
+}
+
 function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
   const raw = String(etiquetas || "").trim();
   const list = raw ? raw.split(",").map((t) => t.trim()).filter(Boolean) : [];
@@ -440,15 +451,8 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
     </div>`;
 }
 
-function colorEtiqueta(tag) {
-  tag = String(tag).toLowerCase().trim();
-  if (tag.startsWith("d.")) return "bg-emerald-50 border-emerald-200 text-emerald-900";
-  if (tag.startsWith("p.")) return "bg-amber-50 border-amber-200 text-amber-900";
-  return "bg-slate-50 border-slate-200 text-slate-800";
-}
-
 /* =====================================================
-   TABLA / GRID + CARDS
+   TABLA / CARDS
 ===================================================== */
 function actualizarTabla(pedidos) {
   const cont = document.getElementById("tablaPedidos");
@@ -579,8 +583,7 @@ function cerrarModal() {
 }
 
 /* =====================================================
-   ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
-   + pause live + dirty TTL
+   GUARDAR ESTADO
 ===================================================== */
 async function guardarEstado(nuevoEstado) {
   const id = String(document.getElementById("modalOrderId")?.value || "");
@@ -592,7 +595,6 @@ async function guardarEstado(nuevoEstado) {
   const prevEstado = order?.estado ?? null;
   const prevLast = order?.last_status_change ?? null;
 
-  // 1) UI instantánea + dirty
   const userName = window.CURRENT_USER || "Sistema";
   const now = new Date();
   const nowStr = now.toISOString().slice(0, 19).replace("T", " ");
@@ -612,14 +614,8 @@ async function guardarEstado(nuevoEstado) {
 
   cerrarModal();
 
-  // 2) Guardar backend
   try {
-    const endpoints = [
-      apiUrl("/api/estado/guardar"),
-      "/index.php/api/estado/guardar",
-      "/api/estado/guardar",
-    ];
-
+    const endpoints = [apiUrl("/api/estado/guardar"), "/index.php/api/estado/guardar", "/api/estado/guardar"];
     let lastErr = null;
 
     for (const url of endpoints) {
@@ -629,16 +625,11 @@ async function guardarEstado(nuevoEstado) {
           headers: jsonHeaders(),
           body: JSON.stringify({ id, estado: nuevoEstado }),
         });
-
         if (r.status === 404) continue;
 
         const d = await r.json().catch(() => null);
+        if (!r.ok || !d?.success) throw new Error(d?.message || `HTTP ${r.status}`);
 
-        if (!r.ok || !d?.success) {
-          throw new Error(d?.message || `HTTP ${r.status}`);
-        }
-
-        // 3) Sync desde backend
         if (d?.order && order) {
           order.estado = d.order.estado ?? order.estado;
           order.last_status_change = d.order.last_status_change ?? order.last_status_change;
@@ -651,7 +642,6 @@ async function guardarEstado(nuevoEstado) {
           });
         }
 
-        // refresca si estás en pág 1
         if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
 
         resumeLiveIfOnFirstPage();
@@ -665,7 +655,6 @@ async function guardarEstado(nuevoEstado) {
   } catch (e) {
     console.error("guardarEstado error:", e);
 
-    // Revert
     dirtyOrders.delete(id);
 
     if (order) {
@@ -678,10 +667,6 @@ async function guardarEstado(nuevoEstado) {
     resumeLiveIfOnFirstPage();
   }
 }
-// ✅ asegurar funciones globales para onclick=""
-window.abrirModal = abrirModal;
-window.cerrarModal = cerrarModal;
-window.guardarEstado = guardarEstado;
 
 /* =====================================================
    DETALLES
@@ -723,7 +708,7 @@ window.verDetalles = async function (orderId) {
 async function pingUsuario() {
   try {
     await fetch(apiUrl("/dashboard/ping"), { headers: { Accept: "application/json" } });
-  } catch (e) {}
+  } catch {}
 }
 
 async function cargarUsuariosEstado() {
@@ -759,7 +744,6 @@ window.renderUsersStatus = function (payload) {
         : u.last_seen
         ? Math.max(0, Math.floor((Date.now() - new Date(String(u.last_seen).replace(" ", "T")).getTime()) / 1000))
         : null;
-
     return { ...u, seconds_since_seen: isNaN(secs) ? null : secs };
   });
 
@@ -822,125 +806,16 @@ function formatDuration(seconds) {
   return `${sec}s`;
 }
 
-// =====================================================
-// ETIQUETAS: UI por ROL (1 o 2) usando window.etiquetasPredeterminadas
-// =====================================================
-
-function getEtiquetasDisponibles() {
-  const arr = Array.isArray(window.etiquetasPredeterminadas) ? window.etiquetasPredeterminadas : [];
-  // limpia duplicados y vacíos
-  return Array.from(new Set(arr.map((x) => String(x || "").trim()).filter(Boolean)));
-}
-
-function maxEtiquetasPermitidas() {
-  const disponibles = getEtiquetasDisponibles();
-  // confirmación => 1 (D.Nombre)
-  // producción => 2 (D.Nombre, P.Nombre)
-  // admin => depende de lo que venga, pero normalmente >= 2
-  if (disponibles.length <= 1) return 1;
-  return 6;
-}
-
-function parseTags(tagsStr) {
-  return String(tagsStr || "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
-function serializeTags(tagsArr) {
-  return Array.from(new Set((tagsArr || []).map((t) => String(t).trim()).filter(Boolean))).join(", ");
-}
-
-/**
- * Renderiza opciones de etiquetas dentro del modal si existe un contenedor.
- * Espera que tengas un div con id="modalEtiquetasOptions" (te digo abajo cómo).
- */
-function renderOpcionesEtiquetas({ selected = [] } = {}) {
-  const cont = document.getElementById("modalEtiquetasOptions");
-  if (!cont) return;
-
-  const disponibles = getEtiquetasDisponibles();
-  const max = maxEtiquetasPermitidas();
-
-  const selectedSet = new Set(selected);
-
-  cont.innerHTML = `
-    <div class="text-xs text-slate-500 mb-2">
-      Puedes seleccionar <b>${max}</b> etiqueta${max > 1 ? "s" : ""}.
-    </div>
-    <div class="flex flex-wrap gap-2">
-      ${disponibles
-        .map((tag) => {
-          const on = selectedSet.has(tag);
-          const cls = on
-            ? "bg-slate-900 text-white border-slate-900"
-            : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50";
-          return `
-            <button type="button"
-              data-tag="${escapeHtml(tag)}"
-              class="px-3 py-2 rounded-2xl border text-[11px] font-extrabold uppercase tracking-wide ${cls}">
-              ${escapeHtml(tag)}
-            </button>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-
-  // clicks
-  cont.querySelectorAll("button[data-tag]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const tag = btn.getAttribute("data-tag") || "";
-      const inputTags =
-        document.getElementById("modalEtiquetasTags") ||
-        document.getElementById("inputEtiquetas");
-
-      const current = parseTags(inputTags?.value || "");
-      const set = new Set(current);
-
-      if (set.has(tag)) {
-        set.delete(tag);
-      } else {
-        // limitar cantidad
-        if (set.size >= max) {
-          // si max=1, reemplaza; si max=2, no deja añadir más
-          if (max === 6) {
-            set.clear();
-            set.add(tag);
-          } else {
-            alert(`Solo puedes seleccionar ${max} etiquetas.`);
-            return;
-          }
-        } else {
-          set.add(tag);
-        }
-      }
-
-      const next = Array.from(set);
-      if (inputTags) inputTags.value = serializeTags(next);
-
-      // rerender para refrescar estilos
-      renderOpcionesEtiquetas({ selected: next });
-    });
-  });
-}
 /* =====================================================
-   ETIQUETAS (ÚNICO) - COMPATIBLE SIMPLE + COMPLETO
-   - Soporta modal "simple" (inputs) o modal "completo" (chips)
-   - Evita duplicados y sobrescrituras
+   ETIQUETAS - MODAL COMPLETO (chips) + BD
 ===================================================== */
-
-// Estado del modal completo (chips)
 let _etqOrderId = null;
 let _etqOrderNumero = "";
 let _etqSelected = new Set();
 
-// Etiquetas dinámicas desde BD (modal completo)
 let ETQ_PRODUCCION = [];
 let ETQ_DISENO = [];
 
-// Etiquetas generales fijas (modal completo)
 const ETQ_GENERALES = [
   "Cancelar pedido",
   "Reembolso 50%",
@@ -955,11 +830,6 @@ function isConfirmacionRole() {
   return r === "confirmacion" || r === "confirmación";
 }
 
-/** =========================
- *  FUENTE DE ETIQUETAS
- *  1) Si existe endpoint /dashboard/etiquetas-disponibles => usarlo (completo)
- *  2) Si no, usar window.etiquetasPredeterminadas (simple)
- ========================= */
 async function cargarEtiquetasDisponiblesBD() {
   const endpoints = [
     apiUrl("/dashboard/etiquetas-disponibles"),
@@ -981,110 +851,13 @@ async function cargarEtiquetasDisponiblesBD() {
       ETQ_DISENO = Array.isArray(d.diseno) ? d.diseno : [];
       ETQ_PRODUCCION = Array.isArray(d.produccion) ? d.produccion : [];
       return true;
-    } catch (e) {
-      // intenta siguiente endpoint
-    }
+    } catch {}
   }
   return false;
 }
 
-// Para modal simple (por rol) basado en window.etiquetasPredeterminadas
-function getEtiquetasDisponiblesSimple() {
-  const arr = Array.isArray(window.etiquetasPredeterminadas) ? window.etiquetasPredeterminadas : [];
-  return Array.from(new Set(arr.map((x) => String(x || "").trim()).filter(Boolean)));
-}
-
-function maxEtiquetasPermitidasSimple() {
-  const disponibles = getEtiquetasDisponiblesSimple();
-  if (disponibles.length <= 1) return 1;
-  return 6;
-}
-
-function parseTags(tagsStr) {
-  return String(tagsStr || "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
-function serializeTags(tagsArr) {
-  return Array.from(new Set((tagsArr || []).map((t) => String(t).trim()).filter(Boolean))).join(", ");
-}
-
-/** =========================
- *  MODAL SIMPLE (inputs)
- ========================= */
-function renderOpcionesEtiquetasSimple({ selected = [] } = {}) {
-  const cont = document.getElementById("modalEtiquetasOptions");
-  if (!cont) return;
-
-  const disponibles = getEtiquetasDisponiblesSimple();
-  const max = maxEtiquetasPermitidasSimple();
-  const selectedSet = new Set(selected);
-
-  cont.innerHTML = `
-    <div class="text-xs text-slate-500 mb-2">
-      Puedes seleccionar <b>${max}</b> etiqueta${max > 1 ? "s" : ""}.
-    </div>
-    <div class="flex flex-wrap gap-2">
-      ${disponibles
-        .map((tag) => {
-          const on = selectedSet.has(tag);
-          const cls = on
-            ? "bg-slate-900 text-white border-slate-900"
-            : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50";
-          return `
-            <button type="button"
-              data-tag="${escapeHtml(tag)}"
-              class="px-3 py-2 rounded-2xl border text-[11px] font-extrabold uppercase tracking-wide ${cls}">
-              ${escapeHtml(tag)}
-            </button>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-
-  cont.querySelectorAll("button[data-tag]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const tag = btn.getAttribute("data-tag") || "";
-      const inputTags = document.getElementById("modalEtiquetasTags") || document.getElementById("inputEtiquetas");
-
-      const current = parseTags(inputTags?.value || "");
-      const set = new Set(current);
-
-      if (set.has(tag)) {
-        set.delete(tag);
-      } else {
-        if (set.size >= max) {
-          if (max === 6) {
-            set.clear();
-            set.add(tag);
-          } else {
-            alert(`Solo puedes seleccionar ${max} etiquetas.`);
-            return;
-          }
-        } else {
-          set.add(tag);
-        }
-      }
-
-      const next = Array.from(set);
-      if (inputTags) inputTags.value = serializeTags(next);
-
-      renderOpcionesEtiquetasSimple({ selected: next });
-    });
-  });
-}
-
-/** =========================
- *  MODAL COMPLETO (chips)
- ========================= */
 function chip(tag, selected) {
-  const active = selected
-    ? "bg-slate-900 text-white border-slate-900"
-    : "bg-white text-slate-900 border-slate-200 hover:border-slate-300";
-
+  const active = selected ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-900 border-slate-200 hover:border-slate-300";
   return `
     <button type="button"
       class="px-3 py-2 rounded-2xl border text-xs font-extrabold uppercase tracking-wide transition ${active}"
@@ -1138,12 +911,8 @@ function renderSections() {
   if (secProd) secProd.classList.toggle("hidden", confirm);
   if (secDis) secDis.classList.remove("hidden");
 
-  if (prodWrap)
-    prodWrap.innerHTML = (ETQ_PRODUCCION || []).map((t) => chip(t, _etqSelected.has(t))).join("");
-
-  if (disWrap)
-    disWrap.innerHTML = (ETQ_DISENO || []).map((t) => chip(t, _etqSelected.has(t))).join("");
-
+  if (prodWrap) prodWrap.innerHTML = (ETQ_PRODUCCION || []).map((t) => chip(t, _etqSelected.has(t))).join("");
+  if (disWrap) disWrap.innerHTML = (ETQ_DISENO || []).map((t) => chip(t, _etqSelected.has(t))).join("");
   if (genWrap) genWrap.innerHTML = ETQ_GENERALES.map((t) => chip(t, _etqSelected.has(t))).join("");
 
   renderSelected();
@@ -1160,8 +929,7 @@ window.toggleEtiqueta = function (tag) {
     _etqSelected.delete(tag);
   } else {
     if (_etqSelected.size >= 6) {
-      const hint = document.getElementById("etqLimitHint");
-      if (hint) hint.classList.remove("hidden");
+      document.getElementById("etqLimitHint")?.classList.remove("hidden");
       return;
     }
     _etqSelected.add(tag);
@@ -1175,21 +943,19 @@ window.limpiarEtiquetas = function () {
   renderSections();
 };
 
-/** =========================
- *  API GUARDAR ETIQUETAS (ÚNICO)
- ========================= */
+/* =====================================================
+   API GUARDAR ETIQUETAS
+===================================================== */
 async function guardarEtiquetas(orderId, tagsStr) {
   const id = String(orderId || "");
   const order = ordersById.get(id);
   const prev = order?.etiquetas ?? "";
 
-  // UI instant
   if (order) {
     order.etiquetas = String(tagsStr ?? "");
     actualizarTabla(ordersCache);
   }
 
-  // Endpoints posibles (con y sin index.php, con underscore y con slashes)
   const endpoints = [
     apiUrl("/api/estado_etiquetas/guardar"),
     apiUrl("/api/estado/etiquetas/guardar"),
@@ -1199,7 +965,6 @@ async function guardarEtiquetas(orderId, tagsStr) {
     "/api/estado/etiquetas/guardar",
   ];
 
-  // Payload compatible (manda ambos nombres por si el backend espera uno u otro)
   const payload = {
     id: Number(id),
     tags: String(tagsStr ?? ""),
@@ -1213,7 +978,7 @@ async function guardarEtiquetas(orderId, tagsStr) {
       try {
         const r = await fetch(url, {
           method: "POST",
-          headers: jsonHeaders(), // incluye CSRF si existe
+          headers: jsonHeaders(),
           body: JSON.stringify(payload),
         });
 
@@ -1227,13 +992,12 @@ async function guardarEtiquetas(orderId, tagsStr) {
 
         if (!ok) throw new Error(d?.message || `HTTP ${r.status}`);
 
-        // ✅ si el backend devuelve etiquetas normalizadas, sincroniza
         if (order && (d?.tags || d?.etiquetas)) {
           order.etiquetas = String(d.tags ?? d.etiquetas ?? order.etiquetas);
           actualizarTabla(ordersCache);
         }
 
-        return; // ✅ guardado OK
+        return;
       } catch (e) {
         lastErr = e;
       }
@@ -1243,7 +1007,6 @@ async function guardarEtiquetas(orderId, tagsStr) {
   } catch (e) {
     console.error("guardarEtiquetas error:", e);
 
-    // Revert
     if (order) {
       order.etiquetas = prev;
       actualizarTabla(ordersCache);
@@ -1253,13 +1016,9 @@ async function guardarEtiquetas(orderId, tagsStr) {
   }
 }
 
-
-/** =========================
- *  ABRIR/CERRAR MODAL (ÚNICO)
- *  - Si existe modal completo (#modalEtiquetas con secciones etq*) => usa chips
- *  - Si existe modal simple (#modalEtiquetasPedido o inputs) => usa inputs
- *  - Si no existe modal => prompt
- ========================= */
+/* =====================================================
+   ABRIR/CERRAR MODAL ETIQUETAS (chips + fallback)
+===================================================== */
 window.abrirModalEtiquetas = async function (orderId, rawTags, numeroPedido = "") {
   const id = String(orderId ?? "");
   if (!id) return;
@@ -1267,7 +1026,6 @@ window.abrirModalEtiquetas = async function (orderId, rawTags, numeroPedido = ""
   const order = ordersById.get(id);
   const current = String(rawTags ?? order?.etiquetas ?? "").trim();
 
-  // Detecta modal completo (chips)
   const modalCompleto = document.getElementById("modalEtiquetas") && document.getElementById("etqGeneralesList");
 
   if (modalCompleto) {
@@ -1278,9 +1036,8 @@ window.abrirModalEtiquetas = async function (orderId, rawTags, numeroPedido = ""
     if (lbl) lbl.textContent = _etqOrderNumero ? _etqOrderNumero : `#${id}`;
 
     _etqSelected = new Set(parseTags(current));
-    if (_etqSelected.size > 2) _etqSelected = new Set(Array.from(_etqSelected).slice(0, 2));
 
-    // Carga etiquetas desde BD si aún no hay
+    // carga etiquetas BD
     if (!ETQ_DISENO.length && !ETQ_PRODUCCION.length) {
       await cargarEtiquetasDisponiblesBD();
     }
@@ -1291,56 +1048,15 @@ window.abrirModalEtiquetas = async function (orderId, rawTags, numeroPedido = ""
     return;
   }
 
-  // Modal simple (inputs)
-  const modalSimple = document.getElementById("modalEtiquetasPedido") || document.getElementById("modalEtiquetas");
-  const inputId = document.getElementById("modalEtiquetasOrderId") || document.getElementById("modalEtiquetasId");
-  const inputTags = document.getElementById("modalEtiquetasTags") || document.getElementById("inputEtiquetas");
-
-  if (modalSimple && inputId && inputTags) {
-    const disponibles = getEtiquetasDisponiblesSimple();
-    const allowedSet = new Set(disponibles);
-    const max = maxEtiquetasPermitidasSimple();
-
-    let selected = parseTags(current).filter((t) => allowedSet.has(t));
-    if (selected.length > max) selected = selected.slice(0, max);
-
-    inputId.value = id;
-    inputTags.value = serializeTags(selected);
-
-    renderOpcionesEtiquetasSimple({ selected });
-
-    modalSimple.classList.remove("hidden");
-    return;
-  }
-
-  // Fallback sin modal
-  const max = maxEtiquetasPermitidasSimple();
-  const nuevo = prompt(`Editar etiquetas (máx ${max}, separadas por coma):`, current);
+  // fallback prompt
+  const nuevo = prompt(`Editar etiquetas (separadas por coma):`, current);
   if (nuevo === null) return;
-
-  const disponibles = getEtiquetasDisponiblesSimple();
-  const allowedSet = new Set(disponibles);
-
-  let final = parseTags(nuevo).filter((t) => allowedSet.has(t));
-  final = final.slice(0, max);
-
-  guardarEtiquetas(id, serializeTags(final));
+  guardarEtiquetas(id, nuevo);
 };
 
 window.cerrarModalEtiquetas = function () {
   document.getElementById("modalEtiquetas")?.classList.add("hidden");
   document.getElementById("modalEtiquetasPedido")?.classList.add("hidden");
-};
-
-window.guardarEtiquetasDesdeModal = function () {
-  const inputId = document.getElementById("modalEtiquetasOrderId") || document.getElementById("modalEtiquetasId");
-  const inputTags = document.getElementById("modalEtiquetasTags") || document.getElementById("inputEtiquetas");
-  const id = String(inputId?.value || "");
-  const tags = String(inputTags?.value || "");
-  if (!id) return;
-
-  guardarEtiquetas(id, tags);
-  window.cerrarModalEtiquetas();
 };
 
 window.guardarEtiquetasModal = async function () {
@@ -1363,10 +1079,8 @@ window.guardarEtiquetasModal = async function () {
     if (btn) btn.disabled = true;
 
     await guardarEtiquetas(_etqOrderId, etiquetas);
-
     window.cerrarModalEtiquetas();
 
-    // refrescar pedidos (sin romper live)
     if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
   } catch (e) {
     console.error(e);
@@ -1379,11 +1093,9 @@ window.guardarEtiquetasModal = async function () {
   }
 };
 
-// Cargar etiquetas BD al iniciar (solo si existe el modal completo)
-document.addEventListener("DOMContentLoaded", () => {
-  if (document.getElementById("etqGeneralesList")) {
-    cargarEtiquetasDisponiblesBD();
-  }
-});
-
- 
+/* =====================================================
+   ✅ EXPONER GLOBALS PARA onclick=""
+===================================================== */
+window.abrirModal = abrirModal;
+window.cerrarModal = cerrarModal;
+window.guardarEstado = guardarEstado;
