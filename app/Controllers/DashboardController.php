@@ -475,80 +475,85 @@ class DashboardController extends Controller
     // ============================================================
     // GUARDAR ETIQUETAS (Shopify PUT)
     // ============================================================
+
     public function guardarEtiquetas()
     {
-        $json = $this->request->getJSON(true) ?? [];
-        $orderId = (string)($json["id"] ?? '');
-        $tags    = (string)($json["tags"] ?? '');
-
-        if ($orderId === '') {
-            return $this->response->setJSON(["success" => false, "message" => "Falta id"])->setStatusCode(422);
-        }
-
-        $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/{$orderId}.json";
-
-        $data = [
-            "order" => [
-                "id"   => $orderId,
-                "tags" => $tags
-            ]
-        ];
-
-        $resp = $this->curlShopify($url, 'PUT', $data);
-
-        $decoded = json_decode($resp['body'], true) ?: [];
-
-        if (!isset($decoded["order"])) {
-            return $this->response->setJSON([
-                "success" => false,
-                "message" => "Error actualizando etiquetas",
-                "status"  => $resp['status'],
-                "raw"     => $resp['body']
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado'
             ]);
         }
 
-        return $this->response->setJSON([
-            "success" => true,
-            "message" => "OK"
+        $payload = $this->request->getJSON(true) ?? [];
+        $orderId = (string)($payload['id'] ?? '');
+        $tagsRaw = (string)($payload['etiquetas'] ?? '');
+
+        if ($orderId === '') {
+            return $this->response->setStatusCode(422)->setJSON([
+                'success' => false,
+                'message' => 'Falta id del pedido'
+            ]);
+        }
+
+        // Normaliza tags (máx 6)
+        $tags = array_values(array_filter(array_map('trim', explode(',', $tagsRaw))));
+        $tags = array_slice($tags, 0, 6);
+
+        // Guardar tags en Shopify
+        $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
+        $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
+        $apiVersion = '2024-01';
+
+        if (!$shop || !$token) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Falta SHOPIFY_STORE_DOMAIN o SHOPIFY_ADMIN_TOKEN'
+            ])->setStatusCode(200);
+        }
+
+        $shop = preg_replace('#^https?://#', '', $shop);
+        $shop = preg_replace('#/.*$#', '', $shop);
+
+        $url = "https://{$shop}/admin/api/{$apiVersion}/orders/{$orderId}.json";
+
+        $client = \Config\Services::curlrequest([
+            'timeout' => 25,
+            'http_errors' => false,
         ]);
-    }
 
-    public function etiquetasDisponibles()
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setJSON(['ok' => false, 'tags' => []])->setStatusCode(401);
-    }
+        $resp = $client->put($url, [
+            'headers' => [
+                'X-Shopify-Access-Token' => $token,
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+            ],
+            'body' => json_encode([
+                'order' => [
+                    'id' => (int)$orderId,
+                    'tags' => implode(', ', $tags),
+                ]
+            ]),
+        ]);
 
-    try {
-        $db = \Config\Database::connect();
+        $status = $resp->getStatusCode();
+        $raw = (string)$resp->getBody();
 
-        $rows = $db->table('user_tags')
-            ->select('tag')
-            ->orderBy('tag', 'ASC')
-            ->get()
-            ->getResultArray();
-
-        $tags = array_values(array_unique(array_map(fn($r) => (string)$r['tag'], $rows)));
-
-        // separar por tipo (D. / P.)
-        $diseno = [];
-        $produccion = [];
-        foreach ($tags as $t) {
-            if (stripos($t, 'D.') === 0) $diseno[] = $t;
-            if (stripos($t, 'P.') === 0) $produccion[] = $t;
+        if ($status >= 400) {
+            log_message('error', 'SHOPIFY update tags error '.$status.': '.$raw);
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error guardando etiquetas en Shopify',
+                'status' => $status
+            ])->setStatusCode(200);
         }
 
         return $this->response->setJSON([
-            'ok' => true,
-            'diseno' => $diseno,
-            'produccion' => $produccion,
-        ])->setStatusCode(200);
-
-    } catch (\Throwable $e) {
-        log_message('error', 'ETIQUETAS DISPONIBLES ERROR: '.$e->getMessage());
-        return $this->response->setJSON(['ok' => false, 'diseno' => [], 'produccion' => []])->setStatusCode(200);
+            'success' => true,
+            'message' => 'Etiquetas guardadas',
+            'tags' => $tags
+        ]);
     }
-}
 
 
     // ============================================================

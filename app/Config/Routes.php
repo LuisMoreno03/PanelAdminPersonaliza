@@ -57,7 +57,7 @@ $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $ro
     $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
 
     // etiquetas (Shopify tags)
-    $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
+    $routes->post('api/estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
 
     $routes->get('confirmados', 'Confirmados::filter');
 });

@@ -1,6 +1,9 @@
 // =====================================================
 // DASHBOARD.JS (COMPLETO) - REAL TIME + PAGINACIÓN ESTABLE
-// + PROTECCIÓN ANTI-OVERWRITE (12 usuarios)
+// - Paginación Shopify (next/prev page_info)
+// - Live refresh solo en página 1 (anti-overwrite)
+// - Modal etiquetas bonito (max 2) + generales
+// - Endpoints con fallback /index.php
 // =====================================================
 
 /* =====================================================
@@ -11,47 +14,61 @@ let prevPageInfo = null;
 let isLoading = false;
 let currentPage = 1;
 
-// ✅ cache local para actualizar estados sin recargar
+// cache local
 let ordersCache = [];
 let ordersById = new Map();
 
-// ✅ LIVE MODE
+// live
 let liveMode = true;
 let liveInterval = null;
 
+// users
 let userPingInterval = null;
 let userStatusInterval = null;
 
-// ✅ evita que un fetch viejo pise uno nuevo
+// anti overwrite
 let lastFetchToken = 0;
-
-// ✅ protege cambios recientes (evita que LIVE sobrescriba el estado recién guardado)
-const dirtyOrders = new Map(); // id -> { until:number, estado:string, last_status_change:{} }
-const DIRTY_TTL_MS = 15000; // 15s
+const dirtyOrders = new Map(); // id -> { until, estado, last_status_change, etiquetas? }
+const DIRTY_TTL_MS = 15000;
 
 /* =====================================================
-   CONFIG / HELPERS DE RUTAS
+   HELPERS URL (con fallback index.php)
 ===================================================== */
-function hasIndexPhp() {
-  return window.location.pathname.includes("/index.php/");
+function normalizePath(p) {
+  if (!p.startsWith("/")) p = "/" + p;
+  return p;
 }
 
-function normalizeBase(base) {
-  base = String(base || "").trim();
-  base = base.replace(/\/+$/, "");
-  return base;
+function endpointsFor(path) {
+  path = normalizePath(path);
+  const withIndex = "/index.php" + path;
+
+  // si ya estás en /index.php/... intenta primero con index
+  const preferIndex = window.location.pathname.includes("/index.php");
+  return preferIndex ? [withIndex, path] : [path, withIndex];
 }
 
-function apiUrl(path) {
-  if (!path.startsWith("/")) path = "/" + path;
-  const base = normalizeBase(window.API_BASE || "");
-  return base ? base + path : path;
+async function fetchJsonWithFallback(path, options = {}) {
+  const urls = endpointsFor(path);
+  let lastErr = null;
+
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, options);
+      if (r.status === 404) continue;
+      const d = await r.json().catch(() => null);
+      return { ok: r.ok, status: r.status, data: d, url };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("No se pudo conectar.");
 }
 
 function jsonHeaders() {
   const headers = { Accept: "application/json", "Content-Type": "application/json" };
 
-  // ✅ CSRF (si existe en tu HTML)
+  // (opcional) CSRF si lo agregas en meta
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
   const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
   if (csrfToken) headers[csrfHeader] = csrfToken;
@@ -63,52 +80,50 @@ function jsonHeaders() {
    Loader global
 ===================================================== */
 function showLoader() {
-  const el = document.getElementById("globalLoader");
-  if (el) el.classList.remove("hidden");
+  document.getElementById("globalLoader")?.classList.remove("hidden");
 }
 function hideLoader() {
-  const el = document.getElementById("globalLoader");
-  if (el) el.classList.add("hidden");
+  document.getElementById("globalLoader")?.classList.add("hidden");
 }
 
 /* =====================================================
    INIT
 ===================================================== */
 document.addEventListener("DOMContentLoaded", () => {
+  // botones paginación
   const btnAnterior = document.getElementById("btnAnterior");
   const btnSiguiente = document.getElementById("btnSiguiente");
 
-  if (btnAnterior) {
-    btnAnterior.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (!btnAnterior.disabled) paginaAnterior();
-    });
-  }
+  btnAnterior?.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!btnAnterior.disabled) paginaAnterior();
+  });
 
-  if (btnSiguiente) {
-    btnSiguiente.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (!btnSiguiente.disabled) paginaSiguiente();
-    });
-  }
+  btnSiguiente?.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!btnSiguiente.disabled) paginaSiguiente();
+  });
 
-  // Usuarios online/offline
+  // users
   pingUsuario();
   userPingInterval = setInterval(pingUsuario, 30000);
 
   cargarUsuariosEstado();
   userStatusInterval = setInterval(cargarUsuariosEstado, 15000);
 
-  // ✅ Inicial pedidos (página 1)
-  resetToFirstPage({ withFetch: true });
+  // etiquetas disponibles (para modal)
+  cargarEtiquetasDisponibles();
 
-  // ✅ LIVE refresca la página 1 (recomendado 20s con 12 usuarios)
+  // pedidos
+  resetToFirstPage(true);
+
+  // live solo en página 1
   startLive(20000);
 
-  // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
+  // re-render sin pedir backend
   window.addEventListener("resize", () => {
     const cont = document.getElementById("tablaPedidos");
-    if (cont && cont.dataset.lastOrders) {
+    if (cont?.dataset?.lastOrders) {
       try {
         const orders = JSON.parse(cont.dataset.lastOrders);
         actualizarTabla(Array.isArray(orders) ? orders : []);
@@ -129,7 +144,6 @@ function startLive(ms = 20000) {
     }
   }, ms);
 }
-
 function pauseLive() {
   liveMode = false;
 }
@@ -138,7 +152,7 @@ function resumeLiveIfOnFirstPage() {
 }
 
 /* =====================================================
-   HELPERS
+   HELPERS UI
 ===================================================== */
 function escapeHtml(str) {
   return String(str ?? "")
@@ -148,45 +162,27 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-
 function escapeJsString(str) {
   return String(str ?? "").replaceAll("\\", "\\\\").replaceAll("'", "\\'");
 }
-
 function esBadgeHtml(valor) {
   const s = String(valor ?? "").trim();
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
 }
-
 function renderEstado(valor) {
   if (esBadgeHtml(valor)) return String(valor);
   return escapeHtml(valor ?? "-");
 }
 
-/* =====================================================
-   ENTREGA PILL
-===================================================== */
 function entregaStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
-
-  if (!s || s === "-" || s === "null") {
-    return { wrap: "bg-slate-50 border-slate-200 text-slate-800", dot: "bg-slate-400", icon: "📦", label: "Sin estado" };
-  }
-  if (s.includes("entregado") || s.includes("delivered")) {
-    return { wrap: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "✅", label: "Entregado" };
-  }
-  if (s.includes("enviado") || s.includes("shipped")) {
-    return { wrap: "bg-blue-50 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🚚", label: "Enviado" };
-  }
-  if (s.includes("prepar") || s.includes("pendiente") || s.includes("processing")) {
-    return { wrap: "bg-amber-50 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "⏳", label: "Preparando" };
-  }
-  if (s.includes("cancel") || s.includes("devuelto") || s.includes("return")) {
-    return { wrap: "bg-rose-50 border-rose-200 text-rose-900", dot: "bg-rose-500", icon: "⛔", label: "Incidencia" };
-  }
+  if (!s || s === "-" || s === "null") return { wrap: "bg-slate-50 border-slate-200 text-slate-800", dot: "bg-slate-400", icon: "📦", label: "Sin estado" };
+  if (s.includes("entregado") || s.includes("delivered")) return { wrap: "bg-emerald-50 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "✅", label: "Entregado" };
+  if (s.includes("enviado") || s.includes("shipped")) return { wrap: "bg-blue-50 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🚚", label: "Enviado" };
+  if (s.includes("prepar") || s.includes("pendiente") || s.includes("processing")) return { wrap: "bg-amber-50 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "⏳", label: "Preparando" };
+  if (s.includes("cancel") || s.includes("devuelto") || s.includes("return")) return { wrap: "bg-rose-50 border-rose-200 text-rose-900", dot: "bg-rose-500", icon: "⛔", label: "Incidencia" };
   return { wrap: "bg-slate-50 border-slate-200 text-slate-900", dot: "bg-slate-400", icon: "📍", label: estado || "—" };
 }
-
 function renderEntregaPill(estadoEnvio) {
   const st = entregaStyle(estadoEnvio);
   return `
@@ -199,44 +195,44 @@ function renderEntregaPill(estadoEnvio) {
   `;
 }
 
-/* =====================================================
-   PÍLDORA PÁGINA
-===================================================== */
-function setPaginaUI({ totalPages = null } = {}) {
+function setPaginaUI() {
   const pill = document.getElementById("pillPagina");
   if (pill) pill.textContent = `Página ${currentPage}`;
-
-  const pillTotal = document.getElementById("pillPaginaTotal");
-  if (pillTotal) pillTotal.textContent = totalPages ? `Página ${currentPage} de ${totalPages}` : `Página ${currentPage}`;
 }
 
 /* =====================================================
-   RESET a página 1
+   PAGINACIÓN (RESET)
 ===================================================== */
-function resetToFirstPage({ withFetch = false } = {}) {
+function resetToFirstPage(withFetch = false) {
   currentPage = 1;
   nextPageInfo = null;
   prevPageInfo = null;
   liveMode = true;
 
-  setPaginaUI({ totalPages: null });
+  setPaginaUI();
   actualizarControlesPaginacion();
 
   if (withFetch) cargarPedidos({ reset: true, page_info: "" });
 }
 
 /* =====================================================
-   CARGAR PEDIDOS (con protección anti-overwrite)
+   CARGAR PEDIDOS (PROTECCIÓN anti overwrite)
+   Endpoint recomendado: /dashboard/pedidos
+   Fallback: /dashboard/filter
 ===================================================== */
+function buildPedidosUrl(path, page_info) {
+  // el backend realmente usa page_info (shopify) - el "page" es solo UI
+  const u = new URL(endpointsFor(path)[0], window.location.origin);
+  if (page_info) u.searchParams.set("page_info", page_info);
+  return u.pathname + u.search;
+}
+
 function cargarPedidos({ page_info = "", reset = false } = {}) {
   if (isLoading) return;
   isLoading = true;
   showLoader();
 
   const fetchToken = ++lastFetchToken;
-
-  const base = apiUrl("/dashboard/pedidos");
-  const fallback = apiUrl("/dashboard/filter");
 
   if (reset) {
     currentPage = 1;
@@ -246,33 +242,30 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     liveMode = true;
   }
 
-  const buildUrl = (endpoint) => {
-    const u = new URL(endpoint, window.location.origin);
-    u.searchParams.set("page", String(currentPage));
-    if (page_info) u.searchParams.set("page_info", page_info);
-    return u.toString();
-  };
+  const primary = buildPedidosUrl("/dashboard/pedidos", page_info);
+  const fallback = buildPedidosUrl("/dashboard/filter", page_info);
 
-  fetch(buildUrl(base), { headers: { Accept: "application/json" } })
-    .then(async (res) => {
-      if (res.status === 404) {
-        const r2 = await fetch(buildUrl(fallback), { headers: { Accept: "application/json" } });
-        return r2.json();
-      }
-      return res.json();
+  // intentamos primero primary, luego fallback
+  fetchJsonWithFallback(primary, { headers: { Accept: "application/json" } })
+    .then(async (res1) => {
+      // si primary no trae success, intentamos fallback
+      const d1 = res1.data;
+      if (d1 && d1.success) return d1;
+
+      const res2 = await fetchJsonWithFallback(fallback, { headers: { Accept: "application/json" } });
+      return res2.data;
     })
     .then((data) => {
-      // ✅ si llegó una respuesta vieja, la ignoramos
       if (fetchToken !== lastFetchToken) return;
 
       if (!data || !data.success) {
-        actualizarTabla([]);
         ordersCache = [];
         ordersById = new Map();
         nextPageInfo = null;
         prevPageInfo = null;
+        actualizarTabla([]);
         actualizarControlesPaginacion();
-        setPaginaUI({ totalPages: null });
+        setPaginaUI();
         return;
       }
 
@@ -281,7 +274,7 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
       let incoming = Array.isArray(data.orders) ? data.orders : [];
 
-      // ✅ aplicar "dirty protection"
+      // dirty protection
       const now = Date.now();
       incoming = incoming.map((o) => {
         const id = String(o.id ?? "");
@@ -291,12 +284,12 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
         if (dirty && dirty.until > now) {
           return {
             ...o,
-            estado: dirty.estado,
-            last_status_change: dirty.last_status_change,
+            estado: dirty.estado ?? o.estado,
+            etiquetas: dirty.etiquetas ?? o.etiquetas,
+            last_status_change: dirty.last_status_change ?? o.last_status_change,
           };
-        } else if (dirty) {
-          dirtyOrders.delete(id);
         }
+        if (dirty) dirtyOrders.delete(id);
         return o;
       });
 
@@ -305,23 +298,24 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
       actualizarTabla(ordersCache);
 
-      const total = document.getElementById("total-pedidos");
-      if (total) total.textContent = String(data.total_orders ?? data.count ?? 0);
+      document.getElementById("total-pedidos") &&
+        (document.getElementById("total-pedidos").textContent = String(data.count ?? incoming.length));
 
-      setPaginaUI({ totalPages: data.total_pages ?? null });
+      setPaginaUI();
       actualizarControlesPaginacion();
     })
     .catch((err) => {
       if (fetchToken !== lastFetchToken) return;
-
       console.error("Error cargando pedidos:", err);
-      actualizarTabla([]);
+
       ordersCache = [];
       ordersById = new Map();
       nextPageInfo = null;
       prevPageInfo = null;
+
+      actualizarTabla([]);
       actualizarControlesPaginacion();
-      setPaginaUI({ totalPages: null });
+      setPaginaUI();
     })
     .finally(() => {
       if (fetchToken !== lastFetchToken) return;
@@ -330,9 +324,6 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     });
 }
 
-/* =====================================================
-   CONTROLES PAGINACIÓN
-===================================================== */
 function actualizarControlesPaginacion() {
   const btnSig = document.getElementById("btnSiguiente");
   const btnAnt = document.getElementById("btnAnterior");
@@ -342,7 +333,6 @@ function actualizarControlesPaginacion() {
     btnSig.classList.toggle("opacity-50", btnSig.disabled);
     btnSig.classList.toggle("cursor-not-allowed", btnSig.disabled);
   }
-
   if (btnAnt) {
     btnAnt.disabled = !prevPageInfo || currentPage <= 1;
     btnAnt.classList.toggle("opacity-50", btnAnt.disabled);
@@ -354,12 +344,13 @@ function paginaSiguiente() {
   if (!nextPageInfo) return;
   pauseLive();
   currentPage += 1;
+  setPaginaUI();
   cargarPedidos({ page_info: nextPageInfo });
 }
-
 function paginaAnterior() {
   if (!prevPageInfo || currentPage <= 1) return;
   currentPage -= 1;
+  setPaginaUI();
   cargarPedidos({ page_info: prevPageInfo });
   resumeLiveIfOnFirstPage();
 }
@@ -375,7 +366,6 @@ function formatDateTime(dtStr) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-
 function renderLastChangeCompact(p) {
   const info = p?.last_status_change;
   if (!info || !info.changed_at) return "—";
@@ -390,8 +380,15 @@ function renderLastChangeCompact(p) {
 }
 
 /* =====================================================
-   ETIQUETAS
+   ETIQUETAS (compact)
 ===================================================== */
+function colorEtiqueta(tag) {
+  tag = String(tag).toLowerCase().trim();
+  if (tag.startsWith("d.")) return "bg-emerald-50 border-emerald-200 text-emerald-900";
+  if (tag.startsWith("p.")) return "bg-amber-50 border-amber-200 text-amber-900";
+  return "bg-slate-50 border-slate-200 text-slate-800";
+}
+
 function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
   const raw = String(etiquetas || "").trim();
   const list = raw ? raw.split(",").map((t) => t.trim()).filter(Boolean) : [];
@@ -411,19 +408,15 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
 
   const more =
     rest > 0
-      ? `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border bg-white border-slate-200 text-slate-700">
-        +${rest}
-      </span>`
+      ? `<span class="px-2.5 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border bg-white border-slate-200 text-slate-700">+${rest}</span>`
       : "";
 
-  const onClick = `abrirModalEtiquetas(${Number(orderId)}, '${escapeJsString(raw)}')`;
+  const onClick = `abrirModalEtiquetas('${String(orderId)}')`;
 
   if (!list.length) {
     return `
       <button onclick="${onClick}"
-        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
-               bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide
-               hover:shadow-md transition whitespace-nowrap">
+        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:shadow-md transition whitespace-nowrap">
         Etiquetas <span class="text-blue-700">＋</span>
       </button>`;
   }
@@ -432,157 +425,100 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
     <div class="flex flex-wrap items-center gap-2">
       ${pills}${more}
       <button onclick="${onClick}"
-        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
-               bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide
-               hover:bg-slate-800 transition shadow-sm whitespace-nowrap">
+        class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-800 transition shadow-sm whitespace-nowrap">
         Etiquetas <span class="text-white/80">✎</span>
       </button>
     </div>`;
 }
 
-function colorEtiqueta(tag) {
-  tag = String(tag).toLowerCase().trim();
-  if (tag.startsWith("d.")) return "bg-emerald-50 border-emerald-200 text-emerald-900";
-  if (tag.startsWith("p.")) return "bg-amber-50 border-amber-200 text-amber-900";
-  return "bg-slate-50 border-slate-200 text-slate-800";
-}
-
 /* =====================================================
-   TABLA / GRID + CARDS
+   TABLA (tbody) + (opcional) cards
+   - Si tu HTML usa tbody, esto genera TRs.
 ===================================================== */
 function actualizarTabla(pedidos) {
-  const cont = document.getElementById("tablaPedidos");
+  const tbody = document.getElementById("tablaPedidos");
   const cards = document.getElementById("cardsPedidos");
 
-  if (cont) cont.dataset.lastOrders = JSON.stringify(pedidos || []);
-  const useCards = window.innerWidth <= 1180;
+  if (tbody) tbody.dataset.lastOrders = JSON.stringify(pedidos || []);
 
-  if (cont) {
-    cont.innerHTML = "";
-    if (!useCards) {
-      if (!pedidos.length) {
-        cont.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
-      } else {
-        cont.innerHTML = pedidos
-          .map((p) => {
-            const id = p.id ?? "";
-            const etiquetas = p.etiquetas ?? "";
-            return `
-            <div class="orders-grid px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
-              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</div>
-              <div class="text-slate-600 whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</div>
-              <div class="font-semibold text-slate-800 truncate">${escapeHtml(p.cliente ?? "-")}</div>
-              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
-
-              <div class="whitespace-nowrap">
-                <button onclick="abrirModal('${String(id)}')"
-                  class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                  <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-                  <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
-                    ${renderEstado(p.estado ?? "-")}
-                  </span>
-                </button>
-              </div>
-
-              <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-              <div class="min-w-0">${renderEtiquetasCompact(etiquetas, id)}</div>
-              <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
-              <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-              <div class="text-xs text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
-
-              <div class="text-right whitespace-nowrap">
-                <button onclick="verDetalles(${Number(id)})"
-                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
-                  Ver →
-                </button>
-              </div>
-            </div>`;
-          })
-          .join("");
-      }
-    }
-  }
-
-  if (cards) {
-    cards.innerHTML = "";
-    if (!useCards) return;
+  // --- TBODY (tu HTML actual usa table + tbody)
+  if (tbody) {
+    tbody.innerHTML = "";
 
     if (!pedidos.length) {
-      cards.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="11" class="py-10 text-center text-slate-500">No se encontraron pedidos</td>
+        </tr>`;
       return;
     }
 
-    cards.innerHTML = pedidos
+    tbody.innerHTML = pedidos
       .map((p) => {
-        const id = p.id ?? "";
+        const id = String(p.id ?? "");
         const etiquetas = p.etiquetas ?? "";
-        const last = p?.last_status_change?.changed_at
-          ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(formatDateTime(p.last_status_change.changed_at))}`
-          : "—";
 
         return `
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
-            <div class="p-4">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.numero ?? "-")}</div>
-                  <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(p.fecha ?? "-")}</div>
-                  <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${escapeHtml(p.cliente ?? "-")}</div>
-                </div>
-                <div class="text-right whitespace-nowrap">
-                  <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.total ?? "-")}</div>
-                </div>
-              </div>
+        <tr class="border-b border-slate-100 hover:bg-slate-50/60 transition">
+          <td class="py-4 px-4 font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</td>
 
-              <div class="mt-3 flex items-center justify-between gap-3">
-                <button onclick="abrirModal('${String(id)}')"
-                  class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                  <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-                  <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
-                    ${renderEstado(p.estado ?? "-")}
-                  </span>
-                </button>
+          <td class="py-4 px-4 hidden lg:table-cell whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</td>
+          <td class="py-4 px-4 hidden lg:table-cell truncate max-w-[220px]">${escapeHtml(p.cliente ?? "-")}</td>
+          <td class="py-4 px-4 hidden lg:table-cell whitespace-nowrap font-extrabold">${escapeHtml(p.total ?? "-")}</td>
 
-                <button onclick="verDetalles(${Number(id)})"
-                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
-                  Ver →
-                </button>
-              </div>
+          <td class="py-4 px-2 w-44">
+            <button onclick="abrirModalEstado('${escapeJsString(id)}')"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm hover:shadow-md transition">
+              <span class="h-2 w-2 rounded-full bg-blue-600"></span>
+              <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
+                ${renderEstado(p.estado ?? "-")}
+              </span>
+            </button>
+          </td>
 
-              <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-              <div class="mt-3">${renderEtiquetasCompact(etiquetas, id, true)}</div>
+          <td class="py-4 px-4 hidden xl:table-cell">${renderLastChangeCompact(p)}</td>
 
-              <div class="mt-3 text-xs text-slate-600 space-y-1">
-                <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
-                <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
-                <div><b>Último cambio:</b> ${last}</div>
-              </div>
-            </div>
-          </div>`;
+          <td class="py-4 px-4">${renderEtiquetasCompact(etiquetas, id)}</td>
+
+          <td class="py-4 px-4 hidden lg:table-cell text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</td>
+
+          <td class="py-4 px-4">${renderEntregaPill(p.estado_envio ?? "-")}</td>
+
+          <td class="py-4 px-4 hidden xl:table-cell truncate max-w-[220px]">${escapeHtml(p.forma_envio ?? "-")}</td>
+
+          <td class="py-4 px-4 text-right whitespace-nowrap">
+            <button onclick="verDetalles('${escapeJsString(id)}')"
+              class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+              Ver <span class="text-white/90">→</span>
+            </button>
+          </td>
+        </tr>`;
       })
       .join("");
+  }
+
+  // --- Cards (si tienes contenedor)
+  if (cards) {
+    cards.innerHTML = "";
+    // si tu HTML no lo usa, no pasa nada
   }
 }
 
 /* =====================================================
-   MODAL ESTADO
+   MODAL ESTADO (usa tu modal existente #modalEstado)
 ===================================================== */
-function abrirModal(orderId) {
+window.abrirModalEstado = function(orderId) {
   const idInput = document.getElementById("modalOrderId");
   if (idInput) idInput.value = String(orderId ?? "");
-  const modal = document.getElementById("modalEstado");
-  if (modal) modal.classList.remove("hidden");
-}
-function cerrarModal() {
-  const modal = document.getElementById("modalEstado");
-  if (modal) modal.classList.add("hidden");
-}
+  document.getElementById("modalEstado")?.classList.remove("hidden");
+};
 
-/* =====================================================
-   ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
-   + pause live + dirty TTL
-===================================================== */
-async function guardarEstado(nuevoEstado) {
+window.cerrarModalEstado = function() {
+  document.getElementById("modalEstado")?.classList.add("hidden");
+};
+
+// Botones del modal pueden llamar: guardarEstado("Producción") etc.
+window.guardarEstado = async function(nuevoEstado) {
   const id = String(document.getElementById("modalOrderId")?.value || "");
   if (!id) return;
 
@@ -592,10 +528,9 @@ async function guardarEstado(nuevoEstado) {
   const prevEstado = order?.estado ?? null;
   const prevLast = order?.last_status_change ?? null;
 
-  // 1) UI instantánea + dirty
+  // optimistic
   const userName = window.CURRENT_USER || "Sistema";
-  const now = new Date();
-  const nowStr = now.toISOString().slice(0, 19).replace("T", " ");
+  const nowStr = new Date().toISOString().slice(0, 19).replace("T", " ");
   const optimisticLast = { user_name: userName, changed_at: nowStr };
 
   if (order) {
@@ -610,62 +545,24 @@ async function guardarEstado(nuevoEstado) {
     last_status_change: optimisticLast,
   });
 
-  cerrarModal();
+  window.cerrarModalEstado();
 
-  // 2) Guardar backend
   try {
-    const endpoints = [
-      apiUrl("/api/estado/guardar"),
-      "/index.php/api/estado/guardar",
-      "/api/estado/guardar",
-    ];
+    const res = await fetchJsonWithFallback("/api/estado/guardar", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ id, estado: nuevoEstado }),
+    });
 
-    let lastErr = null;
+    const d = res.data;
+    if (!res.ok || !d?.success) throw new Error(d?.message || `HTTP ${res.status}`);
 
-    for (const url of endpoints) {
-      try {
-        const r = await fetch(url, {
-          method: "POST",
-          headers: jsonHeaders(),
-          body: JSON.stringify({ id, estado: nuevoEstado }),
-        });
+    // refrescar pagina 1 si toca
+    if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
 
-        if (r.status === 404) continue;
-
-        const d = await r.json().catch(() => null);
-
-        if (!r.ok || !d?.success) {
-          throw new Error(d?.message || `HTTP ${r.status}`);
-        }
-
-        // 3) Sync desde backend
-        if (d?.order && order) {
-          order.estado = d.order.estado ?? order.estado;
-          order.last_status_change = d.order.last_status_change ?? order.last_status_change;
-          actualizarTabla(ordersCache);
-
-          dirtyOrders.set(id, {
-            until: Date.now() + DIRTY_TTL_MS,
-            estado: order.estado,
-            last_status_change: order.last_status_change,
-          });
-        }
-
-        // refresca si estás en pág 1
-        if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
-
-        resumeLiveIfOnFirstPage();
-        return;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-
-    throw lastErr || new Error("Endpoint no encontrado (404).");
+    resumeLiveIfOnFirstPage();
   } catch (e) {
     console.error("guardarEstado error:", e);
-
-    // Revert
     dirtyOrders.delete(id);
 
     if (order) {
@@ -673,131 +570,37 @@ async function guardarEstado(nuevoEstado) {
       order.last_status_change = prevLast;
       actualizarTabla(ordersCache);
     }
-
     alert("No se pudo guardar el estado. Se revirtió el cambio.");
     resumeLiveIfOnFirstPage();
   }
-}
+};
 
 /* =====================================================
-   ETIQUETAS (MODAL + SAVE)
+   DETALLES (usa tu backend /dashboard/detalles/:id)
 ===================================================== */
-window.abrirModalEtiquetas = function (orderId, rawTags) {
-  const id = String(orderId ?? "");
-  const order = ordersById.get(id);
-  const current = String(rawTags ?? order?.etiquetas ?? "").trim();
-
-  const modal = document.getElementById("modalEtiquetas") || document.getElementById("modalEtiquetasPedido");
-  const inputId = document.getElementById("modalEtiquetasOrderId") || document.getElementById("modalEtiquetasId");
-  const inputTags = document.getElementById("modalEtiquetasTags") || document.getElementById("inputEtiquetas");
-
-  // ✅ Filtrar tags actuales: solo permitir las disponibles para este usuario
-  const disponibles = getEtiquetasDisponibles();
-  const allowedSet = new Set(disponibles);
-  const max = maxEtiquetasPermitidas();
-
-  let selected = parseTags(current).filter((t) => allowedSet.has(t));
-
-  // si tiene más de las permitidas, recorta
-  if (selected.length > max) selected = selected.slice(0, max);
-
-  if (modal && inputId && inputTags) {
-    inputId.value = id;
-    inputTags.value = serializeTags(selected);
-
-    // ✅ dibuja botones según rol (lo que venga de backend)
-    renderOpcionesEtiquetas({ selected });
-
-    modal.classList.remove("hidden");
-    return;
-  }
-
-  // fallback sin modal
-  const nuevo = prompt(`Editar etiquetas (máx ${max}, separadas por coma):`, serializeTags(selected));
-  if (nuevo === null) return;
-
-  // filtra a permitidas y max
-  let final = parseTags(nuevo).filter((t) => allowedSet.has(t));
-  final = final.slice(0, max);
-
-  guardarEtiquetas(id, serializeTags(final));
-};
-
-
-window.cerrarModalEtiquetas = function () {
-  const modal = document.getElementById("modalEtiquetas") || document.getElementById("modalEtiquetasPedido");
-  if (modal) modal.classList.add("hidden");
-};
-
-window.guardarEtiquetasDesdeModal = function () {
-  const inputId = document.getElementById("modalEtiquetasOrderId") || document.getElementById("modalEtiquetasId");
-  const inputTags = document.getElementById("modalEtiquetasTags") || document.getElementById("inputEtiquetas");
-  const id = String(inputId?.value || "");
-  const tags = String(inputTags?.value || "");
-  if (!id) return;
-  guardarEtiquetas(id, tags);
-  window.cerrarModalEtiquetas();
-};
-
-async function guardarEtiquetas(orderId, tagsStr) {
-  const id = String(orderId || "");
-  const order = ordersById.get(id);
-  const prev = order?.etiquetas ?? "";
-
-  // UI instant
-  if (order) {
-    order.etiquetas = String(tagsStr ?? "");
-    actualizarTabla(ordersCache);
-  }
-
-  try {
-    const url = apiUrl("/api/estado/etiquetas/guardar");
-    const r = await fetch(url, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ id: Number(id), tags: String(tagsStr ?? "") }),
-    });
-
-    const d = await r.json().catch(() => null);
-    if (!r.ok || !d?.success) throw new Error(d?.message || `HTTP ${r.status}`);
-  } catch (e) {
-    console.error("guardarEtiquetas error:", e);
-    if (order) {
-      order.etiquetas = prev;
-      actualizarTabla(ordersCache);
-    }
-    alert("No se pudo guardar etiquetas. Se revirtió el cambio.");
-  }
-}
-
-/* =====================================================
-   DETALLES
-===================================================== */
-window.verDetalles = async function (orderId) {
+window.verDetalles = async function(orderId) {
   const id = String(orderId || "");
   if (!id) return;
-
-  const url = apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`);
-
-  const modal = document.getElementById("modalDetalles");
-  const pre = document.getElementById("modalDetallesJson");
 
   try {
     showLoader();
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    const d = await r.json().catch(() => null);
+    const res = await fetchJsonWithFallback(`/dashboard/detalles/${encodeURIComponent(id)}`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok || !res.data?.success) throw new Error(res.data?.message || `HTTP ${res.status}`);
 
-    if (!r.ok || !d) throw new Error(`HTTP ${r.status}`);
+    // aquí tú ya tienes tu modal de detalles armado en tu HTML,
+    // si quieres lo conecto igual que antes. Por ahora abre tu modal si existe:
+    document.getElementById("modalDetalles")?.classList.remove("hidden");
 
-    if (modal && pre) {
-      pre.textContent = JSON.stringify(d, null, 2);
-      modal.classList.remove("hidden");
-      return;
-    }
+    // si tienes contenedores:
+    const titulo = document.getElementById("tituloPedido");
+    if (titulo) titulo.textContent = `Detalles del pedido ${res.data?.order?.name ?? ""}`;
 
-    window.open(url, "_blank");
+    // Si ya tienes el render completo de detalles en otro archivo, lo respetas.
+    // Si quieres que lo deje 100% como antes, me pegas tu response exacta de /detalles.
   } catch (e) {
-    console.error("verDetalles error:", e);
+    console.error(e);
     alert("No se pudieron cargar los detalles del pedido.");
   } finally {
     hideLoader();
@@ -805,31 +608,31 @@ window.verDetalles = async function (orderId) {
 };
 
 /* =====================================================
-   USERS STATUS
+   USERS STATUS (ping + estado)
 ===================================================== */
 async function pingUsuario() {
   try {
-    await fetch(apiUrl("/dashboard/ping"), { headers: { Accept: "application/json" } });
-  } catch (e) {}
+    await fetchJsonWithFallback("/dashboard/ping", { headers: { Accept: "application/json" } });
+  } catch {}
 }
 
 async function cargarUsuariosEstado() {
   try {
-    const r = await fetch(apiUrl("/dashboard/usuarios-estado"), { headers: { Accept: "application/json" } });
-    const d = await r.json().catch(() => null);
+    const res = await fetchJsonWithFallback("/dashboard/usuarios-estado", { headers: { Accept: "application/json" } });
+    const d = res.data;
     if (!d) return;
 
+    // soporta ok o success
     const ok = d.ok === true || d.success === true;
-    if (ok) {
-      if (typeof window.renderUsersStatus === "function") window.renderUsersStatus(d);
-      else if (typeof window.renderUserStatus === "function") window.renderUserStatus(d);
-    }
+    if (!ok) return;
+
+    renderUsersStatus(d);
   } catch (e) {
     console.error("Error usuarios estado:", e);
   }
 }
 
-window.renderUsersStatus = function (payload) {
+function renderUsersStatus(payload) {
   const onlineEl = document.getElementById("onlineUsers");
   const offlineEl = document.getElementById("offlineUsers");
   const onlineCountEl = document.getElementById("onlineCount");
@@ -837,198 +640,32 @@ window.renderUsersStatus = function (payload) {
 
   if (!onlineEl || !offlineEl) return;
 
-  const users = payload?.users || [];
+  // payload esperado: { users:[{nombre,online,...}], online_count, offline_count }
+  const users = Array.isArray(payload.users) ? payload.users : [];
 
-  const normalized = users.map((u) => {
-    const secs =
-      u.seconds_since_seen != null
-        ? Number(u.seconds_since_seen)
-        : u.last_seen
-        ? Math.max(0, Math.floor((Date.now() - new Date(String(u.last_seen).replace(" ", "T")).getTime()) / 1000))
-        : null;
-
-    return { ...u, seconds_since_seen: isNaN(secs) ? null : secs };
-  });
-
-  const online = normalized.filter((u) => u.online);
-  const offline = normalized.filter((u) => !u.online);
+  const online = users.filter(u => !!u.online);
+  const offline = users.filter(u => !u.online);
 
   if (onlineCountEl) onlineCountEl.textContent = String(payload.online_count ?? online.length);
   if (offlineCountEl) offlineCountEl.textContent = String(payload.offline_count ?? offline.length);
 
   onlineEl.innerHTML = online.length
-    ? online.map(renderUserRow("online")).join("")
+    ? online.map(u => `<li class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span><span class="font-semibold text-slate-800">${escapeHtml(u.nombre ?? "—")}</span></li>`).join("")
     : `<li class="text-sm text-emerald-800/80">No hay usuarios conectados</li>`;
 
   offlineEl.innerHTML = offline.length
-    ? offline.map(renderUserRow("offline")).join("")
+    ? offline.map(u => `<li class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-rose-500"></span><span class="font-semibold text-slate-800">${escapeHtml(u.nombre ?? "—")}</span></li>`).join("")
     : `<li class="text-sm text-rose-800/80">No hay usuarios desconectados</li>`;
-};
-
-function renderUserRow(mode) {
-  return (u) => {
-    const nombre = escapeHtml(u.nombre ?? "—");
-    const role = escapeHtml(u.role ?? "");
-    const since = formatDuration(u.seconds_since_seen);
-
-    const badge =
-      mode === "online"
-        ? `<span class="px-3 py-1 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-200 whitespace-nowrap">
-            Conectado · ${since}
-          </span>`
-        : `<span class="px-3 py-1 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-900 border border-rose-200 whitespace-nowrap">
-            Desconectado · ${since}
-          </span>`;
-
-    return `
-      <li class="flex items-center justify-between gap-3 p-3 rounded-2xl border ${
-        mode === "online" ? "border-emerald-200 bg-white/70" : "border-rose-200 bg-white/70"
-      }">
-        <div class="min-w-0">
-          <div class="font-extrabold text-slate-900 truncate">${nombre}</div>
-          <div class="text-xs text-slate-500 truncate">${role ? role : "—"}</div>
-        </div>
-        ${badge}
-      </li>
-    `;
-  };
 }
 
-function formatDuration(seconds) {
-  if (seconds === null || seconds === undefined) return "—";
-
-  const s = Math.max(0, Number(seconds));
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m`;
-  return `${sec}s`;
-}
-
-// =====================================================
-// ETIQUETAS: UI por ROL (1 o 2) usando window.etiquetasPredeterminadas
-// =====================================================
-
-function getEtiquetasDisponibles() {
-  const arr = Array.isArray(window.etiquetasPredeterminadas) ? window.etiquetasPredeterminadas : [];
-  // limpia duplicados y vacíos
-  return Array.from(new Set(arr.map((x) => String(x || "").trim()).filter(Boolean)));
-}
-
-function maxEtiquetasPermitidas() {
-  const disponibles = getEtiquetasDisponibles();
-  // confirmación => 1 (D.Nombre)
-  // producción => 2 (D.Nombre, P.Nombre)
-  // admin => depende de lo que venga, pero normalmente >= 2
-  if (disponibles.length <= 1) return 1;
-  return 2;
-}
-
-function parseTags(tagsStr) {
-  return String(tagsStr || "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
-function serializeTags(tagsArr) {
-  return Array.from(new Set((tagsArr || []).map((t) => String(t).trim()).filter(Boolean))).join(", ");
-}
-
-/**
- * Renderiza opciones de etiquetas dentro del modal si existe un contenedor.
- * Espera que tengas un div con id="modalEtiquetasOptions" (te digo abajo cómo).
- */
-function renderOpcionesEtiquetas({ selected = [] } = {}) {
-  const cont = document.getElementById("modalEtiquetasOptions");
-  if (!cont) return;
-
-  const disponibles = getEtiquetasDisponibles();
-  const max = maxEtiquetasPermitidas();
-
-  const selectedSet = new Set(selected);
-
-  cont.innerHTML = `
-    <div class="text-xs text-slate-500 mb-2">
-      Puedes seleccionar <b>${max}</b> etiqueta${max > 1 ? "s" : ""}.
-    </div>
-    <div class="flex flex-wrap gap-2">
-      ${disponibles
-        .map((tag) => {
-          const on = selectedSet.has(tag);
-          const cls = on
-            ? "bg-slate-900 text-white border-slate-900"
-            : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50";
-          return `
-            <button type="button"
-              data-tag="${escapeHtml(tag)}"
-              class="px-3 py-2 rounded-2xl border text-[11px] font-extrabold uppercase tracking-wide ${cls}">
-              ${escapeHtml(tag)}
-            </button>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-
-  // clicks
-  cont.querySelectorAll("button[data-tag]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const tag = btn.getAttribute("data-tag") || "";
-      const inputTags =
-        document.getElementById("modalEtiquetasTags") ||
-        document.getElementById("inputEtiquetas");
-
-      const current = parseTags(inputTags?.value || "");
-      const set = new Set(current);
-
-      if (set.has(tag)) {
-        set.delete(tag);
-      } else {
-        // limitar cantidad
-        if (set.size >= max) {
-          // si max=1, reemplaza; si max=2, no deja añadir más
-          if (max === 1) {
-            set.clear();
-            set.add(tag);
-          } else {
-            alert(`Solo puedes seleccionar ${max} etiquetas.`);
-            return;
-          }
-        } else {
-          set.add(tag);
-        }
-      }
-
-      const next = Array.from(set);
-      if (inputTags) inputTags.value = serializeTags(next);
-
-      // rerender para refrescar estilos
-      renderOpcionesEtiquetas({ selected: next });
-    });
-  });
-}
-
-// =====================================================
-// MODAL ETIQUETAS (HTML + Tailwind) - COMPLETO
-// - máximo 2 tags
-// - carga dinámica D./P. desde /dashboard/etiquetas-disponibles
-// - guarda en /api/estado/etiquetas/guardar
-// =====================================================
-
-let _etqOrderId = null;
-let _etqOrderNumero = "";
-let _etqSelected = new Set();
-
-// Etiquetas dinámicas desde BD
-let ETQ_PRODUCCION = [];
+/* =====================================================
+   MODAL ETIQUETAS (bonito) - UNIFICADO (sin duplicados)
+   - carga D/P desde /dashboard/etiquetas-disponibles
+   - admin ve todas (backend), otros solo las suyas (backend)
+   - max 2
+===================================================== */
 let ETQ_DISENO = [];
-
-// Etiquetas generales fijas
+let ETQ_PRODUCCION = [];
 const ETQ_GENERALES = [
   "Cancelar pedido",
   "Reembolso 50%",
@@ -1038,95 +675,78 @@ const ETQ_GENERALES = [
   "No contesta 24h",
 ];
 
-function isConfirmacionRole() {
-  const r = String(window.currentUserRole || "").toLowerCase().trim();
-  return r === "confirmacion" || r === "confirmación";
-}
+let _etqOrderId = null;
+let _etqSelected = new Set();
 
 async function cargarEtiquetasDisponibles() {
   try {
-    const r = await fetch("/index.php/dashboard/etiquetas-disponibles", { headers: { Accept: "application/json" } });
-    const d = await r.json().catch(() => null);
+    const res = await fetchJsonWithFallback("/dashboard/etiquetas-disponibles", {
+      headers: { Accept: "application/json" },
+    });
 
+    const d = res.data;
     if (!d || d.ok !== true) return;
 
     ETQ_DISENO = Array.isArray(d.diseno) ? d.diseno : [];
     ETQ_PRODUCCION = Array.isArray(d.produccion) ? d.produccion : [];
+
+    // para compat con tu HTML viejo si lo usabas:
+    // window.etiquetasPredeterminadas = [...ETQ_DISENO, ...ETQ_PRODUCCION, ...ETQ_GENERALES];
   } catch (e) {
     console.error("Error cargando etiquetas disponibles:", e);
   }
 }
 
-// Llamar al cargar la página
-document.addEventListener("DOMContentLoaded", () => {
-  cargarEtiquetasDisponibles();
-});
-
-function updateCounter() {
-  const c = document.getElementById("etqCounter");
-  if (c) c.textContent = `${_etqSelected.size} / 6`;
+function parseTags(raw) {
+  return String(raw || "")
+    .split(",")
+    .map(t => t.trim())
+    .filter(Boolean);
 }
 
-function chip(tag, selected) {
-  const active = selected
-    ? "bg-slate-900 text-white border-slate-900"
-    : "bg-white text-slate-900 border-slate-200 hover:border-slate-300";
-
-  return `
-    <button type="button"
-      class="px-3 py-2 rounded-2xl border text-xs font-extrabold uppercase tracking-wide transition ${active}"
-      onclick="toggleEtiqueta('${escapeJsString(tag)}')">
-      ${escapeHtml(tag)}
-    </button>
-  `;
-}
-
-function renderSelected() {
+function renderSelectedEtiquetas() {
   const wrap = document.getElementById("etqSelectedWrap");
-  const hint = document.getElementById("etqLimitHint");
   if (!wrap) return;
 
   const arr = Array.from(_etqSelected);
 
   wrap.innerHTML = arr.length
     ? arr.map(t => `
-        <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-900 text-white text-xs font-extrabold">
-          ${escapeHtml(t)}
-          <button type="button"
-            class="text-white/80 hover:text-white font-extrabold"
-            onclick="toggleEtiqueta('${escapeJsString(t)}')">×</button>
-        </span>
-      `).join("")
+      <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-900 text-white text-xs font-extrabold">
+        ${escapeHtml(t)}
+        <button type="button" class="text-white/80 hover:text-white font-extrabold"
+          onclick="toggleEtiqueta('${escapeJsString(t)}')">×</button>
+      </span>`).join("")
     : `<span class="text-sm text-slate-500">Ninguna</span>`;
 
-  if (hint) hint.classList.toggle("hidden", arr.length <= 2);
-
-  updateCounter();
+  const counter = document.getElementById("etqCounter");
+  if (counter) counter.textContent = `${_etqSelected.size} / 2`;
 }
 
-function renderSections() {
+function chipEtiqueta(tag) {
+  const selected = _etqSelected.has(tag);
+  const cls = selected
+    ? "bg-slate-900 text-white border-slate-900"
+    : "bg-white text-slate-900 border-slate-200 hover:border-slate-300";
+
+  return `
+    <button type="button"
+      class="px-3 py-2 rounded-2xl border text-xs font-extrabold uppercase tracking-wide transition ${cls}"
+      onclick="toggleEtiqueta('${escapeJsString(tag)}')">
+      ${escapeHtml(tag)}
+    </button>`;
+}
+
+function renderEtiquetasSections() {
   const prodWrap = document.getElementById("etqProduccionList");
-  const disWrap  = document.getElementById("etqDisenoList");
-  const genWrap  = document.getElementById("etqGeneralesList");
+  const disWrap = document.getElementById("etqDisenoList");
+  const genWrap = document.getElementById("etqGeneralesList");
 
-  const secProd = document.getElementById("etqSectionProduccion");
-  const secDis  = document.getElementById("etqSectionDiseno");
+  if (prodWrap) prodWrap.innerHTML = ETQ_PRODUCCION.map(chipEtiqueta).join("");
+  if (disWrap) disWrap.innerHTML = ETQ_DISENO.map(chipEtiqueta).join("");
+  if (genWrap) genWrap.innerHTML = ETQ_GENERALES.map(chipEtiqueta).join("");
 
-  const confirm = isConfirmacionRole();
-
-  // Confirmación => ocultar Producción
-  if (secProd) secProd.classList.toggle("hidden", confirm);
-  if (secDis) secDis.classList.remove("hidden");
-
-  if (prodWrap) prodWrap.innerHTML = (ETQ_PRODUCCION.length ? ETQ_PRODUCCION : [])
-    .map(t => chip(t, _etqSelected.has(t))).join("");
-
-  if (disWrap) disWrap.innerHTML = (ETQ_DISENO.length ? ETQ_DISENO : [])
-    .map(t => chip(t, _etqSelected.has(t))).join("");
-
-  if (genWrap) genWrap.innerHTML = ETQ_GENERALES.map(t => chip(t, _etqSelected.has(t))).join("");
-
-  renderSelected();
+  renderSelectedEtiquetas();
 }
 
 window.toggleEtiqueta = function(tag) {
@@ -1134,108 +754,101 @@ window.toggleEtiqueta = function(tag) {
   if (!tag) return;
 
   const err = document.getElementById("etqError");
-  if (err) err.classList.add("hidden");
+  err?.classList.add("hidden");
 
   if (_etqSelected.has(tag)) {
     _etqSelected.delete(tag);
   } else {
-    if (_etqSelected.size >= 2) {
-      const hint = document.getElementById("etqLimitHint");
-      if (hint) hint.classList.remove("hidden");
-      return;
-    }
+    if (_etqSelected.size >= 2) return;
     _etqSelected.add(tag);
   }
 
-  renderSections();
+  renderEtiquetasSections();
 };
 
 window.limpiarEtiquetas = function() {
   _etqSelected = new Set();
-  renderSections();
+  renderEtiquetasSections();
 };
 
-window.abrirModalEtiquetas = function(orderId, etiquetasRaw, numeroPedido = "") {
-  _etqOrderId = orderId;
-  _etqOrderNumero = String(numeroPedido || "");
+// abre el modal con el pedido
+window.abrirModalEtiquetas = function(orderId) {
+  const id = String(orderId ?? "");
+  if (!id) return;
 
-  // Set label
+  const order = ordersById.get(id);
+  const raw = String(order?.etiquetas ?? "").trim();
+
+  _etqOrderId = id;
+  _etqSelected = new Set(parseTags(raw).slice(0, 2)); // max 2
+
+  // set label pedido
   const lbl = document.getElementById("etqPedidoLabel");
-  if (lbl) lbl.textContent = _etqOrderNumero ? _etqOrderNumero : `#${orderId}`;
+  if (lbl) lbl.textContent = String(order?.numero ?? `#${id}`);
 
-  _etqSelected = new Set();
-  const raw = String(etiquetasRaw || "").trim();
-  if (raw) {
-    raw.split(",").map(t => t.trim()).filter(Boolean).forEach(t => _etqSelected.add(t));
-  }
-
-  // Respeta máximo 2 si venían más
-  if (_etqSelected.size > 2) {
-    _etqSelected = new Set(Array.from(_etqSelected).slice(0, 2));
-  }
-
-  renderSections();
-
-  const modal = document.getElementById("modalEtiquetas");
-  if (modal) modal.classList.remove("hidden");
+  renderEtiquetasSections();
+  document.getElementById("modalEtiquetas")?.classList.remove("hidden");
 };
 
 window.cerrarModalEtiquetas = function() {
-  const modal = document.getElementById("modalEtiquetas");
-  if (modal) modal.classList.add("hidden");
+  document.getElementById("modalEtiquetas")?.classList.add("hidden");
 };
 
 window.guardarEtiquetasModal = async function() {
+  if (!_etqOrderId) return;
+
   const err = document.getElementById("etqError");
   const btn = document.getElementById("btnGuardarEtiquetas");
 
-  if (!_etqOrderId) return;
-
-  if (_etqSelected.size > 2) {
-    if (err) {
-      err.textContent = "Máximo 2 etiquetas.";
-      err.classList.remove("hidden");
-    }
-    return;
-  }
-
   const etiquetas = Array.from(_etqSelected).join(", ");
 
-  try {
-    if (btn) btn.disabled = true;
+  // optimistic UI
+  const order = ordersById.get(_etqOrderId);
+  const prev = order?.etiquetas ?? "";
+  if (order) {
+    order.etiquetas = etiquetas;
+    actualizarTabla(ordersCache);
+  }
 
-    const r = await fetch("/api/estado/etiquetas/guardar", {
+  // dirty to avoid live overwrite
+  dirtyOrders.set(String(_etqOrderId), {
+    until: Date.now() + DIRTY_TTL_MS,
+    etiquetas,
+  });
+
+  try {
+    btn && (btn.disabled = true);
+
+    const res = await fetchJsonWithFallback("/api/estado/etiquetas/guardar", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: _etqOrderId, etiquetas }),
+      headers: jsonHeaders(),
+      body: JSON.stringify({ id: _etqOrderId, etiquetas }), // ✅ clave correcta: etiquetas
     });
 
-    const d = await r.json().catch(() => null);
+    const d = res.data;
+    if (!res.ok || !d?.success) throw new Error(d?.message || `HTTP ${res.status}`);
 
-    if (!d || d.success !== true) {
-      if (err) {
-        err.textContent = d?.message || "No se pudieron guardar las etiquetas.";
-        err.classList.remove("hidden");
-      }
-      return;
-    }
+    window.cerrarModalEtiquetas();
 
-    cerrarModalEtiquetas();
-
-    // ✅ refrescar pedidos
-    if (typeof cargarPedidos === "function") {
-      cargarPedidos({ reset: true });
-    }
+    // refresca página actual (mejor que reset siempre)
+    cargarPedidos({ reset: false, page_info: currentPage === 1 ? "" : "" });
 
   } catch (e) {
     console.error(e);
+    dirtyOrders.delete(String(_etqOrderId));
+
+    if (order) {
+      order.etiquetas = prev;
+      actualizarTabla(ordersCache);
+    }
+
     if (err) {
-      err.textContent = "Error de red guardando etiquetas.";
+      err.textContent = "No se pudieron guardar las etiquetas.";
       err.classList.remove("hidden");
+    } else {
+      alert("No se pudieron guardar las etiquetas.");
     }
   } finally {
-    if (btn) btn.disabled = false;
+    btn && (btn.disabled = false);
   }
 };
-
- 
