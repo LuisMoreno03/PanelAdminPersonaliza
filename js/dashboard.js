@@ -169,39 +169,39 @@ function renderEstado(valor) {
 function estadoStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
 
-  if (!s || s === "-" || s === "null") {
-    return { wrap: "bg-slate-100 border-slate-200 text-slate-800", icon: "—", label: "Sin estado" };
+  if (s.includes("por preparar")) {
+    return { wrap: "bg-slate-100 border-slate-200 text-slate-800", dot: "bg-slate-500", icon: "⏳", label: "Por preparar" };
   }
-  if (s === "por preparar") {
-    return { wrap: "bg-slate-100 border-slate-200 text-slate-800", icon: "⏳", label: "Por preparar" };
+  if (s.includes("a medias") || s.includes("medias")) {
+    return { wrap: "bg-amber-100 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "🟡", label: "A medias" };
   }
-  if (s === "a medias") {
-    return { wrap: "bg-amber-100 border-amber-200 text-amber-900", icon: "🟡", label: "A medias" };
+  if (s.includes("producción") || s.includes("produccion")) {
+    return { wrap: "bg-purple-100 border-purple-200 text-purple-900", dot: "bg-purple-500", icon: "🏭", label: "Producción" };
   }
-  if (s === "producción" || s === "produccion") {
-    return { wrap: "bg-purple-100 border-purple-200 text-purple-900", icon: "🏭", label: "Producción" };
+  if (s.includes("fabricando")) {
+    return { wrap: "bg-blue-100 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🛠️", label: "Fabricando" };
   }
-  if (s === "fabricando") {
-    return { wrap: "bg-blue-100 border-blue-200 text-blue-900", icon: "🛠️", label: "Fabricando" };
-  }
-  if (s === "enviado") {
-    return { wrap: "bg-emerald-100 border-emerald-200 text-emerald-900", icon: "🚚", label: "Enviado" };
+  if (s.includes("enviado")) {
+    return { wrap: "bg-emerald-100 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "🚚", label: "Enviado" };
   }
 
-  // fallback: si llega algo nuevo del backend
-  return { wrap: "bg-slate-100 border-slate-200 text-slate-800", icon: "📍", label: estado || "—" };
+  return { wrap: "bg-white border-slate-200 text-slate-900", dot: "bg-slate-400", icon: "📍", label: estado || "—" };
 }
 
 function renderEstadoPill(estado) {
+  if (esBadgeHtml(estado)) return String(estado);
+
   const st = estadoStyle(estado);
   return `
     <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border ${st.wrap}
                  shadow-sm font-extrabold text-[11px] uppercase tracking-wide whitespace-nowrap">
+      <span class="h-2.5 w-2.5 rounded-full ${st.dot}"></span>
       <span class="text-sm leading-none">${st.icon}</span>
       <span class="leading-none">${escapeHtml(st.label)}</span>
     </span>
   `;
 }
+
 
 /* =====================================================
    PÍLDORA PÁGINA
