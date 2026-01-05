@@ -32,14 +32,13 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     $routes->get('filter',  'Dashboard::filter');
 
     // ✅ Etiquetas disponibles para el modal
-    // (ANTES estaba mal: dashboard/etiquetas-disponibles dentro de dashboard)
     $routes->get('etiquetas-disponibles', 'Dashboard::etiquetasDisponibles');
 
     // ✅ usuarios online
     $routes->get('ping', 'Dashboard::ping');
     $routes->get('usuarios-estado', 'Dashboard::usuariosEstado');
 
-    // ✅ Si tienes un controlador Usuarios para crear (si realmente existe)
+    // ✅ Si existe el controlador Usuarios
     $routes->post('usuarios/crear', 'Usuarios::crear');
 
     // ✅ Legacy (si existen esos controladores/métodos)
@@ -56,10 +55,15 @@ $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $ro
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
 
-    // ✅ etiquetas (ARREGLADO)
-    // (ANTES estaba mal: post('api/estado/etiquetas/guardar') dentro del group api)
-    // Ruta final real: /api/estado/etiquetas/guardar
+    // ✅ etiquetas (FIX DEFINITIVO)
+    // Registramos AMBAS rutas para que funcione con cualquiera de tus JS:
+    // - /api/estado/etiquetas/guardar
+    // - /api/estado_etiquetas/guardar
     $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
+    $routes->post('estado_etiquetas/guardar', 'Dashboard::guardarEtiquetas');
+
+    // (Opcional) alias extra por si en algún punto llamas "tags/guardar"
+    // $routes->post('estado/tags/guardar', 'Dashboard::guardarEtiquetas');
 
     // si lo usas en API
     $routes->get('confirmados', 'Confirmados::filter');
@@ -122,12 +126,6 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 
     $routes->post('archivos/renombrar', 'PlacasArchivosController::renombrar');
     $routes->post('archivos/eliminar',  'PlacasArchivosController::eliminar');
-
-    // ❌ Estas 3 están duplicadas porque ya estás dentro de "placas"
-    // Si no las necesitas, bórralas. Si las necesitas por compatibilidad, déjalas.
-    // $routes->post('placas/archivos/subir', 'PlacasArchivosController::subir');
-    // $routes->post('placas/archivos/lote/renombrar', 'PlacasArchivosController::renombrarLote');
-    // $routes->post('placas/archivos/lote/eliminar', 'PlacasArchivosController::eliminarLote');
 
     $routes->post('archivos/lote/renombrar', 'PlacasArchivosController::renombrarLote');
     $routes->post('archivos/lote/eliminar', 'PlacasArchivosController::eliminarLote');
