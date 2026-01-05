@@ -674,46 +674,61 @@ try {
     }
 
     public function etiquetasDisponibles()
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setJSON([
-            'ok' => false,
-            'diseno' => [],
-            'produccion' => [],
-        ])->setStatusCode(401);
-    }
-
-    try {
-        $db = \Config\Database::connect();
-
-        $rows = $db->table('user_tags')
-            ->select('tag')
-            ->orderBy('tag', 'ASC')
-            ->get()
-            ->getResultArray();
-
-        $diseno = [];
-        $produccion = [];
-
-        foreach ($rows as $r) {
-            $t = (string)$r['tag'];
-            if (stripos($t, 'D.') === 0) $diseno[] = $t;
-            if (stripos($t, 'P.') === 0) $produccion[] = $t;
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setJSON([
+                'ok' => false,
+                'diseno' => [],
+                'produccion' => [],
+                'message' => 'No autenticado',
+            ])->setStatusCode(401);
         }
 
-        return $this->response->setJSON([
-            'ok' => true,
-            'diseno' => array_values(array_unique($diseno)),
-            'produccion' => array_values(array_unique($produccion)),
-        ]);
-    } catch (\Throwable $e) {
-        log_message('error', 'ETIQUETAS DISPONIBLES ERROR: '.$e->getMessage());
-        return $this->response->setJSON([
-            'ok' => false,
-            'diseno' => [],
-            'produccion' => [],
-        ]);
+        try {
+            $userId = (int) (session('user_id') ?? 0);
+            $rol    = strtolower(trim((string) (session('rol') ?? '')));
+
+            $db = \Config\Database::connect();
+
+            $q = $db->table('user_tags')->select('tag');
+
+            // ✅ SOLO admin ve todas
+            if ($rol !== 'admin') {
+                $q->where('user_id', $userId);
+            }
+
+            $rows = $q->orderBy('tag', 'ASC')
+                    ->get()
+                    ->getResultArray();
+
+            $diseno = [];
+            $produccion = [];
+
+            foreach ($rows as $r) {
+                $t = (string) ($r['tag'] ?? '');
+                if ($t === '') continue;
+
+                // acepta mayúsculas/minúsculas
+                if (stripos($t, 'D.') === 0) $diseno[] = $t;
+                if (stripos($t, 'P.') === 0) $produccion[] = $t;
+            }
+
+            return $this->response->setJSON([
+                'ok' => true,
+                'diseno' => array_values(array_unique($diseno)),
+                'produccion' => array_values(array_unique($produccion)),
+            ])->setStatusCode(200);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'ETIQUETAS DISPONIBLES ERROR: ' . $e->getMessage());
+
+            return $this->response->setJSON([
+                'ok' => false,
+                'diseno' => [],
+                'produccion' => [],
+            ])->setStatusCode(200);
+        }
     }
-}
+
 
 }
