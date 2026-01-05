@@ -30,35 +30,38 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 
     $routes->get('pedidos', 'Dashboard::pedidos');
     $routes->get('filter',  'Dashboard::filter');
+
     // ✅ Etiquetas disponibles para el modal
-    $routes->get('dashboard/etiquetas-disponibles', 'Dashboard::etiquetasDisponibles', ['filter' => 'auth']);
-    //mostrar etiquetas disponibles 
+    // (ANTES estaba mal: dashboard/etiquetas-disponibles dentro de dashboard)
     $routes->get('etiquetas-disponibles', 'Dashboard::etiquetasDisponibles');
-    // ✅ Si tienes un controlador Usuarios para crear:
-    $routes->post('usuarios/crear', 'Usuarios::crear', ['filter' => 'auth']);
-
-    // ❌ si NO existe el método sync en Dashboard.php, comenta o elimina
-    // $routes->get('sync', 'Dashboard::sync');
-
-    // ✅ Opción B: si estos métodos están en DashboardController (legacy)
-    $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
-    $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
 
     // ✅ usuarios online
     $routes->get('ping', 'Dashboard::ping');
     $routes->get('usuarios-estado', 'Dashboard::usuariosEstado');
+
+    // ✅ Si tienes un controlador Usuarios para crear (si realmente existe)
+    $routes->post('usuarios/crear', 'Usuarios::crear');
+
+    // ✅ Legacy (si existen esos controladores/métodos)
+    $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
+    $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
 });
 
 // ====================================================
 // API (AJAX / JSON) (PROTEGIDO)
 // ====================================================
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
+
+    // estado pedidos
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
 
-    // etiquetas (Shopify tags)
-    $routes->post('api/estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
+    // ✅ etiquetas (ARREGLADO)
+    // (ANTES estaba mal: post('api/estado/etiquetas/guardar') dentro del group api)
+    // Ruta final real: /api/estado/etiquetas/guardar
+    $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
 
+    // si lo usas en API
     $routes->get('confirmados', 'Confirmados::filter');
 });
 
@@ -120,10 +123,14 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
     $routes->post('archivos/renombrar', 'PlacasArchivosController::renombrar');
     $routes->post('archivos/eliminar',  'PlacasArchivosController::eliminar');
 
-    $routes->post('placas/archivos/subir', 'PlacasArchivosController::subir', ['filter' => 'auth']);
-    $routes->post('placas/archivos/lote/renombrar', 'PlacasArchivosController::renombrarLote');
-    $routes->post('placas/archivos/lote/eliminar', 'PlacasArchivosController::eliminarLote');
+    // ❌ Estas 3 están duplicadas porque ya estás dentro de "placas"
+    // Si no las necesitas, bórralas. Si las necesitas por compatibilidad, déjalas.
+    // $routes->post('placas/archivos/subir', 'PlacasArchivosController::subir');
+    // $routes->post('placas/archivos/lote/renombrar', 'PlacasArchivosController::renombrarLote');
+    // $routes->post('placas/archivos/lote/eliminar', 'PlacasArchivosController::eliminarLote');
 
+    $routes->post('archivos/lote/renombrar', 'PlacasArchivosController::renombrarLote');
+    $routes->post('archivos/lote/eliminar', 'PlacasArchivosController::eliminarLote');
 });
 
 // ----------------------------------------------------
@@ -132,11 +139,10 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 $routes->get('rtest', static function () { return 'OK ROUTES'; });
 $routes->get('zz-check-routes', static function () { return 'ROUTES_OK_' . date('Y-m-d_H:i:s'); });
 
-
 // ----------------------------------------------------
-// rutas de usuario consulta
+// usuarios (PROTEGIDO)
 // ----------------------------------------------------
-$routes->group('usuarios', ['filter' => 'auth'], function($routes) {
+$routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->get('/', 'Usuario::index');
     $routes->post('crear', 'Usuario::crear');
     $routes->get('(:num)/tags', 'Usuario::tags/$1');
