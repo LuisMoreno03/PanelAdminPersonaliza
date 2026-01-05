@@ -33,7 +33,7 @@ const DIRTY_TTL_MS = 15000; // 15s
    CONFIG / HELPERS DE RUTAS
 ===================================================== */
 function hasIndexPhp() {
-  return window.location.pathname.includes("/index.php/");
+  return window.location.pathname.includes("/");
 }
 
 function normalizeBase(base) {
