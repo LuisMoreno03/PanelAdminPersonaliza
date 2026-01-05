@@ -672,4 +672,48 @@ try {
             return false;
         }
     }
+
+    public function etiquetasDisponibles()
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setJSON([
+            'ok' => false,
+            'diseno' => [],
+            'produccion' => [],
+        ])->setStatusCode(401);
+    }
+
+    try {
+        $db = \Config\Database::connect();
+
+        $rows = $db->table('user_tags')
+            ->select('tag')
+            ->orderBy('tag', 'ASC')
+            ->get()
+            ->getResultArray();
+
+        $diseno = [];
+        $produccion = [];
+
+        foreach ($rows as $r) {
+            $t = (string)$r['tag'];
+            if (stripos($t, 'D.') === 0) $diseno[] = $t;
+            if (stripos($t, 'P.') === 0) $produccion[] = $t;
+        }
+
+        return $this->response->setJSON([
+            'ok' => true,
+            'diseno' => array_values(array_unique($diseno)),
+            'produccion' => array_values(array_unique($produccion)),
+        ]);
+    } catch (\Throwable $e) {
+        log_message('error', 'ETIQUETAS DISPONIBLES ERROR: '.$e->getMessage());
+        return $this->response->setJSON([
+            'ok' => false,
+            'diseno' => [],
+            'produccion' => [],
+        ]);
+    }
+}
+
 }
