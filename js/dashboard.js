@@ -581,10 +581,21 @@ function cerrarModal() {
 /* =====================================================
    ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
    + pause live + dirty TTL
+   + FIX endpoints (incluye /index.php/index.php)
 ===================================================== */
 async function guardarEstado(nuevoEstado) {
-  const id = String(document.getElementById("modalOrderId")?.value || "");
-  if (!id) return;
+  // ✅ intenta varios inputs por si cambió el modal
+  const idInput =
+    document.getElementById("modalOrderId") ||
+    document.getElementById("modalEstadoOrderId") ||
+    document.getElementById("estadoOrderId") ||
+    document.querySelector('input[name="order_id"]');
+
+  const id = String(idInput?.value || "");
+  if (!id) {
+    alert("No se encontró el ID del pedido en el modal (input). Revisa layouts/modales_estados.");
+    return;
+  }
 
   pauseLive();
 
@@ -614,10 +625,14 @@ async function guardarEstado(nuevoEstado) {
 
   // 2) Guardar backend
   try {
+    // ✅ endpoints ampliados (incluye doble index.php)
     const endpoints = [
       apiUrl("/api/estado/guardar"),
-      "/index.php/api/estado/guardar",
       "/api/estado/guardar",
+      "/index.php/api/estado/guardar",
+      "/index.php/index.php/api/estado/guardar",
+      apiUrl("/index.php/api/estado/guardar"),
+      apiUrl("/index.php/index.php/api/estado/guardar"),
     ];
 
     let lastErr = null;
@@ -627,7 +642,8 @@ async function guardarEstado(nuevoEstado) {
         const r = await fetch(url, {
           method: "POST",
           headers: jsonHeaders(),
-          body: JSON.stringify({ id, estado: nuevoEstado }),
+          // ✅ manda id numérico (tu backend suele esperar num)
+          body: JSON.stringify({ id: Number(id), estado: nuevoEstado }),
         });
 
         if (r.status === 404) continue;
@@ -661,7 +677,7 @@ async function guardarEstado(nuevoEstado) {
       }
     }
 
-    throw lastErr || new Error("Endpoint no encontrado (404).");
+    throw lastErr || new Error("No se encontró un endpoint válido (404).");
   } catch (e) {
     console.error("guardarEstado error:", e);
 
@@ -678,9 +694,8 @@ async function guardarEstado(nuevoEstado) {
     resumeLiveIfOnFirstPage();
   }
 }
+
 // ✅ asegurar funciones globales para onclick=""
-window.abrirModal = abrirModal;
-window.cerrarModal = cerrarModal;
 window.guardarEstado = guardarEstado;
 
 /* =====================================================
