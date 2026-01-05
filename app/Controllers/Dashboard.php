@@ -680,27 +680,25 @@ try {
                 'ok' => false,
                 'diseno' => [],
                 'produccion' => [],
-                'admin' => [],
                 'message' => 'No autenticado',
             ])->setStatusCode(401);
         }
 
         try {
             $userId = (int) (session('user_id') ?? 0);
-            $rol    = strtolower(trim((string) (session('rol') ?? '')));
+            $rol    = strtolower(trim((string) (session('role') ?? '')));
 
             $db = \Config\Database::connect();
 
-            $q = $db->table('user_tags')->select('tag');
+            // ✅ Admin ve TODAS
+            $builder = $db->table('user_tags')->select('tag');
 
-            // ✅ SOLO admin ve todas
+            // ✅ No admin ve SOLO sus tags
             if ($rol !== 'admin') {
-                $q->where('user_id', $userId);
+                $builder->where('user_id', $userId);
             }
 
-            $rows = $q->orderBy('tag', 'ASC')
-                    ->get()
-                    ->getResultArray();
+            $rows = $builder->orderBy('tag', 'ASC')->get()->getResultArray();
 
             $diseno = [];
             $produccion = [];
@@ -709,7 +707,7 @@ try {
                 $t = (string) ($r['tag'] ?? '');
                 if ($t === '') continue;
 
-                // acepta mayúsculas/minúsculas
+                // D.* y P.* (case-insensitive)
                 if (stripos($t, 'D.') === 0) $diseno[] = $t;
                 if (stripos($t, 'P.') === 0) $produccion[] = $t;
             }
@@ -718,7 +716,6 @@ try {
                 'ok' => true,
                 'diseno' => array_values(array_unique($diseno)),
                 'produccion' => array_values(array_unique($produccion)),
-                'admin' => array_values(array_unique(array_merge($diseno, $produccion))),
             ])->setStatusCode(200);
 
         } catch (\Throwable $e) {
@@ -731,6 +728,7 @@ try {
             ])->setStatusCode(200);
         }
     }
+
 
 
 }
