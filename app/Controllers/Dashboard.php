@@ -10,6 +10,15 @@ class Dashboard extends BaseController
     private string $token = '';
     private string $apiVersion = '2025-10';
 
+    // ✅ Estados permitidos (los nuevos del modal)
+    private array $allowedEstados = [
+        'Por preparar',
+        'A medias',
+        'Produccion',   // (sin acento como pediste)
+        'Fabricando',
+        'Enviado',
+    ];
+
     public function __construct()
     {
         // 1) Primero intenta leer de app/Config/Shopify.php (lo ideal)
@@ -161,18 +170,62 @@ class Dashboard extends BaseController
     }
 
     // =====================================================
-    // ETIQUETAS
+    // ✅ NORMALIZACIÓN ESTADOS (viejos -> nuevos)
+    // =====================================================
+
+    private function normalizeEstado(?string $estado): string
+    {
+        $s = trim((string)($estado ?? ''));
+
+        // Vacío => default
+        if ($s === '') return 'Por preparar';
+
+        // Normaliza mayúsculas/minúsculas
+        $sLower = mb_strtolower($s);
+
+        // 🔁 Mapeo de estados antiguos a los nuevos
+        // Ajusta aquí si quieres otra equivalencia
+        $legacyMap = [
+            'por preparar' => 'Por preparar',
+            'pendiente'    => 'Por preparar',
+            'preparado'    => 'Fabricando',
+            'producción'   => 'Produccion',
+            'produccion'   => 'Produccion',
+            'fabricando'   => 'Fabricando',
+            'enviado'      => 'Enviado',
+            'entregado'    => 'Enviado',
+            'cancelado'    => 'Por preparar',
+            'devuelto'     => 'Por preparar',
+            'a medias'     => 'A medias',
+            'amedias'      => 'A medias',
+        ];
+
+        if (isset($legacyMap[$sLower])) {
+            return $legacyMap[$sLower];
+        }
+
+        // Si ya es uno de los permitidos tal cual
+        foreach ($this->allowedEstados as $ok) {
+            if (mb_strtolower($ok) === $sLower) return $ok;
+        }
+
+        // Si llega algo raro => default
+        return 'Por preparar';
+    }
+
+    // =====================================================
+    // ETIQUETAS (TAGS) - no estados
     // =====================================================
 
     private function getEtiquetasUsuario(): array
     {
+        // ✅ Defaults reales de ETIQUETAS/TAGS (NO estados)
         $defaults = [
-            'Por preparar',
-            'Preparado',
-            'Enviado',
-            'Entregado',
-            'Cancelado',
-            'Devuelto',
+            'D.Diseño',
+            'P.Produccion',
+            'Cancelar pedido',
+            'Reembolso completo',
+            'No contesta 24h',
         ];
 
         $userId = session()->get('user_id');
@@ -206,6 +259,7 @@ class Dashboard extends BaseController
             }
 
             return !empty($etiquetas) ? $etiquetas : $defaults;
+
         } catch (\Throwable $e) {
             log_message('error', 'getEtiquetasUsuario ERROR: ' . $e->getMessage());
             return $defaults;
@@ -274,9 +328,6 @@ class Dashboard extends BaseController
             // -----------------------------------------------------
             $cacheKey = 'shopify_orders_count_any';
             $totalOrders = cache($cacheKey);
-
-            $countStatus = null;
-            $countRaw = null;
 
             if ($totalOrders === null) {
                 $countUrl = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/count.json?status=any";
@@ -382,13 +433,16 @@ class Dashboard extends BaseController
                 $estado_envio = $o['fulfillment_status'] ?? '-';
                 $forma_envio  = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
 
+                // ✅ Estado por defecto (NO depender de tags)
+                $defaultEstado = 'Por preparar';
+
                 $orders[] = [
                     'id'           => $orderId,
                     'numero'       => $numero,
                     'fecha'        => $fecha,
                     'cliente'      => $cliente,
                     'total'        => $total,
-                    'estado'       => (!empty($o['tags']) ? 'Producción' : 'Por preparar'),
+                    'estado'       => $defaultEstado,
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
                     'estado_envio' => $estado_envio ?: '-',
@@ -398,131 +452,119 @@ class Dashboard extends BaseController
             }
 
             // -----------------------------------------------------
-// 4) Último cambio desde BD (OPTIMIZADO, 1-2 QUERIES)
-// -----------------------------------------------------
-try {
-    $db = \Config\Database::connect();
-    $dbName = $db->getDatabase();
+            // 4) Último cambio desde BD (OPTIMIZADO, 1-2 QUERIES)
+            // -----------------------------------------------------
+            try {
+                $db = \Config\Database::connect();
+                $dbName = $db->getDatabase();
 
-    $tbl = $db->query(
-        "SELECT 1 FROM information_schema.tables
-         WHERE table_schema = ? AND table_name = ?
-         LIMIT 1",
-        [$dbName, 'pedidos_estado']
-    )->getRowArray();
+                $tbl = $db->query(
+                    "SELECT 1 FROM information_schema.tables
+                     WHERE table_schema = ? AND table_name = ?
+                     LIMIT 1",
+                    [$dbName, 'pedidos_estado']
+                )->getRowArray();
 
-    if (!empty($tbl) && !empty($orders)) {
+                if (!empty($tbl) && !empty($orders)) {
 
-        // Detectar columnas reales (tu esquema)
-        $hasId          = $this->columnExists($db, 'pedidos_estado', 'id');          // ✅ tu caso
-        $hasEstado      = $this->columnExists($db, 'pedidos_estado', 'estado');
-        $hasUserName    = $this->columnExists($db, 'pedidos_estado', 'user_name');  // normalmente NO en tu caso
-        $hasUserId      = $this->columnExists($db, 'pedidos_estado', 'user_id');    // ✅ tu caso
-        $hasCreatedAt   = $this->columnExists($db, 'pedidos_estado', 'created_at'); // ✅ tu caso
-        $hasActualizado = $this->columnExists($db, 'pedidos_estado', 'actualizado');// ✅ tu caso
+                    $hasId          = $this->columnExists($db, 'pedidos_estado', 'id');
+                    $hasEstado      = $this->columnExists($db, 'pedidos_estado', 'estado');
+                    $hasUserName    = $this->columnExists($db, 'pedidos_estado', 'user_name');
+                    $hasUserId      = $this->columnExists($db, 'pedidos_estado', 'user_id');
+                    $hasCreatedAt   = $this->columnExists($db, 'pedidos_estado', 'created_at');
+                    $hasActualizado = $this->columnExists($db, 'pedidos_estado', 'actualizado');
 
-        // Si no existe id o estado no podemos mapear
-        if ($hasId && $hasEstado) {
-
-            // 1) IDs actuales de la página
-            $ids = [];
-            foreach ($orders as $o) {
-                if (!empty($o['id'])) $ids[] = (string)$o['id'];
-            }
-            $ids = array_values(array_unique($ids));
-
-            if (!empty($ids)) {
-
-                // 2) Traer estados de una sola vez (1 query)
-                $q = $db->table('pedidos_estado');
-
-                $select = ['id', 'estado'];
-                if ($hasUserName)    $select[] = 'user_name';
-                if ($hasUserId)      $select[] = 'user_id';
-                if ($hasActualizado) $select[] = 'actualizado';
-                if ($hasCreatedAt)   $select[] = 'created_at';
-
-                $rows = $q->select(implode(',', $select))
-                    ->whereIn('id', $ids)   // ✅ tu tabla usa id = orderId
-                    ->get()
-                    ->getResultArray();
-
-                // indexar por id
-                $estadoById = [];
-                $userIdsNeeded = [];
-
-                foreach ($rows as $r) {
-                    $rid = (string)($r['id'] ?? '');
-                    if ($rid === '') continue;
-
-                    $estadoById[$rid] = $r;
-
-                    if (!$hasUserName && $hasUserId && !empty($r['user_id'])) {
-                        $userIdsNeeded[] = (int)$r['user_id'];
-                    }
-                }
-
-                // 3) Traer nombres de users en 1 query si hace falta
-                $usersById = [];
-                if (!empty($userIdsNeeded)) {
-                    $userIdsNeeded = array_values(array_unique($userIdsNeeded));
-                    try {
-                        $uRows = $db->table('users')
-                            ->select('id, nombre')
-                            ->whereIn('id', $userIdsNeeded)
-                            ->get()
-                            ->getResultArray();
-
-                        foreach ($uRows as $u) {
-                            $usersById[(int)$u['id']] = $u['nombre'] ?? null;
+                    if ($hasId && $hasEstado) {
+                        $ids = [];
+                        foreach ($orders as $o) {
+                            if (!empty($o['id'])) $ids[] = (string)$o['id'];
                         }
-                    } catch (\Throwable $e) {
-                        // si falla, no rompe
+                        $ids = array_values(array_unique($ids));
+
+                        if (!empty($ids)) {
+                            $q = $db->table('pedidos_estado');
+
+                            $select = ['id', 'estado'];
+                            if ($hasUserName)    $select[] = 'user_name';
+                            if ($hasUserId)      $select[] = 'user_id';
+                            if ($hasActualizado) $select[] = 'actualizado';
+                            if ($hasCreatedAt)   $select[] = 'created_at';
+
+                            $rows = $q->select(implode(',', $select))
+                                ->whereIn('id', $ids)
+                                ->get()
+                                ->getResultArray();
+
+                            $estadoById = [];
+                            $userIdsNeeded = [];
+
+                            foreach ($rows as $r) {
+                                $rid = (string)($r['id'] ?? '');
+                                if ($rid === '') continue;
+
+                                $estadoById[$rid] = $r;
+
+                                if (!$hasUserName && $hasUserId && !empty($r['user_id'])) {
+                                    $userIdsNeeded[] = (int)$r['user_id'];
+                                }
+                            }
+
+                            $usersById = [];
+                            if (!empty($userIdsNeeded)) {
+                                $userIdsNeeded = array_values(array_unique($userIdsNeeded));
+                                try {
+                                    $uRows = $db->table('users')
+                                        ->select('id, nombre')
+                                        ->whereIn('id', $userIdsNeeded)
+                                        ->get()
+                                        ->getResultArray();
+
+                                    foreach ($uRows as $u) {
+                                        $usersById[(int)$u['id']] = $u['nombre'] ?? null;
+                                    }
+                                } catch (\Throwable $e) {
+                                    // no rompe
+                                }
+                            }
+
+                            foreach ($orders as &$ord) {
+                                $orderId = (string)($ord['id'] ?? '');
+                                if ($orderId === '') continue;
+
+                                $row = $estadoById[$orderId] ?? null;
+                                if (!$row) continue;
+
+                                // ✅ Estado normalizado a tus 5 estados nuevos
+                                if (!empty($row['estado'])) {
+                                    $ord['estado'] = $this->normalizeEstado((string)$row['estado']);
+                                } else {
+                                    $ord['estado'] = 'Por preparar';
+                                }
+
+                                $changedAt = null;
+                                if ($hasActualizado && !empty($row['actualizado'])) $changedAt = $row['actualizado'];
+                                elseif ($hasCreatedAt && !empty($row['created_at'])) $changedAt = $row['created_at'];
+
+                                $uName = null;
+                                if ($hasUserName && !empty($row['user_name'])) {
+                                    $uName = $row['user_name'];
+                                } elseif ($hasUserId && !empty($row['user_id'])) {
+                                    $uid = (int)$row['user_id'];
+                                    $uName = $usersById[$uid] ?? null;
+                                }
+
+                                $ord['last_status_change'] = [
+                                    'user_name'  => $uName ?: 'Sistema',
+                                    'changed_at' => $changedAt,
+                                ];
+                            }
+                            unset($ord);
+                        }
                     }
                 }
-
-                // 4) Aplicar a cada pedido (sin queries)
-                foreach ($orders as &$ord) {
-                    $orderId = (string)($ord['id'] ?? '');
-                    if ($orderId === '') continue;
-
-                    $row = $estadoById[$orderId] ?? null;
-                    if (!$row) continue;
-
-                    // estado
-                    if (!empty($row['estado'])) {
-                        $ord['estado'] = $row['estado'];
-                    }
-
-                    // changed_at: preferir actualizado > created_at
-                    $changedAt = null;
-                    if ($hasActualizado && !empty($row['actualizado'])) $changedAt = $row['actualizado'];
-                    elseif ($hasCreatedAt && !empty($row['created_at'])) $changedAt = $row['created_at'];
-
-                    // user_name: si existe columna user_name, usarla; si no, resolver por user_id
-                    $uName = null;
-                    if ($hasUserName && !empty($row['user_name'])) {
-                        $uName = $row['user_name'];
-                    } elseif ($hasUserId && !empty($row['user_id'])) {
-                        $uid = (int)$row['user_id'];
-                        $uName = $usersById[$uid] ?? null;
-                    }
-
-                    $ord['last_status_change'] = [
-                        'user_name'  => $uName ?: 'Sistema',
-                        'changed_at' => $changedAt,
-                    ];
-                }
-                unset($ord);
+            } catch (\Throwable $e) {
+                log_message('error', 'Bloque pedidos_estado falló: ' . $e->getMessage());
             }
-        }
-    }
-
-} catch (\Throwable $e) {
-    log_message('error', 'Bloque pedidos_estado falló: ' . $e->getMessage());
-}
-
-
 
             // -----------------------------------------------------
             // 5) Respuesta final + debug opcional
@@ -667,11 +709,16 @@ try {
             )->getRowArray();
 
             return !empty($row);
+
         } catch (\Throwable $e) {
             log_message('error', 'columnExists ERROR: ' . $e->getMessage());
             return false;
         }
     }
+
+    // =====================================================
+    // ETIQUETAS DISPONIBLES (igual que lo tenías)
+    // =====================================================
 
     public function etiquetasDisponibles()
     {
@@ -690,10 +737,8 @@ try {
 
             $db = \Config\Database::connect();
 
-            // ✅ Admin ve TODAS
             $builder = $db->table('user_tags')->select('tag');
 
-            // ✅ No admin ve SOLO sus tags
             if ($rol !== 'admin') {
                 $builder->where('user_id', $userId);
             }
@@ -707,7 +752,6 @@ try {
                 $t = (string) ($r['tag'] ?? '');
                 if ($t === '') continue;
 
-                // D.* y P.* (case-insensitive)
                 if (stripos($t, 'D.') === 0) $diseno[] = $t;
                 if (stripos($t, 'P.') === 0) $produccion[] = $t;
             }
@@ -729,6 +773,9 @@ try {
         }
     }
 
+    // =====================================================
+    // GUARDAR ETIQUETAS (igual que lo tenías)
+    // =====================================================
 
     public function guardarEtiquetas()
     {
@@ -740,7 +787,6 @@ try {
         }
 
         try {
-            // Acepta JSON con: {id, tags} o {id, etiquetas}
             $data = $this->request->getJSON(true);
             if (!is_array($data)) $data = [];
 
@@ -757,7 +803,6 @@ try {
                 ])->setStatusCode(200);
             }
 
-            // 1) Actualizar tags en Shopify
             if (!$this->shop || !$this->token) {
                 return $this->response->setJSON([
                     'success' => false,
@@ -821,7 +866,4 @@ try {
             ])->setStatusCode(200);
         }
     }
-
-
-
 }
