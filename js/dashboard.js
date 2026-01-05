@@ -1012,4 +1012,230 @@ function renderOpcionesEtiquetas({ selected = [] } = {}) {
     });
   });
 }
+
+// =====================================================
+// MODAL ETIQUETAS (HTML + Tailwind) - COMPLETO
+// - máximo 2 tags
+// - carga dinámica D./P. desde /dashboard/etiquetas-disponibles
+// - guarda en /api/estado/etiquetas/guardar
+// =====================================================
+
+let _etqOrderId = null;
+let _etqOrderNumero = "";
+let _etqSelected = new Set();
+
+// Etiquetas dinámicas desde BD
+let ETQ_PRODUCCION = [];
+let ETQ_DISENO = [];
+
+// Etiquetas generales fijas
+const ETQ_GENERALES = [
+  "Cancelar pedido",
+  "Reembolso 50%",
+  "Reembolso 30%",
+  "Reembolso completo",
+  "Repetir",
+  "No contesta 24h",
+];
+
+function isConfirmacionRole() {
+  const r = String(window.currentUserRole || "").toLowerCase().trim();
+  return r === "confirmacion" || r === "confirmación";
+}
+
+async function cargarEtiquetasDisponibles() {
+  try {
+    const r = await fetch("/index.php/dashboard/etiquetas-disponibles", { headers: { Accept: "application/json" } });
+    const d = await r.json().catch(() => null);
+
+    if (!d || d.ok !== true) return;
+
+    ETQ_DISENO = Array.isArray(d.diseno) ? d.diseno : [];
+    ETQ_PRODUCCION = Array.isArray(d.produccion) ? d.produccion : [];
+  } catch (e) {
+    console.error("Error cargando etiquetas disponibles:", e);
+  }
+}
+
+// Llamar al cargar la página
+document.addEventListener("DOMContentLoaded", () => {
+  cargarEtiquetasDisponibles();
+});
+
+function updateCounter() {
+  const c = document.getElementById("etqCounter");
+  if (c) c.textContent = `${_etqSelected.size} / 2`;
+}
+
+function chip(tag, selected) {
+  const active = selected
+    ? "bg-slate-900 text-white border-slate-900"
+    : "bg-white text-slate-900 border-slate-200 hover:border-slate-300";
+
+  return `
+    <button type="button"
+      class="px-3 py-2 rounded-2xl border text-xs font-extrabold uppercase tracking-wide transition ${active}"
+      onclick="toggleEtiqueta('${escapeJsString(tag)}')">
+      ${escapeHtml(tag)}
+    </button>
+  `;
+}
+
+function renderSelected() {
+  const wrap = document.getElementById("etqSelectedWrap");
+  const hint = document.getElementById("etqLimitHint");
+  if (!wrap) return;
+
+  const arr = Array.from(_etqSelected);
+
+  wrap.innerHTML = arr.length
+    ? arr.map(t => `
+        <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-900 text-white text-xs font-extrabold">
+          ${escapeHtml(t)}
+          <button type="button"
+            class="text-white/80 hover:text-white font-extrabold"
+            onclick="toggleEtiqueta('${escapeJsString(t)}')">×</button>
+        </span>
+      `).join("")
+    : `<span class="text-sm text-slate-500">Ninguna</span>`;
+
+  if (hint) hint.classList.toggle("hidden", arr.length <= 2);
+
+  updateCounter();
+}
+
+function renderSections() {
+  const prodWrap = document.getElementById("etqProduccionList");
+  const disWrap  = document.getElementById("etqDisenoList");
+  const genWrap  = document.getElementById("etqGeneralesList");
+
+  const secProd = document.getElementById("etqSectionProduccion");
+  const secDis  = document.getElementById("etqSectionDiseno");
+
+  const confirm = isConfirmacionRole();
+
+  // Confirmación => ocultar Producción
+  if (secProd) secProd.classList.toggle("hidden", confirm);
+  if (secDis) secDis.classList.remove("hidden");
+
+  if (prodWrap) prodWrap.innerHTML = (ETQ_PRODUCCION.length ? ETQ_PRODUCCION : [])
+    .map(t => chip(t, _etqSelected.has(t))).join("");
+
+  if (disWrap) disWrap.innerHTML = (ETQ_DISENO.length ? ETQ_DISENO : [])
+    .map(t => chip(t, _etqSelected.has(t))).join("");
+
+  if (genWrap) genWrap.innerHTML = ETQ_GENERALES.map(t => chip(t, _etqSelected.has(t))).join("");
+
+  renderSelected();
+}
+
+window.toggleEtiqueta = function(tag) {
+  tag = String(tag || "").trim();
+  if (!tag) return;
+
+  const err = document.getElementById("etqError");
+  if (err) err.classList.add("hidden");
+
+  if (_etqSelected.has(tag)) {
+    _etqSelected.delete(tag);
+  } else {
+    if (_etqSelected.size >= 2) {
+      const hint = document.getElementById("etqLimitHint");
+      if (hint) hint.classList.remove("hidden");
+      return;
+    }
+    _etqSelected.add(tag);
+  }
+
+  renderSections();
+};
+
+window.limpiarEtiquetas = function() {
+  _etqSelected = new Set();
+  renderSections();
+};
+
+window.abrirModalEtiquetas = function(orderId, etiquetasRaw, numeroPedido = "") {
+  _etqOrderId = orderId;
+  _etqOrderNumero = String(numeroPedido || "");
+
+  // Set label
+  const lbl = document.getElementById("etqPedidoLabel");
+  if (lbl) lbl.textContent = _etqOrderNumero ? _etqOrderNumero : `#${orderId}`;
+
+  _etqSelected = new Set();
+  const raw = String(etiquetasRaw || "").trim();
+  if (raw) {
+    raw.split(",").map(t => t.trim()).filter(Boolean).forEach(t => _etqSelected.add(t));
+  }
+
+  // Respeta máximo 2 si venían más
+  if (_etqSelected.size > 2) {
+    _etqSelected = new Set(Array.from(_etqSelected).slice(0, 2));
+  }
+
+  renderSections();
+
+  const modal = document.getElementById("modalEtiquetas");
+  if (modal) modal.classList.remove("hidden");
+};
+
+window.cerrarModalEtiquetas = function() {
+  const modal = document.getElementById("modalEtiquetas");
+  if (modal) modal.classList.add("hidden");
+};
+
+window.guardarEtiquetasModal = async function() {
+  const err = document.getElementById("etqError");
+  const btn = document.getElementById("btnGuardarEtiquetas");
+
+  if (!_etqOrderId) return;
+
+  if (_etqSelected.size > 2) {
+    if (err) {
+      err.textContent = "Máximo 2 etiquetas.";
+      err.classList.remove("hidden");
+    }
+    return;
+  }
+
+  const etiquetas = Array.from(_etqSelected).join(", ");
+
+  try {
+    if (btn) btn.disabled = true;
+
+    const r = await fetch("/api/estado/etiquetas/guardar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: _etqOrderId, etiquetas }),
+    });
+
+    const d = await r.json().catch(() => null);
+
+    if (!d || d.success !== true) {
+      if (err) {
+        err.textContent = d?.message || "No se pudieron guardar las etiquetas.";
+        err.classList.remove("hidden");
+      }
+      return;
+    }
+
+    cerrarModalEtiquetas();
+
+    // ✅ refrescar pedidos
+    if (typeof cargarPedidos === "function") {
+      cargarPedidos({ reset: true });
+    }
+
+  } catch (e) {
+    console.error(e);
+    if (err) {
+      err.textContent = "Error de red guardando etiquetas.";
+      err.classList.remove("hidden");
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
  

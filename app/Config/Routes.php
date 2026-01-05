@@ -30,6 +30,11 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 
     $routes->get('pedidos', 'Dashboard::pedidos');
     $routes->get('filter',  'Dashboard::filter');
+    // ✅ Etiquetas disponibles para el modal
+    $routes->get('dashboard/etiquetas-disponibles', 'Dashboard::etiquetasDisponibles', ['filter' => 'auth']);
+
+    // ✅ Si tienes un controlador Usuarios para crear:
+    $routes->post('usuarios/crear', 'Usuarios::crear', ['filter' => 'auth']);
 
     // ❌ si NO existe el método sync en Dashboard.php, comenta o elimina
     // $routes->get('sync', 'Dashboard::sync');
@@ -125,3 +130,13 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 // ----------------------------------------------------
 $routes->get('rtest', static function () { return 'OK ROUTES'; });
 $routes->get('zz-check-routes', static function () { return 'ROUTES_OK_' . date('Y-m-d_H:i:s'); });
+
+
+// ----------------------------------------------------
+// rutas de usuario consulta
+// ----------------------------------------------------
+$routes->group('usuarios', ['filter' => 'auth'], function($routes) {
+    $routes->get('/', 'Usuario::index');
+    $routes->post('crear', 'Usuario::crear');
+    $routes->get('(:num)/tags', 'Usuario::tags/$1');
+});

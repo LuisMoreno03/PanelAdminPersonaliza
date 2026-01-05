@@ -513,6 +513,44 @@ class DashboardController extends Controller
         ]);
     }
 
+    public function etiquetasDisponibles()
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setJSON(['ok' => false, 'tags' => []])->setStatusCode(401);
+    }
+
+    try {
+        $db = \Config\Database::connect();
+
+        $rows = $db->table('user_tags')
+            ->select('tag')
+            ->orderBy('tag', 'ASC')
+            ->get()
+            ->getResultArray();
+
+        $tags = array_values(array_unique(array_map(fn($r) => (string)$r['tag'], $rows)));
+
+        // separar por tipo (D. / P.)
+        $diseno = [];
+        $produccion = [];
+        foreach ($tags as $t) {
+            if (stripos($t, 'D.') === 0) $diseno[] = $t;
+            if (stripos($t, 'P.') === 0) $produccion[] = $t;
+        }
+
+        return $this->response->setJSON([
+            'ok' => true,
+            'diseno' => $diseno,
+            'produccion' => $produccion,
+        ])->setStatusCode(200);
+
+    } catch (\Throwable $e) {
+        log_message('error', 'ETIQUETAS DISPONIBLES ERROR: '.$e->getMessage());
+        return $this->response->setJSON(['ok' => false, 'diseno' => [], 'produccion' => []])->setStatusCode(200);
+    }
+}
+
+
     // ============================================================
     // LISTAR TODOS LOS PEDIDOS (con paginación REAL Link header)
     // ============================================================
@@ -613,3 +651,4 @@ class DashboardController extends Controller
         ]);
     }
 }
+
