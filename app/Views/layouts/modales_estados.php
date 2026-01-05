@@ -1,7 +1,7 @@
 <!-- =============================================================== -->
 <!-- MODAL CAMBIAR ESTADO -->
 <!-- =============================================================== -->
-<div id="modalEstado"
+<div id="modalEtiquetasOptions"
      class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
 
     <div class="bg-white w-96 p-6 rounded-xl shadow-xl border border-gray-200">
@@ -61,7 +61,7 @@
 
         <h2 class="text-xl font-bold text-gray-800 mb-4 text-center">Editar etiquetas</h2>
 
-        <input type="hidden" id="modalTagOrderId">
+        <input type="hidden" id="modalEtiquetasOrderId">
 
         <!-- Etiquetas actuales -->
         <label class="text-gray-700 font-semibold">Etiquetas del pedido:</label>

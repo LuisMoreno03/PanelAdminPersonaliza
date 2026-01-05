@@ -691,17 +691,38 @@ window.abrirModalEtiquetas = function (orderId, rawTags) {
   const inputId = document.getElementById("modalEtiquetasOrderId") || document.getElementById("modalEtiquetasId");
   const inputTags = document.getElementById("modalEtiquetasTags") || document.getElementById("inputEtiquetas");
 
+  // ✅ Filtrar tags actuales: solo permitir las disponibles para este usuario
+  const disponibles = getEtiquetasDisponibles();
+  const allowedSet = new Set(disponibles);
+  const max = maxEtiquetasPermitidas();
+
+  let selected = parseTags(current).filter((t) => allowedSet.has(t));
+
+  // si tiene más de las permitidas, recorta
+  if (selected.length > max) selected = selected.slice(0, max);
+
   if (modal && inputId && inputTags) {
     inputId.value = id;
-    inputTags.value = current;
+    inputTags.value = serializeTags(selected);
+
+    // ✅ dibuja botones según rol (lo que venga de backend)
+    renderOpcionesEtiquetas({ selected });
+
     modal.classList.remove("hidden");
     return;
   }
 
-  const nuevo = prompt("Editar etiquetas (separadas por coma):", current);
+  // fallback sin modal
+  const nuevo = prompt(`Editar etiquetas (máx ${max}, separadas por coma):`, serializeTags(selected));
   if (nuevo === null) return;
-  guardarEtiquetas(id, nuevo);
+
+  // filtra a permitidas y max
+  let final = parseTags(nuevo).filter((t) => allowedSet.has(t));
+  final = final.slice(0, max);
+
+  guardarEtiquetas(id, serializeTags(final));
 };
+
 
 window.cerrarModalEtiquetas = function () {
   const modal = document.getElementById("modalEtiquetas") || document.getElementById("modalEtiquetasPedido");
@@ -887,3 +908,108 @@ function formatDuration(seconds) {
   if (m > 0) return `${m}m`;
   return `${sec}s`;
 }
+
+// =====================================================
+// ETIQUETAS: UI por ROL (1 o 2) usando window.etiquetasPredeterminadas
+// =====================================================
+
+function getEtiquetasDisponibles() {
+  const arr = Array.isArray(window.etiquetasPredeterminadas) ? window.etiquetasPredeterminadas : [];
+  // limpia duplicados y vacíos
+  return Array.from(new Set(arr.map((x) => String(x || "").trim()).filter(Boolean)));
+}
+
+function maxEtiquetasPermitidas() {
+  const disponibles = getEtiquetasDisponibles();
+  // confirmación => 1 (D.Nombre)
+  // producción => 2 (D.Nombre, P.Nombre)
+  // admin => depende de lo que venga, pero normalmente >= 2
+  if (disponibles.length <= 1) return 1;
+  return 2;
+}
+
+function parseTags(tagsStr) {
+  return String(tagsStr || "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function serializeTags(tagsArr) {
+  return Array.from(new Set((tagsArr || []).map((t) => String(t).trim()).filter(Boolean))).join(", ");
+}
+
+/**
+ * Renderiza opciones de etiquetas dentro del modal si existe un contenedor.
+ * Espera que tengas un div con id="modalEtiquetasOptions" (te digo abajo cómo).
+ */
+function renderOpcionesEtiquetas({ selected = [] } = {}) {
+  const cont = document.getElementById("modalEtiquetasOptions");
+  if (!cont) return;
+
+  const disponibles = getEtiquetasDisponibles();
+  const max = maxEtiquetasPermitidas();
+
+  const selectedSet = new Set(selected);
+
+  cont.innerHTML = `
+    <div class="text-xs text-slate-500 mb-2">
+      Puedes seleccionar <b>${max}</b> etiqueta${max > 1 ? "s" : ""}.
+    </div>
+    <div class="flex flex-wrap gap-2">
+      ${disponibles
+        .map((tag) => {
+          const on = selectedSet.has(tag);
+          const cls = on
+            ? "bg-slate-900 text-white border-slate-900"
+            : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50";
+          return `
+            <button type="button"
+              data-tag="${escapeHtml(tag)}"
+              class="px-3 py-2 rounded-2xl border text-[11px] font-extrabold uppercase tracking-wide ${cls}">
+              ${escapeHtml(tag)}
+            </button>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+
+  // clicks
+  cont.querySelectorAll("button[data-tag]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tag = btn.getAttribute("data-tag") || "";
+      const inputTags =
+        document.getElementById("modalEtiquetasTags") ||
+        document.getElementById("inputEtiquetas");
+
+      const current = parseTags(inputTags?.value || "");
+      const set = new Set(current);
+
+      if (set.has(tag)) {
+        set.delete(tag);
+      } else {
+        // limitar cantidad
+        if (set.size >= max) {
+          // si max=1, reemplaza; si max=2, no deja añadir más
+          if (max === 1) {
+            set.clear();
+            set.add(tag);
+          } else {
+            alert(`Solo puedes seleccionar ${max} etiquetas.`);
+            return;
+          }
+        } else {
+          set.add(tag);
+        }
+      }
+
+      const next = Array.from(set);
+      if (inputTags) inputTags.value = serializeTags(next);
+
+      // rerender para refrescar estilos
+      renderOpcionesEtiquetas({ selected: next });
+    });
+  });
+}
+ 
