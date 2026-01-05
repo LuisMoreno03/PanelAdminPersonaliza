@@ -180,7 +180,7 @@
       <div>
         <h3 class="text-lg sm:text-xl font-extrabold text-slate-900">Etiquetas del pedido</h3>
         <p class="text-sm text-slate-500 mt-1">
-          Selecciona máximo <b>2</b>. Se guardan como <b>tags</b> en Shopify.
+          Selecciona máximo <b>6</b>. Se guardan como <b>tags</b> en Shopify.
         </p>
       </div>
 
@@ -204,7 +204,7 @@
           <span class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Límite:</span>
           <span id="etqCounter"
                 class="inline-flex items-center px-3 py-1 rounded-full text-xs font-extrabold bg-slate-50 border border-slate-200 text-slate-800">
-            0 / 2
+            0 / 6
           </span>
         </div>
       </div>
@@ -222,7 +222,7 @@
         <div id="etqSelectedWrap" class="mt-3 flex flex-wrap gap-2"></div>
 
         <div id="etqLimitHint" class="hidden mt-3 text-sm font-bold text-rose-600">
-          Máximo 2 etiquetas.
+          Máximo 6 etiquetas.
         </div>
 
         <div id="etqError" class="hidden mt-3 text-sm font-bold text-rose-600"></div>
