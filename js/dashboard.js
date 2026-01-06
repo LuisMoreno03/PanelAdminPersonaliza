@@ -1477,8 +1477,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 // =====================================================
-// FIX: MODAL ESTADO - soporta distintos IDs (por si en la vista cambió)
+// FIX: MODAL ESTADO - robusto (sin variables inexistentes)
 // =====================================================
+
 function findEstadoModal() {
   return (
     document.getElementById("modalEstado") ||
@@ -1489,7 +1490,6 @@ function findEstadoModal() {
 }
 
 function findEstadoOrderIdInput() {
-  nuevoEstado = normalizeEstado(nuevoEstado);
   return (
     document.getElementById("modalOrderId") ||
     document.getElementById("modalEstadoOrderId") ||
@@ -1508,18 +1508,6 @@ window.abrirModal = function (orderId) {
 window.cerrarModal = function () {
   const modal = findEstadoModal();
   if (modal) modal.classList.add("hidden");
-};
-
-// Si tu guardarEstado usaba modalOrderId fijo, lo hacemos robusto también:
-const _oldGuardarEstado = window.guardarEstado;
-window.guardarEstado = async function (nuevoEstado) {
-  const input = findEstadoOrderIdInput();
-  if (!input || !input.value) {
-    alert("No se encontró el ID del pedido en el modal (input). Revisa layouts/modales_estados.");
-    return;
-  }
-  // Si ya tenías guardarEstado definido, úsalo
-  if (typeof _oldGuardarEstado === "function") return _oldGuardarEstado(nuevoEstado);
 };
 
 
