@@ -189,11 +189,92 @@
 
   let modalItem = null;
 
-  // ✅ mapa global para que openModal funcione aunque sea listado por grupos:
+  // ✅ mapa global para que openModal funcione aunque sea listado por grupos
+  let placasMap = {}; // { id: item }
 
-  let allData = null;
-  let searchTerm = '';
+  function escapeHtml(str) {
+    return (str || '').replace(/[&<>"']/g, s => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[s]));
+  }
 
+  function formatFecha(fechaISO){
+    if (!fechaISO) return '';
+    const d = new Date(String(fechaISO).replace(' ', 'T'));
+    if (isNaN(d)) return String(fechaISO);
+    return d.toLocaleString('es-ES', {
+      year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit'
+    });
+  }
+
+  function renderCard(item){
+    const mime = item.mime || '';
+    const isImg = mime.startsWith('image/');
+    const isPdf = mime.includes('pdf');
+
+    const preview = isImg
+      ? `<div class="preview"><img src="${item.url}"></div>`
+      : isPdf
+        ? `<div class="preview"><iframe src="${item.url}"></iframe></div>`
+        : `<div class="preview flex items-center justify-center"><div class="muted" style="padding:8px;text-align:center;">${escapeHtml(item.original || 'Archivo')}</div></div>`;
+
+    const kb = Math.round((item.size || 0) / 1024);
+
+    return `
+      <div class="item" onclick="openModal(${item.id})">
+        ${preview}
+        <div class="item-title">${escapeHtml(item.nombre || 'Sin nombre')}</div>
+        <div class="muted">${escapeHtml(item.original || '')} • ${kb} KB</div>
+        <div class="muted"><b>Subido:</b> ${escapeHtml(formatFecha(item.created_at))}</div>
+      </div>
+    `;
+  }
+
+  async function cargarStats(){
+    try{
+      const res = await fetch(API.stats, { cache:'no-store' });
+      const data = await res.json();
+      if (data.success) q('placasHoy').textContent = data.totalHoy;
+    }catch(e){}
+  }
+
+function normalizeText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
+    .trim();
+}
+
+function itemMatches(it, term) {
+  if (!term) return true;
+  const hay = normalizeText([
+    it.nombre,
+    it.original,
+    it.id,
+    it.mime,
+    it.url
+  ].join(' '));
+  return hay.includes(term);
+}
+
+function groupMatches(g, term) {
+  if (!term) return true;
+  const hay = normalizeText([
+    g.lote_nombre,
+    g.lote_id,
+    g.created_at
+  ].join(' '));
+  return hay.includes(term);
+}
+
+function renderFromData(data) {
+  placasMap = {};
+
+  if (!data || !data.success) {
+    q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
+    return;
+  }
 
   const term = normalizeText(searchTerm);
 
@@ -261,7 +342,7 @@
 }
 
   // ✅ LISTA soporta: data.grupos o data.items
-async function cargarLista(){
+ async function cargarLista(){
   try{
     const res = await fetch(API.listar, { cache:'no-store' });
     const data = await res.json();
@@ -270,11 +351,9 @@ async function cargarLista(){
     renderFromData(data);
   } catch(e){
     q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
- 
- }
+  }
+
 }
-
-
 
       placasMap = {};
 
