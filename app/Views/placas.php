@@ -424,83 +424,7 @@
 
  q('btnGuardarCarga').addEventListener('click', () => {
   const producto = q('cargaProducto').value.trim();
-  const numero   = q('cargaNumero').value.trim();
-
-  if (!numero) { q('cargaMsg').textContent = 'Número de placa es obligatorio.'; return; }
-  if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
-
-  const wrap = q('uploadProgressWrap');
-  const bar  = q('uploadProgressBar');
-  const txt  = q('uploadProgressText');
-
-  // reset barra
-  if (wrap) wrap.classList.remove('hidden');
-  if (bar) bar.style.width = '0%';
-  if (txt) txt.textContent = '0%';
-
-  q('btnGuardarCarga').disabled = true;
-  q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
-
-  const fd = new FormData();
-  fd.append('producto', producto);
-  fd.append('numero_placa', numero);
-
-  filesSeleccionados.forEach(file => {
-    fd.append('archivos[]', file);
-  });
-
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', API.subir, true);
-
-  xhr.upload.onprogress = (e) => {
-    if (!e.lengthComputable) return;
-    const percent = Math.round((e.loaded / e.total) * 100);
-    if (bar) bar.style.width = percent + '%';
-    if (txt) txt.textContent = percent + '%';
-  };
-
-  xhr.onload = () => {
-    q('btnGuardarCarga').disabled = false;
-
-    let data = null;
-    try { data = JSON.parse(xhr.responseText); } catch (e) {}
-
-    if (xhr.status !== 200 || !data || !data.success) {
-      q('cargaMsg').textContent = (data && data.message) ? data.message : 'Error al subir';
-      return;
-    }
-
-    if (bar) bar.style.width = '100%';
-    if (txt) txt.textContent = '100%';
-
-    q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
-
-    setTimeout(() => {
-      modalCarga.classList.add('hidden');
-      if (wrap) wrap.classList.add('hidden');
-
-      q('cargaArchivo').value = '';
-      filesSeleccionados = [];
-      q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
-
-      // sin await para evitar errores
-      cargarStats();
-      cargarLista();
-    }, 600);
-  };
-
-  xhr.onerror = () => {
-    q('btnGuardarCarga').disabled = false;
-    q('cargaMsg').textContent = 'Error de red al subir.';
-  };
-
-  xhr.send(fd);
-});
-
-
-q('btnGuardarCarga').addEventListener('click', () => {
-  const producto = q('cargaProducto').value.trim();
-  const numero   = q('cargaNumero').value.trim();
+ const numero   = q('cargaNumero').value.trim();
 
   if (!numero) { q('cargaMsg').textContent = 'Número de placa es obligatorio.'; return; }
   if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
@@ -544,8 +468,7 @@ q('btnGuardarCarga').addEventListener('click', () => {
 
     bar.style.width = '100%';
     txt.textContent = '100%';
-
-    q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
+   q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
 
     setTimeout(() => {
       modalCarga.classList.add('hidden');
@@ -567,6 +490,7 @@ q('btnGuardarCarga').addEventListener('click', () => {
 
   xhr.send(fd);
 });
+
 
 // Inicial
   cargarStats();
