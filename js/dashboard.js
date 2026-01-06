@@ -318,7 +318,13 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       ordersCache = incoming;
       ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
 
-      actualizarTabla(ordersCache);
+      try {
+        actualizarTabla(ordersCache);
+      } catch (e) {
+        console.error("Error renderizando tabla:", e);
+        actualizarTabla([]);
+      }
+
 
       const total = document.getElementById("total-pedidos");
       if (total) total.textContent = String(data.total_orders ?? data.count ?? 0);
@@ -455,12 +461,70 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
     </div>`;
 }
 
+
 function colorEtiqueta(tag) {
   tag = String(tag).toLowerCase().trim();
   if (tag.startsWith("d.")) return "bg-emerald-50 border-emerald-200 text-emerald-900";
   if (tag.startsWith("p.")) return "bg-amber-50 border-amber-200 text-amber-900";
   return "bg-slate-50 border-slate-200 text-slate-800";
 }
+
+
+/* =====================================================
+// PÍLDORA ESTADO ENVÍO
+===================================================== */
+
+function renderEntregaPill(estadoEnvio) {
+  const s = String(estadoEnvio ?? "").toLowerCase().trim();
+
+  // Shopify suele devolver: null, "fulfilled", "partial", "unfulfilled"
+  if (!s || s === "-" || s === "null") {
+    return `
+      <span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
+                   bg-slate-100 text-slate-800 border border-slate-200 whitespace-nowrap">
+        ⏳ Sin preparar
+      </span>
+    `;
+  }
+
+  if (s.includes("fulfilled") || s.includes("entregado")) {
+    return `
+      <span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
+                   bg-emerald-100 text-emerald-900 border border-emerald-200 whitespace-nowrap">
+        ✅ Preparado / enviado
+      </span>
+    `;
+  }
+
+  if (s.includes("partial")) {
+    return `
+      <span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
+                   bg-amber-100 text-amber-900 border border-amber-200 whitespace-nowrap">
+        🟡 Parcial
+      </span>
+    `;
+  }
+
+  if (s.includes("unfulfilled") || s.includes("pend")) {
+    return `
+      <span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
+                   bg-slate-100 text-slate-800 border border-slate-200 whitespace-nowrap">
+        ⏳ Pendiente
+      </span>
+    `;
+  }
+
+  // fallback
+  return `
+    <span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
+                 bg-white text-slate-900 border border-slate-200 whitespace-nowrap">
+      📦 ${escapeHtml(estadoEnvio)}
+    </span>
+  `;
+}
+
+// por si lo llamas desde HTML inline
+window.renderEntregaPill = renderEntregaPill;
 
 /* =====================================================
    TABLA / GRID + CARDS
