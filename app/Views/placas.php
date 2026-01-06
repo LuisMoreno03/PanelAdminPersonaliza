@@ -131,6 +131,36 @@
       <input id="cargaProducto" type="text" placeholder="Producto" class="w-full border rounded-xl px-3 py-2">
       <input id="cargaNumero" type="text" placeholder="Número de placa" class="w-full border rounded-xl px-3 py-2">
 
+      <input id="cargaArchivo" type="file" multiple class="w-full" accept="*/*">
+
+      <div id="cargaPreview" class="h-40 border rounded-xl flex items-center justify-center text-gray-400">
+        Vista previa
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-2 mt-5">
+      <button id="btnCerrarCarga" class="btn-blue" style="background:#9ca3af;">Cancelar</button>
+      <button id="btnGuardarCarga" class="btn-blue">Guardar</button>
+    </div>
+
+    <!-- ✅ Barra de progreso DENTRO del modal -->
+    <div id="uploadProgressWrap" class="mt-4 hidden">
+      <div class="w-full bg-gray-100 border border-gray-200 rounded-full h-3 overflow-hidden">
+        <div id="uploadProgressBar"
+             class="bg-blue-600 h-3 rounded-full transition-[width] duration-150"
+             style="width:0%">
+        </div>
+      </div>
+      <div class="muted mt-1 flex items-center justify-between">
+        <span id="uploadProgressLabel">Subiendo…</span>
+        <span id="uploadProgressText" class="font-black">0%</span>
+      </div>
+    </div>
+
+    <div id="cargaMsg" class="muted mt-2"></div>
+  </div>
+</div>
+
       <!-- ✅ Acepta cualquier archivo -->
       <input id="cargaArchivo" type="file" multiple class="w-full" accept="*/*">
 
@@ -147,16 +177,7 @@
     <div id="cargaMsg" class="muted mt-2"></div>
   </div>
   
-  <!-- Barra de progreso -->
-<div id="uploadProgressWrap" class="mt-3 hidden">
-  <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-    <div id="uploadProgressBar"
-         class="bg-blue-600 h-3 rounded-full transition-all"
-         style="width:0%">
-    </div>
-  </div>
-  <div id="uploadProgressText" class="muted mt-1 text-right">0%</div>
-</div>
+
 
 </div>
 
