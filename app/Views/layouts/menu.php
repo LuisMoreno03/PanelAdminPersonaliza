@@ -169,7 +169,7 @@
           <a href="<?= $href ?>"
              @click="close()"
              class="group flex items-center gap-3 px-4 py-3 rounded-2xl transition
-                    <?= $active ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
+                    <?= $active ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?> relative">
             <span class="text-white/90 shrink-0">
               <?= $icon ?>
             </span>
@@ -191,11 +191,95 @@
           </a>
       <?php }; ?>
 
-      <?php $item(base_url('dashboard'),   $isActive('dashboard'),   'Dashboard',  '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-18h8v6h-8V3z"/></svg>'); ?>
-      <?php $item(base_url('confirmados'), $isActive('confirmados'), 'Confirmados','<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8m16 0V8a2 2 0 00-2-2H6a2 2 0 00-2 2v4m16 0H4m8-8v16"/></svg>'); ?>
-      <?php $item(base_url('produccion'),  $isActive('produccion'),  'Producción', '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2 9m13-9l2 9M10 21a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z"/></svg>'); ?>
-      <?php $item(base_url('placas'),      $isActive('placas'),      'Placas',     '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4 8 4 8-4zm0 0v10l-8 4-8-4V7m8 4v10"/></svg>'); ?>
-      <?php $item(base_url('usuarios'),    $isActive('usuarios'),    'Usuarios',   '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A8.967 8.967 0 0112 15c2.5 0 4.764 1.02 6.879 2.804M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'); ?>
+      <?php $item(base_url('dashboard'), $isActive('dashboard'), 'Dashboard',
+        '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-18h8v6h-8V3z"/></svg>'
+      ); ?>
+
+      <!-- ✅ MI ÁREA DE TRABAJO -->
+      <div
+        x-data="{ areaOpen: <?= ($isActive('produccion') || $isActive('confirmados')) ? 'true' : 'false' ?> }"
+        class="relative"
+      >
+        <button
+          type="button"
+          @click="areaOpen = !areaOpen"
+          class="group w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition relative
+                 <?= ($isActive('produccion') || $isActive('confirmados')) ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>"
+        >
+          <span class="text-white/90 shrink-0">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 17v-6a2 2 0 012-2h2a2 2 0 012 2v6m-8 0h8m-10 0a2 2 0 01-2-2V7a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2"/>
+            </svg>
+          </span>
+
+          <span class="font-semibold truncate"
+                x-show="!collapsed"
+                x-transition.opacity
+                style="display:none">
+            Mi área de trabajo
+          </span>
+
+          <span class="ml-auto text-white/60"
+                x-show="!collapsed"
+                x-transition.opacity
+                style="display:none">
+            <svg x-show="!areaOpen" style="display:none" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+            <svg x-show="areaOpen" style="display:none" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </span>
+
+          <span x-show="collapsed" style="display:none"
+                class="pointer-events-none absolute left-[92px] opacity-0 group-hover:opacity-100 transition
+                       bg-slate-950 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-lg">
+            Mi área de trabajo
+          </span>
+        </button>
+
+        <div
+          x-show="areaOpen && !collapsed"
+          x-transition
+          style="display:none"
+          class="mt-1 ml-3 pl-3 border-l border-white/10 space-y-1"
+        >
+          <a href="<?= base_url('produccion') ?>"
+             @click="close()"
+             class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
+                    <?= $isActive('produccion') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
+            <span class="text-white/85 shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2 9m13-9l2 9M10 21a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z"/>
+              </svg>
+            </span>
+            <span class="text-sm font-semibold text-white/90">Producción</span>
+          </a>
+
+          <a href="<?= base_url('confirmados') ?>"
+             @click="close()"
+             class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
+                    <?= $isActive('confirmados') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
+            <span class="text-white/85 shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M20 12v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8m16 0V8a2 2 0 00-2-2H6a2 2 0 00-2 2v4m16 0H4m8-8v16"/>
+              </svg>
+            </span>
+            <span class="text-sm font-semibold text-white/90">Confirmación</span>
+          </a>
+        </div>
+      </div>
+
+      <?php $item(base_url('placas'),   $isActive('placas'),   'Placas',
+        '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4 8 4 8-4zm0 0v10l-8 4-8-4V7m8 4v10"/></svg>'
+      ); ?>
+
+      <?php $item(base_url('usuarios'), $isActive('usuarios'), 'Usuarios',
+        '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A8.967 8.967 0 0112 15c2.5 0 4.764 1.02 6.879 2.804M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'
+      ); ?>
 
       <div class="my-3 border-t border-white/10"></div>
 
