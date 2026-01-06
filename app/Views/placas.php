@@ -146,6 +146,18 @@
 
     <div id="cargaMsg" class="muted mt-2"></div>
   </div>
+
+  <!-- Barra de progreso -->
+<div id="uploadProgressWrap" class="mt-3 hidden">
+  <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+    <div id="uploadProgressBar"
+         class="bg-blue-600 h-3 rounded-full transition-all"
+         style="width:0%">
+    </div>
+  </div>
+  <div id="uploadProgressText" class="muted mt-1 text-right">0%</div>
+</div>
+
 </div>
 
 <script>
@@ -410,15 +422,85 @@
     q('cargaArchivo').dispatchEvent(new Event('change'));
   };
 
-  q('btnGuardarCarga').addEventListener('click', async () => {
-    const producto = q('cargaProducto').value.trim();
-    const numero   = q('cargaNumero').value.trim();
+  q('btnGuardarCarga').addEventListener('click', () => {
+  const producto = q('cargaProducto').value.trim();
+  const numero   = q('cargaNumero').value.trim();
 
-    if (!numero) { q('cargaMsg').textContent = 'Número de placa es obligatorio.'; return; }
-    if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
+  if (!numero) {
+    q('cargaMsg').textContent = 'Número de placa es obligatorio.';
+    return;
+  }
+  if (!filesSeleccionados.length) {
+    q('cargaMsg').textContent = 'Selecciona uno o más archivos.';
+    return;
+  }
 
-    q('btnGuardarCarga').disabled = true;
-    q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s) como un solo lote...`;
+  q('btnGuardarCarga').disabled = true;
+  q('cargaMsg').textContent = 'Iniciando subida...';
+
+  // Mostrar barra
+  q('uploadProgressWrap').classList.remove('hidden');
+  q('uploadProgressBar').style.width = '0%';
+  q('uploadProgressText').textContent = '0%';
+
+  const fd = new FormData();
+  fd.append('producto', producto);
+  fd.append('numero_placa', numero);
+
+  filesSeleccionados.forEach(file => {
+    fd.append('archivos[]', file);
+  });
+
+  // 🔴 USAMOS XMLHttpRequest para progreso REAL
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', API.subir, true);
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const percent = Math.round((e.loaded / e.total) * 100);
+      q('uploadProgressBar').style.width = percent + '%';
+      q('uploadProgressText').textContent = percent + '%';
+    }
+  };
+
+  xhr.onload = async () => {
+    q('btnGuardarCarga').disabled = false;
+
+    if (xhr.status !== 200) {
+      q('cargaMsg').textContent = 'Error en la subida.';
+      return;
+    }
+
+    const data = JSON.parse(xhr.responseText);
+
+    if (!data.success) {
+      q('cargaMsg').textContent = data.message || 'Error al subir';
+      return;
+    }
+
+    q('uploadProgressBar').style.width = '100%';
+    q('uploadProgressText').textContent = '100%';
+    q('cargaMsg').textContent = '✅ Subidos correctamente';
+
+    setTimeout(() => {
+      modalCarga.classList.add('hidden');
+      q('uploadProgressWrap').classList.add('hidden');
+      q('cargaArchivo').value = '';
+      filesSeleccionados = [];
+      q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
+    }, 700);
+
+    await cargarStats();
+    await cargarLista();
+  };
+
+  xhr.onerror = () => {
+    q('btnGuardarCarga').disabled = false;
+    q('cargaMsg').textContent = 'Error de red al subir archivos.';
+  };
+
+  xhr.send(fd);
+});
 
     // ✅ UNA SOLA REQUEST con archivos[] para que el backend cree 1 lote_id
     
@@ -451,7 +533,7 @@
 
     await cargarStats();
     await cargarLista();
-  });
+
 
   // Inicial
   cargarStats();
