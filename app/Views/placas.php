@@ -422,7 +422,7 @@
     q('cargaArchivo').dispatchEvent(new Event('change'));
   };
 
-  q('btnGuardarCarga').addEventListener('click', () => {
+ q('btnGuardarCarga').addEventListener('click', () => {
   const producto = q('cargaProducto').value.trim();
   const numero   = q('cargaNumero').value.trim();
 
@@ -497,6 +497,8 @@
   xhr.send(fd);
 });
 
+
+    // ✅ UNA SOLA REQUEST con archivos[] para que el backend cree 1 lote_id
     
   const fd = new FormData();
     fd.append('producto', producto);
