@@ -345,7 +345,7 @@ function renderFromData(data) {
 }
 
   // ✅ LISTA soporta: data.grupos o data.items
- async function cargarLista(){
+async function cargarLista(){
   try{
     const res = await fetch(API.listar, { cache:'no-store' });
     const data = await res.json();
@@ -358,59 +358,9 @@ function renderFromData(data) {
 
 }
 
-      placasMap = {};
 
-      // ====== AGRUPADO ======
-      if (Array.isArray(data.grupos)) {
-        const grupos = data.grupos;
 
-        if (!grupos.length) {
-          q('grid').innerHTML = '<div class="muted">Aún no hay placas subidas.</div>';
-          return;
-        }
-
-        // llenar mapa por ID
-        grupos.forEach(g => (g.items || []).forEach(it => { placasMap[it.id] = it; }));
-
-        q('grid').innerHTML = grupos.map(g => {
-          const titulo = g.lote_nombre || g.lote_id || 'Lote';
-          const fecha = g.created_at ? formatFecha(g.created_at) : '';
-
-          const cards = (g.items || []).map(renderCard).join('');
-
-          return `
-            <div style="grid-column: 1 / -1; background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:12px;">
-              <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-                <div style="font-weight:900;">📦 ${escapeHtml(titulo)}</div>
-                <div class="muted">${escapeHtml(fecha)}</div>
-              </div>
-              <div style="margin-top:10px; display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
-                ${cards}
-              </div>
-            </div>
-          `;
-        }).join('');
-
-        return;
-      }
-
-      // ====== SIN AGRUPAR (compat) ======
-      if (Array.isArray(data.items)) {
-        const items = data.items || [];
-        items.forEach(it => { placasMap[it.id] = it; });
-
-        q('grid').innerHTML = items.length
-          ? items.map(renderCard).join('')
-          : '<div class="muted">Aún no hay placas subidas.</div>';
-        return;
-      }
-
-      q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
-
-     catch(e){
-      q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
-    }
-  
+      
 
   // --- MODAL EDITAR
   window.openModal = function(id){
@@ -615,6 +565,33 @@ function renderFromData(data) {
   xhr.send(fd);
 });
 
+
+// ✅ Buscador (filtra sin pedirle nada al backend)
+const searchInput = q('searchInput');
+const searchClear = q('searchClear');
+
+let searchT = null;
+function applySearch(v) {
+  searchTerm = v || '';
+  if (searchClear) searchClear.classList.toggle('hidden', !searchTerm.trim());
+  if (allData) renderFromData(allData);
+}
+
+if (searchInput) {
+  searchInput.addEventListener('input', (e) => {
+    const v = e.target.value;
+    clearTimeout(searchT);
+    searchT = setTimeout(() => applySearch(v), 120);
+  });
+}
+
+if (searchClear) {
+  searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    applySearch('');
+    searchInput.focus();
+  });
+}
 
 // Inicial
   cargarStats();
