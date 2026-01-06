@@ -498,41 +498,77 @@
 });
 
 
-    // ✅ UNA SOLA REQUEST con archivos[] para que el backend cree 1 lote_id
-    
+q('btnGuardarCarga').addEventListener('click', () => {
+  const producto = q('cargaProducto').value.trim();
+  const numero   = q('cargaNumero').value.trim();
+
+  if (!numero) { q('cargaMsg').textContent = 'Número de placa es obligatorio.'; return; }
+  if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
+
+  const wrap = q('uploadProgressWrap');
+  const bar  = q('uploadProgressBar');
+  const txt  = q('uploadProgressText');
+
+  wrap.classList.remove('hidden');
+  bar.style.width = '0%';
+  txt.textContent = '0%';
+
+  q('btnGuardarCarga').disabled = true;
+  q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
+
   const fd = new FormData();
-    fd.append('producto', producto);
-    fd.append('numero_placa', numero);
+  fd.append('producto', producto);
+  fd.append('numero_placa', numero);
+  filesSeleccionados.forEach(file => fd.append('archivos[]', file));
 
-    filesSeleccionados.forEach(file => {
-      fd.append('archivos[]', file);
-    });
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', API.subir, true);
 
-    const res = await fetch(API.subir, { method:'POST', body: fd });
-    const data = await res.json();
+  xhr.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
+    const percent = Math.round((e.loaded / e.total) * 100);
+    bar.style.width = percent + '%';
+    txt.textContent = percent + '%';
+  };
 
+  xhr.onload = () => {
     q('btnGuardarCarga').disabled = false;
 
-  
-  if (!data.success) {
-      q('cargaMsg').textContent = data.message || 'Error al subir';
+    let data = null;
+    try { data = JSON.parse(xhr.responseText); } catch (e) {}
+
+    if (xhr.status !== 200 || !data || !data.success) {
+      q('cargaMsg').textContent = (data && data.message) ? data.message : 'Error al subir';
       return;
     }
 
-   
+    bar.style.width = '100%';
+    txt.textContent = '100%';
+
     q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
 
-    // cerrar + limpiar
-    modalCarga.classList.add('hidden');
-    q('cargaArchivo').value = '';
-    filesSeleccionados = [];
-    q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
+    setTimeout(() => {
+      modalCarga.classList.add('hidden');
+      wrap.classList.add('hidden');
 
-    await cargarStats();
-    await cargarLista();
-  });
+      q('cargaArchivo').value = '';
+      filesSeleccionados = [];
+      q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
 
-  // Inicial
+      cargarStats();
+      cargarLista();
+    }, 600);
+  };
+
+  xhr.onerror = () => {
+    q('btnGuardarCarga').disabled = false;
+    q('cargaMsg').textContent = 'Error de red al subir.';
+  };
+
+  xhr.send(fd);
+});
+
+// Inicial
   cargarStats();
   cargarLista();
 
