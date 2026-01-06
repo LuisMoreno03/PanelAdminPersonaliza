@@ -40,20 +40,21 @@
     .orders-grid {
       display: grid;
       align-items: center;
-      gap: .5rem;
+      gap: .75rem; /* antes .5rem */
       grid-template-columns:
-        95px                         /* Pedido */
-        85px                         /* Fecha */
-        clamp(140px, 18vw, 220px)    /* Cliente */
-        78px                         /* Total */
-        128px                        /* Estado */
-        clamp(90px, 12vw, 140px)     /* Último cambio */
-        clamp(130px, 16vw, 200px)    /* Etiquetas */
-        42px                         /* Art */
-        128px                        /* Entrega */
-        clamp(120px, 14vw, 180px)    /* Forma */
-        70px;                        /* Ver */
+        95px
+        85px
+        clamp(140px, 18vw, 220px)
+        78px
+        160px                       /* ⬅️ Estado (antes 128px) */
+        clamp(140px, 14vw, 190px)   /* ⬅️ Último cambio (antes clamp 90..140) */
+        clamp(130px, 16vw, 200px)
+        42px
+        128px
+        clamp(120px, 14vw, 180px)
+        70px;
     }
+
 
     /* ✅ Cuando el ancho baja demasiado, pasamos a cards */
     @media (max-width: 1180px) {

@@ -402,8 +402,9 @@ function renderLastChangeCompact(p) {
   if (!info || !info.changed_at) return "—";
   const user = info.user_name ? escapeHtml(info.user_name) : "—";
   const exact = formatDateTime(info.changed_at);
+
   return `
-    <div class="leading-tight min-w-0">
+    <div class="leading-tight min-w-0 pointer-events-none select-none">
       <div class="text-[12px] font-extrabold text-slate-900 truncate">${user}</div>
       <div class="text-[11px] text-slate-600 whitespace-nowrap">${escapeHtml(exact)}</div>
     </div>
@@ -553,11 +554,13 @@ function actualizarTabla(pedidos) {
               <div class="font-semibold text-slate-800 truncate">${escapeHtml(p.cliente ?? "-")}</div>
               <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
 
-              <div class="whitespace-nowrap">
-                <button onclick="abrirModal('${String(id)}')" class="hover:shadow-md transition">
-                  ${renderEstadoPill(normalizeEstado(p.estado ?? "Por preparar"))}
+              <div class="whitespace-nowrap relative z-10">
+                <button onclick="abrirModal('${String(id)}')"
+                  class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0">
+                  ${renderEstadoPill(p.estado ?? "-")}
                 </button>
               </div>
+
 
               <div class="min-w-0">${renderLastChangeCompact(p)}</div>
               <div class="min-w-0">${renderEtiquetasCompact(etiquetas, id)}</div>
@@ -610,9 +613,11 @@ function actualizarTabla(pedidos) {
               </div>
 
               <div class="mt-3 flex items-center justify-between gap-3">
-                <button onclick="abrirModal('${String(id)}')" class="hover:shadow-md transition">
-                  ${renderEstadoPill(normalizeEstado(p.estado ?? "Por preparar"))}
+                <button onclick="abrirModal('${String(id)}')"
+                  class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0 relative z-10">
+                  ${renderEstadoPill(p.estado ?? "-")}
                 </button>
+
 
                 <button onclick="verDetalles(${Number(id)})"
                   class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
