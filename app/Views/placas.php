@@ -80,9 +80,21 @@
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2">
-        <button id="btnAbrirModalCarga" class="btn-blue">Cargar placa</button>
-      </div>
+    <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+  
+    <!-- ✅ Buscador -->
+  <div class="relative w-full md:w-[340px]">
+    <input id="searchInput" type="text" placeholder="Buscar lote o archivo..."
+      class="w-full border border-gray-200 rounded-xl px-4 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-200">
+    <button id="searchClear" type="button"
+      class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 hidden">
+      ✕
+    </button>
+  </div>
+
+  <button id="btnAbrirModalCarga" class="btn-blue whitespace-nowrap">Cargar placa</button>
+</div>
+
 
     </div>
 
@@ -227,16 +239,121 @@
     }catch(e){}
   }
 
-  // ✅ LISTA soporta: data.grupos o data.items
-  async function cargarLista(){
-    try{
-      const res = await fetch(API.listar, { cache:'no-store' });
-      const data = await res.json();
+function normalizeText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
+    .trim();
+}
 
-      if (!data.success) {
-        q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
-        return;
-      }
+function itemMatches(it, term) {
+  if (!term) return true;
+  const hay = normalizeText([
+    it.nombre,
+    it.original,
+    it.id,
+    it.mime,
+    it.url
+  ].join(' '));
+  return hay.includes(term);
+}
+
+function groupMatches(g, term) {
+  if (!term) return true;
+  const hay = normalizeText([
+    g.lote_nombre,
+    g.lote_id,
+    g.created_at
+  ].join(' '));
+  return hay.includes(term);
+}
+
+function renderFromData(data) {
+  placasMap = {};
+
+  if (!data || !data.success) {
+    q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
+    return;
+  }
+
+  const term = normalizeText(searchTerm);
+
+  // ====== AGRUPADO ======
+  if (Array.isArray(data.grupos)) {
+    let grupos = data.grupos || [];
+
+    // llenar mapa por ID (del set completo, para openModal)
+    grupos.forEach(g => (g.items || []).forEach(it => { placasMap[it.id] = it; }));
+
+    // filtro
+    if (term) {
+      grupos = grupos
+        .map(g => {
+          const items = (g.items || []).filter(it => itemMatches(it, term));
+          const gm = groupMatches(g, term);
+          // si coincide el lote, mostramos todo el lote; si no, solo los items que coinciden
+          return gm ? g : { ...g, items };
+        })
+        .filter(g => groupMatches(g, term) || (g.items || []).length > 0);
+    }
+
+    if (!grupos.length) {
+      q('grid').innerHTML = `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
+      return;
+    }
+
+    q('grid').innerHTML = grupos.map(g => {
+      const titulo = g.lote_nombre || g.lote_id || 'Lote';
+      const fecha = g.created_at ? formatFecha(g.created_at) : '';
+      const cards = (g.items || []).map(renderCard).join('');
+
+      return `
+        <div style="grid-column: 1 / -1; background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:12px;">
+          <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+            <div style="font-weight:900;">📦 ${escapeHtml(titulo)}</div>
+            <div class="muted">${escapeHtml(fecha)}</div>
+          </div>
+          <div style="margin-top:10px; display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
+            ${cards || '<div class="muted">Sin archivos en este lote.</div>'}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return;
+  }
+
+  // ====== SIN AGRUPAR (compat) ======
+  if (Array.isArray(data.items)) {
+    let items = data.items || [];
+    items.forEach(it => { placasMap[it.id] = it; });
+
+    if (term) {
+      items = items.filter(it => itemMatches(it, term));
+    }
+
+    q('grid').innerHTML = items.length
+      ? items.map(renderCard).join('')
+      : `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
+    return;
+  }
+
+  q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
+}
+
+  // ✅ LISTA soporta: data.grupos o data.items
+ async function cargarLista(){
+  try{
+    const res = await fetch(API.listar, { cache:'no-store' });
+    const data = await res.json();
+
+    allData = data;
+    renderFromData(data);
+  } catch(e){
+    q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
+  }
+
+}
 
       placasMap = {};
 
@@ -287,10 +404,10 @@
 
       q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
 
-    } catch(e){
+     catch(e){
       q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
     }
-  }
+  
 
   // --- MODAL EDITAR
   window.openModal = function(id){
