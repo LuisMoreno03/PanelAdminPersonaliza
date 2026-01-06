@@ -439,9 +439,15 @@
   q('cargaMsg').textContent = 'Iniciando subida...';
 
   // Mostrar barra
-  q('uploadProgressWrap').classList.remove('hidden');
-  q('uploadProgressBar').style.width = '0%';
-  q('uploadProgressText').textContent = '0%';
+  const wrap = q('uploadProgressWrap');
+  const bar  = q('uploadProgressBar');
+  const txt  = q('uploadProgressText');
+
+  if (wrap && bar && txt) {
+    wrap.classList.remove('hidden');
+    bar.style.width = '0%';
+    txt.textContent = '0%';
+  }
 
   const fd = new FormData();
   fd.append('producto', producto);
@@ -451,19 +457,18 @@
     fd.append('archivos[]', file);
   });
 
-  // 🔴 USAMOS XMLHttpRequest para progreso REAL
   const xhr = new XMLHttpRequest();
   xhr.open('POST', API.subir, true);
 
   xhr.upload.onprogress = (e) => {
-    if (e.lengthComputable) {
-      const percent = Math.round((e.loaded / e.total) * 100);
-      q('uploadProgressBar').style.width = percent + '%';
-      q('uploadProgressText').textContent = percent + '%';
-    }
+    if (!e.lengthComputable) return;
+    const percent = Math.round((e.loaded / e.total) * 100);
+
+    if (bar) bar.style.width = percent + '%';
+    if (txt) txt.textContent = percent + '%';
   };
 
-  xhr.onload = async () => {
+  xhr.onload = () => {
     q('btnGuardarCarga').disabled = false;
 
     if (xhr.status !== 200) {
@@ -471,27 +476,29 @@
       return;
     }
 
-    const data = JSON.parse(xhr.responseText);
+    let data = null;
+    try { data = JSON.parse(xhr.responseText); } catch(e) {}
 
-    if (!data.success) {
-      q('cargaMsg').textContent = data.message || 'Error al subir';
+    if (!data || !data.success) {
+      q('cargaMsg').textContent = (data && data.message) ? data.message : 'Error al subir';
       return;
     }
 
-    q('uploadProgressBar').style.width = '100%';
-    q('uploadProgressText').textContent = '100%';
-    q('cargaMsg').textContent = '✅ Subidos correctamente';
+    if (bar) bar.style.width = '100%';
+    if (txt) txt.textContent = '100%';
+    q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
 
     setTimeout(() => {
       modalCarga.classList.add('hidden');
-      q('uploadProgressWrap').classList.add('hidden');
+      if (wrap) wrap.classList.add('hidden');
+
       q('cargaArchivo').value = '';
       filesSeleccionados = [];
       q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
-    }, 700);
 
-    await cargarStats();
-    await cargarLista();
+      // ✅ SIN await (para que no rompa)
+      cargarStats().then(() => cargarLista());
+    }, 600);
   };
 
   xhr.onerror = () => {
@@ -502,48 +509,3 @@
   xhr.send(fd);
 });
 
-    // ✅ UNA SOLA REQUEST con archivos[] para que el backend cree 1 lote_id
-    
-  const fd = new FormData();
-    fd.append('producto', producto);
-    fd.append('numero_placa', numero);
-
-    filesSeleccionados.forEach(file => {
-      fd.append('archivos[]', file);
-    });
-
-    const res = await fetch(API.subir, { method:'POST', body: fd });
-    const data = await res.json();
-
-    q('btnGuardarCarga').disabled = false;
-
-  
-  if (!data.success) {
-      q('cargaMsg').textContent = data.message || 'Error al subir';
-      return;
-    }
-
-    q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
-
-    // cerrar + limpiar
-    modalCarga.classList.add('hidden');
-    q('cargaArchivo').value = '';
-    filesSeleccionados = [];
-    q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
-
-    await cargarStats();
-    await cargarLista();
-
-
-  // Inicial
-  cargarStats();
-  cargarLista();
-
-  setInterval(() => {
-    cargarStats();
-    cargarLista();
-  }, 15000);
-</script>
-
-</body>
-</html>
