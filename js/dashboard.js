@@ -162,6 +162,17 @@ function renderEstado(valor) {
   if (esBadgeHtml(valor)) return String(valor);
   return escapeHtml(valor ?? "-");
 }
+function normalizeEstado(estado) {
+  const s = String(estado || "").trim().toLowerCase();
+
+  if (s.includes("por preparar")) return "Por preparar";
+  if (s.includes("a medias") || s.includes("medias")) return "A medias";
+  if (s.includes("producción") || s.includes("produccion")) return "Produccion";
+  if (s.includes("fabricando")) return "Fabricando";
+  if (s.includes("enviado")) return "Enviado";
+
+  return estado || "Por preparar";
+}
 
 /* =====================================================
    ESTADO PILL (igual a colores del modal)
@@ -479,12 +490,8 @@ function actualizarTabla(pedidos) {
               <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
 
               <div class="whitespace-nowrap">
-                <button onclick="abrirModal('${String(id)}')"
-                  class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                  <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-                  <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
-                    ${renderEstado(p.estado ?? "-")}
-                  </span>
+                <button onclick="abrirModal('${String(id)}')" class="hover:shadow-md transition">
+                  ${renderEstadoPill(normalizeEstado(p.estado ?? "Por preparar"))}
                 </button>
               </div>
 
@@ -539,12 +546,8 @@ function actualizarTabla(pedidos) {
               </div>
 
               <div class="mt-3 flex items-center justify-between gap-3">
-                <button onclick="abrirModal('${String(id)}')"
-                  class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                  <span class="h-2 w-2 rounded-full bg-blue-600"></span>
-                  <span class="text-[11px] font-extrabold uppercase tracking-wide text-slate-900">
-                    ${renderEstado(p.estado ?? "-")}
-                  </span>
+                <button onclick="abrirModal('${String(id)}')" class="hover:shadow-md transition">
+                  ${renderEstadoPill(normalizeEstado(p.estado ?? "Por preparar"))}
                 </button>
 
                 <button onclick="verDetalles(${Number(id)})"
@@ -1297,7 +1300,7 @@ window.abrirModalEtiquetas = async function (orderId, rawTags, numeroPedido = ""
     if (lbl) lbl.textContent = _etqOrderNumero ? _etqOrderNumero : `#${id}`;
 
     _etqSelected = new Set(parseTags(current));
-    if (_etqSelected.size > 2) _etqSelected = new Set(Array.from(_etqSelected).slice(0, 2));
+    if (_etqSelected.size > 6) _etqSelected = new Set(Array.from(_etqSelected).slice(0, 6));
 
     // Carga etiquetas desde BD si aún no hay
     if (!ETQ_DISENO.length && !ETQ_PRODUCCION.length) {
@@ -1417,6 +1420,7 @@ function findEstadoModal() {
 }
 
 function findEstadoOrderIdInput() {
+  nuevoEstado = normalizeEstado(nuevoEstado);
   return (
     document.getElementById("modalOrderId") ||
     document.getElementById("modalEstadoOrderId") ||
@@ -1448,5 +1452,6 @@ window.guardarEstado = async function (nuevoEstado) {
   // Si ya tenías guardarEstado definido, úsalo
   if (typeof _oldGuardarEstado === "function") return _oldGuardarEstado(nuevoEstado);
 };
+
 
  

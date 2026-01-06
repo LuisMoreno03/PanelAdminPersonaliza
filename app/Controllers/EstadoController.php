@@ -10,189 +10,238 @@ class EstadoController extends BaseController
     private string $estadoTable  = 'pedidos_estado';
     private string $usersTable   = 'users';
 
+    // ✅ Estados nuevos permitidos
+    private array $allowedEstados = [
+        'Por preparar',
+        'A medias',
+        'Produccion',
+        'Fabricando',
+        'Enviado',
+    ];
+
+    // ✅ Normaliza estados (viejos / tildes / mayúsculas)
+    private function normalizeEstado(?string $estado): string
+    {
+        $s = trim((string)($estado ?? ''));
+        if ($s === '') return 'Por preparar';
+
+        $lower = mb_strtolower($s);
+
+        $map = [
+            // nuevos
+            'por preparar' => 'Por preparar',
+            'a medias'     => 'A medias',
+            'amedias'      => 'A medias',
+            'produccion'   => 'Produccion',
+            'producción'   => 'Produccion',
+            'fabricando'   => 'Fabricando',
+            'enviado'      => 'Enviado',
+
+            // viejos -> nuevos (para no romper datos antiguos)
+            'preparado'    => 'Fabricando',
+            'entregado'    => 'Enviado',
+            'cancelado'    => 'Por preparar',
+            'devuelto'     => 'Por preparar',
+        ];
+
+        if (isset($map[$lower])) return $map[$lower];
+
+        // Si ya viene un valor válido con distinta capitalización
+        foreach ($this->allowedEstados as $ok) {
+            if (mb_strtolower($ok) === $lower) return $ok;
+        }
+
+        return 'Por preparar';
+    }
+
     public function guardar(): ResponseInterface
-{
-    try {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
-
-        $payload = $this->request->getJSON(true) ?? [];
-        $orderId = isset($payload['id']) ? trim((string)$payload['id']) : '';
-        $estado  = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
-
-        if ($orderId === '' || $estado === '') {
-            return $this->response->setStatusCode(422)->setJSON([
-                'success' => false,
-                'message' => 'Faltan parámetros: id / estado',
-            ]);
-        }
-
-        $db = db_connect();
-        $dbName = $db->getDatabase();
-
-        $userId   = session()->get('user_id') ?? null;
-        $userName = session()->get('nombre') ?? session()->get('username') ?? 'Sistema';
-        $now      = date('Y-m-d H:i:s');
-
-        // ---------------------------------------------------------
-        // 0) Detectar si existe tabla pedidos (soft-check)
-        // ---------------------------------------------------------
-        $pedidosExists = $db->query(
-            "SELECT 1 FROM information_schema.tables
-             WHERE table_schema = ? AND table_name = ?
-             LIMIT 1",
-            [$dbName, $this->pedidosTable]
-        )->getRowArray();
-
-        if (!empty($pedidosExists)) {
-            $pedido = $db->table($this->pedidosTable)
-                ->select('id')
-                ->where('id', $orderId)
-                ->limit(1)
-                ->get()
-                ->getRowArray();
-
-            // NO bloqueamos si no existe (tu pedidos puede no estar sincronizada)
-            if (!$pedido) {
-                // log_message('warning', "Pedido {$orderId} no existe en tabla pedidos (se guardará estado igualmente).");
+    {
+        try {
+            if (!session()->get('logged_in')) {
+                return $this->response->setStatusCode(401)->setJSON([
+                    'success' => false,
+                    'message' => 'No autenticado',
+                ]);
             }
-        }
 
-        // ---------------------------------------------------------
-        // 1) Validar esquema de pedidos_estado (estado ACTUAL)
-        //    Tu BD: id, estado, actualizado, created_at, user_id
-        // ---------------------------------------------------------
-        $hasId          = $db->fieldExists('id', $this->estadoTable);
-        $hasEstado      = $db->fieldExists('estado', $this->estadoTable);
-        $hasActualizado = $db->fieldExists('actualizado', $this->estadoTable);
-        $hasCreatedAt   = $db->fieldExists('created_at', $this->estadoTable);
-        $hasUserIdCol   = $db->fieldExists('user_id', $this->estadoTable);
-        $hasUserNameCol = $db->fieldExists('user_name', $this->estadoTable); // por si existe
+            $payload = $this->request->getJSON(true) ?? [];
+            $orderId = isset($payload['id']) ? trim((string)$payload['id']) : '';
+            $estadoIn  = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
 
-        if (!$hasId || !$hasEstado) {
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => 'La tabla pedidos_estado debe tener columnas id y estado',
-            ]);
-        }
+            if ($orderId === '' || $estadoIn === '') {
+                return $this->response->setStatusCode(422)->setJSON([
+                    'success' => false,
+                    'message' => 'Faltan parámetros: id / estado',
+                ]);
+            }
 
-        // ---------------------------------------------------------
-        // 2) Detectar tabla historial (si existe)
-        // ---------------------------------------------------------
-        $histTable = 'pedidos_estado_historial';
-        $histExists = $db->query(
-            "SELECT 1 FROM information_schema.tables
-             WHERE table_schema = ? AND table_name = ?
-             LIMIT 1",
-            [$dbName, $histTable]
-        )->getRowArray();
+            // ✅ normalizar + validar
+            $estado = $this->normalizeEstado($estadoIn);
 
-        $db->transStart();
+            if (!in_array($estado, $this->allowedEstados, true)) {
+                return $this->response->setStatusCode(422)->setJSON([
+                    'success' => false,
+                    'message' => 'Estado inválido',
+                    'allowed' => $this->allowedEstados,
+                ]);
+            }
 
-        // ---------------------------------------------------------
-        // 3) Insert en HISTORIAL (si existe)
-        // ---------------------------------------------------------
-        if (!empty($histExists)) {
-            $hist = [
-                'order_id'   => (int)$orderId,
-                'estado'     => (string)$estado,
-                'user_id'    => ($userId !== null) ? (int)$userId : null,
-                'user_name'  => (string)$userName,
-                'created_at' => $now,
-            ];
+            $db = db_connect();
+            $dbName = $db->getDatabase();
 
-            // robusto por si tu tabla historial no tiene todas las columnas
-            foreach (array_keys($hist) as $col) {
-                if (!$db->fieldExists($col, $histTable)) {
-                    unset($hist[$col]);
+            $userId   = session()->get('user_id') ?? null;
+            $userName = session()->get('nombre') ?? session()->get('username') ?? 'Sistema';
+            $now      = date('Y-m-d H:i:s');
+
+            // ---------------------------------------------------------
+            // 0) Detectar si existe tabla pedidos (soft-check)
+            // ---------------------------------------------------------
+            $pedidosExists = $db->query(
+                "SELECT 1 FROM information_schema.tables
+                 WHERE table_schema = ? AND table_name = ?
+                 LIMIT 1",
+                [$dbName, $this->pedidosTable]
+            )->getRowArray();
+
+            if (!empty($pedidosExists)) {
+                $pedido = $db->table($this->pedidosTable)
+                    ->select('id')
+                    ->where('id', $orderId)
+                    ->limit(1)
+                    ->get()
+                    ->getRowArray();
+
+                // no bloqueamos si no existe
+                if (!$pedido) {
+                    // log_message('warning', "Pedido {$orderId} no existe en tabla pedidos (se guardará estado igualmente).");
                 }
             }
 
-            $db->table($histTable)->insert($hist);
-        }
+            // ---------------------------------------------------------
+            // 1) Validar esquema de pedidos_estado (estado ACTUAL)
+            //    Tu BD: id, estado, actualizado, created_at, user_id
+            // ---------------------------------------------------------
+            $hasId          = $db->fieldExists('id', $this->estadoTable);
+            $hasEstado      = $db->fieldExists('estado', $this->estadoTable);
+            $hasActualizado = $db->fieldExists('actualizado', $this->estadoTable);
+            $hasCreatedAt   = $db->fieldExists('created_at', $this->estadoTable);
+            $hasUserIdCol   = $db->fieldExists('user_id', $this->estadoTable);
+            $hasUserNameCol = $db->fieldExists('user_name', $this->estadoTable);
 
-        // ---------------------------------------------------------
-        // 4) Guardar estado ACTUAL (UPSERT por id)
-        // ---------------------------------------------------------
-        $data = [
-            'id'     => (string)$orderId,
-            'estado' => (string)$estado,
-        ];
-
-        // ✅ tu tabla usa actualizado como "último cambio"
-        if ($hasActualizado) $data['actualizado'] = $now;
-
-        // created_at: setear SOLO si la fila no existía
-        if ($hasCreatedAt) {
-            $existsRow = $db->table($this->estadoTable)
-                ->select('id')
-                ->where('id', $orderId)
-                ->limit(1)
-                ->get()
-                ->getRowArray();
-
-            if (!$existsRow) $data['created_at'] = $now;
-        }
-
-        if ($hasUserIdCol)   $data['user_id'] = ($userId !== null) ? (int)$userId : null;
-        if ($hasUserNameCol) $data['user_name'] = (string)$userName;
-
-        // ✅ REPLACE = insert si no existe, update si existe (requiere PK/UNIQUE en id)
-        $db->table($this->estadoTable)->replace($data);
-
-        // ---------------------------------------------------------
-        // 5) Actualiza last_change_user/at en pedidos (si existen)
-        // ---------------------------------------------------------
-        if (!empty($pedidosExists)) {
-            $update = [];
-            if ($db->fieldExists('last_change_user', $this->pedidosTable)) $update['last_change_user'] = $userName;
-            if ($db->fieldExists('last_change_at', $this->pedidosTable))   $update['last_change_at']   = $now;
-
-            if (!empty($update)) {
-                $db->table($this->pedidosTable)->where('id', $orderId)->update($update);
+            if (!$hasId || !$hasEstado) {
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'La tabla pedidos_estado debe tener columnas id y estado',
+                ]);
             }
-        }
 
-        $db->transComplete();
+            // ---------------------------------------------------------
+            // 2) Detectar tabla historial (si existe)
+            // ---------------------------------------------------------
+            $histTable = 'pedidos_estado_historial';
+            $histExists = $db->query(
+                "SELECT 1 FROM information_schema.tables
+                 WHERE table_schema = ? AND table_name = ?
+                 LIMIT 1",
+                [$dbName, $histTable]
+            )->getRowArray();
 
-        if ($db->transStatus() === false) {
+            $db->transStart();
+
+            // ---------------------------------------------------------
+            // 3) Insert en HISTORIAL (si existe)
+            // ---------------------------------------------------------
+            if (!empty($histExists)) {
+                $hist = [
+                    'order_id'   => (int)$orderId,
+                    'estado'     => (string)$estado,
+                    'user_id'    => ($userId !== null) ? (int)$userId : null,
+                    'user_name'  => (string)$userName,
+                    'created_at' => $now,
+                ];
+
+                foreach (array_keys($hist) as $col) {
+                    if (!$db->fieldExists($col, $histTable)) {
+                        unset($hist[$col]);
+                    }
+                }
+
+                $db->table($histTable)->insert($hist);
+            }
+
+            // ---------------------------------------------------------
+            // 4) Guardar estado ACTUAL (UPSERT por id)
+            // ---------------------------------------------------------
+            $data = [
+                'id'     => (string)$orderId,
+                'estado' => (string)$estado,
+            ];
+
+            if ($hasActualizado) $data['actualizado'] = $now;
+
+            if ($hasCreatedAt) {
+                $existsRow = $db->table($this->estadoTable)
+                    ->select('id')
+                    ->where('id', $orderId)
+                    ->limit(1)
+                    ->get()
+                    ->getRowArray();
+
+                if (!$existsRow) $data['created_at'] = $now;
+            }
+
+            if ($hasUserIdCol)   $data['user_id'] = ($userId !== null) ? (int)$userId : null;
+            if ($hasUserNameCol) $data['user_name'] = (string)$userName;
+
+            $db->table($this->estadoTable)->replace($data);
+
+            // ---------------------------------------------------------
+            // 5) Actualiza last_change_user/at en pedidos (si existen)
+            // ---------------------------------------------------------
+            if (!empty($pedidosExists)) {
+                $update = [];
+                if ($db->fieldExists('last_change_user', $this->pedidosTable)) $update['last_change_user'] = $userName;
+                if ($db->fieldExists('last_change_at', $this->pedidosTable))   $update['last_change_at']   = $now;
+
+                if (!empty($update)) {
+                    $db->table($this->pedidosTable)->where('id', $orderId)->update($update);
+                }
+            }
+
+            $db->transComplete();
+
+            if ($db->transStatus() === false) {
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'Transacción fallida',
+                ]);
+            }
+
+            return $this->response->setJSON([
+                'success' => true,
+                'order' => [
+                    'id' => $orderId,
+                    'estado' => $estado, // ✅ normalizado
+                    'last_status_change' => [
+                        'user_name'  => $userName,
+                        'changed_at' => $now,
+                    ],
+                ],
+            ]);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'EstadoController::guardar ERROR: {msg} {file}:{line}', [
+                'msg'  => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
-                'message' => 'Transacción fallida',
+                'message' => 'ERROR: ' . $e->getMessage(),
             ]);
         }
-
-        return $this->response->setJSON([
-            'success' => true,
-            'order' => [
-                'id' => $orderId,
-                'estado' => $estado,
-                'last_status_change' => [
-                    'user_name'  => $userName,
-                    'changed_at' => $now,
-                ],
-            ],
-        ]);
-
-    } catch (\Throwable $e) {
-        log_message('error', 'EstadoController::guardar ERROR: {msg} {file}:{line}', [
-            'msg'  => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
-
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'message' => 'ERROR: ' . $e->getMessage(),
-        ]);
     }
-}
-
-
 
     public function historial(int $orderId): ResponseInterface
     {
@@ -221,8 +270,12 @@ class EstadoController extends BaseController
                 ->get()
                 ->getResultArray();
 
-            // opcional: agregar nombre de usuario desde users
             foreach ($rows as &$r) {
+                // ✅ normaliza el estado al devolver
+                if (isset($r['estado'])) {
+                    $r['estado'] = $this->normalizeEstado((string)$r['estado']);
+                }
+
                 if (!empty($r['user_id'])) {
                     $u = $db->table($this->usersTable)
                         ->select('nombre')
