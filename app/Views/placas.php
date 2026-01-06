@@ -191,6 +191,9 @@
 
   // ✅ mapa global para que openModal funcione aunque sea listado por grupos
   let placasMap = {}; // { id: item }
+let allData = null;
+let searchTerm = '';
+
 
   function escapeHtml(str) {
     return (str || '').replace(/[&<>"']/g, s => ({
