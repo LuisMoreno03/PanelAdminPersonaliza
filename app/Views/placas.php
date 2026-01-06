@@ -129,8 +129,9 @@
 
     <div class="space-y-3">
       <input id="cargaProducto" type="text" placeholder="Producto" class="w-full border rounded-xl px-3 py-2">
-      <input id="cargaNumero" type="text" placeholder="Número de placa" class="w-full border rounded-xl px-3 py-2">
+    <input id="cargaNumero" type="text" placeholder="Número de placa" class="w-full border rounded-xl px-3 py-2">
 
+      <!-- ✅ Acepta cualquier archivo -->
       <input id="cargaArchivo" type="file" multiple class="w-full" accept="*/*">
 
       <div id="cargaPreview" class="h-40 border rounded-xl flex items-center justify-center text-gray-400">
@@ -143,7 +144,7 @@
       <button id="btnGuardarCarga" class="btn-blue">Guardar</button>
     </div>
 
-    <!-- ✅ Barra de progreso DENTRO del modal -->
+<!-- ✅ Barra de progreso DENTRO del modal -->
     <div id="uploadProgressWrap" class="mt-4 hidden">
       <div class="w-full bg-gray-100 border border-gray-200 rounded-full h-3 overflow-hidden">
         <div id="uploadProgressBar"
@@ -161,25 +162,7 @@
   </div>
 </div>
 
-      <!-- ✅ Acepta cualquier archivo -->
-      <input id="cargaArchivo" type="file" multiple class="w-full" accept="*/*">
 
-      <div id="cargaPreview" class="h-40 border rounded-xl flex items-center justify-center text-gray-400">
-        Vista previa
-      </div>
-    </div>
-
-    <div class="flex justify-end gap-2 mt-5">
-      <button id="btnCerrarCarga" class="btn-blue" style="background:#9ca3af;">Cancelar</button>
-      <button id="btnGuardarCarga" class="btn-blue">Guardar</button>
-    </div>
-
-    <div id="cargaMsg" class="muted mt-2"></div>
-  </div>
-  
-
-
-</div>
 
 <script>
   const q = (id) => document.getElementById(id);
