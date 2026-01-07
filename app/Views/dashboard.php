@@ -329,7 +329,11 @@
 
     </div>
   </div>
-
+  
+  <!-- =============================================================== -->
+   <!-- MODAL DETALLES PEDIDO -->
+  <!-- =============================================================== -->
+  <?= view('layouts/modal_detalles') ?>
   <!-- MODALES (SOLO ESTADO) -->
   <?= view('layouts/modales_estados') ?>
 
