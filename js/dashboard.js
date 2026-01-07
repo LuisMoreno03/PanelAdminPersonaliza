@@ -618,11 +618,12 @@ function actualizarTabla(pedidos) {
                   ${renderEstadoPill(p.estado ?? "-")}
                 </button>
 
-
-                <button onclick="verDetalles(${Number(id)})"
-                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
-                  Ver →
-                </button>
+                <div class="text-right whitespace-nowrap">
+                  <button onclick="verDetalles(${Number(id)})"
+                    class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+                    Ver detalles →
+                  </button>
+                </div>
               </div>
 
               <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>

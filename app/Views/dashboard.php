@@ -40,20 +40,22 @@
     .orders-grid {
       display: grid;
       align-items: center;
-      gap: .75rem; /* antes .5rem */
+      gap: .75rem;
+
       grid-template-columns:
         95px
         85px
         clamp(140px, 18vw, 220px)
         78px
-        160px                       /* ⬅️ Estado (antes 128px) */
-        clamp(140px, 14vw, 190px)   /* ⬅️ Último cambio (antes clamp 90..140) */
+        160px
+        clamp(140px, 14vw, 190px)
         clamp(130px, 16vw, 200px)
         42px
         128px
         clamp(120px, 14vw, 180px)
-        70px;
+        120px; /* ✅ Botón VER (antes 70px) */
     }
+
 
 
     /* ✅ Cuando el ancho baja demasiado, pasamos a cards */
@@ -131,7 +133,7 @@
               <div>Etiquetas</div>
               <div class="text-center">Art</div>
               <div>Entrega</div>
-              <div>Forma</div>
+              <div>Metodo de entrega</div>
               <div class="text-right">Ver</div>
             </div>
 
@@ -188,7 +190,7 @@
           class="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:border-slate-300 transition font-extrabold text-xl leading-none">
           ×
         </button>
-      </div>
+      </div> 
 
       <!-- Content -->
       <div class="p-5 sm:p-6 space-y-5">
