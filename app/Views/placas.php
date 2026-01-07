@@ -288,39 +288,39 @@ function groupMatches(g, term) {
 
 function renderFromData(data) {
   placasMap = {};
+  loteIndex = {};
 
   if (!data || !data.success) {
     q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
     return;
   }
-}
+
   const term = normalizeText(searchTerm);
 
   // ====== AGRUPADO ======
   if (Array.isArray(data.grupos)) {
     let grupos = data.grupos || [];
 
-    // llenar mapa por ID (del set completo, para openModal)
-   grupos.forEach()=g => {
-  const lid = g.lote_id ?? g.lote_nombre ?? g.id ?? '';
-  const items = (g.items || []);
-  loteIndex[lid] = items;
+    // llenar mapa por ID y el índice por lote
+    grupos.forEach(g => {
+      const lid = (g.lote_id ?? g.lote_nombre ?? g.id ?? '').toString();
+      const items = (g.items || []);
 
-   items.forEach(it => {
-    // guarda lote_id en cada item si no viene
-    if (it.lote_id == null) it.lote_id = lid;
-    placasMap[it.id] = it;
-  });
+      loteIndex[lid] = items;
+
+      items.forEach(it => {
+        if (it.lote_id == null) it.lote_id = lid; // asegurar lote_id en cada item
+        placasMap[it.id] = it;                    // mapa global por id
+      });
+    });
 
     // filtro
     if (term) {
       grupos = grupos
         .map(g => {
-          const items = (g.items || []).filter(it => itemMatches(it, term));
-          const gm = groupMatches(g, term);
-
-          // si coincide el lote, mostramos todo el lote; si no, solo los items que coinciden
-          return gm ? g : { ...g, items };
+         const items = (g.items || []).filter(it => itemMatches(it, term));
+         const gm = groupMatches(g, term);
+         return gm ? g : { ...g, items };
         })
         .filter(g => groupMatches(g, term) || (g.items || []).length > 0);
     }
@@ -356,9 +356,7 @@ function renderFromData(data) {
     let items = data.items || [];
     items.forEach(it => { placasMap[it.id] = it; });
 
-    if (term) {
-      items = items.filter(it => itemMatches(it, term));
-    }
+    if (term) items = items.filter(it => itemMatches(it, term));
 
     q('grid').innerHTML = items.length
       ? items.map(renderCard).join('')
@@ -368,6 +366,7 @@ function renderFromData(data) {
 
   q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
 }
+
 
   // ✅ LISTA soporta: data.grupos o data.items
 async function cargarLista(){
