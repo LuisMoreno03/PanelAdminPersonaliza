@@ -10,6 +10,8 @@ let nextPageInfo = null;
 let prevPageInfo = null;
 let isLoading = false;
 let currentPage = 1;
+let silentFetch = false; // 👈 cuando true, NO muestra loader
+
 
 // ✅ cache local para actualizar estados sin recargar
 let ordersCache = [];
@@ -63,10 +65,12 @@ function jsonHeaders() {
    Loader global
 ===================================================== */
 function showLoader() {
+   if (silentFetch) return; // 👈 evita loader molesto
   const el = document.getElementById("globalLoader");
   if (el) el.classList.remove("hidden");
 }
 function hideLoader() {
+   if (silentFetch) return; // 👈 evita loader molesto
   const el = document.getElementById("globalLoader");
   if (el) el.classList.add("hidden");
 }
@@ -124,10 +128,12 @@ function startLive(ms = 20000) {
   if (liveInterval) clearInterval(liveInterval);
 
   liveInterval = setInterval(() => {
-    if (liveMode && currentPage === 1 && !isLoading) {
-      cargarPedidos({ reset: false, page_info: "" });
-    }
-  }, ms);
+  if (liveMode && currentPage === 1 && !isLoading) {
+    silentFetch = true; // 👈 NO loader
+    cargarPedidos({ reset: false, page_info: "" });
+  }
+}, ms);
+
 }
 
 function pauseLive() {
@@ -347,8 +353,10 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     .finally(() => {
       if (fetchToken !== lastFetchToken) return;
       isLoading = false;
+      silentFetch = false; // 👈 vuelve a normal
       hideLoader();
     });
+
 }
 
 /* =====================================================
@@ -548,33 +556,69 @@ function actualizarTabla(pedidos) {
             const id = p.id ?? "";
             const etiquetas = p.etiquetas ?? "";
             return `
-            <div class="orders-grid px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
-              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</div>
-              <div class="text-slate-600 whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</div>
-              <div class="font-semibold text-slate-800 truncate">${escapeHtml(p.cliente ?? "-")}</div>
-              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
+              <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
+                <!-- Pedido -->
+                <div class="font-extrabold text-slate-900 whitespace-nowrap">
+                  ${escapeHtml(p.numero ?? "-")}
+                </div>
 
-              <div class="whitespace-nowrap relative z-10">
-                <button onclick="abrirModal('${String(id)}')"
-                  class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0">
-                  ${renderEstadoPill(p.estado ?? "-")}
-                </button>
+                <!-- Fecha -->
+                <div class="text-slate-600 whitespace-nowrap">
+                  ${escapeHtml(p.fecha ?? "-")}
+                </div>
+
+                <!-- Cliente -->
+                <div class="min-w-0 font-semibold text-slate-800 truncate">
+                  ${escapeHtml(p.cliente ?? "-")}
+                </div>
+
+                <!-- Total -->
+                <div class="font-extrabold text-slate-900 whitespace-nowrap">
+                  ${escapeHtml(p.total ?? "-")}
+                </div>
+
+                <!-- Estado -->
+                <div class="whitespace-nowrap relative z-10">
+                  <button type="button" onclick="abrirModal('${escapeJsString(String(id))}')"
+                    class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0">
+                    ${renderEstadoPill(p.estado ?? "-")}
+                  </button>
+                </div>
+
+                <!-- Último cambio -->
+                <div class="min-w-0">
+                  ${renderLastChangeCompact(p)}
+                </div>
+
+                <!-- Etiquetas -->
+                <div class="min-w-0">
+                  ${renderEtiquetasCompact(etiquetas, id)}
+                </div>
+
+                <!-- Artículos -->
+                <div class="text-center font-extrabold">
+                  ${escapeHtml(p.articulos ?? "-")}
+                </div>
+
+                <!-- Entrega -->
+                <div class="whitespace-nowrap">
+                  ${renderEntregaPill(p.estado_envio ?? "-")}
+                </div>
+
+                <!-- Método de entrega (mejor 2 líneas) -->
+                <div class="min-w-0 text-xs text-slate-700 metodo-entrega">
+                  ${escapeHtml(p.forma_envio ?? "-")}
+                </div>
+
+                <!-- Ver detalles -->
+                <div class="text-right whitespace-nowrap">
+                  <button type="button" onclick="verDetalles('${escapeJsString(String(id))}')"
+                    class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+                    Ver detalles →
+                  </button>
+                </div>
               </div>
-
-
-              <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-              <div class="min-w-0">${renderEtiquetasCompact(etiquetas, id)}</div>
-              <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
-              <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-              <div class="text-xs text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
-
-              <div class="text-right whitespace-nowrap">
-                <button onclick="verDetalles(${Number(id)})"
-                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
-                  Ver →
-                </button>
-              </div>
-            </div>`;
+            `;
           })
           .join("");
       }
@@ -779,6 +823,7 @@ window.guardarEstado = guardarEstado;
    DETALLES
 ===================================================== */
 window.verDetalles = async function (orderId) {
+  silentFetch = false;
   const id = String(orderId || "");
   if (!id) return;
 
