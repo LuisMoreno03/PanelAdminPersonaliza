@@ -10,17 +10,20 @@ class PlacasArchivosController extends BaseController
 
 {
    
-    public function listar()
-    {
-        $model = new PlacaArchivoModel();
-  
-        $items = $model->orderBy('id', 'DESC')->findAll();
+   public function listar()
+{
+    helper('url'); // ✅ necesario para base_url()
 
-        foreach ($items as &$it) {
-            $it['url'] = base_url($it['ruta']);
-            $it['dia'] = !empty($it['created_at']) ? date('Y-m-d', strtotime($it['created_at'])) : null;
-        }
-        unset($it);
+    $model = new PlacaArchivoModel();
+    $items = $model->orderBy('id', 'DESC')->findAll();
+
+    foreach ($items as &$it) {
+        $it['url'] = base_url($it['ruta']);
+        $it['dia'] = !empty($it['created_at']) ? date('Y-m-d', strtotime($it['created_at'])) : null;
+    }
+
+
+    unset($it);
 
         $grupos = [];
         foreach ($items as $it) {
@@ -46,17 +49,23 @@ class PlacasArchivosController extends BaseController
 
  
     public function stats()
-    {
-        $model = new PlacaArchivoModel();
-        $hoy = date('Y-m-d');
+{
+    $model = new PlacaArchivoModel();
 
-        $totalHoy = $model->where('DATE(created_at)', $hoy)->countAllResults();
+    $hoyInicio = date('Y-m-d 00:00:00');
+    $hoyFin    = date('Y-m-d 23:59:59');
 
-        return $this->response->setJSON([
-            'success'  => true,
-            'totalHoy' => $totalHoy
-        ]);
-    }
+    $totalHoy = $model
+        ->where('created_at >=', $hoyInicio)
+        ->where('created_at <=', $hoyFin)
+        ->countAllResults();
+
+    return $this->response->setJSON([
+        'success'  => true,
+        'totalHoy' => $totalHoy
+    ]);
+}
+
 
 
     public function subir()
