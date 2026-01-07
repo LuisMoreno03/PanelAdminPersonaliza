@@ -566,7 +566,7 @@ function actualizarTabla(pedidos) {
               <div class="min-w-0">${renderEtiquetasCompact(etiquetas, id)}</div>
               <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
               <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-              <div class="text-xs text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
+              
 
              <div class="metodo-entrega text-xs text-slate-700">
               ${escapeHtml(p.forma_envio ?? "-")}
