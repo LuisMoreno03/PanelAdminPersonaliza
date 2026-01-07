@@ -115,6 +115,17 @@
     <div style="padding:16px;">
       <div id="modalPreview" style="width:100%; height:260px; border:1px solid #eee; border-radius:14px; overflow:hidden; background:#f9fafb;"></div>
 
+      <!-- ✅ Archivos del conjunto -->
+<div style="margin-top:14px; border:1px solid #e5e7eb; border-radius:14px; padding:12px; background:#f9fafb;">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+    <div style="font-weight:900;">Archivos del conjunto</div>
+    <div class="muted" id="modalLoteInfo"></div>
+  </div>
+
+  <div id="modalArchivos" style="margin-top:10px; max-height:220px; overflow:auto; display:grid; gap:10px;"></div>
+</div>
+
+
       <div style="margin-top:12px;">
         <div class="text-sm text-gray-600">Nombre</div>
         <input id="modalNombre" style="width:100%; border:1px solid #e5e7eb; border-radius:12px; padding:10px;" />
@@ -180,12 +191,14 @@
   const q = (id) => document.getElementById(id);
 
   const API = {
-    listar: <?= json_encode(site_url('placas/archivos/listar')) ?>,
-    stats:  <?= json_encode(site_url('placas/archivos/stats')) ?>,
-    subir:  <?= json_encode(site_url('placas/archivos/subir')) ?>,
-    renombrar: <?= json_encode(site_url('placas/archivos/renombrar')) ?>,
-    eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
-  };
+  listar: <?= json_encode(site_url('placas/archivos/listar')) ?>,
+  stats:  <?= json_encode(site_url('placas/archivos/stats')) ?>,
+  subir:  <?= json_encode(site_url('placas/archivos/subir')) ?>,
+  renombrar: <?= json_encode(site_url('placas/archivos/renombrar')) ?>,
+  eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
+  descargarBase: <?= json_encode(site_url('placas/descargar')) ?>,
+};
+
 
   let modalItem = null;
 
@@ -193,6 +206,8 @@
   let placasMap = {}; // { id: item }
 let allData = null;
 let searchTerm = '';
+let loteIndex = {};
+
 
 
   function escapeHtml(str) {
@@ -278,7 +293,7 @@ function renderFromData(data) {
     q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
     return;
   }
-
+}
   const term = normalizeText(searchTerm);
 
   // ====== AGRUPADO ======
@@ -286,7 +301,16 @@ function renderFromData(data) {
     let grupos = data.grupos || [];
 
     // llenar mapa por ID (del set completo, para openModal)
-    grupos.forEach(g => (g.items || []).forEach(it => { placasMap[it.id] = it; }));
+   grupos.forEach()=g => {
+  const lid = g.lote_id ?? g.lote_nombre ?? g.id ?? '';
+  const items = (g.items || []);
+  loteIndex[lid] = items;
+
+   items.forEach(it => {
+    // guarda lote_id en cada item si no viene
+    if (it.lote_id == null) it.lote_id = lid;
+    placasMap[it.id] = it;
+  });
 
     // filtro
     if (term) {
@@ -294,6 +318,7 @@ function renderFromData(data) {
         .map(g => {
           const items = (g.items || []).filter(it => itemMatches(it, term));
           const gm = groupMatches(g, term);
+
           // si coincide el lote, mostramos todo el lote; si no, solo los items que coinciden
           return gm ? g : { ...g, items };
         })
@@ -359,34 +384,89 @@ async function cargarLista(){
 }
 
 
+function renderModalArchivos(list, activeId) {
+  const box = q('modalArchivos');
+  if (!box) return;
+
+  if (!Array.isArray(list) || !list.length) {
+    box.innerHTML = `<div class="muted">No hay archivos en este conjunto.</div>`;
+    return;
+  }
+
+  box.innerHTML = list.map(it => {
+    const isActive = Number(it.id) === Number(activeId);
+    const kb = Math.round((it.size || 0) / 1024);
+
+    return `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border:1px solid #e5e7eb; border-radius:12px; background:#fff;">
+        <div style="min-width:0;">
+          <div style="font-weight:800; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            ${escapeHtml(it.original || it.nombre || ('Archivo #' + it.id))}
+            ${isActive ? `<span style="margin-left:8px; font-size:11px; padding:2px 8px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-weight:800;">Actual</span>` : ''}
+          </div>
+          <div class="muted" style="margin-top:2px;">
+            ${escapeHtml(it.mime || '')} • ${kb} KB
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px; flex-shrink:0;">
+          <a class="btn-blue" style="background:#10b981; padding:8px 12px; border-radius:12px;"
+             href="${API.descargarBase}/${it.id}">
+            Descargar
+          </a>
+
+          <button class="btn-blue" style="background:#111827; padding:8px 12px; border-radius:12px;"
+                  onclick="openModal(${it.id})">
+            Ver
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function getLoteItemsFor(item) {
+  const lid = item?.lote_id ?? '';
+  if (!lid) return [item];
+  return loteIndex[lid] || [item];
+}
 
       
 
   // --- MODAL EDITAR
   window.openModal = function(id){
-    const item = placasMap[id];
-    if (!item) return;
+  const item = placasMap[id];
+  if (!item) return;
 
-    modalItem = item;
+  modalItem = item;
 
-    const mime = item.mime || '';
-    const isImg = mime.startsWith('image/');
-    const isPdf = mime.includes('pdf');
+  // ✅ render preview actual
+  const mime = item.mime || '';
+  const isImg = mime.startsWith('image/');
+  const isPdf = mime.includes('pdf');
 
-    q('modalPreview').innerHTML = isImg
-      ? `<img src="${item.url}" style="width:100%;height:100%;object-fit:contain;">`
-      : isPdf
-        ? `<iframe src="${item.url}" style="width:100%;height:100%;border:0;"></iframe>`
-        : `<div style="height:100%;display:flex;align-items:center;justify-content:center;">
-             <div class="muted" style="padding:10px;text-align:center;">${escapeHtml(item.original || 'Archivo')}</div>
-           </div>`;
+  q('modalPreview').innerHTML = isImg
+    ? `<img src="${item.url}" style="width:100%;height:100%;object-fit:contain;">`
+    : isPdf
+      ? `<iframe src="${item.url}" style="width:100%;height:100%;border:0;"></iframe>`
+      : `<div style="height:100%;display:flex;align-items:center;justify-content:center;">
+           <div class="muted" style="padding:10px;text-align:center;">${escapeHtml(item.original || 'Archivo')}</div>
+         </div>`;
 
-    q('modalNombre').value = item.nombre || '';
-    q('modalFecha').textContent = formatFecha(item.created_at);
-    q('modalMsg').textContent = '';
+  q('modalNombre').value = item.nombre || '';
+  q('modalFecha').textContent = formatFecha(item.created_at);
+  q('modalMsg').textContent = '';
 
-    q('modalBackdrop').style.display = 'block';
-  }
+  // ✅ Archivos del conjunto (mismo lote)
+  const list = getLoteItemsFor(item);
+  const lid = item.lote_id ?? '';
+  if (q('modalLoteInfo')) q('modalLoteInfo').textContent = lid ? `Lote: ${lid}` : '';
+  renderModalArchivos(list, item.id);
+
+  q('modalBackdrop').style.display = 'block';
+}
+
+
 
   function closeModal(){
     q('modalBackdrop').style.display = 'none';

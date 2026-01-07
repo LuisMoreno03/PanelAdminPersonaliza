@@ -119,7 +119,10 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 // ====================================================
 // PLACAS (PROTEGIDO)
 // ====================================================
-$routes->group('placas', ['filter' => 'auth'], static function (RouteCollection $routes) {
+$routes->group('placas', ['filter' => 'auth'], static function ($routes) {
+    $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');   // lista por conjunto
+    $routes->get('descargar/(:num)', 'PlacasController::descargar/$1'); // descarga por id de archivo
+
     $routes->get('/', 'PlacasController::index');
 
     $routes->get('archivos/listar', 'PlacasArchivosController::listar');
