@@ -9,14 +9,17 @@ class PlacaArchivoModel extends Model
 {
     protected $table            = 'placas_archivos';
     protected $primaryKey       = 'id';
-    protected $allowedFields    = [
-        'conjunto_id',
-        'filename',
-        'original_name',
-        'mime',
-        'size',
-        'created_at',
-    ];
+    protected $allowedFields = [
+    'conjunto_id',
+    'filename',
+    'original_name',
+    'mime',
+    'size',
+    'created_at',
+    'nombre', // ← esto ES OBLIGATORIO
+];
+
+
     protected $useTimestamps    = false; // o true si lo manejas con CI
 }
 
