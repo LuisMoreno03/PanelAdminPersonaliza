@@ -47,7 +47,7 @@
         85px
         clamp(140px, 18vw, 220px)
         78px
-        160px
+        100px
         clamp(140px, 14vw, 190px)
         clamp(130px, 16vw, 200px)
         42px
