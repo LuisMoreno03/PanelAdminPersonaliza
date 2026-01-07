@@ -2,6 +2,8 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
+  <meta name="csrf-token" content="<?= csrf_hash() ?>">
+  <meta name="csrf-name" content="<?= csrf_token() ?>">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Placas - Panel</title>
 
@@ -189,6 +191,18 @@
 
 <script>
   const q = (id) => document.getElementById(id);
+
+function csrfPair() {
+  const name = document.querySelector('meta[name="csrf-name"]')?.getAttribute('content');
+  const hash = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+  return { name, hash };
+}
+
+function addCsrf(fd) {
+  const { name, hash } = csrfPair();
+  if (name && hash) fd.append(name, hash);
+  return fd;
+}
 
   const API = {
   listar: <?= json_encode(site_url('placas/archivos/listar')) ?>,
@@ -478,29 +492,46 @@ function getLoteItemsFor(item) {
   });
 
   q('btnGuardarNombre').addEventListener('click', async () => {
-    if (!modalItem) return;
-    const nuevo = q('modalNombre').value.trim();
-    if (!nuevo) { q('modalMsg').textContent = 'El nombre no puede estar vacío.'; return; }
+  if (!modalItem) return;
 
-    const fd = new FormData();
-    fd.append('id', modalItem.id);
-    fd.append('nombre', nuevo);
+  const nuevo = q('modalNombre').value.trim();
+  if (!nuevo) {
+    q('modalMsg').textContent = 'El nombre no puede estar vacío.';
+    return;
+  }
 
-    const res = await fetch(API.renombrar, { method:'POST', body: fd });
-    const data = await res.json();
+  const fd = addCsrf(new FormData());
+  fd.append('id', modalItem.id);
+  fd.append('nombre', nuevo);
 
-    q('modalMsg').textContent = data.message || (data.success ? 'Guardado' : 'Error');
-    if (data.success) await cargarLista();
+  const res = await fetch(API.renombrar, {
+    method: 'POST',
+    body: fd,
+    credentials: 'same-origin',
   });
+
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (e) {}
+
+  if (!res.ok) {
+    q('modalMsg').textContent = `Error (${res.status}): ${text.slice(0, 140)}`;
+    return;
+  }
+
+  q('modalMsg').textContent = data?.message || (data?.success ? 'Guardado' : 'Error');
+  if (data?.success) await cargarLista();
+});
 
   q('btnEliminarArchivo').addEventListener('click', async () => {
     if (!modalItem) return;
     if (!confirm('¿Eliminar esta placa?')) return;
 
-    const fd = new FormData();
+    const fd = addCsrf(new FormData());
     fd.append('id', modalItem.id);
 
-    const res = await fetch(API.eliminar, { method:'POST', body: fd });
+    const res = await fetch(API.eliminar, { method:'POST', body: fd, credentials:'same-origin' });
+
     const data = await res.json();
 
     if (data.success){
@@ -593,10 +624,11 @@ function getLoteItemsFor(item) {
   q('btnGuardarCarga').disabled = true;
   q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
 
-  const fd = new FormData();
-  fd.append('producto', producto);
-  fd.append('numero_placa', numero);
-  filesSeleccionados.forEach(file => fd.append('archivos[]', file));
+  const fd = addCsrf(new FormData());
+fd.append('producto', producto);
+fd.append('numero_placa', numero);
+filesSeleccionados.forEach(file => fd.append('archivos[]', file));
+
 
   const xhr = new XMLHttpRequest();
   xhr.open('POST', API.subir, true);
