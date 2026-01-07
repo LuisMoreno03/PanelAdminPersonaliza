@@ -568,12 +568,17 @@ function actualizarTabla(pedidos) {
               <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
               <div class="text-xs text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
 
-              <div class="text-right whitespace-nowrap">
-                <button onclick="verDetalles(${Number(id)})"
-                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide">
-                  Ver →
-                </button>
-              </div>
+             <div class="metodo-entrega text-xs text-slate-700">
+              ${escapeHtml(p.forma_envio ?? "-")}
+            </div>
+
+            <div class="text-right whitespace-nowrap">
+              <button onclick="verDetalles(${Number(id)})"
+                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+                Ver detalles →
+              </button>
+            </div>
+
             </div>`;
           })
           .join("");

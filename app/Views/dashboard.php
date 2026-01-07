@@ -37,24 +37,59 @@
     }
 
     /* ✅ Grid sin scroll para filas desktop (se adapta a ancho real) */
-    .orders-grid {
-      display: grid;
-      align-items: center;
-      gap: .75rem;
+    ./* ✅ Fuerza que el contenedor del listado no “recorte” */
+.table-wrap {
+  width: 100%;
+  max-width: 100%;
+}
 
-      grid-template-columns:
-        95px
-        85px
-        clamp(140px, 18vw, 220px)
-        78px
-        160px
-        clamp(140px, 14vw, 190px)
-        clamp(130px, 16vw, 200px)
-        42px
-        128px
-        clamp(120px, 14vw, 180px)
-        120px; /* ✅ Botón VER (antes 70px) */
-    }
+/* ✅ GRID responsive real (desktop) */
+.orders-grid {
+  display: grid;
+  align-items: center;
+  gap: .65rem;
+  width: 100%;
+}
+
+/* ✅ Header + rows usan la misma grilla */
+.orders-grid.cols {
+  grid-template-columns:
+    110px                     /* Pedido */
+    92px                      /* Fecha */
+    minmax(170px, 1.2fr)      /* Cliente */
+    90px                      /* Total */
+    160px                     /* Estado */
+    minmax(140px, 0.9fr)      /* Último cambio */
+    minmax(170px, 1fr)        /* Etiquetas */
+    44px                      /* Art */
+    140px                     /* Entrega */
+    minmax(190px, 1fr)        /* Método entrega */
+    130px;                    /* ✅ Ver detalles */
+}
+
+/* ✅ Importante: permite truncar sin romper el grid */
+.orders-grid > div {
+  min-width: 0;
+}
+
+/* ✅ Para el método de entrega: permite 2 líneas */
+.metodo-entrega {
+  white-space: normal;
+  line-height: 1.1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;       /* máximo 2 líneas */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ✅ Si quieres “ver todo sí o sí” cuando el monitor sea pequeño,
+   activa scroll solo en la tabla (opcional) */
+.table-scroll {
+  overflow-x: auto;
+}
+.table-scroll::-webkit-scrollbar { height: 10px; }
+.table-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+.table-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
 
 
 
@@ -118,12 +153,13 @@
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
           <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
             <div class="font-semibold text-slate-900">Listado de pedidos</div>
-            <div class="text-xs text-slate-500 hidden sm:block">Sin scroll horizontal · filas en una sola línea</div>
+            <div class="text-xs text-slate-500 hidden sm:block">Todo visible · responsive</div>
           </div>
 
-          <!-- DESKTOP GRID -->
-          <div class="desktop-orders">
-            <div class="orders-grid px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
+          <!-- ✅ Wrap que permite scroll opcional si hace falta -->
+          <div class="table-wrap table-scroll">
+            <!-- HEADER -->
+            <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
               <div>Pedido</div>
               <div>Fecha</div>
               <div>Cliente</div>
@@ -133,16 +169,18 @@
               <div>Etiquetas</div>
               <div class="text-center">Art</div>
               <div>Entrega</div>
-              <div>Metodo de entrega</div>
+              <div>Método de entrega</div>
               <div class="text-right">Ver</div>
             </div>
 
+            <!-- ROWS -->
             <div id="tablaPedidos" class="divide-y"></div>
           </div>
 
           <!-- MOBILE/TABLET CARDS -->
           <div id="cardsPedidos" class="mobile-orders p-4"></div>
         </section>
+
 
         <!-- PAGINACIÓN -->
         <section class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
