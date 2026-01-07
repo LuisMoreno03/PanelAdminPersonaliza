@@ -7,20 +7,28 @@ use CodeIgniter\Model;
 class PlacaArchivoModel extends Model
 
 {
-    protected $table            = 'placas_archivos';
-    protected $primaryKey       = 'id';
+    protected $table      = 'placas_archivos';
+    protected $primaryKey = 'id';
+
+    protected $returnType = 'array';
+    protected $useTimestamps = false;
+
     protected $allowedFields = [
-    'conjunto_id',
-    'filename',
-    'original_name',
-    'mime',
-    'size',
-    'created_at',
-    'nombre', // ← esto ES OBLIGATORIO
-];
+        'nombre',
+        'producto',
+        'numero_placa',
+        'original',
+        'ruta',
+        'mime',
+        'size',
+        'lote_id',
+        'lote_nombre',
+        'created_at',
+    ];
+}
 
 
     protected $useTimestamps    = false; // o true si lo manejas con CI
-}
+
 
 

@@ -138,8 +138,9 @@
       </div>
 
       <div style="display:flex; gap:10px; margin-top:14px; justify-content:flex-end;">
-        <button id="btnGuardarNombre" class="btn-blue">Guardar</button>
-        <button id="btnEliminarArchivo" class="btn-blue" style="background:#ef4444;">Eliminar</button>
+      <button id="btnGuardarNombre" type="button" class="btn-blue">Guardar</button>
+      <button id="btnEliminarArchivo" type="button" class="btn-blue" style="background:#ef4444;">Eliminar</button>
+
       </div>
 
       <div id="modalMsg" class="text-sm text-gray-500 mt-2"></div>
