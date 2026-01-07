@@ -10,6 +10,8 @@ let nextPageInfo = null;
 let prevPageInfo = null;
 let isLoading = false;
 let currentPage = 1;
+let silentFetch = false; // 👈 cuando true, NO muestra loader
+
 
 // ✅ cache local para actualizar estados sin recargar
 let ordersCache = [];
@@ -63,10 +65,12 @@ function jsonHeaders() {
    Loader global
 ===================================================== */
 function showLoader() {
+   if (silentFetch) return; // 👈 evita loader molesto
   const el = document.getElementById("globalLoader");
   if (el) el.classList.remove("hidden");
 }
 function hideLoader() {
+   if (silentFetch) return; // 👈 evita loader molesto
   const el = document.getElementById("globalLoader");
   if (el) el.classList.add("hidden");
 }
@@ -124,10 +128,12 @@ function startLive(ms = 20000) {
   if (liveInterval) clearInterval(liveInterval);
 
   liveInterval = setInterval(() => {
-    if (liveMode && currentPage === 1 && !isLoading) {
-      cargarPedidos({ reset: false, page_info: "" });
-    }
-  }, ms);
+  if (liveMode && currentPage === 1 && !isLoading) {
+    silentFetch = true; // 👈 NO loader
+    cargarPedidos({ reset: false, page_info: "" });
+  }
+}, ms);
+
 }
 
 function pauseLive() {
@@ -347,8 +353,10 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     .finally(() => {
       if (fetchToken !== lastFetchToken) return;
       isLoading = false;
+      silentFetch = false; // 👈 vuelve a normal
       hideLoader();
     });
+
 }
 
 /* =====================================================
@@ -815,6 +823,7 @@ window.guardarEstado = guardarEstado;
    DETALLES
 ===================================================== */
 window.verDetalles = async function (orderId) {
+  silentFetch = false;
   const id = String(orderId || "");
   if (!id) return;
 
