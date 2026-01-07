@@ -822,38 +822,272 @@ window.guardarEstado = guardarEstado;
 /* =====================================================
    DETALLES
 ===================================================== */
+let _detLastJson = null;
+
+function abrirDetallesFull() {
+  document.getElementById("modalDetallesFull")?.classList.remove("hidden");
+}
+function cerrarDetallesFull() {
+  document.getElementById("modalDetallesFull")?.classList.add("hidden");
+}
+
+function toggleJsonDetalles() {
+  const pre = document.getElementById("detJson");
+  if (pre) pre.classList.toggle("hidden");
+}
+
+async function copiarDetallesJson() {
+  try {
+    if (!_detLastJson) return alert("No hay JSON cargado.");
+    await navigator.clipboard.writeText(JSON.stringify(_detLastJson, null, 2));
+  } catch {
+    alert("No se pudo copiar.");
+  }
+}
+
+function money(amount, currency = "EUR") {
+  if (amount == null || amount === "") return "—";
+  const n = Number(amount);
+  if (isNaN(n)) return String(amount);
+  try {
+    return new Intl.NumberFormat("es-ES", { style: "currency", currency }).format(n);
+  } catch {
+    return `${n.toFixed(2)} ${currency}`;
+  }
+}
+
+function safeDate(dt) {
+  if (!dt) return "—";
+  const s = String(dt).includes("T") ? String(dt) : String(dt).replace(" ", "T");
+  const d = new Date(s);
+  if (isNaN(d)) return String(dt);
+  return d.toLocaleString("es-ES");
+}
+
+function renderKV(label, value) {
+  const v = (value == null || value === "") ? "—" : value;
+  return `
+    <div class="flex items-start justify-between gap-4 py-2 border-b border-slate-100 last:border-b-0">
+      <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">${escapeHtml(label)}</div>
+      <div class="text-sm font-semibold text-slate-900 text-right break-words">${escapeHtml(String(v))}</div>
+    </div>
+  `;
+}
+
+function renderAddress(a) {
+  if (!a) return `<div class="text-slate-500">—</div>`;
+  const parts = [
+    a.name,
+    a.company,
+    a.address1,
+    a.address2,
+    [a.zip, a.city].filter(Boolean).join(" "),
+    a.province,
+    a.country,
+    a.phone,
+  ].filter(Boolean);
+
+  return parts.length
+    ? `<div class="space-y-1">${parts.map(x => `<div>${escapeHtml(String(x))}</div>`).join("")}</div>`
+    : `<div class="text-slate-500">—</div>`;
+}
+
+function renderItem(item) {
+  const title = item?.title ?? "Producto";
+  const qty = item?.quantity ?? 0;
+  const price = item?.price ?? "";
+  const sku = item?.sku ?? "";
+  const vendor = item?.vendor ?? "";
+  const props = Array.isArray(item?.properties) ? item.properties : [];
+
+  const propsHtml = props.length
+    ? `<div class="mt-3 space-y-1">
+        ${props.map(p => {
+          const name = p?.name ?? "";
+          const value = p?.value ?? "";
+          const isImg = typeof value === "string" && /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(value);
+          if (isImg) {
+            return `
+              <div class="text-xs">
+                <div class="font-extrabold text-slate-700">${escapeHtml(name)}</div>
+                <img src="${escapeHtml(value)}" class="mt-2 w-full max-w-[260px] rounded-2xl border border-slate-200 shadow-sm" />
+              </div>`;
+          }
+          return `<div class="text-xs"><span class="font-extrabold text-slate-700">${escapeHtml(name)}:</span> ${escapeHtml(String(value))}</div>`;
+        }).join("")}
+      </div>`
+    : "";
+
+  return `
+    <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="font-extrabold text-slate-900">${escapeHtml(title)}</div>
+          <div class="text-xs text-slate-500 mt-1">
+            ${sku ? `SKU: ${escapeHtml(sku)} · ` : ""}${vendor ? `Proveedor: ${escapeHtml(vendor)} · ` : ""}
+            Cant: <b>${escapeHtml(String(qty))}</b>
+          </div>
+        </div>
+        <div class="text-right whitespace-nowrap">
+          <div class="text-sm font-extrabold text-slate-900">${escapeHtml(String(price))} €</div>
+        </div>
+      </div>
+      ${propsHtml}
+    </div>
+  `;
+}
+
+function renderDetalles(order) {
+  const name = order?.name ?? `#${order?.id ?? "—"}`;
+  const created = safeDate(order?.created_at);
+  const email = order?.email ?? order?.contact_email ?? "—";
+  const phone = order?.phone ?? "—";
+  const tags = order?.tags ? String(order.tags) : "";
+  const fin = order?.financial_status ?? "—";
+  const full = order?.fulfillment_status ?? "—";
+  const currency = order?.currency ?? "EUR";
+
+  const customerName = (() => {
+    const c = order?.customer;
+    const n = [c?.first_name, c?.last_name].filter(Boolean).join(" ").trim();
+    return n || "—";
+  })();
+
+  // Header
+  const t = document.getElementById("detTitle");
+  const st = document.getElementById("detSubtitle");
+  if (t) t.textContent = `${name}`;
+  if (st) st.textContent = `${customerName} · ${created}`;
+
+  // Cliente
+  const detCliente = document.getElementById("detCliente");
+  if (detCliente) {
+    detCliente.innerHTML = `
+      ${renderKV("Nombre", customerName)}
+      ${renderKV("Email", email)}
+      ${renderKV("Teléfono", phone)}
+      ${renderKV("ID Shopify", order?.id ?? "—")}
+    `;
+  }
+
+  // Envío
+  const detEnvio = document.getElementById("detEnvio");
+  const ship = order?.shipping_address ?? null;
+  const bill = order?.billing_address ?? null;
+  const shipLines = Array.isArray(order?.shipping_lines) ? order.shipping_lines : [];
+
+  if (detEnvio) {
+    detEnvio.innerHTML = `
+      <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Dirección de envío</div>
+      ${renderAddress(ship)}
+      <div class="mt-4 text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Método</div>
+      <div class="space-y-1">
+        ${(shipLines.length ? shipLines : [{ title: "—", price: "" }]).map(l => `
+          <div class="flex items-center justify-between gap-3">
+            <div class="text-sm font-semibold text-slate-900">${escapeHtml(l?.title ?? "—")}</div>
+            <div class="text-sm font-extrabold text-slate-900">${l?.price ? money(l.price, currency) : "—"}</div>
+          </div>
+        `).join("")}
+      </div>
+      <div class="mt-4 text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Dirección de facturación</div>
+      ${renderAddress(bill)}
+    `;
+  }
+
+  // Totales
+  const detTotales = document.getElementById("detTotales");
+  if (detTotales) {
+    detTotales.innerHTML = `
+      ${renderKV("Subtotal", money(order?.subtotal_price, currency))}
+      ${renderKV("Impuestos", money(order?.total_tax, currency))}
+      ${renderKV("Envío", money(order?.total_shipping_price_set?.shop_money?.amount ?? "", currency))}
+      ${renderKV("Descuentos", money(order?.total_discounts, currency))}
+      <div class="pt-3 mt-3 border-t border-slate-200 flex items-center justify-between">
+        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Total</div>
+        <div class="text-lg font-extrabold text-slate-900">${money(order?.total_price, currency)}</div>
+      </div>
+    `;
+  }
+
+  // Resumen
+  const detResumen = document.getElementById("detResumen");
+  if (detResumen) {
+    detResumen.innerHTML = `
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Pago</div>
+          <div class="mt-1 text-sm font-extrabold text-slate-900">${escapeHtml(fin)}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Envío</div>
+          <div class="mt-1 text-sm font-extrabold text-slate-900">${escapeHtml(full)}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:col-span-2">
+          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Tags</div>
+          <div class="mt-2 text-sm font-semibold text-slate-900 break-words">
+            ${tags ? escapeHtml(tags) : "<span class='text-slate-500'>—</span>"}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Items
+  const items = Array.isArray(order?.line_items) ? order.line_items : [];
+  const detItems = document.getElementById("detItems");
+  const detItemsCount = document.getElementById("detItemsCount");
+  if (detItemsCount) detItemsCount.textContent = `${items.length} items`;
+  if (detItems) detItems.innerHTML = items.length ? items.map(renderItem).join("") : `<div class="text-slate-500">Sin items</div>`;
+
+  // JSON
+  const pre = document.getElementById("detJson");
+  if (pre) pre.textContent = JSON.stringify(order, null, 2);
+}
+
 window.verDetalles = async function (orderId) {
-  silentFetch = false;
   const id = String(orderId || "");
   if (!id) return;
 
-  const url = apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`);
+  // abre modal
+  abrirDetallesFull();
 
-  const modal = document.getElementById("modalDetalles");
-  const pre = document.getElementById("modalDetallesJson");
+  // placeholders
+  document.getElementById("detTitle").textContent = "Cargando...";
+  document.getElementById("detSubtitle").textContent = "—";
+  document.getElementById("detCliente").innerHTML = "";
+  document.getElementById("detEnvio").innerHTML = "";
+  document.getElementById("detTotales").innerHTML = "";
+  document.getElementById("detResumen").innerHTML = "";
+  document.getElementById("detItems").innerHTML = `<div class="text-slate-500">Cargando...</div>`;
+  document.getElementById("detItemsCount").textContent = "…";
+  document.getElementById("detJson").textContent = "";
+  _detLastJson = null;
 
   try {
+    // loader SOLO aquí (acción usuario)
+    silentFetch = false;
     showLoader();
+
+    const url = apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`);
     const r = await fetch(url, { headers: { Accept: "application/json" } });
     const d = await r.json().catch(() => null);
 
     if (!r.ok || !d) throw new Error(`HTTP ${r.status}`);
+    if (d.success !== true) throw new Error(d.message || "No se pudo cargar el pedido.");
 
-    if (modal && pre) {
-      pre.textContent = JSON.stringify(d, null, 2);
-      modal.classList.remove("hidden");
-      return;
-    }
+    const order = d.order || d.data || d;
+    _detLastJson = order;
 
-    window.open(url, "_blank");
+    renderDetalles(order);
   } catch (e) {
-    console.error("verDetalles error:", e);
-    alert("No se pudieron cargar los detalles del pedido.");
+    console.error(e);
+    document.getElementById("detItems").innerHTML =
+      `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa consola / endpoint.</div>`;
   } finally {
     hideLoader();
   }
 };
-
+  
 /* =====================================================
    USERS STATUS
 ===================================================== */
