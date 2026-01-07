@@ -80,9 +80,21 @@
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2">
-        <button id="btnAbrirModalCarga" class="btn-blue">Cargar placa</button>
-      </div>
+    <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+  
+    <!-- ✅ Buscador -->
+  <div class="relative w-full md:w-[340px]">
+    <input id="searchInput" type="text" placeholder="Buscar lote o archivo..."
+      class="w-full border border-gray-200 rounded-xl px-4 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-200">
+    <button id="searchClear" type="button"
+      class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 hidden">
+      ✕
+    </button>
+  </div>
+
+  <button id="btnAbrirModalCarga" class="btn-blue whitespace-nowrap">Cargar placa</button>
+</div>
+
 
     </div>
 
@@ -129,7 +141,7 @@
 
     <div class="space-y-3">
       <input id="cargaProducto" type="text" placeholder="Producto" class="w-full border rounded-xl px-3 py-2">
-      <input id="cargaNumero" type="text" placeholder="Número de placa" class="w-full border rounded-xl px-3 py-2">
+    <input id="cargaNumero" type="text" placeholder="Número de placa" class="w-full border rounded-xl px-3 py-2">
 
       <!-- ✅ Acepta cualquier archivo -->
       <input id="cargaArchivo" type="file" multiple class="w-full" accept="*/*">
@@ -144,9 +156,25 @@
       <button id="btnGuardarCarga" class="btn-blue">Guardar</button>
     </div>
 
+<!-- ✅ Barra de progreso DENTRO del modal -->
+    <div id="uploadProgressWrap" class="mt-4 hidden">
+      <div class="w-full bg-gray-100 border border-gray-200 rounded-full h-3 overflow-hidden">
+        <div id="uploadProgressBar"
+             class="bg-blue-600 h-3 rounded-full transition-[width] duration-150"
+             style="width:0%">
+        </div>
+      </div>
+      <div class="muted mt-1 flex items-center justify-between">
+        <span id="uploadProgressLabel">Subiendo…</span>
+        <span id="uploadProgressText" class="font-black">0%</span>
+      </div>
+    </div>
+
     <div id="cargaMsg" class="muted mt-2"></div>
   </div>
 </div>
+
+
 
 <script>
   const q = (id) => document.getElementById(id);
@@ -163,6 +191,9 @@
 
   // ✅ mapa global para que openModal funcione aunque sea listado por grupos
   let placasMap = {}; // { id: item }
+let allData = null;
+let searchTerm = '';
+
 
   function escapeHtml(str) {
     return (str || '').replace(/[&<>"']/g, s => ({
@@ -211,70 +242,125 @@
     }catch(e){}
   }
 
-  // ✅ LISTA soporta: data.grupos o data.items
-  async function cargarLista(){
-    try{
-      const res = await fetch(API.listar, { cache:'no-store' });
-      const data = await res.json();
+function normalizeText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
+    .trim();
+}
 
-      if (!data.success) {
-        q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
-        return;
-      }
+function itemMatches(it, term) {
+  if (!term) return true;
+  const hay = normalizeText([
+    it.nombre,
+    it.original,
+    it.id,
+    it.mime,
+    it.url
+  ].join(' '));
+  return hay.includes(term);
+}
 
-      placasMap = {};
+function groupMatches(g, term) {
+  if (!term) return true;
+  const hay = normalizeText([
+    g.lote_nombre,
+    g.lote_id,
+    g.created_at
+  ].join(' '));
+  return hay.includes(term);
+}
 
-      // ====== AGRUPADO ======
-      if (Array.isArray(data.grupos)) {
-        const grupos = data.grupos;
+function renderFromData(data) {
+  placasMap = {};
 
-        if (!grupos.length) {
-          q('grid').innerHTML = '<div class="muted">Aún no hay placas subidas.</div>';
-          return;
-        }
-
-        // llenar mapa por ID
-        grupos.forEach(g => (g.items || []).forEach(it => { placasMap[it.id] = it; }));
-
-        q('grid').innerHTML = grupos.map(g => {
-          const titulo = g.lote_nombre || g.lote_id || 'Lote';
-          const fecha = g.created_at ? formatFecha(g.created_at) : '';
-
-          const cards = (g.items || []).map(renderCard).join('');
-
-          return `
-            <div style="grid-column: 1 / -1; background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:12px;">
-              <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-                <div style="font-weight:900;">📦 ${escapeHtml(titulo)}</div>
-                <div class="muted">${escapeHtml(fecha)}</div>
-              </div>
-              <div style="margin-top:10px; display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
-                ${cards}
-              </div>
-            </div>
-          `;
-        }).join('');
-
-        return;
-      }
-
-      // ====== SIN AGRUPAR (compat) ======
-      if (Array.isArray(data.items)) {
-        const items = data.items || [];
-        items.forEach(it => { placasMap[it.id] = it; });
-
-        q('grid').innerHTML = items.length
-          ? items.map(renderCard).join('')
-          : '<div class="muted">Aún no hay placas subidas.</div>';
-        return;
-      }
-
-      q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
-
-    } catch(e){
-      q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
-    }
+  if (!data || !data.success) {
+    q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
+    return;
   }
+
+  const term = normalizeText(searchTerm);
+
+  // ====== AGRUPADO ======
+  if (Array.isArray(data.grupos)) {
+    let grupos = data.grupos || [];
+
+    // llenar mapa por ID (del set completo, para openModal)
+    grupos.forEach(g => (g.items || []).forEach(it => { placasMap[it.id] = it; }));
+
+    // filtro
+    if (term) {
+      grupos = grupos
+        .map(g => {
+          const items = (g.items || []).filter(it => itemMatches(it, term));
+          const gm = groupMatches(g, term);
+          // si coincide el lote, mostramos todo el lote; si no, solo los items que coinciden
+          return gm ? g : { ...g, items };
+        })
+        .filter(g => groupMatches(g, term) || (g.items || []).length > 0);
+    }
+
+    if (!grupos.length) {
+      q('grid').innerHTML = `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
+      return;
+    }
+
+    q('grid').innerHTML = grupos.map(g => {
+      const titulo = g.lote_nombre || g.lote_id || 'Lote';
+      const fecha = g.created_at ? formatFecha(g.created_at) : '';
+      const cards = (g.items || []).map(renderCard).join('');
+
+      return `
+        <div style="grid-column: 1 / -1; background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:12px;">
+          <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+            <div style="font-weight:900;">📦 ${escapeHtml(titulo)}</div>
+            <div class="muted">${escapeHtml(fecha)}</div>
+          </div>
+          <div style="margin-top:10px; display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
+            ${cards || '<div class="muted">Sin archivos en este lote.</div>'}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return;
+  }
+
+  // ====== SIN AGRUPAR (compat) ======
+  if (Array.isArray(data.items)) {
+    let items = data.items || [];
+    items.forEach(it => { placasMap[it.id] = it; });
+
+    if (term) {
+      items = items.filter(it => itemMatches(it, term));
+    }
+
+    q('grid').innerHTML = items.length
+      ? items.map(renderCard).join('')
+      : `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
+    return;
+  }
+
+  q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
+}
+
+  // ✅ LISTA soporta: data.grupos o data.items
+async function cargarLista(){
+  try{
+    const res = await fetch(API.listar, { cache:'no-store' });
+    const data = await res.json();
+
+    allData = data;
+    renderFromData(data);
+  } catch(e){
+    q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
+  }
+
+}
+
+
+
+      
 
   // --- MODAL EDITAR
   window.openModal = function(id){
@@ -410,50 +496,104 @@
     q('cargaArchivo').dispatchEvent(new Event('change'));
   };
 
-  q('btnGuardarCarga').addEventListener('click', async () => {
-    const producto = q('cargaProducto').value.trim();
-    const numero   = q('cargaNumero').value.trim();
+ q('btnGuardarCarga').addEventListener('click', () => {
+  const producto = q('cargaProducto').value.trim();
+ const numero   = q('cargaNumero').value.trim();
 
-    if (!numero) { q('cargaMsg').textContent = 'Número de placa es obligatorio.'; return; }
-    if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
+  if (!numero) { q('cargaMsg').textContent = 'Número de placa es obligatorio.'; return; }
+  if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
 
-    q('btnGuardarCarga').disabled = true;
-    q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s) como un solo lote...`;
+  const wrap = q('uploadProgressWrap');
+  const bar  = q('uploadProgressBar');
+  const txt  = q('uploadProgressText');
 
-    // ✅ UNA SOLA REQUEST con archivos[] para que el backend cree 1 lote_id
-    
+  wrap.classList.remove('hidden');
+  bar.style.width = '0%';
+  txt.textContent = '0%';
+
+  q('btnGuardarCarga').disabled = true;
+  q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
+
   const fd = new FormData();
-    fd.append('producto', producto);
-    fd.append('numero_placa', numero);
+  fd.append('producto', producto);
+  fd.append('numero_placa', numero);
+  filesSeleccionados.forEach(file => fd.append('archivos[]', file));
 
-    filesSeleccionados.forEach(file => {
-      fd.append('archivos[]', file);
-    });
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', API.subir, true);
 
-    const res = await fetch(API.subir, { method:'POST', body: fd });
-    const data = await res.json();
+  xhr.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
+    const percent = Math.round((e.loaded / e.total) * 100);
+    bar.style.width = percent + '%';
+    txt.textContent = percent + '%';
+  };
 
+  xhr.onload = () => {
     q('btnGuardarCarga').disabled = false;
 
-  
-  if (!data.success) {
-      q('cargaMsg').textContent = data.message || 'Error al subir';
+    let data = null;
+    try { data = JSON.parse(xhr.responseText); } catch (e) {}
+
+    if (xhr.status !== 200 || !data || !data.success) {
+      q('cargaMsg').textContent = (data && data.message) ? data.message : 'Error al subir';
       return;
     }
 
-    q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
+    bar.style.width = '100%';
+    txt.textContent = '100%';
+   q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
 
-    // cerrar + limpiar
-    modalCarga.classList.add('hidden');
-    q('cargaArchivo').value = '';
-    filesSeleccionados = [];
-    q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
+    setTimeout(() => {
+      modalCarga.classList.add('hidden');
+      wrap.classList.add('hidden');
 
-    await cargarStats();
-    await cargarLista();
+      q('cargaArchivo').value = '';
+      filesSeleccionados = [];
+      q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
+
+      cargarStats();
+      cargarLista();
+    }, 600);
+  };
+
+  xhr.onerror = () => {
+    q('btnGuardarCarga').disabled = false;
+    q('cargaMsg').textContent = 'Error de red al subir.';
+  };
+
+  xhr.send(fd);
+});
+
+
+// ✅ Buscador (filtra sin pedirle nada al backend)
+const searchInput = q('searchInput');
+const searchClear = q('searchClear');
+
+let searchT = null;
+function applySearch(v) {
+  searchTerm = v || '';
+  if (searchClear) searchClear.classList.toggle('hidden', !searchTerm.trim());
+  if (allData) renderFromData(allData);
+}
+
+if (searchInput) {
+  searchInput.addEventListener('input', (e) => {
+    const v = e.target.value;
+    clearTimeout(searchT);
+    searchT = setTimeout(() => applySearch(v), 120);
   });
+}
 
-  // Inicial
+if (searchClear) {
+  searchClear.addEventListener('click', () => {
+    searchInput.value = '';
+    applySearch('');
+    searchInput.focus();
+  });
+}
+
+// Inicial
   cargarStats();
   cargarLista();
 
