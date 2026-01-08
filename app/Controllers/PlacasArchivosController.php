@@ -61,14 +61,14 @@ public function stats()
         $db = \Config\Database::connect();
 
         // Detectar si existe created_at
-        $fields = $db->getFieldNames('placas_archivos'); // <- cambia al nombre real de tu tabla
+        $fields = $db->getFieldNames('placas'); // <- cambia al nombre real de tu tabla
         $hasCreatedAt = in_array('created_at', $fields, true);
 
         if (!$hasCreatedAt) {
             return $this->response->setJSON([
                 'success' => true,
                 'data' => [
-                    'total' => $db->table('placas.php')->countAllResults()
+                    'total' => $db->table('placas')->countAllResults()
                 ]
             ]);
         }
