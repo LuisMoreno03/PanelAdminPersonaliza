@@ -9,29 +9,96 @@ class PlacasArchivosController extends BaseController
 
 
 {
-   
-   public function listar()
+
+public function listar()
 {
     try {
         helper('url');
 
-        $model = new \App\Models\PlacaArchivoModel();
-        $items = $model->orderBy('id','DESC')->findAll();
+        $model = new PlacaArchivoModel();
+        $items = $model->orderBy('id', 'DESC')->findAll();
 
         foreach ($items as &$it) {
             $ruta = $it['ruta'] ?? '';
             $it['url'] = $ruta ? base_url($ruta) : null;
+
             $it['created_at'] = $it['created_at'] ?? null;
 
             $it['original'] = $it['original'] ?? ($it['original_name'] ?? ($it['filename'] ?? null));
             $it['nombre']   = $it['nombre']   ?? ($it['original'] ? pathinfo($it['original'], PATHINFO_FILENAME) : null);
 
-            $it['lote_id']  = $it['lote_id'] ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
+            // compat id
+            $it['lote_id'] = $it['lote_id'] ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
+
+            // evita "Undefined array key lote_nombre"
+            $it['lote_nombre'] = $it['lote_nombre'] ?? null;
+        }
+        unset($it);
+
+        // ✅ agrupar por lote_id (DENTRO del método)
+        $grupos = [];
+        foreach ($items as $it) {
+            $key = !empty($it['lote_id']) ? $it['lote_id'] : 'SIN_LOTE';
+
+            if (!isset($grupos[$key])) {
+                $grupos[$key] = [
+                    'lote_id'     => $key,
+                    'lote_nombre' => $it['lote_nombre'],
+                    'created_at'  => $it['created_at'],
+                    'items'       => [],
+                ];
+            }
+            $grupos[$key]['items'][] = $it;
         }
 
-        return $this->response->setJSON(['success'=>true,'data'=>$items]);
+        return $this->response->setJSON([
+            'success' => true,
+            'grupos'  => array_values($grupos),
+        ]);
     } catch (\Throwable $e) {
-        log_message('error', 'listar() ERROR: {msg} | {file}:{line}', [
+        log_message('error', 'PlacasArchivosController::listar ERROR: {msg} | {file}:{line}', [
+            'msg'  => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => $e->getMessage(),
+        ]);
+    }
+  }
+
+}
+
+ 
+    public function stats()
+{
+    try {
+        $model = new PlacaArchivoModel();
+
+        $total = $model->countAllResults(false);
+
+        $hasCreatedAt = $model->db->fieldExists('created_at', $model->getTable());
+        $totalHoy = 0;
+
+        if ($hasCreatedAt) {
+            $hoyInicio = date('Y-m-d 00:00:00');
+            $hoyFin    = date('Y-m-d 23:59:59');
+
+            $totalHoy = $model
+                ->where('created_at >=', $hoyInicio)
+                ->where('created_at <=', $hoyFin)
+                ->countAllResults();
+        }
+
+        return $this->response->setJSON([
+            'success'  => true,
+            'total'    => $total,
+            'totalHoy' => $totalHoy,
+        ]);
+    } catch (\Throwable $e) {
+        log_message('error', 'PlacasArchivosController::stats ERROR: {msg} | {file}:{line}', [
             'msg'  => $e->getMessage(),
             'file' => $e->getFile(),
             'line' => $e->getLine(),
@@ -44,53 +111,6 @@ class PlacasArchivosController extends BaseController
     }
 }
 
-    // agrupar por lote_id
-    $grupos = [];
-    foreach ($items as $it) {
-        $key = $it['lote_id'] ?: 'SIN_LOTE';
-
-        if (!isset($grupos[$key])) {
-            $grupos[$key] = [
-                'lote_id'     => $key,
-                'lote_nombre' => $it['lote_nombre'],
-                'created_at'  => $it['created_at'],
-                'items'       => [],
-            ];
-        }
-        $grupos[$key]['items'][] = $it;
-    }
-
-    return $this->response->setJSON([
-        'success' => true,
-        'grupos'  => array_values($grupos),
-    ]);
-}
-
-
- 
-    public function stats()
-{
-    $model = new PlacaArchivoModel();
-
-    // ✅ si no tienes created_at, devolvemos 0 sin romper
-    // (o si prefieres, quita este bloque)
-    try {
-        $hoyInicio = date('Y-m-d 00:00:00');
-        $hoyFin    = date('Y-m-d 23:59:59');
-
-        $totalHoy = $model
-            ->where('created_at >=', $hoyInicio)
-            ->where('created_at <=', $hoyFin)
-            ->countAllResults();
-    } catch (\Throwable $e) {
-        $totalHoy = 0;
-    }
-
-    return $this->response->setJSON([
-        'success'  => true,
-        'totalHoy' => $totalHoy,
-    ]);
-}
 
 
 

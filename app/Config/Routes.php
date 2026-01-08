@@ -119,11 +119,15 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 // ====================================================
 // PLACAS (PROTEGIDO)
 // ====================================================
-$routes->group('placas', ['filter' => 'auth'], static function ($routes) {
+$routes->group('placas', ['filter' => 'auth'], static function ($routes)) {
+
     $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');   // lista por conjunto
     $routes->get('descargar/(:num)', 'PlacasController::descargar/$1'); // descarga por id de archivo
 
     $routes->get('/', 'PlacasController::index');
+}
+
+    $routes->group('archivos', static function($routes) {
 
     $routes->get('archivos/listar', 'PlacasArchivosController::listar');
     $routes->get('archivos/stats',  'PlacasArchivosController::stats');
@@ -133,7 +137,7 @@ $routes->group('placas', ['filter' => 'auth'], static function ($routes) {
     $routes->post('archivos/eliminar',  'PlacasArchivosController::eliminar');
 
     $routes->post('archivos/lote/renombrar', 'PlacasArchivosController::renombrarLote');
-    $routes->post('archivos/lote/eliminar', 'PlacasArchivosController::eliminarLote');
+    $routes->post('archivos/lote/eliminar', 'PlacasArchivosController::eliminarLote')
 });
 
 // ----------------------------------------------------
