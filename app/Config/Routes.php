@@ -44,6 +44,8 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     // ✅ Legacy (si existen)
     $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
     $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
+    $routes->post('api/pedidos/imagenes/subir', 'PedidosImagenesController::subir', ['filter' => 'auth']);
+
 });
 
 // ====================================================

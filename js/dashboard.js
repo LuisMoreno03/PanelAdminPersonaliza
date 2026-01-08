@@ -1331,48 +1331,71 @@ window.verDetalles = async function (orderId) {
 // ===============================
 // SUBIR IMAGEN MODIFICADA + AUTO ESTADO
 // ===============================
-window.subirImagenProducto = function (orderId, index, input) {
-  if (!input?.files?.length) return;
-  const file = input.files[0];
+window.subirImagenProducto = async function (orderId, index, inputEl) {
+  const id = String(orderId || "");
+  if (!id) return;
 
-  // preview
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const prev = document.getElementById(`preview_${orderId}_${index}`);
-    if (prev) {
-      prev.innerHTML = `<img src="${e.target.result}" class="w-40 mt-2 rounded-2xl border border-slate-200 shadow-sm">`;
+  const file = inputEl?.files?.[0];
+  if (!file) return;
+
+  // preview rápido
+  const prev = document.getElementById(`preview_${id}_${index}`);
+  if (prev) {
+    const url = URL.createObjectURL(file);
+    prev.innerHTML = `
+      <div class="text-xs font-extrabold text-slate-500 mb-2">Vista previa</div>
+      <img src="${url}" class="h-36 w-36 rounded-2xl border border-slate-200 object-cover shadow-sm">
+      <div class="text-xs text-slate-500 mt-2">Subiendo…</div>
+    `;
+  }
+
+  try {
+    const fd = new FormData();
+    fd.append("order_id", id);
+    fd.append("index", String(index));
+    fd.append("file", file);
+
+    const url =
+      typeof apiUrl === "function"
+        ? apiUrl("/api/pedidos/imagenes/subir")
+        : "/index.php/api/pedidos/imagenes/subir";
+
+    const r = await fetch(url, { method: "POST", body: fd });
+    const d = await r.json().catch(() => null);
+
+    if (!r.ok || !d?.success) {
+      if (prev) prev.innerHTML = `<div class="text-rose-600 font-extrabold">Error: ${escapeHtml(d?.message || "no se pudo subir")}</div>`;
+      return;
     }
-  };
-  reader.readAsDataURL(file);
 
-  const form = new FormData();
-  form.append("orderId", String(orderId));
-  form.append("index", String(index));
-  form.append("file", file);
+    // ✅ guarda en memoria local (para re-render sin recargar)
+    if (!window.imagenesLocales) window.imagenesLocales = {};
+    window.imagenesLocales[index] = d.url;
 
-  fetch("/index.php/dashboard/subirImagenProducto", { method: "POST", body: form })
-    .then((r) => r.json())
-    .then((res) => {
-      if (!res?.success) {
-        alert("Error subiendo imagen");
-        return;
+    // ✅ si backend te devuelve “imagenes_locales” completo, úsalo
+    if (d.imagenes_locales) window.imagenesLocales = d.imagenes_locales;
+
+    // 🔥 actualiza estado del pedido automático
+    // d.estado_auto puede ser "Producción" o "A medias"
+    if (d.estado_auto) {
+      // si ya tienes guardarEstado funcionando, úsalo
+      if (typeof guardarEstado === "function") {
+        await guardarEstado(d.estado_auto);
       }
+    }
 
-      // Guardar local y marcar cargada
-      window.imagenesLocales = window.imagenesLocales || {};
-      window.imagenesLocales[index] = res.url;
+    // ✅ re-render del modal actual: vuelve a cargar detalles (sin cerrar)
+    // (más simple y robusto)
+    await window.verDetalles(id);
 
-      window.imagenesCargadas = window.imagenesCargadas || [];
-      window.imagenesCargadas[index] = true;
-
-      // Re-evaluar estado automático
-      validarEstadoAuto(orderId);
-    })
-    .catch((e) => {
-      console.error(e);
-      alert("Error de red subiendo imagen");
-    });
+  } catch (e) {
+    console.error(e);
+    if (prev) prev.innerHTML = `<div class="text-rose-600 font-extrabold">Error de red subiendo imagen.</div>`;
+  } finally {
+    inputEl.value = ""; // limpia input
+  }
 };
+
 
 function validarEstadoAuto(orderId) {
   const req = window.imagenesRequeridas || [];
