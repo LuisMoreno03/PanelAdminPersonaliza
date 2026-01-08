@@ -281,59 +281,76 @@ class DashboardController extends Controller
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
     // ============================================================
     // ✅ Aquí: procesa imágenes y define estado
-    
-
-    public function detalles($orderId)
-    {   
-        $this->procesarImagenesYEstado($order);
-
-        // ✅ responder
-        return $this->response->setJSON([
-        'success' => true,
-        'order' => $order,
-        'imagenes_locales' => $order['imagenes_locales'] ?? [],
-        ]);
-        $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/{$orderId}.json";
-        $resp = $this->curlShopify($url, 'GET');
-
-        if ($resp['status'] === 0 || !empty($resp['error'])) {
-            return $this->response->setJSON([
-                "success" => false,
-                "message" => "Error conectando con Shopify (cURL)",
-                "curl_error" => $resp['error'],
-            ]);
-        }
-
-        $data = json_decode($resp['body'], true) ?: [];
-        if (!isset($data["order"])) {
-            return $this->response->setJSON([
-                "success" => false,
-                "message" => "Shopify no devolvió el pedido",
-                "raw"     => $data
-            ]);
-        }
-
-        $order = $data["order"];
-
-        // leer imágenes locales
-        $folder = FCPATH . "uploads/pedidos/$orderId/";
-        $imagenesLocales = [];
-
-        if (is_dir($folder)) {
-            foreach (scandir($folder) as $archivo) {
-                if ($archivo === "." || $archivo === "..") continue;
-                $parts = explode(".", $archivo);
-                $index = intval($parts[0]);
-                $imagenesLocales[$index] = base_url("uploads/pedidos/$orderId/$archivo");
-            }
-        }
-
-        return $this->response->setJSON([
-            "success"          => true,
-            "order"            => $order,
-            "imagenes_locales" => $imagenesLocales
+ public function detalles($orderId)
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setStatusCode(401)->setJSON([
+            'success' => false,
+            'message' => 'No autenticado',
         ]);
     }
+
+    try {
+        // ==========================
+        // 1) Shopify
+        // ==========================
+        $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
+        $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
+        $apiVersion = '2024-01';
+
+        $shop = preg_replace('#^https?://#', '', $shop);
+        $shop = preg_replace('#/.*$#', '', $shop);
+
+        $url = "https://{$shop}/admin/api/{$apiVersion}/orders/{$orderId}.json";
+
+        $client = \Config\Services::curlrequest([
+            'timeout' => 30,
+            'http_errors' => false,
+        ]);
+
+        $resp = $client->get($url, [
+            'headers' => [
+                'X-Shopify-Access-Token' => $token,
+                'Accept' => 'application/json',
+            ],
+        ]);
+
+        if ($resp->getStatusCode() >= 400) {
+            throw new \Exception('Error Shopify');
+        }
+
+        $json = json_decode($resp->getBody(), true);
+        $order = $json['order'] ?? null;
+
+        if (!$order) {
+            throw new \Exception('Pedido no encontrado');
+        }
+
+        // ==========================
+        // 2) PROCESAR IMÁGENES + ESTADO AUTOMÁTICO
+        // (esto es lo que te pasé antes)
+        // ==========================
+        $this->procesarImagenesYEstado($order);
+
+        // ==========================
+        // 3) RESPUESTA CORRECTA
+        // ==========================
+        return $this->response->setJSON([
+            'success' => true,
+            'order'   => $order,
+        ]);
+
+    } catch (\Throwable $e) {
+        log_message('error', 'DETALLES ERROR: ' . $e->getMessage());
+
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'Error cargando detalles',
+            'error'   => $e->getMessage(),
+        ]);
+    }
+}
+
 
     // ============================================================
     // ✅ BADGE DEL ESTADO (colores nuevos)
