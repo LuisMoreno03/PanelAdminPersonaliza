@@ -7,30 +7,27 @@ use CodeIgniter\HTTP\ResponseInterface;
 
 class PlacasController extends BaseController
 {
-    /**
-     * Vista principal de Placas
-     */
     public function index()
     {
-        return view('placas'); // ajusta si tu vista tiene otro nombre
+        return view('placas');
     }
 
     /**
-     * Lista archivos por conjunto
-     * GET /placas/{conjuntoId}/archivos
+     * Lista archivos por lote
+     * GET /placas/{loteId}/archivos
      */
-    public function archivos(int $conjuntoId): ResponseInterface
+    public function archivos(int $loteId): ResponseInterface
     {
         $m = new PlacaArchivoModel();
 
-        $rows = $m->where('conjunto_id', $conjuntoId)
+        $rows = $m->where('lote_id', $loteId)
                   ->orderBy('id', 'DESC')
                   ->findAll();
 
         $items = array_map(function ($r) {
             return [
                 'id'            => (int) $r['id'],
-                'original_name' => (string) ($r['original_name'] ?? ''),
+                'original_name' => (string) ($r['original'] ?? $r['nombre'] ?? ''),
                 'mime'          => (string) ($r['mime'] ?? ''),
                 'size'          => (int) ($r['size'] ?? 0),
                 'created_at'    => (string) ($r['created_at'] ?? ''),
@@ -57,17 +54,36 @@ class PlacasController extends BaseController
             return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
         }
 
-        $conjuntoId = (int) $r['conjunto_id'];
-        $filename   = (string) $r['filename'];
-        $origName   = (string) ($r['original_name'] ?: $filename);
+        $loteId = (int) ($r['lote_id'] ?? 0);
+        $ruta   = (string) ($r['ruta'] ?? '');
+        $nombre = (string) ($r['nombre'] ?? '');
 
-        // ✅ AJUSTA ESTA RUTA a donde guardas tus archivos realmente
-        $path = WRITEPATH . 'uploads/placas/' . $conjuntoId . '/' . $filename;
-
-        if (!is_file($path)) {
-            return $this->response->setStatusCode(404)->setBody('Archivo físico no encontrado');
+        if ($loteId <= 0) {
+            return $this->response->setStatusCode(400)->setBody('Falta lote_id');
         }
 
-        return $this->response->download($path, null)->setFileName($origName);
+        // 1) Si ruta ya es absoluta y existe
+        if ($ruta !== '' && is_file($ruta)) {
+            $path = $ruta;
+        } else {
+            // 2) Si ruta es relativa (por ejemplo: uploads/placas/66/archivo.png)
+            if ($ruta !== '' && is_file(WRITEPATH . $ruta)) {
+                $path = WRITEPATH . $ruta;
+            } else {
+                // 3) Si no hay ruta usable, construimos por estructura
+                if ($nombre === '') {
+                    return $this->response->setStatusCode(400)->setBody('Falta nombre o ruta');
+                }
+                $path = WRITEPATH . 'uploads/placas/' . $loteId . '/' . $nombre;
+            }
+        }
+
+        if (!is_file($path)) {
+            return $this->response->setStatusCode(404)->setBody('Archivo no encontrado en disco');
+        }
+
+        $downloadName = (string) ($r['original'] ?? $nombre);
+
+        return $this->response->download($path, null)->setFileName($downloadName);
     }
 }
