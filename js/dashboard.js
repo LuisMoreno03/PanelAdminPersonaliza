@@ -1049,8 +1049,7 @@ window.verDetalles = async function (orderId) {
     window.imagenesCargadas = new Array(lineItems.length).fill(false);
     window.imagenesRequeridas = new Array(lineItems.length).fill(false);
 
-    const itemsHtml = lineItems
-      .map((item, index) => {
+    const itemsHtml = lineItems.map((item, index) => {
         const props = Array.isArray(item.properties) ? item.properties : [];
 
         // Buscar imágenes en properties
@@ -1128,11 +1127,11 @@ window.verDetalles = async function (orderId) {
 
   } catch (e) {
     console.error("verDetalles error:", e);
-    setHtml(
-      "detItems",
-      `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`
-    );
+    setText("detTitle", "Error");
+    setText("detSubtitle", "No se pudieron cargar los detalles");
+    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error: ${escapeHtml(e.message || "desconocido")}</div>`);
   }
+
 };
 
 // ===============================
