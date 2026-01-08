@@ -157,16 +157,21 @@ class PlacasArchivosController extends BaseController
             $ruta = 'uploads/placas/' . $newName;
 
             $model->insert([
-                'nombre'       => pathinfo($file->getName(), PATHINFO_FILENAME),
-                'producto'     => $producto ?: null,
-                'numero_placa' => $numeroPlaca ?: null,
-                'original'     => $file->getName(),
-                'ruta'         => $ruta,
-                'mime'         => $mime,
-                'size'         => (int) $file->getSize(),
-                'lote_id'      => $loteId,
-                'lote_nombre'  => $loteNombre,
-            ]);
+            'nombre'       => pathinfo($file->getName(), PATHINFO_FILENAME),
+            'producto'     => $producto ?: null,
+            'numero_placa' => $numeroPlaca ?: null,
+            'original'     => $file->getName(),
+            'ruta'         => $ruta,
+            'mime'         => $mime,
+            'size'         => (int) $file->getSize(),
+            'lote_id'      => $loteId,
+            'lote_nombre'  => $loteNombre,
+
+            // ✅ IMPORTANTES
+            'user_id'      => (int) (session()->get('user_id') ?? 0),
+            'created_at'   => date('Y-m-d H:i:s'),
+]);
+
 
             $guardados++;
         }
