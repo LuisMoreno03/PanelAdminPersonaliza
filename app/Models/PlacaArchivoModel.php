@@ -8,19 +8,43 @@ use CodeIgniter\Model;
 
 class PlacaArchivoModel extends Model
 {
-    protected $table = 'placas_archivos';
+    protected $table      = 'placas_archivos';
     protected $primaryKey = 'id';
 
     protected $returnType = 'array';
-    protected $useSoftDeletes = false;
-
-    protected $allowedFields = [
-        'nombre','producto','numero_placa','original','ruta','mime','size',
-        'lote_id','lote_nombre','created_at'
+  
+  
+  1.  protected $allowedFields = [
+        'ruta',
+        'original',
+        'original_name',
+        'filename',
+        'nombre',
+        'lote_id',
+        'conjunto_id',
+        'placa_id',
+        'user_id',
+        'created_at',
+        'updated_at',
     ];
 
-    public $timestamps = false;
+    protected $useTimestamps = false;
+
+    // ✅ MÉTODO SEGURO (si lo estabas usando)
+    public function obtenerTodos(): array
+    {
+        $r = []; // 🔥 CLAVE: inicializar SIEMPRE
+
+        $rows = $this->orderBy('id', 'DESC')->findAll();
+
+        foreach ($rows as $row) {
+            $r[] = $row;
+        }
+
+        return $r;
+    }
 }
+
 
 
 if (!array_key_exists('lote_id', $r)) {
