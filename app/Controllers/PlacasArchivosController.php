@@ -58,55 +58,48 @@ class PlacasArchivosController extends BaseController
 public function stats()
 {
     try {
-        $model = new PlacaArchivoModel();
-        $db    = db_connect();
+        $db = \Config\Database::connect();
 
-        // Nombre de tabla seguro
-        $table = method_exists($model, 'getTable')
-            ? $model->getTable()
-            : ($model->table ?? 'placas_archivos'); // fallback por si no está
+        // Detectar si existe created_at
+        $fields = $db->getFieldNames('placas_archivos'); // <- cambia al nombre real de tu tabla
+        $hasCreatedAt = in_array('created_at', $fields, true);
 
-        // Total (rápido y estable)
-        $total = (int) $db->table($table)->countAllResults();
-
-        // ¿Existe created_at?
-        $hasCreatedAt = $db->fieldExists('created_at', $table);
-
-        $totalHoy = 0;
-       
-        if ($hasCreatedAt) {
-            $hoyInicio = date('Y-m-d 00:00:00');
-            $hoyFin    = date('Y-m-d 23:59:59');
-
-            $totalHoy = (int) $db->table($table)
-                ->where('created_at >=', $hoyInicio)
-                ->where('created_at <=', $hoyFin)
-                ->countAllResults();
+        if (!$hasCreatedAt) {
+            return $this->response->setJSON([
+                'success' => true,
+                'data' => [
+                    'total' => $db->table('placas.php')->countAllResults()
+                ]
+            ]);
         }
 
+        $total = $db->table('placas.php')->countAllResults();
+        $porDia = $db->query("
+            SELECT DATE(created_at) as dia, COUNT(*) as total
+            FROM placas_archivos
+            GROUP BY DATE(created_at)
+            ORDER BY dia DESC
+            LIMIT 14
+        ")->getResultArray();
+
         return $this->response->setJSON([
-            'success'     => true,
-            'table'       => $table,
-            'hasCreatedAt'=> $hasCreatedAt,
-            'total'       => $total,
-            'totalHoy'    => $totalHoy,
+            'success' => true,
+            'data' => [
+                'total' => $total,
+                'por_dia' => $porDia
+            ]
         ]);
 
     } catch (\Throwable $e) {
-        log_message('error', 'PlacasArchivosController::stats ERROR: {msg} | {file}:{line}', [
-            'msg'  => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
-
         return $this->response->setStatusCode(500)->setJSON([
             'success' => false,
             'message' => $e->getMessage(),
-            'file'    => $e->getFile(),
-            'line'    => $e->getLine(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
         ]);
     }
 }
+
 
 
 
