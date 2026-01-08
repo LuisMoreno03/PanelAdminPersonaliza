@@ -35,6 +35,7 @@ class PlacaArchivoModel extends Model
     'updated_at',
 ];
 
+
     protected $useTimestamps = false;
 
 
