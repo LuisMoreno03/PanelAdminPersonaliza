@@ -12,28 +12,37 @@ class PlacasArchivosController extends BaseController
    
    public function listar()
 {
-    helper('url'); // ✅ necesario para base_url()
+    try {
+        helper('url');
 
-    $model = new PlacaArchivoModel();
-    $items = $model->orderBy('id', 'DESC')->findAll();
+        $model = new \App\Models\PlacaArchivoModel();
+        $items = $model->orderBy('id','DESC')->findAll();
 
-    foreach ($items as &$it) {
-        // ✅ compat: si tu tabla tiene "ruta"
-        $ruta = $it['ruta'] ?? '';
-        $it['url'] = $ruta ? base_url($ruta) : null;
+        foreach ($items as &$it) {
+            $ruta = $it['ruta'] ?? '';
+            $it['url'] = $ruta ? base_url($ruta) : null;
+            $it['created_at'] = $it['created_at'] ?? null;
 
-        // ✅ compat: por si no existe created_at
-        $it['created_at'] = $it['created_at'] ?? null;
+            $it['original'] = $it['original'] ?? ($it['original_name'] ?? ($it['filename'] ?? null));
+            $it['nombre']   = $it['nombre']   ?? ($it['original'] ? pathinfo($it['original'], PATHINFO_FILENAME) : null);
 
-        // ✅ compat: nombres de archivo
-        $it['original'] = $it['original'] ?? ($it['original_name'] ?? ($it['filename'] ?? null));
-        $it['nombre']   = $it['nombre']   ?? ($it['original'] ? pathinfo($it['original'], PATHINFO_FILENAME) : null);
+            $it['lote_id']  = $it['lote_id'] ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
+        }
 
-        // ✅ compat: lote
-        $it['lote_id']     = $it['lote_id']     ?? 'SIN_LOTE';
-        $it['lote_nombre'] = $it['lote_nombre'] ?? null;
+        return $this->response->setJSON(['success'=>true,'data'=>$items]);
+    } catch (\Throwable $e) {
+        log_message('error', 'listar() ERROR: {msg} | {file}:{line}', [
+            'msg'  => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => $e->getMessage(),
+        ]);
     }
-    unset($it);
+}
 
     // agrupar por lote_id
     $grupos = [];
@@ -260,7 +269,7 @@ class PlacasArchivosController extends BaseController
 
         return $this->response->setJSON(['success'=>true,'message'=>'Lote eliminado ✅']);
     }
-}
+
 
     public function descargar($archivoId)
 {
