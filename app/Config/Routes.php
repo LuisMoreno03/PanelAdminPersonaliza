@@ -123,7 +123,7 @@ $routes->group('placas', ['filter' => 'auth'], static function ($routes) {
 
     // Vista principal
     $routes->get('/', 'PlacasController::index');
-
+    
     // (si aún usas esta ruta vieja por conjunto)
     $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
 

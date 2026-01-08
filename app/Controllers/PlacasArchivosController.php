@@ -65,43 +65,50 @@ class PlacasArchivosController extends BaseController
     }
 
     public function stats()
-    {
-        try {
-            $model = new PlacaArchivoModel();
+{
+    try {
+        $model = new PlacaArchivoModel();
 
-            $total = $model->countAllResults(false);
+        // Total
+        $total = $model->countAllResults(false);
 
-            $hasCreatedAt = $model->db->fieldExists('created_at', $model->getTable());
-            $totalHoy = 0;
+        // Nombre de la tabla (seguro)
+        $table = $model->builder()->getTable();
 
-            if ($hasCreatedAt) {
-                $hoyInicio = date('Y-m-d 00:00:00');
-                $hoyFin    = date('Y-m-d 23:59:59');
+        // ¿Existe created_at?
+        $hasCreatedAt = $model->db->fieldExists('created_at', $table);
 
-                $totalHoy = $model
-                    ->where('created_at >=', $hoyInicio)
-                    ->where('created_at <=', $hoyFin)
-                    ->countAllResults();
-            }
+        $totalHoy = 0;
 
-            return $this->response->setJSON([
-                'success'  => true,
-                'total'    => $total,
-                'totalHoy' => $totalHoy,
-            ]);
-        } catch (\Throwable $e) {
-            log_message('error', 'PlacasArchivosController::stats ERROR: {msg} | {file}:{line}', [
-                'msg'  => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ]);
+        if ($hasCreatedAt) {
+            $hoyInicio = date('Y-m-d 00:00:00');
+            $hoyFin    = date('Y-m-d 23:59:59');
 
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ]);
+            $totalHoy = (new PlacaArchivoModel())
+                ->where('created_at >=', $hoyInicio)
+                ->where('created_at <=', $hoyFin)
+                ->countAllResults();
         }
+
+        return $this->response->setJSON([
+            'success'  => true,
+            'total'    => $total,
+            'totalHoy' => $totalHoy,
+        ]);
+    } catch (\Throwable $e) {
+        log_message('error', 'PlacasArchivosController::stats ERROR: {msg} | {file}:{line}', [
+            'msg'  => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => $e->getMessage(),
+        ]);
     }
+}
+
 
     public function subir()
     {
