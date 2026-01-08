@@ -1045,13 +1045,16 @@ window.verDetalles = async function (orderId) {
     const imagenesLocales = d.imagenes_locales || {};
     window.imagenesLocales = imagenesLocales;
 
-    // Track de imágenes requeridas
     window.imagenesCargadas = new Array(lineItems.length).fill(false);
     window.imagenesRequeridas = new Array(lineItems.length).fill(false);
 
     const itemsHtml = lineItems.map((item, index) => {
         const props = Array.isArray(item.properties) ? item.properties : [];
+         const title = item.title || item.name || "Producto";
+         const qty = item.quantity ?? 1;
+         const price = item.price ?? "0";
 
+         
         // Buscar imágenes en properties
         const propsImgs = props
           .filter((p) => esImagen(p?.value))
