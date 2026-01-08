@@ -119,25 +119,33 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 // ====================================================
 // PLACAS (PROTEGIDO)
 // ====================================================
-$routes->group('placas', ['filter' => 'auth'], static function ($routes)) {
+$routes->group('placas', ['filter' => 'auth'], static function ($routes) {
 
-    $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');   // lista por conjunto
-    $routes->get('descargar/(:num)', 'PlacasController::descargar/$1'); // descarga por id de archivo
-
+    // Vista principal
     $routes->get('/', 'PlacasController::index');
-}
 
-    $routes->group('archivos', static function($routes) {
+    // (si aún usas esta ruta vieja por conjunto)
+    $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
 
-    $routes->get('archivos/listar', 'PlacasArchivosController::listar');
-    $routes->get('archivos/stats',  'PlacasArchivosController::stats');
-    $routes->post('archivos/subir', 'PlacasArchivosController::subir');
+    // Descarga (si tu descargar está en PlacasController)
+    $routes->get('descargar/(:num)', 'PlacasController::descargar/$1');
 
-    $routes->post('archivos/renombrar', 'PlacasArchivosController::renombrar');
-    $routes->post('archivos/eliminar',  'PlacasArchivosController::eliminar');
+    // ✅ Endpoints que tu JS está llamando:
+    // /placas/archivos/listar
+    // /placas/archivos/stats
+    $routes->group('archivos', static function ($routes) {
+        $routes->get('listar', 'PlacasArchivosController::listar');
+        $routes->get('stats',  'PlacasArchivosController::stats');
 
-    $routes->post('archivos/lote/renombrar', 'PlacasArchivosController::renombrarLote');
-    $routes->post('archivos/lote/eliminar', 'PlacasArchivosController::eliminarLote')
+        $routes->post('subir', 'PlacasArchivosController::subir');
+
+        $routes->post('renombrar', 'PlacasArchivosController::renombrar');
+        $routes->post('eliminar',  'PlacasArchivosController::eliminar');
+
+        $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
+        $routes->post('lote/eliminar',  'PlacasArchivosController::eliminarLote');
+    });
+
 });
 
 // ----------------------------------------------------
