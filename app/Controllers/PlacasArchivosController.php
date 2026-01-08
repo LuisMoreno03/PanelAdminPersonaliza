@@ -9,60 +9,51 @@ class PlacasArchivosController extends BaseController
 
 
 {
-    public function listar()
-    {
-        try {
-            helper('url');
+   public function listar()
+{
+    try {
+        helper('url');
 
-            $model = new PlacaArchivoModel();
-            $items = $model->orderBy('id', 'DESC')->findAll();
+        $model = new PlacaArchivoModel();
+        $items = $model->orderBy('id', 'DESC')->findAll();
 
-            foreach ($items as &$it) {
-                $ruta = $it['ruta'] ?? '';
-                $it['url'] = $ruta ? base_url($ruta) : null;
+        foreach ($items as &$it) {
+            $ruta = $it['ruta'] ?? '';
+            $it['url'] = $ruta ? base_url($ruta) : null;
 
-                $it['created_at'] = $it['created_at'] ?? null;
+            $it['created_at'] = $it['created_at'] ?? null;
 
-                $it['original'] = $it['original'] ?? ($it['original_name'] ?? ($it['filename'] ?? null));
-                $it['nombre']   = $it['nombre']   ?? ($it['original'] ? pathinfo($it['original'], PATHINFO_FILENAME) : null);
+            $it['original'] = $it['original']
+                ?? ($it['original_name'] ?? ($it['filename'] ?? null));
 
-                $it['lote_id'] = $it['lote_id'] ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
-                $it['lote_nombre'] = $it['lote_nombre'] ?? null;
-            }
-            unset($it);
+            $it['nombre'] = $it['nombre']
+                ?? ($it['original']
+                    ? pathinfo($it['original'], PATHINFO_FILENAME)
+                    : null
+                );
 
-            $grupos = [];
-            foreach ($items as $it) {
-                $key = !empty($it['lote_id']) ? $it['lote_id'] : 'SIN_LOTE';
-
-                if (!isset($grupos[$key])) {
-                    $grupos[$key] = [
-                        'lote_id'     => $key,
-                        'lote_nombre' => $it['lote_nombre'],
-                        'created_at'  => $it['created_at'],
-                        'items'       => [],
-                    ];
-                }
-                $grupos[$key]['items'][] = $it;
-            }
-
-            return $this->response->setJSON([
-                'success' => true,
-                'grupos'  => array_values($grupos),
-            ]);
-        } catch (\Throwable $e) {
-            log_message('error', 'PlacasArchivosController::listar ERROR: {msg} | {file}:{line}', [
-                'msg'  => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ]);
-
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ]);
+            $it['lote_id'] = $it['lote_id']
+                ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
         }
+        unset($it);
+
+        return $this->response->setJSON([
+            'success' => true,
+            'data'    => $items
+        ]);
+
+    } catch (\Throwable $e) {
+
+        // ✅ AQUÍ ESTABA EL ERROR
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => $e->getMessage(), // ✅ correcto
+            'file'    => $e->getFile(),
+            'line'    => $e->getLine()
+        ]);
     }
+}
+
 
     public function stats()
 {
