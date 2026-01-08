@@ -61,20 +61,19 @@ public function stats()
         $model = new PlacaArchivoModel();
         $db    = db_connect();
 
-        // Nombre de tabla seguro
+        // Tabla segura
         $table = method_exists($model, 'getTable')
             ? $model->getTable()
-            : ($model->table ?? 'placas_archivos'); // fallback por si no está
+            : ($model->table ?? 'placas_archivos');
 
-        // Total (rápido y estable)
+        // Total estable
         $total = (int) $db->table($table)->countAllResults();
 
         // ¿Existe created_at?
         $hasCreatedAt = $db->fieldExists('created_at', $table);
 
-        $totalHoy = 0;
-       
-        if ($hasCreatedAt) {
+      $totalHoy = 0;
+      if ($hasCreatedAt) {
             $hoyInicio = date('Y-m-d 00:00:00');
             $hoyFin    = date('Y-m-d 23:59:59');
 
@@ -85,20 +84,14 @@ public function stats()
         }
 
         return $this->response->setJSON([
-            'success'     => true,
-            'table'       => $table,
-            'hasCreatedAt'=> $hasCreatedAt,
-            'total'       => $total,
-            'totalHoy'    => $totalHoy,
+            'success'      => true,
+            'total'        => $total,
+            'totalHoy'     => $totalHoy,
+            'hasCreatedAt' => $hasCreatedAt,
+            'table'        => $table,
         ]);
-
-    } catch (\Throwable $e) {
-        log_message('error', 'PlacasArchivosController::stats ERROR: {msg} | {file}:{line}', [
-            'msg'  => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
-
+    } 
+    catch (\Throwable $e) {
         return $this->response->setStatusCode(500)->setJSON([
             'success' => false,
             'message' => $e->getMessage(),
@@ -107,6 +100,7 @@ public function stats()
         ]);
     }
 }
+
 
 
 
