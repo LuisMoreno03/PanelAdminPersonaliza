@@ -1048,7 +1048,7 @@ function renderDetalles(order) {
 }
 
 window.verDetalles = async function (orderId) {
-  const modal = document.getElementById("modalDetalles");
+  const modal = document.getElementById("modalDetallesFull");
   const cont  = document.getElementById("detalleProductos");
   const json  = document.getElementById("modalDetallesJson");
 
