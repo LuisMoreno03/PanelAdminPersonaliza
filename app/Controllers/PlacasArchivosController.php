@@ -19,7 +19,8 @@ class PlacasArchivosController extends BaseController
 
             foreach ($items as &$it) {
                 $ruta = $it['ruta'] ?? '';
-                $it['url'] = $ruta ? base_url($ruta) : null;
+                $it['url'] = base_url('placas/archivos/descargar/' . $it['id']);
+
 
                 $it['created_at'] = $it['created_at'] ?? null;
 
@@ -50,7 +51,7 @@ class PlacasArchivosController extends BaseController
                 'line'    => $e->getLine()
             ]);
 
-            return $this->response->setJSON($items);
+            
 
         }
     }
@@ -101,102 +102,110 @@ class PlacasArchivosController extends BaseController
             ]);
             
 
-            return $this->response->setJSON($items);
+            
 
         }
     }
 
-    public function subir()
-    {
-        $producto    = trim((string) $this->request->getPost('producto'));
-        $numeroPlaca = trim((string) $this->request->getPost('numero_placa'));
+   public function subir()
+{
+    $producto    = trim((string) $this->request->getPost('producto'));
+    $numeroPlaca = trim((string) $this->request->getPost('numero_placa'));
 
+    $loteId = 'L' . date('Ymd_His') . '_' . bin2hex(random_bytes(4));
+    $loteNombre = $numeroPlaca ? ('Placa ' . $numeroPlaca) : ('Lote ' . date('d/m/Y H:i'));
 
-        $loteId = 'L' . date('Ymd_His') . '_' . bin2hex(random_bytes(4));
-        $loteNombre = $numeroPlaca ? ('Placa ' . $numeroPlaca) : ('Lote ' . date('d/m/Y H:i'));
+    $lista = $this->request->getFileMultiple('archivos');
+    if (empty($lista)) {
+        $single = $this->request->getFile('archivo');
+        if ($single) $lista = [$single];
+    }
 
-        $lista = $this->request->getFileMultiple('archivos');
-        if (empty($lista)) {
-            $single = $this->request->getFile('archivo');
-            if ($single) $lista = [$single];
+    if (empty($lista)) {
+        return $this->response->setStatusCode(422)->setJSON([
+            'success' => false,
+            'message' => 'No se recibieron archivos.'
+        ]);
+    }
+
+    // ✅ Guardar en writable (recomendado)
+    $dir = WRITEPATH . 'uploads/placas';
+    if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => 'No se pudo crear la carpeta de subida: ' . $dir
+        ]);
+    }
+
+    $bloqueadas = ['php','phtml','phar','cgi','pl','asp','aspx','jsp','sh','bat','cmd','exe','dll'];
+
+    $model = new \App\Models\PlacaArchivoModel();
+    $guardados = 0;
+    $errores = [];
+
+    foreach ($lista as $file) {
+        if (!$file || !$file->isValid()) {
+            $errores[] = 'Archivo inválido';
+            continue;
         }
 
-        if (empty($lista)) {
-            return $this->response->setJSON(['success' => false, 'message' => 'No se recibieron archivos.'])
-                ->setStatusCode(422);
+        if ($file->getSize() > 25 * 1024 * 1024) {
+            $errores[] = $file->getClientName() . ' (máx 25MB)';
+            continue;
         }
 
-        $dir = FCPATH . 'uploads/placas';
-        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $ext  = strtolower((string) $file->getExtension());
+        $mime = (string) $file->getClientMimeType();
 
-        $bloqueadas = ['php','phtml','phar','cgi','pl','asp','aspx','jsp','sh','bat','cmd','exe','dll'];
+        if (in_array($ext, $bloqueadas, true)) {
+            $errores[] = $file->getClientName() . ' (extensión bloqueada)';
+            continue;
+        }
 
-        $model = new PlacaArchivoModel();
-        $guardados = 0;
-        $errores = [];
+        $newName = time() . '_' . bin2hex(random_bytes(8)) . ($ext ? '.' . $ext : '');
 
-        foreach ($lista as $file) {
-            if (!$file || !$file->isValid()) {
-                $errores[] = 'Archivo inválido';
-                continue;
-            }
+        if (!$file->move($dir, $newName)) {
+            $errores[] = $file->getClientName() . ' (no se pudo mover)';
+            continue;
+        }
 
-            if ($file->getSize() > 25 * 1024 * 1024) {
-                $errores[] = $file->getName() . ' (máx 25MB)';
-                continue;
-            }
+        // ✅ ruta lógica (no pública)
+        $ruta = 'writable/uploads/placas/' . $newName;
 
-            $ext  = strtolower((string) $file->getExtension());
-            $mime = (string) $file->getClientMimeType();
-
-            if (in_array($ext, $bloqueadas, true)) {
-                $errores[] = $file->getName() . ' (extensión bloqueada)';
-                continue;
-            }
-
-            $newName = time() . '_' . bin2hex(random_bytes(8)) . ($ext ? '.' . $ext : '');
-
-            if (!$file->move($dir, $newName)) {
-                $errores[] = $file->getName() . ' (no se pudo mover)';
-                continue;
-            }
-
-            $ruta = 'uploads/placas/' . $newName;
-
-            $model->insert([
-            'nombre'       => pathinfo($file->getName(), PATHINFO_FILENAME),
+        $ok = $model->insert([
+            'nombre'       => pathinfo($file->getClientName(), PATHINFO_FILENAME),
             'producto'     => $producto ?: null,
             'numero_placa' => $numeroPlaca ?: null,
-            'original'     => $file->getName(),
+            'original'     => $file->getClientName(),
             'ruta'         => $ruta,
             'mime'         => $mime,
             'size'         => (int) $file->getSize(),
             'lote_id'      => $loteId,
             'lote_nombre'  => $loteNombre,
+            'user_id'      => (int) (session()->get('user_id') ?? session()->get('id') ?? session()->get('usuario_id') ?? 0),
+        ]);
 
-            // ✅ IMPORTANTES
-            'user_id' => (int) (
-    session()->get('user_id')
-    ?? session()->get('id')
-    ?? session()->get('usuario_id')
-    ?? 0
-),
+        if ($ok === false) {
+            // ❗ Si falla BD, borro el archivo para no dejar basura
+            @unlink($dir . DIRECTORY_SEPARATOR . $newName);
 
-]);
-
-
-            $guardados++;
+            $dbErr = $model->db->error();
+            $errores[] = $file->getClientName() . ' (BD falló: ' . ($dbErr['message'] ?? 'desconocido') . ')';
+            continue;
         }
 
-        return $this->response->setJSON([
-            'success' => $guardados > 0,
-            'message' => $guardados
-                ? "✅ Subidos {$guardados} archivo(s) | Lote {$loteId}"
-                : 'No se pudo subir ningún archivo.',
-            'lote_id' => $loteId,
-            'errores' => $errores
-        ]);
+        $guardados++;
     }
+
+    return $this->response->setJSON([
+        'success' => $guardados > 0,
+        'message' => $guardados
+            ? "✅ Subidos {$guardados} archivo(s) | Lote {$loteId}"
+            : 'No se pudo subir ningún archivo.',
+        'lote_id' => $loteId,
+        'errores' => $errores
+    ]);
+}
 
     public function renombrar()
     {
@@ -297,7 +306,8 @@ class PlacasArchivosController extends BaseController
             return $this->response->setStatusCode(422)->setBody('Registro incompleto: falta ruta');
         }
 
-        $fullPath = FCPATH . ltrim($ruta, '/');
+        $fullPath = ROOTPATH . ltrim($ruta, '/');
+
 
         if (!is_file($fullPath)) {
             return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");

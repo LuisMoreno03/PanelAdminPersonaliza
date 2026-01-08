@@ -14,26 +14,10 @@ class PlacaArchivoModel extends Model
     protected $returnType = 'array';
 
     protected $allowedFields = [
-    'ruta',
-    'original',
-    'original_name',
-    'filename',
-    'nombre',
-
-    'lote_id',
-    'lote_nombre',
-    'conjunto_id',
-    'placa_id',
-
-    'producto',
-    'numero_placa',
-    'mime',
-    'size',
-
-    'user_id',
-    'created_at',
-    'updated_at',
+  'nombre','producto','numero_placa','original','ruta','mime','size',
+  'lote_id','lote_nombre','user_id','created_at'
 ];
+
 
 
 
