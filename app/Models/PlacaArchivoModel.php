@@ -19,8 +19,9 @@ class PlacaArchivoModel extends Model
         'lote_id','lote_nombre','created_at'
     ];
 
-    public $timestamps = false; // o true si tienes created_at/updated_at bien
+    public $timestamps = false;
 }
+
 
 if (!array_key_exists('conjunto_id', $r)) {
     return $this->response
