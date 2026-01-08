@@ -21,8 +21,8 @@ class PlacasController extends BaseController
         $m = new PlacaArchivoModel();
 
         $rows = $m->where('lote_id', $loteId)
-                  ->orderBy('id', 'DESC')
-                  ->findAll();
+            ->orderBy('id', 'DESC')
+            ->findAll();
 
         $items = array_map(function ($r) {
             return [
@@ -39,6 +39,49 @@ class PlacasController extends BaseController
             'success' => true,
             'items'   => $items,
         ]);
+    }
+
+    /**
+     * Lista TODOS los archivos (para tu UI)
+     * GET /placas/listar  (o la ruta que tengas)
+     */
+    public function listar(): ResponseInterface
+    {
+        helper('url');
+
+        try {
+            $model = new PlacaArchivoModel();
+            $items = $model->orderBy('id', 'DESC')->findAll();
+
+            foreach ($items as &$it) {
+                $ruta = $it['ruta'] ?? '';
+                $it['url'] = $ruta ? base_url($ruta) : null;
+
+                $it['created_at'] = $it['created_at'] ?? null;
+
+                $original = $it['original'] ?? ($it['original_name'] ?? ($it['filename'] ?? null));
+                $it['original'] = $original;
+                $it['nombre']   = $original ? pathinfo($original, PATHINFO_FILENAME) : null;
+
+                $it['lote_id'] = $it['lote_id'] ?? ($it['conjunto_id'] ?? ($it['lote'] ?? null));
+            }
+
+            return $this->response->setJSON([
+                'success' => true,
+                'items'   => $items,
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'Placas listar() ERROR: {msg} | {file}:{line}', [
+                'msg'  => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -89,42 +132,4 @@ class PlacasController extends BaseController
 }
 
 
-public function listar()
-{
-    helper('url');
 
-    try {
-        $model = new \App\Models\PlacaArchivoModel();
-        $items = $model->orderBy('id', 'DESC')->findAll();
-
-        foreach ($items as &$it) {
-            $ruta = $it['ruta'] ?? '';
-            $it['url'] = $ruta ? base_url($ruta) : null;
-
-            $it['created_at'] = $it['created_at'] ?? null;
-
-            $original = $it['original'] ?? ($it['original_name'] ?? ($it['filename'] ?? null));
-            $it['original'] = $original;
-            $it['nombre']   = $original ? pathinfo($original, PATHINFO_FILENAME) : null;
-
-            $it['lote_id'] = $it['lote_id'] ?? ($it['conjunto_id'] ?? ($it['lote'] ?? null));
-        }
-
-        return $this->response->setJSON([
-            'success' => true,
-            'items'   => $items,
-        ]);
-
-    } catch (\Throwable $e) {
-        log_message('error', 'Placas listar() ERROR: {msg} | {file}:{line}', [
-            'msg'  => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
-
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'message' => $e->getMessage(), // mientras depuras
-        ]);
-    }
-}
