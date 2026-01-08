@@ -55,37 +55,43 @@ class PlacasArchivosController extends BaseController
 }
 
 
-    public function stats()
+public function stats()
 {
     try {
         $model = new PlacaArchivoModel();
+        $db    = db_connect();
 
-        // Total
-        $total = $model->countAllResults(false);
+        // Nombre de tabla seguro
+        $table = method_exists($model, 'getTable')
+            ? $model->getTable()
+            : ($model->table ?? 'placas_archivos'); // fallback por si no está
 
-        // Nombre de la tabla (seguro)
-        $table = $model->builder()->getTable();
+        // Total (rápido y estable)
+        $total = (int) $db->table($table)->countAllResults();
 
         // ¿Existe created_at?
-        $hasCreatedAt = $model->db->fieldExists('created_at', $table);
+        $hasCreatedAt = $db->fieldExists('created_at', $table);
 
         $totalHoy = 0;
-
+       
         if ($hasCreatedAt) {
             $hoyInicio = date('Y-m-d 00:00:00');
             $hoyFin    = date('Y-m-d 23:59:59');
 
-            $totalHoy = (new PlacaArchivoModel())
+            $totalHoy = (int) $db->table($table)
                 ->where('created_at >=', $hoyInicio)
                 ->where('created_at <=', $hoyFin)
                 ->countAllResults();
         }
 
         return $this->response->setJSON([
-            'success'  => true,
-            'total'    => $total,
-            'totalHoy' => $totalHoy,
+            'success'     => true,
+            'table'       => $table,
+            'hasCreatedAt'=> $hasCreatedAt,
+            'total'       => $total,
+            'totalHoy'    => $totalHoy,
         ]);
+
     } catch (\Throwable $e) {
         log_message('error', 'PlacasArchivosController::stats ERROR: {msg} | {file}:{line}', [
             'msg'  => $e->getMessage(),
@@ -96,9 +102,12 @@ class PlacasArchivosController extends BaseController
         return $this->response->setStatusCode(500)->setJSON([
             'success' => false,
             'message' => $e->getMessage(),
+            'file'    => $e->getFile(),
+            'line'    => $e->getLine(),
         ]);
     }
 }
+
 
 
     public function subir()
