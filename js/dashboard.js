@@ -918,39 +918,95 @@ function escapeHtml(str) {
 // ===============================
 // VER DETALLES (usa tu modal)
 // ===============================
+// ===============================
+// VER DETALLES (FULL MODAL SHOPIFY-LIKE)
+// ===============================
+
+// ===============================
+// VER DETALLES (FULL MODAL SHOPIFY-LIKE)
+// ===============================
 window.verDetalles = async function (orderId) {
   const id = String(orderId || "");
   if (!id) return;
 
-  // -------------------------
-  // Helpers locales (por si no existen globales)
-  // -------------------------
+  // -----------------------------
+  // Helpers DOM (compat)
+  // -----------------------------
+  function $(x) { return document.getElementById(x); }
+
+  function setHtml(elId, html) {
+    const el = $(elId);
+    if (!el) return false;
+    el.innerHTML = html;
+    return true;
+  }
+
+  function setText(elId, txt) {
+    const el = $(elId);
+    if (!el) return false;
+    el.textContent = txt ?? "";
+    return true;
+  }
+
+  function abrirDetallesFull() {
+    const modal = $("modalDetallesFull");
+    if (modal) modal.classList.remove("hidden");
+    document.documentElement.classList.add("overflow-hidden");
+    document.body.classList.add("overflow-hidden");
+  }
+
+  // -----------------------------
+  // Helpers sanitize
+  // -----------------------------
+  function escapeHtml(str) {
+    return String(str ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function esUrl(u) {
+    return /^https?:\/\//i.test(String(u || "").trim());
+  }
+
+  // acepta querystring
   function esImagenUrl(url) {
     if (!url) return false;
     const u = String(url).trim();
     return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
   }
-  function esUrl(u) {
-    if (!u) return false;
-    return /^https?:\/\//i.test(String(u).trim());
+
+  // total línea
+  function totalLinea(price, qty) {
+    const p = Number(price);
+    const q = Number(qty);
+    if (isNaN(p) || isNaN(q)) return null;
+    return (p * q).toFixed(2);
   }
 
-  // -------------------------
-  // Abrir modal + placeholders
-  // -------------------------
+  // -----------------------------
+  // Open modal + placeholders
+  // -----------------------------
   abrirDetallesFull();
 
   setText("detTitle", "Cargando…");
   setText("detSubtitle", "—");
   setText("detItemsCount", "0");
+
   setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
   setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
-  const pre = document.getElementById("detJson");
+
+  const pre = $("detJson");
   if (pre) pre.textContent = "";
 
+  // -----------------------------
+  // Fetch detalles
+  // -----------------------------
   try {
     const url =
       typeof apiUrl === "function"
@@ -961,7 +1017,10 @@ window.verDetalles = async function (orderId) {
     const d = await r.json().catch(() => null);
 
     if (!r.ok || !d || d.success !== true) {
-      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles.</div>`);
+      setHtml(
+        "detItems",
+        `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa endpoint.</div>`
+      );
       if (pre) pre.textContent = JSON.stringify({ http: r.status, payload: d }, null, 2);
       return;
     }
@@ -972,65 +1031,83 @@ window.verDetalles = async function (orderId) {
     const o = d.order || {};
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
 
-    // ✅ si tu backend ya manda imagenes de producto
-    const productImages = d.product_images || {}; // { [product_id]: url }
-    const imagenesLocales = d.imagenes_locales || {}; // opcional si lo usas
-    window.imagenesLocales = imagenesLocales;
+    // mapas extra del backend
+    const imagenesLocales = d.imagenes_locales || {};
+    const productImages = d.product_images || {};
 
-    // -------------------------
+    // -----------------------------
     // Header
-    // -------------------------
+    // -----------------------------
     setText("detTitle", `Pedido ${o.name || ("#" + id)}`);
+
     const clienteNombre = o.customer
       ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
       : "";
+
     setText("detSubtitle", clienteNombre ? clienteNombre : (o.email || "—"));
 
-    // -------------------------
+    // -----------------------------
     // Cliente
-    // -------------------------
-    setHtml("detCliente", `
+    // -----------------------------
+    setHtml(
+      "detCliente",
+      `
       <div class="space-y-2">
         <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre || "—")}</div>
         <div><span class="text-slate-500">Email:</span> ${escapeHtml(o.email || "—")}</div>
         <div><span class="text-slate-500">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
+        <div><span class="text-slate-500">ID:</span> ${escapeHtml(o.customer?.id || "—")}</div>
       </div>
-    `);
+      `
+    );
 
-    // -------------------------
+    // -----------------------------
     // Envío
-    // -------------------------
+    // -----------------------------
     const a = o.shipping_address || {};
-    setHtml("detEnvio", `
+    setHtml(
+      "detEnvio",
+      `
       <div class="space-y-1">
         <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
         <div>${escapeHtml(a.address1 || "")}</div>
         <div>${escapeHtml(a.address2 || "")}</div>
-        <div>${escapeHtml((a.city || "") + " " + (a.zip || ""))}</div>
+        <div>${escapeHtml((a.zip || "") + " " + (a.city || ""))}</div>
         <div>${escapeHtml(a.province || "")}</div>
         <div>${escapeHtml(a.country || "")}</div>
+        <div class="pt-2"><span class="text-slate-500">Tel envío:</span> ${escapeHtml(a.phone || "—")}</div>
       </div>
-    `);
+      `
+    );
 
-    // -------------------------
+    // -----------------------------
     // Totales
-    // -------------------------
-    setHtml("detTotales", `
+    // -----------------------------
+    const envio = o.total_shipping_price_set?.shop_money?.amount ?? o.total_shipping_price_set?.presentment_money?.amount ?? "0";
+    const impuestos = o.total_tax ?? "0";
+
+    setHtml(
+      "detTotales",
+      `
       <div class="space-y-1">
         <div><b>Subtotal:</b> ${escapeHtml(o.subtotal_price || "0")} €</div>
-        <div><b>Envío:</b> ${escapeHtml(o.total_shipping_price_set?.shop_money?.amount || "0")} €</div>
+        <div><b>Envío:</b> ${escapeHtml(envio)} €</div>
+        <div><b>Impuestos:</b> ${escapeHtml(impuestos)} €</div>
         <div class="text-lg font-extrabold"><b>Total:</b> ${escapeHtml(o.total_price || "0")} €</div>
       </div>
-    `);
+      `
+    );
 
-    // -------------------------
+    // -----------------------------
     // Resumen
-    // -------------------------
-    setHtml("detResumen", `
+    // -----------------------------
+    setHtml(
+      "detResumen",
+      `
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div class="text-xs text-slate-500 font-extrabold uppercase">Tags</div>
-          <div class="mt-1 font-semibold">${escapeHtml(o.tags || "—")}</div>
+          <div class="mt-1 font-semibold break-words">${escapeHtml(o.tags || "—")}</div>
         </div>
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
@@ -1045,11 +1122,12 @@ window.verDetalles = async function (orderId) {
           <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
         </div>
       </div>
-    `);
+      `
+    );
 
-    // -------------------------
-    // Productos (FULL)
-    // -------------------------
+    // -----------------------------
+    // Productos
+    // -----------------------------
     setText("detItemsCount", String(lineItems.length));
 
     if (!lineItems.length) {
@@ -1059,24 +1137,9 @@ window.verDetalles = async function (orderId) {
 
     const itemsHtml = lineItems
       .map((item, index) => {
-        const title = item.title || item.name || "Producto";
-        const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
-        const sku = item.sku || "";
-        const vendor = item.vendor || "";
-        const qty = item.quantity ?? 1;
-        const price = item.price ?? "0";
-
-        const totalLinea = (() => {
-          const p = Number(price), q = Number(qty);
-          return (!isNaN(p) && !isNaN(q)) ? (p * q).toFixed(2) : null;
-        })();
-
-        // ✅ foto producto desde backend: product_images[product_id]
-        const pid = String(item.product_id || "");
-        const productImg = pid && productImages[pid] ? String(productImages[pid]) : "";
-
-        // properties: separar texto vs imagen
         const props = Array.isArray(item.properties) ? item.properties : [];
+
+        // separa properties: imagen vs texto
         const propsImg = [];
         const propsTxt = [];
 
@@ -1095,30 +1158,39 @@ window.verDetalles = async function (orderId) {
           else propsTxt.push({ name, value: v });
         }
 
-        const clienteSubioImagen = propsImg.length > 0;
+        const requiere = propsImg.length > 0;
 
-        const badge = clienteSubioImagen
-          ? "bg-amber-50 border border-amber-200 text-amber-900"
-          : "bg-slate-50 border border-slate-200 text-slate-700";
+        // imagen producto (desde backend)
+        const pid = String(item.product_id || "");
+        const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
 
-        const badgeText = clienteSubioImagen ? "Cliente subió imagen" : "Sin imagen cliente";
-
-        const productoImgHtml = productImg
+        const productImgHtml = productImg
           ? `
-            <div class="mt-3">
-              <div class="text-xs font-extrabold text-slate-500">Foto del producto</div>
-              <a href="${escapeHtml(productImg)}" target="_blank" class="inline-block mt-1">
-                <img src="${escapeHtml(productImg)}"
-                     class="w-full max-w-[260px] rounded-2xl border border-slate-200 shadow-sm object-cover">
-              </a>
-            </div>
+            <a href="${escapeHtml(productImg)}" target="_blank"
+               class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
+              <img src="${escapeHtml(productImg)}" class="h-full w-full object-cover">
+            </a>
           `
           : `
-            <div class="mt-3 text-slate-500 text-sm">
-              (Este producto no devolvió imagen desde Shopify)
+            <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
+              🧾
             </div>
           `;
 
+        // imagen modificada (local)
+        const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
+
+        const estadoItem = requiere ? (localUrl ? "LISTO" : "FALTA") : "NO REQUIERE";
+        const badgeCls =
+          estadoItem === "LISTO"
+            ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+            : estadoItem === "FALTA"
+            ? "bg-amber-50 border-amber-200 text-amber-900"
+            : "bg-slate-50 border-slate-200 text-slate-700";
+        const badgeText =
+          estadoItem === "LISTO" ? "Listo" : estadoItem === "FALTA" ? "Falta imagen" : "Sin imagen";
+
+        // props texto (personalización)
         const propsTxtHtml = propsTxt.length
           ? `
             <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -1126,14 +1198,17 @@ window.verDetalles = async function (orderId) {
               <div class="space-y-1 text-sm">
                 ${propsTxt
                   .map(({ name, value }) => {
-                    const label = escapeHtml(name);
-                    const valSafe = escapeHtml(value || "—");
-                    const val = esUrl(value)
-                      ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${valSafe}</a>`
-                      : `<span class="font-semibold text-slate-900 break-words">${valSafe}</span>`;
+                    const safeV = escapeHtml(value || "—");
+                    const safeName = escapeHtml(name);
+
+                    const val =
+                      esUrl(value)
+                        ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                        : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
+
                     return `
                       <div class="flex gap-2">
-                        <div class="min-w-[120px] text-slate-500 font-bold">${label}:</div>
+                        <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
                         <div class="flex-1">${val}</div>
                       </div>
                     `;
@@ -1144,56 +1219,100 @@ window.verDetalles = async function (orderId) {
           `
           : "";
 
+        // imágenes cliente
         const propsImgsHtml = propsImg.length
-          ? propsImg
-              .map(
-                ({ name, value }) => `
-                  <div class="mt-3">
-                    <div class="text-xs font-extrabold text-slate-500">${escapeHtml(name || "Imagen del cliente")}</div>
-                    <a href="${escapeHtml(value)}" target="_blank" class="inline-block mt-1">
-                      <img src="${escapeHtml(value)}"
-                           class="w-full max-w-[260px] rounded-2xl border border-slate-200 shadow-sm object-cover">
+          ? `
+            <div class="mt-3">
+              <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
+              <div class="flex flex-wrap gap-3">
+                ${propsImg
+                  .map(
+                    ({ name, value }) => `
+                    <a href="${escapeHtml(value)}" target="_blank"
+                      class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                      <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
+                      <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
+                        ${escapeHtml(name)}
+                      </div>
                     </a>
-                  </div>
-                `
-              )
-              .join("")
+                  `
+                  )
+                  .join("")}
+              </div>
+            </div>
+          `
           : "";
 
-        // info extra line_item
-        const datosLineItemHtml = `
+        // imagen modificada mostrada
+        const modificadaHtml = localUrl
+          ? `
+            <div class="mt-3">
+              <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
+              <a href="${escapeHtml(localUrl)}" target="_blank"
+                 class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
+              </a>
+            </div>
+          `
+          : requiere
+          ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+          : "";
+
+        // datos del item (tipo Shopify)
+        const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
+        const sku = item.sku || "";
+        const qty = item.quantity ?? 1;
+        const price = item.price ?? "0";
+        const tot = totalLinea(price, qty);
+
+        const datosProductoHtml = `
           <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
             ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
             ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
-            ${vendor ? `<div><span class="text-slate-500 font-bold">Vendor:</span> <span class="font-semibold">${escapeHtml(vendor)}</span></div>` : ""}
             ${item.product_id ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(item.product_id)}</span></div>` : ""}
             ${item.variant_id ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(item.variant_id)}</span></div>` : ""}
           </div>
         `;
 
+        const uploadHtml = requiere
+          ? `
+            <div class="mt-4">
+              <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
+              <input type="file" accept="image/*"
+                onchange="subirImagenProducto(${Number(id)}, ${index}, this)"
+                class="w-full border border-slate-200 rounded-2xl p-2">
+              <div id="preview_${id}_${index}" class="mt-2"></div>
+            </div>
+          `
+          : "";
+
         return `
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="font-extrabold text-slate-900 truncate">${escapeHtml(title)}</div>
-                <div class="text-sm text-slate-600 mt-1">
-                  Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
-                  ${totalLinea ? ` · Total: <b>${escapeHtml(totalLinea)} €</b>` : ""}
-                </div>
-              </div>
+            <div class="flex items-start gap-4">
+              ${productImgHtml}
 
-              <div class="text-xs font-extrabold px-3 py-1 rounded-full border ${badge}">
-                ${badgeText}
+              <div class="min-w-0 flex-1">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || item.name || "Producto")}</div>
+                    <div class="text-sm text-slate-600 mt-1">
+                      Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
+                      ${tot ? ` · Total: <b>${escapeHtml(tot)} €</b>` : ""}
+                    </div>
+                  </div>
+
+                  <span class="text-xs font-extrabold px-3 py-1 rounded-full border ${badgeCls}">
+                    ${badgeText}
+                  </span>
+                </div>
+
+                ${datosProductoHtml}
+                ${propsTxtHtml}
+                ${propsImgsHtml}
+                ${modificadaHtml}
+                ${uploadHtml}
               </div>
             </div>
-
-            ${datosLineItemHtml}
-
-            ${productoImgHtml}
-
-            ${propsTxtHtml}
-
-            ${propsImgsHtml}
           </div>
         `;
       })
@@ -1208,51 +1327,81 @@ window.verDetalles = async function (orderId) {
 
 
 
+
 // ===============================
 // SUBIR IMAGEN MODIFICADA + AUTO ESTADO
 // ===============================
-window.subirImagenProducto = function (orderId, index, input) {
-  if (!input?.files?.length) return;
-  const file = input.files[0];
+window.subirImagenProducto = async function (orderId, index, input) {
+  try {
+    const file = input?.files?.[0];
+    if (!file) return;
 
-  // preview
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const prev = document.getElementById(`preview_${orderId}_${index}`);
-    if (prev) {
-      prev.innerHTML = `<img src="${e.target.result}" class="w-40 mt-2 rounded-2xl border border-slate-200 shadow-sm">`;
-    }
-  };
-  reader.readAsDataURL(file);
+    const fd = new FormData();
+    fd.append("order_id", String(orderId));
+    fd.append("index", String(index));
+    fd.append("file", file);
 
-  const form = new FormData();
-  form.append("orderId", String(orderId));
-  form.append("index", String(index));
-  form.append("file", file);
+    // CSRF (si lo usas)
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+    const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
 
-  fetch("/index.php/dashboard/subirImagenProducto", { method: "POST", body: form })
-    .then((r) => r.json())
-    .then((res) => {
-      if (!res?.success) {
-        alert("Error subiendo imagen");
-        return;
+    const endpoints = [
+      (typeof apiUrl === "function" ? apiUrl("/api/pedidos/imagenes/subir") : "/index.php/api/pedidos/imagenes/subir"),
+      "/api/pedidos/imagenes/subir",
+      "/index.php/api/pedidos/imagenes/subir",
+    ];
+
+    let lastErr = null;
+
+    for (const url of endpoints) {
+      try {
+        const headers = {};
+        if (csrfToken) headers[csrfHeader] = csrfToken;
+
+        const r = await fetch(url, {
+          method: "POST",
+          headers,
+          body: fd,
+        });
+
+        if (r.status === 404) continue;
+
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d?.success) throw new Error(d?.message || `HTTP ${r.status}`);
+
+        // ✅ pintar preview
+        const previewId = `preview_${orderId}_${index}`;
+        const prev = document.getElementById(previewId);
+        if (prev) {
+          prev.innerHTML = `
+            <div class="mt-2">
+              <div class="text-xs font-extrabold text-slate-500">Imagen modificada subida ✅</div>
+              <img src="${d.url}" class="mt-2 w-44 rounded-2xl border border-slate-200 shadow-sm object-cover">
+            </div>
+          `;
+        }
+
+        // ✅ marcar como cargada en memoria (tu lógica)
+        if (Array.isArray(window.imagenesCargadas)) {
+          window.imagenesCargadas[index] = true;
+        }
+        if (window.imagenesLocales && typeof window.imagenesLocales === "object") {
+          window.imagenesLocales[index] = d.url;
+        }
+
+        return; // ✅ éxito
+      } catch (e) {
+        lastErr = e;
       }
+    }
 
-      // Guardar local y marcar cargada
-      window.imagenesLocales = window.imagenesLocales || {};
-      window.imagenesLocales[index] = res.url;
-
-      window.imagenesCargadas = window.imagenesCargadas || [];
-      window.imagenesCargadas[index] = true;
-
-      // Re-evaluar estado automático
-      validarEstadoAuto(orderId);
-    })
-    .catch((e) => {
-      console.error(e);
-      alert("Error de red subiendo imagen");
-    });
+    throw lastErr || new Error("No se encontró endpoint para subir imagen (404).");
+  } catch (e) {
+    console.error("subirImagenProducto error:", e);
+    alert("Error subiendo imagen: " + (e?.message || e));
+  }
 };
+
 
 function validarEstadoAuto(orderId) {
   const req = window.imagenesRequeridas || [];
