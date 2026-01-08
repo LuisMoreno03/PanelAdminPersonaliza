@@ -9,111 +9,99 @@ class PlacasArchivosController extends BaseController
 
 
 {
+    public function listar()
+    {
+        try {
+            helper('url');
 
-public function listar()
-{
-    try {
-        helper('url');
+            $model = new PlacaArchivoModel();
+            $items = $model->orderBy('id', 'DESC')->findAll();
 
-        $model = new PlacaArchivoModel();
-        $items = $model->orderBy('id', 'DESC')->findAll();
+            foreach ($items as &$it) {
+                $ruta = $it['ruta'] ?? '';
+                $it['url'] = $ruta ? base_url($ruta) : null;
 
-        foreach ($items as &$it) {
-            $ruta = $it['ruta'] ?? '';
-            $it['url'] = $ruta ? base_url($ruta) : null;
+                $it['created_at'] = $it['created_at'] ?? null;
 
-            $it['created_at'] = $it['created_at'] ?? null;
+                $it['original'] = $it['original'] ?? ($it['original_name'] ?? ($it['filename'] ?? null));
+                $it['nombre']   = $it['nombre']   ?? ($it['original'] ? pathinfo($it['original'], PATHINFO_FILENAME) : null);
 
-            $it['original'] = $it['original'] ?? ($it['original_name'] ?? ($it['filename'] ?? null));
-            $it['nombre']   = $it['nombre']   ?? ($it['original'] ? pathinfo($it['original'], PATHINFO_FILENAME) : null);
-
-            // compat id
-            $it['lote_id'] = $it['lote_id'] ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
-
-            // evita "Undefined array key lote_nombre"
-            $it['lote_nombre'] = $it['lote_nombre'] ?? null;
-        }
-        unset($it);
-
-        // ✅ agrupar por lote_id (DENTRO del método)
-        $grupos = [];
-        foreach ($items as $it) {
-            $key = !empty($it['lote_id']) ? $it['lote_id'] : 'SIN_LOTE';
-
-            if (!isset($grupos[$key])) {
-                $grupos[$key] = [
-                    'lote_id'     => $key,
-                    'lote_nombre' => $it['lote_nombre'],
-                    'created_at'  => $it['created_at'],
-                    'items'       => [],
-                ];
+                $it['lote_id'] = $it['lote_id'] ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
+                $it['lote_nombre'] = $it['lote_nombre'] ?? null;
             }
-            $grupos[$key]['items'][] = $it;
+            unset($it);
+
+            $grupos = [];
+            foreach ($items as $it) {
+                $key = !empty($it['lote_id']) ? $it['lote_id'] : 'SIN_LOTE';
+
+                if (!isset($grupos[$key])) {
+                    $grupos[$key] = [
+                        'lote_id'     => $key,
+                        'lote_nombre' => $it['lote_nombre'],
+                        'created_at'  => $it['created_at'],
+                        'items'       => [],
+                    ];
+                }
+                $grupos[$key]['items'][] = $it;
+            }
+
+            return $this->response->setJSON([
+                'success' => true,
+                'grupos'  => array_values($grupos),
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'PlacasArchivosController::listar ERROR: {msg} | {file}:{line}', [
+                'msg'  => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ]);
         }
-
-        return $this->response->setJSON([
-            'success' => true,
-            'grupos'  => array_values($grupos),
-        ]);
-    } catch (\Throwable $e) {
-        log_message('error', 'PlacasArchivosController::listar ERROR: {msg} | {file}:{line}', [
-            'msg'  => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
-
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'message' => $e->getMessage(),
-        ]);
     }
-  }
 
-}
-
- 
     public function stats()
-{
-    try {
-        $model = new PlacaArchivoModel();
+    {
+        try {
+            $model = new PlacaArchivoModel();
 
-        $total = $model->countAllResults(false);
+            $total = $model->countAllResults(false);
 
-        $hasCreatedAt = $model->db->fieldExists('created_at', $model->getTable());
-        $totalHoy = 0;
+            $hasCreatedAt = $model->db->fieldExists('created_at', $model->getTable());
+            $totalHoy = 0;
 
-        if ($hasCreatedAt) {
-            $hoyInicio = date('Y-m-d 00:00:00');
-            $hoyFin    = date('Y-m-d 23:59:59');
+            if ($hasCreatedAt) {
+                $hoyInicio = date('Y-m-d 00:00:00');
+                $hoyFin    = date('Y-m-d 23:59:59');
 
-            $totalHoy = $model
-                ->where('created_at >=', $hoyInicio)
-                ->where('created_at <=', $hoyFin)
-                ->countAllResults();
+                $totalHoy = $model
+                    ->where('created_at >=', $hoyInicio)
+                    ->where('created_at <=', $hoyFin)
+                    ->countAllResults();
+            }
+
+            return $this->response->setJSON([
+                'success'  => true,
+                'total'    => $total,
+                'totalHoy' => $totalHoy,
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'PlacasArchivosController::stats ERROR: {msg} | {file}:{line}', [
+                'msg'  => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ]);
         }
-
-        return $this->response->setJSON([
-            'success'  => true,
-            'total'    => $total,
-            'totalHoy' => $totalHoy,
-        ]);
-    } catch (\Throwable $e) {
-        log_message('error', 'PlacasArchivosController::stats ERROR: {msg} | {file}:{line}', [
-            'msg'  => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
-
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'message' => $e->getMessage(),
-        ]);
     }
-}
-
-
-
-
 
     public function subir()
     {
@@ -124,7 +112,6 @@ public function listar()
         $loteId = 'L' . date('Ymd_His') . '_' . bin2hex(random_bytes(4));
         $loteNombre = $numeroPlaca ? ('Placa ' . $numeroPlaca) : ('Lote ' . date('d/m/Y H:i'));
 
-   
         $lista = $this->request->getFileMultiple('archivos');
         if (empty($lista)) {
             $single = $this->request->getFile('archivo');
@@ -136,11 +123,9 @@ public function listar()
                 ->setStatusCode(422);
         }
 
-  
         $dir = FCPATH . 'uploads/placas';
         if (!is_dir($dir)) @mkdir($dir, 0755, true);
 
-   
         $bloqueadas = ['php','phtml','phar','cgi','pl','asp','aspx','jsp','sh','bat','cmd','exe','dll'];
 
         $model = new PlacaArchivoModel();
@@ -153,7 +138,6 @@ public function listar()
                 continue;
             }
 
-  
             if ($file->getSize() > 25 * 1024 * 1024) {
                 $errores[] = $file->getName() . ' (máx 25MB)';
                 continue;
@@ -167,7 +151,6 @@ public function listar()
                 continue;
             }
 
-   
             $newName = time() . '_' . bin2hex(random_bytes(8)) . ($ext ? '.' . $ext : '');
 
             if (!$file->move($dir, $newName)) {
@@ -202,7 +185,6 @@ public function listar()
         ]);
     }
 
-  
     public function renombrar()
     {
         $id     = (int) $this->request->getPost('id');
@@ -224,7 +206,6 @@ public function listar()
         return $this->response->setJSON(['success'=>true,'message'=>'Nombre actualizado ✅']);
     }
 
-  
     public function eliminar()
     {
         $id = (int) $this->request->getPost('id');
@@ -248,7 +229,6 @@ public function listar()
         return $this->response->setJSON(['success'=>true,'message'=>'Eliminado ✅']);
     }
 
- 
     public function renombrarLote()
     {
         $loteId = trim((string) $this->request->getPost('lote_id'));
@@ -264,7 +244,6 @@ public function listar()
         return $this->response->setJSON(['success'=>true,'message'=>'Lote actualizado ✅']);
     }
 
-  
     public function eliminarLote()
     {
         $loteId = trim((string) $this->request->getPost('lote_id'));
@@ -292,43 +271,40 @@ public function listar()
 
 
     public function descargar($archivoId)
-{
-    $m = new \App\Models\PlacaArchivoModel();
-    $r = $m->find($archivoId);
+    {
+        $m = new PlacaArchivoModel();
+        $r = $m->find($archivoId);
 
-    if (!$r) {
-        return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
-    }
-
-    // 1) Preferido: descargar por la "ruta" guardada en BD
-    $ruta = $r['ruta'] ?? null;
-    if ($ruta) {
-        // Si "ruta" es tipo: uploads/placas/12/archivo.png
-        $fullPath = FCPATH . ltrim($ruta, '/'); // public_html/ + uploads/...
-
-        if (is_file($fullPath)) {
-            $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
-            return $this->response->download($fullPath, null)->setFileName($downloadName);
+        if (!$r) {
+            return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
         }
+
+        $ruta = $r['ruta'] ?? null;
+        if ($ruta) {
+            $fullPath = FCPATH . ltrim($ruta, '/');
+            if (is_file($fullPath)) {
+                $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
+                return $this->response->download($fullPath, null)->setFileName($downloadName);
+            }
+        }
+
+        $folderId = (int) ($r['lote_id'] ?? $r['placa_id'] ?? $r['conjunto_id'] ?? 0);
+        $filename = (string) ($r['filename'] ?? $r['archivo'] ?? '');
+
+        if ($folderId <= 0 || $filename === '') {
+            return $this->response->setStatusCode(422)->setJSON([
+                'success' => false,
+                'message' => 'Registro incompleto: falta ruta o (lote_id/placa_id) y filename',
+                'keys'    => array_keys($r),
+            ]);
+        }
+
+        $fullPath = FCPATH . "uploads/placas/{$folderId}/{$filename}";
+
+        if (!is_file($fullPath)) {
+            return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
+        }
+
+        return $this->response->download($fullPath, null)->setFileName($filename);
     }
-
-    // 2) Fallback: intenta con ids alternativos (por si tu tabla usa otro nombre)
-    $folderId = (int) ($r['lote_id'] ?? $r['placa_id'] ?? $r['conjunto_id'] ?? 0);
-    $filename = (string) ($r['filename'] ?? $r['archivo'] ?? '');
-
-    if ($folderId <= 0 || $filename === '') {
-        return $this->response->setStatusCode(422)->setJSON([
-            'success' => false,
-            'message' => 'Registro incompleto: falta ruta o (lote_id/placa_id) y filename',
-            'keys'    => array_keys($r),
-        ]);
-    }
-
-    $fullPath = FCPATH . "uploads/placas/{$folderId}/{$filename}";
-
-    if (!is_file($fullPath)) {
-        return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
-    }
-
-    return $this->response->download($fullPath, null)->setFileName($filename);
 }
