@@ -129,6 +129,7 @@ $routes->group('placas', ['filter' => 'auth'], static function ($routes) {
 
     // Descarga (si tu descargar está en PlacasController)
     $routes->get('descargar/(:num)', 'PlacasController::descargar/$1');
+    $routes->get('placas/archivos/stats', 'PlacasArchivosController::stats');
 
     // ✅ Endpoints que tu JS está llamando:
     // /placas/archivos/listar
