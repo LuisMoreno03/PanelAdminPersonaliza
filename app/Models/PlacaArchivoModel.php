@@ -12,9 +12,8 @@ class PlacaArchivoModel extends Model
     protected $primaryKey = 'id';
 
     protected $returnType = 'array';
-  
-  
-  1.  protected $allowedFields = [
+
+    protected $allowedFields = [
         'ruta',
         'original',
         'original_name',
@@ -30,40 +29,9 @@ class PlacaArchivoModel extends Model
 
     protected $useTimestamps = false;
 
-    // ✅ MÉTODO SEGURO (si lo estabas usando)
+
     public function obtenerTodos(): array
     {
-        $r = []; // 🔥 CLAVE: inicializar SIEMPRE
-
-        $rows = $this->orderBy('id', 'DESC')->findAll();
-
-        foreach ($rows as $row) {
-            $r[] = $row;
-        }
-
-        return $r;
+        return $this->orderBy('id', 'DESC')->findAll();
     }
 }
-
-
-
-if (!array_key_exists('lote_id', $r)) {
-    return $this->response
-        ->setStatusCode(400)
-        ->setBody('Datos incompletos del archivo');
-}
-
-$loteId = (int) $r['lote_id'];
-
-
-$required = ['lote_id', 'filename'];
-
-foreach ($required as $key) {
-    if (!isset($r[$key])) {
-        return $this->response
-            ->setStatusCode(400)
-            ->setBody("Falta el campo {$key}");
-    }
-}
-
-

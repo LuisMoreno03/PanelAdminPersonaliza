@@ -60,23 +60,29 @@ public function stats()
     try {
         $db = \Config\Database::connect();
 
-        // Detectar si existe created_at
-        $fields = $db->getFieldNames('placas'); // <- cambia al nombre real de tu tabla
+        $tabla = 'placas_archivos';
+
+        // Detectar si existe created_at en placas_archivos
+        $fields = $db->getFieldNames($tabla);
         $hasCreatedAt = in_array('created_at', $fields, true);
+
+        $total = $db->table($tabla)->countAllResults();
 
         if (!$hasCreatedAt) {
             return $this->response->setJSON([
                 'success' => true,
                 'data' => [
-                    'total' => $db->table('placas')->countAllResults()
+                    'total' => $total,
+                    'por_dia' => []
                 ]
             ]);
         }
 
-        $total = $db->table('placas.php')->countAllResults();
+
+
         $porDia = $db->query("
             SELECT DATE(created_at) as dia, COUNT(*) as total
-            FROM placas_archivos
+            FROM {$tabla}
             GROUP BY DATE(created_at)
             ORDER BY dia DESC
             LIMIT 14
@@ -99,6 +105,7 @@ public function stats()
         ]);
     }
 }
+
 
 
 
@@ -271,40 +278,25 @@ public function stats()
 
 
     public function descargar($archivoId)
-    {
-        $m = new PlacaArchivoModel();
-        $r = $m->find($archivoId);
+{
+    $m = new PlacaArchivoModel();
+    $r = $m->find($archivoId);
 
-        if (!$r) {
-            return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
-        }
-
-        $ruta = $r['ruta'] ?? null;
-        if ($ruta) {
-            $fullPath = FCPATH . ltrim($ruta, '/');
-            if (is_file($fullPath)) {
-                $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
-                return $this->response->download($fullPath, null)->setFileName($downloadName);
-            }
-        }
-
-        $folderId = (int) ($r['lote_id'] ?? $r['placa_id'] ?? $r['conjunto_id'] ?? 0);
-        $filename = (string) ($r['filename'] ?? $r['archivo'] ?? '');
-
-        if ($folderId <= 0 || $filename === '') {
-            return $this->response->setStatusCode(422)->setJSON([
-                'success' => false,
-                'message' => 'Registro incompleto: falta ruta o (lote_id/placa_id) y filename',
-                'keys'    => array_keys($r),
-            ]);
-        }
-
-        $fullPath = FCPATH . "uploads/placas/{$folderId}/{$filename}";
-
-        if (!is_file($fullPath)) {
-            return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
-        }
-
-        return $this->response->download($fullPath, null)->setFileName($filename);
+    if (!$r) {
+        return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
     }
+
+    $ruta = $r['ruta'] ?? '';
+    if ($ruta === '') {
+        return $this->response->setStatusCode(422)->setBody('Registro incompleto: falta ruta');
+    }
+
+    $fullPath = FCPATH . ltrim($ruta, '/');
+
+    if (!is_file($fullPath)) {
+        return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
+    }
+
+    $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
+    return $this->response->download($fullPath, null)->setFileName($downloadName);
 }
