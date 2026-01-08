@@ -922,6 +922,22 @@ window.verDetalles = async function (orderId) {
   const id = String(orderId || "");
   if (!id) return;
 
+  // -------------------------
+  // Helpers locales (por si no existen globales)
+  // -------------------------
+  function esImagenUrl(url) {
+    if (!url) return false;
+    const u = String(url).trim();
+    return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
+  }
+  function esUrl(u) {
+    if (!u) return false;
+    return /^https?:\/\//i.test(String(u).trim());
+  }
+
+  // -------------------------
+  // Abrir modal + placeholders
+  // -------------------------
   abrirDetallesFull();
 
   setText("detTitle", "Cargando…");
@@ -937,9 +953,9 @@ window.verDetalles = async function (orderId) {
 
   try {
     const url =
-      (typeof apiUrl === "function"
+      typeof apiUrl === "function"
         ? apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`)
-        : `/index.php/dashboard/detalles/${encodeURIComponent(id)}`);
+        : `/index.php/dashboard/detalles/${encodeURIComponent(id)}`;
 
     const r = await fetch(url, { headers: { Accept: "application/json" } });
     const d = await r.json().catch(() => null);
@@ -950,18 +966,29 @@ window.verDetalles = async function (orderId) {
       return;
     }
 
-    const o = d.order || {};
-    const lineItems = Array.isArray(o.line_items) ? o.line_items : []; // ✅ SIEMPRE DEFINIDO
-
+    // debug
     if (pre) pre.textContent = JSON.stringify(d, null, 2);
 
+    const o = d.order || {};
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+
+    // ✅ si tu backend ya manda imagenes de producto
+    const productImages = d.product_images || {}; // { [product_id]: url }
+    const imagenesLocales = d.imagenes_locales || {}; // opcional si lo usas
+    window.imagenesLocales = imagenesLocales;
+
+    // -------------------------
+    // Header
+    // -------------------------
     setText("detTitle", `Pedido ${o.name || ("#" + id)}`);
     const clienteNombre = o.customer
       ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
       : "";
     setText("detSubtitle", clienteNombre ? clienteNombre : (o.email || "—"));
 
+    // -------------------------
     // Cliente
+    // -------------------------
     setHtml("detCliente", `
       <div class="space-y-2">
         <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre || "—")}</div>
@@ -970,7 +997,9 @@ window.verDetalles = async function (orderId) {
       </div>
     `);
 
+    // -------------------------
     // Envío
+    // -------------------------
     const a = o.shipping_address || {};
     setHtml("detEnvio", `
       <div class="space-y-1">
@@ -983,7 +1012,9 @@ window.verDetalles = async function (orderId) {
       </div>
     `);
 
+    // -------------------------
     // Totales
+    // -------------------------
     setHtml("detTotales", `
       <div class="space-y-1">
         <div><b>Subtotal:</b> ${escapeHtml(o.subtotal_price || "0")} €</div>
@@ -992,7 +1023,9 @@ window.verDetalles = async function (orderId) {
       </div>
     `);
 
+    // -------------------------
     // Resumen
+    // -------------------------
     setHtml("detResumen", `
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -1014,7 +1047,9 @@ window.verDetalles = async function (orderId) {
       </div>
     `);
 
-    // Productos
+    // -------------------------
+    // Productos (FULL)
+    // -------------------------
     setText("detItemsCount", String(lineItems.length));
 
     if (!lineItems.length) {
@@ -1022,28 +1057,155 @@ window.verDetalles = async function (orderId) {
       return;
     }
 
-    const itemsHtml = lineItems.map((item) => {
-      const title = item.title || item.name || "Producto";
-      const qty = item.quantity ?? 1;
-      const price = item.price ?? "0";
+    const itemsHtml = lineItems
+      .map((item, index) => {
+        const title = item.title || item.name || "Producto";
+        const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
+        const sku = item.sku || "";
+        const vendor = item.vendor || "";
+        const qty = item.quantity ?? 1;
+        const price = item.price ?? "0";
 
-      return `
-        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
-          <div class="font-extrabold text-slate-900 truncate">${escapeHtml(title)}</div>
-          <div class="text-sm text-slate-600 mt-1">
-            Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
+        const totalLinea = (() => {
+          const p = Number(price), q = Number(qty);
+          return (!isNaN(p) && !isNaN(q)) ? (p * q).toFixed(2) : null;
+        })();
+
+        // ✅ foto producto desde backend: product_images[product_id]
+        const pid = String(item.product_id || "");
+        const productImg = pid && productImages[pid] ? String(productImages[pid]) : "";
+
+        // properties: separar texto vs imagen
+        const props = Array.isArray(item.properties) ? item.properties : [];
+        const propsImg = [];
+        const propsTxt = [];
+
+        for (const p of props) {
+          const name = String(p?.name ?? "").trim() || "Campo";
+          const value = p?.value;
+
+          const v =
+            value === null || value === undefined
+              ? ""
+              : typeof value === "object"
+              ? JSON.stringify(value)
+              : String(value);
+
+          if (esImagenUrl(v)) propsImg.push({ name, value: v });
+          else propsTxt.push({ name, value: v });
+        }
+
+        const clienteSubioImagen = propsImg.length > 0;
+
+        const badge = clienteSubioImagen
+          ? "bg-amber-50 border border-amber-200 text-amber-900"
+          : "bg-slate-50 border border-slate-200 text-slate-700";
+
+        const badgeText = clienteSubioImagen ? "Cliente subió imagen" : "Sin imagen cliente";
+
+        const productoImgHtml = productImg
+          ? `
+            <div class="mt-3">
+              <div class="text-xs font-extrabold text-slate-500">Foto del producto</div>
+              <a href="${escapeHtml(productImg)}" target="_blank" class="inline-block mt-1">
+                <img src="${escapeHtml(productImg)}"
+                     class="w-full max-w-[260px] rounded-2xl border border-slate-200 shadow-sm object-cover">
+              </a>
+            </div>
+          `
+          : `
+            <div class="mt-3 text-slate-500 text-sm">
+              (Este producto no devolvió imagen desde Shopify)
+            </div>
+          `;
+
+        const propsTxtHtml = propsTxt.length
+          ? `
+            <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
+              <div class="space-y-1 text-sm">
+                ${propsTxt
+                  .map(({ name, value }) => {
+                    const label = escapeHtml(name);
+                    const valSafe = escapeHtml(value || "—");
+                    const val = esUrl(value)
+                      ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${valSafe}</a>`
+                      : `<span class="font-semibold text-slate-900 break-words">${valSafe}</span>`;
+                    return `
+                      <div class="flex gap-2">
+                        <div class="min-w-[120px] text-slate-500 font-bold">${label}:</div>
+                        <div class="flex-1">${val}</div>
+                      </div>
+                    `;
+                  })
+                  .join("")}
+              </div>
+            </div>
+          `
+          : "";
+
+        const propsImgsHtml = propsImg.length
+          ? propsImg
+              .map(
+                ({ name, value }) => `
+                  <div class="mt-3">
+                    <div class="text-xs font-extrabold text-slate-500">${escapeHtml(name || "Imagen del cliente")}</div>
+                    <a href="${escapeHtml(value)}" target="_blank" class="inline-block mt-1">
+                      <img src="${escapeHtml(value)}"
+                           class="w-full max-w-[260px] rounded-2xl border border-slate-200 shadow-sm object-cover">
+                    </a>
+                  </div>
+                `
+              )
+              .join("")
+          : "";
+
+        // info extra line_item
+        const datosLineItemHtml = `
+          <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+            ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
+            ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
+            ${vendor ? `<div><span class="text-slate-500 font-bold">Vendor:</span> <span class="font-semibold">${escapeHtml(vendor)}</span></div>` : ""}
+            ${item.product_id ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(item.product_id)}</span></div>` : ""}
+            ${item.variant_id ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(item.variant_id)}</span></div>` : ""}
           </div>
-        </div>
-      `;
-    }).join("");
+        `;
+
+        return `
+          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="font-extrabold text-slate-900 truncate">${escapeHtml(title)}</div>
+                <div class="text-sm text-slate-600 mt-1">
+                  Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
+                  ${totalLinea ? ` · Total: <b>${escapeHtml(totalLinea)} €</b>` : ""}
+                </div>
+              </div>
+
+              <div class="text-xs font-extrabold px-3 py-1 rounded-full border ${badge}">
+                ${badgeText}
+              </div>
+            </div>
+
+            ${datosLineItemHtml}
+
+            ${productoImgHtml}
+
+            ${propsTxtHtml}
+
+            ${propsImgsHtml}
+          </div>
+        `;
+      })
+      .join("");
 
     setHtml("detItems", itemsHtml);
-
   } catch (e) {
     console.error("verDetalles error:", e);
     setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
   }
 };
+
 
 
 // ===============================

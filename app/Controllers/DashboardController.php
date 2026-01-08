@@ -291,65 +291,110 @@ class DashboardController extends Controller
     }
 
     try {
-        // ==========================
-        // 1) Shopify
-        // ==========================
         $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
         $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
         $apiVersion = '2024-01';
 
+        if (!$shop || !$token) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Falta SHOPIFY_STORE_DOMAIN o SHOPIFY_ADMIN_TOKEN',
+            ]);
+        }
+
         $shop = preg_replace('#^https?://#', '', $shop);
         $shop = preg_replace('#/.*$#', '', $shop);
 
-        $url = "https://{$shop}/admin/api/{$apiVersion}/orders/{$orderId}.json";
-
         $client = \Config\Services::curlrequest([
-            'timeout' => 30,
+            'timeout' => 25,
             'http_errors' => false,
         ]);
 
-        $resp = $client->get($url, [
+        // 1) Pedido
+        $urlOrder = "https://{$shop}/admin/api/{$apiVersion}/orders/" . urlencode($orderId) . ".json";
+        $resp = $client->get($urlOrder, [
             'headers' => [
                 'X-Shopify-Access-Token' => $token,
                 'Accept' => 'application/json',
             ],
         ]);
 
-        if ($resp->getStatusCode() >= 400) {
-            throw new \Exception('Error Shopify');
+        $status = $resp->getStatusCode();
+        $raw = (string) $resp->getBody();
+        $json = json_decode($raw, true) ?: [];
+
+        if ($status >= 400 || empty($json['order'])) {
+            log_message('error', 'DETALLES ORDER HTTP '.$status.': '.$raw);
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error consultando pedido en Shopify',
+            ]);
         }
 
-        $json = json_decode($resp->getBody(), true);
-        $order = $json['order'] ?? null;
+        $order = $json['order'];
 
-        if (!$order) {
-            throw new \Exception('Pedido no encontrado');
+        // 2) Enriquecer imágenes de productos
+        $lineItems = $order['line_items'] ?? [];
+        $productIds = [];
+        foreach ($lineItems as $li) {
+            if (!empty($li['product_id'])) $productIds[(string)$li['product_id']] = true;
+        }
+        $productIds = array_keys($productIds);
+
+        $productImages = [];  // product_id => url
+        $productCache  = [];  // product_id => product json (cache request)
+
+        foreach ($productIds as $pid) {
+            // cache por seguridad
+            if (isset($productCache[$pid])) continue;
+
+            $urlProd = "https://{$shop}/admin/api/{$apiVersion}/products/{$pid}.json?fields=id,title,image,images";
+            $rP = $client->get($urlProd, [
+                'headers' => [
+                    'X-Shopify-Access-Token' => $token,
+                    'Accept' => 'application/json',
+                ],
+            ]);
+
+            $sP = $rP->getStatusCode();
+            $bP = (string)$rP->getBody();
+            $jP = json_decode($bP, true) ?: [];
+
+            if ($sP < 400 && !empty($jP['product'])) {
+                $productCache[$pid] = $jP['product'];
+
+                // Shopify: product.image.src o product.images[0].src
+                $img = '';
+                if (!empty($jP['product']['image']['src'])) $img = $jP['product']['image']['src'];
+                elseif (!empty($jP['product']['images'][0]['src'])) $img = $jP['product']['images'][0]['src'];
+
+                if ($img) $productImages[$pid] = $img;
+            } else {
+                // No rompas todo si un producto falla
+                log_message('error', 'DETALLES PRODUCT HTTP '.$sP.' pid='.$pid.' body='.$bP);
+            }
         }
 
-        // ==========================
-        // 2) PROCESAR IMÁGENES + ESTADO AUTOMÁTICO
-        // (esto es lo que te pasé antes)
-        // ==========================
-        $this->procesarImagenesYEstado($order);
+        // ✅ (opcional) imágenes locales tuyas (si ya lo usas)
+        // $imagenesLocales = ... tu lógica ...
+        $imagenesLocales = []; // si no tienes, déjalo vacío
 
-        // ==========================
-        // 3) RESPUESTA CORRECTA
-        // ==========================
         return $this->response->setJSON([
             'success' => true,
-            'order'   => $order,
+            'order' => $order,
+            'product_images' => $productImages,
+            'imagenes_locales' => $imagenesLocales,
         ]);
 
     } catch (\Throwable $e) {
-        log_message('error', 'DETALLES ERROR: ' . $e->getMessage());
-
+        log_message('error', 'DETALLES ERROR: '.$e->getMessage());
         return $this->response->setJSON([
             'success' => false,
-            'message' => 'Error cargando detalles',
-            'error'   => $e->getMessage(),
+            'message' => 'Error interno cargando detalles',
         ]);
     }
 }
+
 
 
     // ============================================================
