@@ -14,18 +14,26 @@ class PlacaArchivoModel extends Model
     protected $returnType = 'array';
 
     protected $allowedFields = [
-        'ruta',
-        'original',
-        'original_name',
-        'filename',
-        'nombre',
-        'lote_id',
-        'conjunto_id',
-        'placa_id',
-        'user_id',
-        'created_at',
-        'updated_at',
-    ];
+    'ruta',
+    'original',
+    'original_name',
+    'filename',
+    'nombre',
+
+    'lote_id',
+    'lote_nombre',
+    'conjunto_id',
+    'placa_id',
+
+    'producto',
+    'numero_placa',
+    'mime',
+    'size',
+
+    'user_id',
+    'created_at',
+    'updated_at',
+];
 
     protected $useTimestamps = false;
 

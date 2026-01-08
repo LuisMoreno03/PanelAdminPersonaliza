@@ -9,106 +9,95 @@ class PlacasArchivosController extends BaseController
 
 
 {
-   public function listar()
-{
-    try {
-        helper('url');
+    public function listar()
+    {
+        try {
+            helper('url');
 
-        $model = new PlacaArchivoModel();
-        $items = $model->orderBy('id', 'DESC')->findAll();
+            $model = new PlacaArchivoModel();
+            $items = $model->orderBy('id', 'DESC')->findAll();
 
-        foreach ($items as &$it) {
-            $ruta = $it['ruta'] ?? '';
-            $it['url'] = $ruta ? base_url($ruta) : null;
+            foreach ($items as &$it) {
+                $ruta = $it['ruta'] ?? '';
+                $it['url'] = $ruta ? base_url($ruta) : null;
 
-            $it['created_at'] = $it['created_at'] ?? null;
+                $it['created_at'] = $it['created_at'] ?? null;
 
-            $it['original'] = $it['original']
-                ?? ($it['original_name'] ?? ($it['filename'] ?? null));
+                $it['original'] = $it['original']
+                    ?? ($it['original_name'] ?? ($it['filename'] ?? null));
 
-            $it['nombre'] = $it['nombre']
-                ?? ($it['original']
-                    ? pathinfo($it['original'], PATHINFO_FILENAME)
-                    : null
-                );
+                $it['nombre'] = $it['nombre']
+                    ?? ($it['original']
+                        ? pathinfo($it['original'], PATHINFO_FILENAME)
+                        : null
+                    );
 
-            $it['lote_id'] = $it['lote_id']
-                ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
+                $it['lote_id'] = $it['lote_id']
+                    ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
+            }
+            unset($it);
+
+            return $this->response->setJSON([
+                'success' => true,
+                'data'    => $items
+            ]);
+
+        } catch (\Throwable $e) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine()
+            ]);
         }
-        unset($it);
-
-        return $this->response->setJSON([
-            'success' => true,
-            'data'    => $items
-        ]);
-
-    } catch (\Throwable $e) {
-
-        // ✅ AQUÍ ESTABA EL ERROR
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'message' => $e->getMessage(), // ✅ correcto
-            'file'    => $e->getFile(),
-            'line'    => $e->getLine()
-        ]);
     }
-}
 
+    public function stats()
+    {
+        try {
+            $db = \Config\Database::connect();
+            $tabla = 'placas_archivos';
 
-public function stats()
-{
-    try {
-        $db = \Config\Database::connect();
+            $fields = $db->getFieldNames($tabla);
+            $hasCreatedAt = in_array('created_at', $fields, true);
 
-        $tabla = 'placas_archivos';
+            $total = $db->table($tabla)->countAllResults();
 
-        // Detectar si existe created_at en placas_archivos
-        $fields = $db->getFieldNames($tabla);
-        $hasCreatedAt = in_array('created_at', $fields, true);
+            if (!$hasCreatedAt) {
+                return $this->response->setJSON([
+                    'success' => true,
+                    'data' => [
+                        'total' => $total,
+                        'por_dia' => []
+                    ]
+                ]);
+            }
 
-        $total = $db->table($tabla)->countAllResults();
+            $porDia = $db->query("
+                SELECT DATE(created_at) as dia, COUNT(*) as total
+                FROM {$tabla}
+                GROUP BY DATE(created_at)
+                ORDER BY dia DESC
+                LIMIT 14
+            ")->getResultArray();
 
-        if (!$hasCreatedAt) {
             return $this->response->setJSON([
                 'success' => true,
                 'data' => [
                     'total' => $total,
-                    'por_dia' => []
+                    'por_dia' => $porDia
                 ]
             ]);
+
+        } catch (\Throwable $e) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
         }
-
-
-
-        $porDia = $db->query("
-            SELECT DATE(created_at) as dia, COUNT(*) as total
-            FROM {$tabla}
-            GROUP BY DATE(created_at)
-            ORDER BY dia DESC
-            LIMIT 14
-        ")->getResultArray();
-
-        return $this->response->setJSON([
-            'success' => true,
-            'data' => [
-                'total' => $total,
-                'por_dia' => $porDia
-            ]
-        ]);
-
-    } catch (\Throwable $e) {
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'message' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
     }
-}
-
-
-
-
 
     public function subir()
     {
@@ -278,25 +267,26 @@ public function stats()
 
 
     public function descargar($archivoId)
-{
-    $m = new PlacaArchivoModel();
-    $r = $m->find($archivoId);
+    {
+        $m = new PlacaArchivoModel();
+        $r = $m->find($archivoId);
 
-    if (!$r) {
-        return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
+        if (!$r) {
+            return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
+        }
+
+        $ruta = $r['ruta'] ?? '';
+        if ($ruta === '') {
+            return $this->response->setStatusCode(422)->setBody('Registro incompleto: falta ruta');
+        }
+
+        $fullPath = FCPATH . ltrim($ruta, '/');
+
+        if (!is_file($fullPath)) {
+            return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
+        }
+
+        $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
+        return $this->response->download($fullPath, null)->setFileName($downloadName);
     }
-
-    $ruta = $r['ruta'] ?? '';
-    if ($ruta === '') {
-        return $this->response->setStatusCode(422)->setBody('Registro incompleto: falta ruta');
-    }
-
-    $fullPath = FCPATH . ltrim($ruta, '/');
-
-    if (!is_file($fullPath)) {
-        return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
-    }
-
-    $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
-    return $this->response->download($fullPath, null)->setFileName($downloadName);
 }
