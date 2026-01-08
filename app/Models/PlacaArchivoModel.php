@@ -36,6 +36,7 @@ class PlacaArchivoModel extends Model
 ];
 
 
+
     protected $useTimestamps = false;
 
 

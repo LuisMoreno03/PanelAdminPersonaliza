@@ -168,8 +168,13 @@ class PlacasArchivosController extends BaseController
             'lote_nombre'  => $loteNombre,
 
             // ✅ IMPORTANTES
-            'user_id'      => (int) (session()->get('user_id') ?? 0),
-            'created_at'   => date('Y-m-d H:i:s'),
+            'user_id' => (int) (
+    session()->get('user_id')
+    ?? session()->get('id')
+    ?? session()->get('usuario_id')
+    ?? 0
+),
+
 ]);
 
 
