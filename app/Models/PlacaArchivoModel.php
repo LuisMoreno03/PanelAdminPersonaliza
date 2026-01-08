@@ -23,16 +23,16 @@ class PlacaArchivoModel extends Model
 }
 
 
-if (!array_key_exists('conjunto_id', $r)) {
+if (!array_key_exists('lote_id', $r)) {
     return $this->response
         ->setStatusCode(400)
         ->setBody('Datos incompletos del archivo');
 }
 
-$conjuntoId = (int) $r['conjunto_id'];
+$loteId = (int) $r['lote_id'];
 
 
-$required = ['conjunto_id', 'filename'];
+$required = ['lote_id', 'filename'];
 
 foreach ($required as $key) {
     if (!isset($r[$key])) {
