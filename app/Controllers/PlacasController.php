@@ -71,3 +71,36 @@ class PlacasController extends BaseController
         return $this->response->download($path, null)->setFileName($origName);
     }
 }
+    public function listar()
+{
+    try {
+        helper('url');
+
+        $model = new \App\Models\PlacaArchivoModel();
+        $items = $model->orderBy('id','DESC')->findAll();
+
+        foreach ($items as &$it) {
+            $ruta = $it['ruta'] ?? '';
+            $it['url'] = $ruta ? base_url($ruta) : null;
+            $it['created_at'] = $it['created_at'] ?? null;
+
+            $it['original'] = $it['original'] ?? ($it['original_name'] ?? ($it['filename'] ?? null));
+            $it['nombre']   = $it['nombre']   ?? ($it['original'] ? pathinfo($it['original'], PATHINFO_FILENAME) : null);
+
+            $it['lote_id']  = $it['lote_id'] ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
+        }
+
+        return $this->response->setJSON(['success'=>true,'data'=>$items]);
+    } catch (\Throwable $e) {
+        log_message('error', 'listar() ERROR: {msg} | {file}:{line}', [
+            'msg'  => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => $e->getMessage(),
+        ]);
+    }
+}
