@@ -1048,48 +1048,69 @@ function renderDetalles(order) {
 }
 
 window.verDetalles = async function (orderId) {
-  const id = String(orderId || "");
-  if (!id) return;
+  const modal = document.getElementById("modalDetalles");
+  const cont  = document.getElementById("detalleProductos");
+  const json  = document.getElementById("modalDetallesJson");
 
-  // abre modal
-  abrirDetallesFull();
+  cont.innerHTML = "Cargando...";
+  json.textContent = "";
 
-  // placeholders
-  document.getElementById("detTitle").textContent = "Cargando...";
-  document.getElementById("detSubtitle").textContent = "—";
-  document.getElementById("detCliente").innerHTML = "";
-  document.getElementById("detEnvio").innerHTML = "";
-  document.getElementById("detTotales").innerHTML = "";
-  document.getElementById("detResumen").innerHTML = "";
-  document.getElementById("detItems").innerHTML = `<div class="text-slate-500">Cargando...</div>`;
-  document.getElementById("detItemsCount").textContent = "…";
-  document.getElementById("detJson").textContent = "";
-  _detLastJson = null;
+  modal.classList.remove("hidden");
 
   try {
-    // loader SOLO aquí (acción usuario)
-    silentFetch = false;
-    showLoader();
+    const r = await fetch(`${window.API_BASE}/dashboard/detalles/${orderId}`, {
+      headers: { Accept: "application/json" }
+    });
 
-    const url = apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`);
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    const d = await r.json().catch(() => null);
+    const d = await r.json();
 
-    if (!r.ok || !d) throw new Error(`HTTP ${r.status}`);
-    if (d.success !== true) throw new Error(d.message || "No se pudo cargar el pedido.");
+    if (!d || d.success !== true) {
+      throw new Error(d?.message || "Error backend");
+    }
 
-    const order = d.order || d.data || d;
-    _detLastJson = order;
+    // ==========================
+    // RENDER PRODUCTOS (con imágenes)
+    // ==========================
+    const items = d.order.line_items || [];
 
-    renderDetalles(order);
+    cont.innerHTML = items.map((it, idx) => {
+      const img =
+        it.local_image_url ||
+        it.image?.src ||
+        it.product_exists
+          ? (it.image?.src ?? "")
+          : "";
+
+      return `
+        <div class="rounded-2xl border border-slate-200 p-4 bg-white">
+          <div class="flex gap-4">
+            <img
+              src="${img || '/img/no-image.png'}"
+              class="w-28 h-28 object-cover rounded-xl border"
+            />
+
+            <div class="flex-1">
+              <div class="font-extrabold text-slate-900">${it.name}</div>
+              <div class="text-sm text-slate-600 mt-1">Cantidad: ${it.quantity}</div>
+              <div class="text-sm text-slate-600">SKU: ${it.sku || '-'}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    json.textContent = JSON.stringify(d.order, null, 2);
+
   } catch (e) {
     console.error(e);
-    document.getElementById("detItems").innerHTML =
-      `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa consola / endpoint.</div>`;
-  } finally {
-    hideLoader();
+    cont.innerHTML = `
+      <div class="text-rose-600 font-bold">
+        Error cargando detalles. Revisa consola / endpoint.
+      </div>
+    `;
   }
 };
+
 
 /* =====================================================
    USERS STATUS

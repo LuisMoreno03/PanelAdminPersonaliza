@@ -866,4 +866,74 @@ class Dashboard extends BaseController
             ])->setStatusCode(200);
         }
     }
+    public function detalles($orderId)
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setStatusCode(401)->setJSON([
+            'success' => false,
+            'message' => 'No autenticado',
+        ]);
+    }
+
+    try {
+        // ==========================
+        // 1) Shopify
+        // ==========================
+        $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
+        $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
+        $apiVersion = '2024-01';
+
+        $shop = preg_replace('#^https?://#', '', $shop);
+        $shop = preg_replace('#/.*$#', '', $shop);
+
+        $url = "https://{$shop}/admin/api/{$apiVersion}/orders/{$orderId}.json";
+
+        $client = \Config\Services::curlrequest([
+            'timeout' => 30,
+            'http_errors' => false,
+        ]);
+
+        $resp = $client->get($url, [
+            'headers' => [
+                'X-Shopify-Access-Token' => $token,
+                'Accept' => 'application/json',
+            ],
+        ]);
+
+        if ($resp->getStatusCode() >= 400) {
+            throw new \Exception('Error Shopify');
+        }
+
+        $json = json_decode($resp->getBody(), true);
+        $order = $json['order'] ?? null;
+
+        if (!$order) {
+            throw new \Exception('Pedido no encontrado');
+        }
+
+        // ==========================
+        // 2) PROCESAR IMÁGENES + ESTADO AUTOMÁTICO
+        // (esto es lo que te pasé antes)
+        // ==========================
+        $this->procesarImagenesYEstado($order);
+
+        // ==========================
+        // 3) RESPUESTA CORRECTA
+        // ==========================
+        return $this->response->setJSON([
+            'success' => true,
+            'order'   => $order,
+        ]);
+
+    } catch (\Throwable $e) {
+        log_message('error', 'DETALLES ERROR: ' . $e->getMessage());
+
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'Error cargando detalles',
+            'error'   => $e->getMessage(),
+        ]);
+    }
+}
+
 }

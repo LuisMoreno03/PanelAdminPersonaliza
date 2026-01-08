@@ -281,59 +281,7 @@ class DashboardController extends Controller
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
     // ============================================================
     // ✅ Aquí: procesa imágenes y define estado
-    
 
-    public function detalles($orderId)
-    {   
-        $this->procesarImagenesYEstado($order);
-
-        // ✅ responder
-        return $this->response->setJSON([
-        'success' => true,
-        'order' => $order,
-        'imagenes_locales' => $order['imagenes_locales'] ?? [],
-        ]);
-        $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/{$orderId}.json";
-        $resp = $this->curlShopify($url, 'GET');
-
-        if ($resp['status'] === 0 || !empty($resp['error'])) {
-            return $this->response->setJSON([
-                "success" => false,
-                "message" => "Error conectando con Shopify (cURL)",
-                "curl_error" => $resp['error'],
-            ]);
-        }
-
-        $data = json_decode($resp['body'], true) ?: [];
-        if (!isset($data["order"])) {
-            return $this->response->setJSON([
-                "success" => false,
-                "message" => "Shopify no devolvió el pedido",
-                "raw"     => $data
-            ]);
-        }
-
-        $order = $data["order"];
-
-        // leer imágenes locales
-        $folder = FCPATH . "uploads/pedidos/$orderId/";
-        $imagenesLocales = [];
-
-        if (is_dir($folder)) {
-            foreach (scandir($folder) as $archivo) {
-                if ($archivo === "." || $archivo === "..") continue;
-                $parts = explode(".", $archivo);
-                $index = intval($parts[0]);
-                $imagenesLocales[$index] = base_url("uploads/pedidos/$orderId/$archivo");
-            }
-        }
-
-        return $this->response->setJSON([
-            "success"          => true,
-            "order"            => $order,
-            "imagenes_locales" => $imagenesLocales
-        ]);
-    }
 
     // ============================================================
     // ✅ BADGE DEL ESTADO (colores nuevos)

@@ -42,7 +42,7 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     $routes->post('usuarios/crear', 'Usuarios::crear');
 
     // ✅ Legacy (si existen)
-    $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
+    $routes->get('dashboard/detalles/(:num)', 'Dashboard::detalles/$1', ['filter' => 'auth']);
     $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
 });
 
