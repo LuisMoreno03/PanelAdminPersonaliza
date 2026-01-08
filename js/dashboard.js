@@ -924,20 +924,18 @@ window.verDetalles = async function (orderId) {
 
   abrirDetallesFull();
 
-  // placeholders (IMPORTANTE: usar TUS IDs)
   setText("detTitle", "Cargando…");
   setText("detSubtitle", "—");
-  setText("detItemsCount", String(lineItems.length));
+  setText("detItemsCount", "0");
   setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
   setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
-  const pre = $("detJson");
+  const pre = document.getElementById("detJson");
   if (pre) pre.textContent = "";
 
   try {
-    // ✅ usa tu helper apiUrl si existe (si no, usa ruta directa)
     const url =
       (typeof apiUrl === "function"
         ? apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`)
@@ -947,21 +945,16 @@ window.verDetalles = async function (orderId) {
     const d = await r.json().catch(() => null);
 
     if (!r.ok || !d || d.success !== true) {
-      setHtml(
-        "detItems",
-        `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa consola / endpoint.</div>`
-      );
+      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles.</div>`);
       if (pre) pre.textContent = JSON.stringify({ http: r.status, payload: d }, null, 2);
       return;
     }
 
     const o = d.order || {};
-    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : []; // ✅ SIEMPRE DEFINIDO
 
-    // JSON debug
     if (pre) pre.textContent = JSON.stringify(d, null, 2);
 
-    // Header
     setText("detTitle", `Pedido ${o.name || ("#" + id)}`);
     const clienteNombre = o.customer
       ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
@@ -969,22 +962,17 @@ window.verDetalles = async function (orderId) {
     setText("detSubtitle", clienteNombre ? clienteNombre : (o.email || "—"));
 
     // Cliente
-    setHtml(
-      "detCliente",
-      `
+    setHtml("detCliente", `
       <div class="space-y-2">
         <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre || "—")}</div>
         <div><span class="text-slate-500">Email:</span> ${escapeHtml(o.email || "—")}</div>
         <div><span class="text-slate-500">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
       </div>
-      `
-    );
+    `);
 
     // Envío
     const a = o.shipping_address || {};
-    setHtml(
-      "detEnvio",
-      `
+    setHtml("detEnvio", `
       <div class="space-y-1">
         <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
         <div>${escapeHtml(a.address1 || "")}</div>
@@ -993,25 +981,19 @@ window.verDetalles = async function (orderId) {
         <div>${escapeHtml(a.province || "")}</div>
         <div>${escapeHtml(a.country || "")}</div>
       </div>
-      `
-    );
+    `);
 
     // Totales
-    setHtml(
-      "detTotales",
-      `
+    setHtml("detTotales", `
       <div class="space-y-1">
         <div><b>Subtotal:</b> ${escapeHtml(o.subtotal_price || "0")} €</div>
         <div><b>Envío:</b> ${escapeHtml(o.total_shipping_price_set?.shop_money?.amount || "0")} €</div>
         <div class="text-lg font-extrabold"><b>Total:</b> ${escapeHtml(o.total_price || "0")} €</div>
       </div>
-      `
-    );
+    `);
 
-    // Resumen (tags + estados)
-    setHtml(
-      "detResumen",
-      `
+    // Resumen
+    setHtml("detResumen", `
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div class="text-xs text-slate-500 font-extrabold uppercase">Tags</div>
@@ -1030,10 +1012,9 @@ window.verDetalles = async function (orderId) {
           <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
         </div>
       </div>
-      `
-    );
+    `);
 
-    // Productos (con imágenes SI O SI si vienen en properties)
+    // Productos
     setText("detItemsCount", String(lineItems.length));
 
     if (!lineItems.length) {
@@ -1041,101 +1022,29 @@ window.verDetalles = async function (orderId) {
       return;
     }
 
-    // Si tu backend manda imagenes_locales por índice (como antes)
-    const imagenesLocales = d.imagenes_locales || {};
-    window.imagenesLocales = imagenesLocales;
+    const itemsHtml = lineItems.map((item) => {
+      const title = item.title || item.name || "Producto";
+      const qty = item.quantity ?? 1;
+      const price = item.price ?? "0";
 
-    window.imagenesCargadas = new Array(lineItems.length).fill(false);
-    window.imagenesRequeridas = new Array(lineItems.length).fill(false);
-
-    const itemsHtml = lineItems.map((item, index) => {
-        const props = Array.isArray(item.properties) ? item.properties : [];
-         const title = item.title || item.name || "Producto";
-         const qty = item.quantity ?? 1;
-         const price = item.price ?? "0";
-
-         
-        // Buscar imágenes en properties
-        const propsImgs = props
-          .filter((p) => esImagen(p?.value))
-          .map(
-            (p) => `
-            <div class="mt-2">
-              <div class="text-xs font-extrabold text-slate-500">${escapeHtml(p.name || "Imagen")}</div>
-              <img src="${escapeHtml(p.value)}" class="mt-1 w-32 rounded-xl border border-slate-200 shadow-sm">
-            </div>
-          `
-          )
-          .join("");
-
-        // Si el pedido trae imagen en properties => la requerimos
-        const requiere = props.some((p) => esImagen(p?.value));
-        window.imagenesRequeridas[index] = !!requiere;
-
-        // Si ya hay imagen local guardada => cuenta como cargada
-        const localUrl = imagenesLocales[index] || "";
-        if (localUrl) window.imagenesCargadas[index] = true;
-
-        const localHtml = localUrl
-          ? `
-            <div class="mt-3">
-              <div class="text-xs font-extrabold text-slate-500">Imagen cargada (local)</div>
-              <img src="${escapeHtml(localUrl)}" class="mt-1 w-36 rounded-xl border border-slate-200 shadow-sm">
-            </div>
-          `
-          : (requiere
-              ? `<div class="mt-3 text-rose-600 font-bold text-sm">Falta imagen modificada</div>`
-              : `<div class="mt-3 text-slate-500 text-sm">Este producto no requiere imagen</div>`);
-
-        return `
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || "Producto")}</div>
-                <div class="text-sm text-slate-600 mt-1">
-                  Cant: <b>${escapeHtml(item.quantity)}</b> · Precio: <b>${escapeHtml(item.price)} €</b>
-                </div>
-              </div>
-              <div class="text-xs font-extrabold px-3 py-1 rounded-full ${
-                requiere ? "bg-amber-50 border border-amber-200 text-amber-900" : "bg-slate-50 border border-slate-200 text-slate-700"
-              }">
-                ${requiere ? "Requiere imagen" : "Sin imagen"}
-              </div>
-            </div>
-
-            ${propsImgs || ""}
-
-            ${localHtml}
-
-            ${
-              requiere
-                ? `
-              <div class="mt-4">
-                <div class="text-xs font-extrabold text-slate-500 mb-1">Subir imagen modificada</div>
-                <input type="file"
-                  accept="image/*"
-                  onchange="subirImagenProducto(${Number(id)}, ${index}, this)"
-                  class="w-full border border-slate-200 rounded-2xl p-2">
-                <div id="preview_${id}_${index}" class="mt-2"></div>
-              </div>
-              `
-                : ""
-            }
+      return `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+          <div class="font-extrabold text-slate-900 truncate">${escapeHtml(title)}</div>
+          <div class="text-sm text-slate-600 mt-1">
+            Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
           </div>
-        `;
-      })
-      .join("");
+        </div>
+      `;
+    }).join("");
 
     setHtml("detItems", itemsHtml);
 
   } catch (e) {
     console.error("verDetalles error:", e);
-    setText("detTitle", "Error");
-    setText("detSubtitle", "No se pudieron cargar los detalles");
-    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error: ${escapeHtml(e.message || "desconocido")}</div>`);
+    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
   }
-
 };
+
 
 // ===============================
 // SUBIR IMAGEN MODIFICADA + AUTO ESTADO
