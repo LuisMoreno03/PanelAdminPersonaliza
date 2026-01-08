@@ -96,6 +96,10 @@ class PlacasArchivosController extends BaseController
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
             ]);
+            
+
+            return $this->response->setJSON($items);
+
         }
     }
 
