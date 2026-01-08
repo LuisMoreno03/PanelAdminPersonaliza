@@ -1331,68 +1331,74 @@ window.verDetalles = async function (orderId) {
 // ===============================
 // SUBIR IMAGEN MODIFICADA + AUTO ESTADO
 // ===============================
-window.subirImagenProducto = async function (orderId, index, inputEl) {
-  const id = String(orderId || "");
-  if (!id) return;
-
-  const file = inputEl?.files?.[0];
-  if (!file) return;
-
-  // preview rápido
-  const prev = document.getElementById(`preview_${id}_${index}`);
-  if (prev) {
-    const url = URL.createObjectURL(file);
-    prev.innerHTML = `
-      <div class="text-xs font-extrabold text-slate-500 mb-2">Vista previa</div>
-      <img src="${url}" class="h-36 w-36 rounded-2xl border border-slate-200 object-cover shadow-sm">
-      <div class="text-xs text-slate-500 mt-2">Subiendo…</div>
-    `;
-  }
-
+window.subirImagenProducto = async function (orderId, index, input) {
   try {
+    const file = input?.files?.[0];
+    if (!file) return;
+
     const fd = new FormData();
-    fd.append("order_id", id);
+    fd.append("order_id", String(orderId));
     fd.append("index", String(index));
     fd.append("file", file);
 
-    const url =
-      typeof apiUrl === "function"
-        ? apiUrl("/api/pedidos/imagenes/subir")
-        : "/index.php/api/pedidos/imagenes/subir";
+    // CSRF (si lo usas)
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+    const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
 
-    const r = await fetch(url, { method: "POST", body: fd });
-    const d = await r.json().catch(() => null);
+    const endpoints = [
+      (typeof apiUrl === "function" ? apiUrl("/api/pedidos/imagenes/subir") : "/index.php/api/pedidos/imagenes/subir"),
+      "/api/pedidos/imagenes/subir",
+      "/index.php/api/pedidos/imagenes/subir",
+    ];
 
-    if (!r.ok || !d?.success) {
-      if (prev) prev.innerHTML = `<div class="text-rose-600 font-extrabold">Error: ${escapeHtml(d?.message || "no se pudo subir")}</div>`;
-      return;
-    }
+    let lastErr = null;
 
-    // ✅ guarda en memoria local (para re-render sin recargar)
-    if (!window.imagenesLocales) window.imagenesLocales = {};
-    window.imagenesLocales[index] = d.url;
+    for (const url of endpoints) {
+      try {
+        const headers = {};
+        if (csrfToken) headers[csrfHeader] = csrfToken;
 
-    // ✅ si backend te devuelve “imagenes_locales” completo, úsalo
-    if (d.imagenes_locales) window.imagenesLocales = d.imagenes_locales;
+        const r = await fetch(url, {
+          method: "POST",
+          headers,
+          body: fd,
+        });
 
-    // 🔥 actualiza estado del pedido automático
-    // d.estado_auto puede ser "Producción" o "A medias"
-    if (d.estado_auto) {
-      // si ya tienes guardarEstado funcionando, úsalo
-      if (typeof guardarEstado === "function") {
-        await guardarEstado(d.estado_auto);
+        if (r.status === 404) continue;
+
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d?.success) throw new Error(d?.message || `HTTP ${r.status}`);
+
+        // ✅ pintar preview
+        const previewId = `preview_${orderId}_${index}`;
+        const prev = document.getElementById(previewId);
+        if (prev) {
+          prev.innerHTML = `
+            <div class="mt-2">
+              <div class="text-xs font-extrabold text-slate-500">Imagen modificada subida ✅</div>
+              <img src="${d.url}" class="mt-2 w-44 rounded-2xl border border-slate-200 shadow-sm object-cover">
+            </div>
+          `;
+        }
+
+        // ✅ marcar como cargada en memoria (tu lógica)
+        if (Array.isArray(window.imagenesCargadas)) {
+          window.imagenesCargadas[index] = true;
+        }
+        if (window.imagenesLocales && typeof window.imagenesLocales === "object") {
+          window.imagenesLocales[index] = d.url;
+        }
+
+        return; // ✅ éxito
+      } catch (e) {
+        lastErr = e;
       }
     }
 
-    // ✅ re-render del modal actual: vuelve a cargar detalles (sin cerrar)
-    // (más simple y robusto)
-    await window.verDetalles(id);
-
+    throw lastErr || new Error("No se encontró endpoint para subir imagen (404).");
   } catch (e) {
-    console.error(e);
-    if (prev) prev.innerHTML = `<div class="text-rose-600 font-extrabold">Error de red subiendo imagen.</div>`;
-  } finally {
-    inputEl.value = ""; // limpia input
+    console.error("subirImagenProducto error:", e);
+    alert("Error subiendo imagen: " + (e?.message || e));
   }
 };
 
