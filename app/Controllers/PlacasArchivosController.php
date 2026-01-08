@@ -261,3 +261,45 @@ class PlacasArchivosController extends BaseController
         return $this->response->setJSON(['success'=>true,'message'=>'Lote eliminado ✅']);
     }
 }
+
+    public function descargar($archivoId)
+{
+    $m = new \App\Models\PlacaArchivoModel();
+    $r = $m->find($archivoId);
+
+    if (!$r) {
+        return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
+    }
+
+    // 1) Preferido: descargar por la "ruta" guardada en BD
+    $ruta = $r['ruta'] ?? null;
+    if ($ruta) {
+        // Si "ruta" es tipo: uploads/placas/12/archivo.png
+        $fullPath = FCPATH . ltrim($ruta, '/'); // public_html/ + uploads/...
+
+        if (is_file($fullPath)) {
+            $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
+            return $this->response->download($fullPath, null)->setFileName($downloadName);
+        }
+    }
+
+    // 2) Fallback: intenta con ids alternativos (por si tu tabla usa otro nombre)
+    $folderId = (int) ($r['lote_id'] ?? $r['placa_id'] ?? $r['conjunto_id'] ?? 0);
+    $filename = (string) ($r['filename'] ?? $r['archivo'] ?? '');
+
+    if ($folderId <= 0 || $filename === '') {
+        return $this->response->setStatusCode(422)->setJSON([
+            'success' => false,
+            'message' => 'Registro incompleto: falta ruta o (lote_id/placa_id) y filename',
+            'keys'    => array_keys($r),
+        ]);
+    }
+
+    $fullPath = FCPATH . "uploads/placas/{$folderId}/{$filename}";
+
+    if (!is_file($fullPath)) {
+        return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
+    }
+
+    return $this->response->download($fullPath, null)->setFileName($filename);
+}
