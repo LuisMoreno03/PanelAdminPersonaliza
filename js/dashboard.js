@@ -895,10 +895,13 @@ function renderAddress(a) {
 function renderItem(item) {
   const title = item?.title ?? "Producto";
   const qty = item?.quantity ?? 0;
-  const price = item?.price ?? "";
+  const price = item?.price ?? "";  
   const sku = item?.sku ?? "";
   const vendor = item?.vendor ?? "";
   const props = Array.isArray(item?.properties) ? item.properties : [];
+  const imgs = [];
+  if (item.local_image_url) imgs.push(item.local_image_url);
+  // y también las que venga en properties si quieres
 
   const propsHtml = props.length
     ? `<div class="mt-3 space-y-1">
@@ -1087,7 +1090,7 @@ window.verDetalles = async function (orderId) {
     hideLoader();
   }
 };
-  
+
 /* =====================================================
    USERS STATUS
 ===================================================== */

@@ -280,8 +280,19 @@ class DashboardController extends Controller
     // ============================================================
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
     // ============================================================
+    // ✅ Aquí: procesa imágenes y define estado
+    
+
     public function detalles($orderId)
-    {
+    {   
+        $this->procesarImagenesYEstado($order);
+
+        // ✅ responder
+        return $this->response->setJSON([
+        'success' => true,
+        'order' => $order,
+        'imagenes_locales' => $order['imagenes_locales'] ?? [],
+        ]);
         $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/{$orderId}.json";
         $resp = $this->curlShopify($url, 'GET');
 
@@ -713,4 +724,197 @@ class DashboardController extends Controller
             "url"     => $url
         ]);
     }
+
+    private function extractImageUrlsFromLineItem(array $item): array
+    {
+        $urls = [];
+
+        $props = $item['properties'] ?? [];
+        if (is_array($props)) {
+            foreach ($props as $p) {
+                $val = (string)($p['value'] ?? '');
+                if ($val === '') continue;
+
+                // URL normal
+                if (preg_match('#^https?://#i', $val) && preg_match('#\.(png|jpe?g|webp|gif|svg)(\?.*)?$#i', $val)) {
+                    $urls[] = $val;
+                }
+
+                // base64
+                if (str_starts_with($val, 'data:image/')) {
+                    $urls[] = $val;
+                }
+            }
+        }
+
+        return array_values(array_unique($urls));
+    }
+    private function buildModifiedImage(string $src, string $destAbsPath): bool
+    {
+        try {
+            // 1) obtener bytes (url o base64)
+            $bytes = null;
+
+            if (str_starts_with($src, 'data:image/')) {
+                $parts = explode(',', $src, 2);
+                $bytes = base64_decode($parts[1] ?? '', true);
+            } else {
+                $client = \Config\Services::curlrequest(['timeout' => 30, 'http_errors' => false]);
+                $r = $client->get($src);
+                if ($r->getStatusCode() >= 400) return false;
+                $bytes = $r->getBody();
+            }
+
+            if (!$bytes) return false;
+
+            // 2) guardo temporal
+            $tmp = WRITEPATH . 'cache/img_' . uniqid() . '.bin';
+            file_put_contents($tmp, $bytes);
+
+            // 3) proceso (resize + webp)
+            $image = \Config\Services::image();
+            $image->withFile($tmp)
+                ->resize(1200, 1200, true, 'width') // mantiene proporción
+                ->convert(IMAGETYPE_WEBP)
+                ->save($destAbsPath, 85);
+
+            @unlink($tmp);
+            return true;
+
+        } catch (\Throwable $e) {
+            log_message('error', 'buildModifiedImage: ' . $e->getMessage());
+            return false;
+        }
+    }
+    private function procesarImagenesYEstado(array &$order): void
+    {
+        $orderId = (int)($order['id'] ?? 0);
+        if (!$orderId) return;
+
+        $db = \Config\Database::connect();
+
+        $lineItems = $order['line_items'] ?? [];
+        if (!is_array($lineItems)) $lineItems = [];
+
+        $totalRequeridas = 0;
+        $totalListas = 0;
+
+        // carpeta destino pública
+        $baseDir = FCPATH . 'uploads/pedidos/' . $orderId . '/';
+        if (!is_dir($baseDir)) @mkdir($baseDir, 0775, true);
+
+        // para devolver al frontend por índice
+        $imagenesLocales = [];
+
+        foreach ($lineItems as $idx => &$item) {
+            $idx = (int)$idx;
+
+            $urls = $this->extractImageUrlsFromLineItem($item);
+            if (!$urls) {
+                // esta línea NO requiere imagen
+                continue;
+            }
+
+            $totalRequeridas++;
+
+            $original = $urls[0]; // primera imagen que detecte
+
+            // lookup en DB
+            $row = $db->table('pedido_imagenes')
+                ->where('order_id', $orderId)
+                ->where('line_index', $idx)
+                ->get()->getRowArray();
+
+            $localUrl = $row['local_url'] ?? null;
+            $status   = $row['status'] ?? 'missing';
+
+            // si ya está lista
+            if ($localUrl && $status === 'ready') {
+                $totalListas++;
+                $imagenesLocales[$idx] = $localUrl;
+                $item['local_image_url'] = $localUrl;
+                continue;
+            }
+
+            // marcar processing
+            $db->table('pedido_imagenes')->replace([
+                'order_id'     => $orderId,
+                'line_index'   => $idx,
+                'original_url' => $original,
+                'local_url'    => $localUrl,
+                'status'       => 'processing',
+                'updated_at'   => date('Y-m-d H:i:s'),
+            ]);
+
+            // generar archivo
+            $fileName = "item_{$idx}.webp";
+            $destAbs = $baseDir . $fileName;
+            $destUrl = base_url("uploads/pedidos/{$orderId}/{$fileName}");
+
+            $ok = $this->buildModifiedImage($original, $destAbs);
+
+            if ($ok) {
+                $totalListas++;
+                $imagenesLocales[$idx] = $destUrl;
+                $item['local_image_url'] = $destUrl;
+
+                $db->table('pedido_imagenes')->replace([
+                    'order_id'     => $orderId,
+                    'line_index'   => $idx,
+                    'original_url' => $original,
+                    'local_url'    => $destUrl,
+                    'status'       => 'ready',
+                    'updated_at'   => date('Y-m-d H:i:s'),
+                ]);
+            } else {
+                $db->table('pedido_imagenes')->replace([
+                    'order_id'     => $orderId,
+                    'line_index'   => $idx,
+                    'original_url' => $original,
+                    'local_url'    => null,
+                    'status'       => 'error',
+                    'updated_at'   => date('Y-m-d H:i:s'),
+                ]);
+            }
+        }
+        unset($item);
+
+        // ✅ decidir estado automáticamente
+        // - si hay requeridas y todas listas => Producción
+        // - si hay requeridas y falta alguna => A medias
+        // - si no hay requeridas => no tocar estado (o pon Por preparar, tú decides)
+        $estadoAuto = null;
+
+        if ($totalRequeridas > 0) {
+            $estadoAuto = ($totalListas >= $totalRequeridas) ? 'Producción' : 'A medias';
+        }
+
+        // guardar en el order para frontend
+        $order['imagenes_locales'] = $imagenesLocales;
+        $order['auto_estado'] = $estadoAuto;
+        $order['auto_images_required'] = $totalRequeridas;
+        $order['auto_images_ready'] = $totalListas;
+
+        // Persistir estado en BD (tu tabla pedidos_estado)
+        if ($estadoAuto) {
+            $this->guardarEstadoSistema($orderId, $estadoAuto);
+        }
+    }
+    private function guardarEstadoSistema(int $orderId, string $estado): void
+    {
+        try {
+            $db = \Config\Database::connect();
+            $db->table('pedidos_estado')->insert([
+                'id'         => $orderId,
+                'estado'     => $estado,
+                'user_id'    => null, // sistema
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
+        }
+    }
+
+        
+
 }
