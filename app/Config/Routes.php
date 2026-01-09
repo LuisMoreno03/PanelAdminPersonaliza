@@ -31,22 +31,27 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     $routes->get('pedidos', 'Dashboard::pedidos');
     $routes->get('filter',  'Dashboard::filter');
 
-    // ✅ Etiquetas disponibles para el modal
     $routes->get('etiquetas-disponibles', 'Dashboard::etiquetasDisponibles');
 
-    // ✅ usuarios online
     $routes->get('ping', 'Dashboard::ping');
     $routes->get('usuarios-estado', 'Dashboard::usuariosEstado');
 
-    // ✅ Si existe el controlador Usuarios
+    // ✅ OJO: aquí tienes 2 controllers distintos Usuario/Usuarios (ver nota abajo)
     $routes->post('usuarios/crear', 'Usuarios::crear');
 
-    // ✅ Legacy (si existen)
-    $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
-    $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
-    $routes->post('api/pedidos/imagenes/subir', 'PedidosImagenesController::subir', ['filter' => 'auth']);
+    // ✅ DETALLES: apunta al controlador correcto
+    $routes->get('detalles/(:num)', 'Dashboard::detalles/$1');
 
+    // (si ya no usas esto, lo puedes borrar)
+    $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
 });
+
+
+// ====================================================
+// API - SUBIR IMAGEN MODIFICADA (PEDIDOS)
+// (FUERA del group dashboard)
+// ====================================================
+$routes->post('api/pedidos/imagenes/subir', 'PedidosImagenesController::subir', ['filter' => 'auth']);
 
 // ====================================================
 // API (AJAX / JSON) (PROTEGIDO)
