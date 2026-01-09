@@ -15,8 +15,9 @@ class PlacasController extends BaseController
     /**
      * Lista archivos por lote
      * GET /placas/{loteId}/archivos
+     * OJO: loteId es STRING (ej: L20260108_....)
      */
-    public function archivos(int $loteId): ResponseInterface
+    public function archivos(string $loteId): ResponseInterface
     {
         $m = new PlacaArchivoModel();
 
@@ -27,7 +28,7 @@ class PlacasController extends BaseController
         $items = array_map(function ($r) {
             return [
                 'id'            => (int) $r['id'],
-                'original_name' => (string) ($r['original'] ?? $r['nombre'] ?? ''),
+                'original_name' => (string) ($r['original'] ?? $r['nombre'] ?? $r['filename'] ?? ''),
                 'mime'          => (string) ($r['mime'] ?? ''),
                 'size'          => (int) ($r['size'] ?? 0),
                 'created_at'    => (string) ($r['created_at'] ?? ''),
@@ -42,8 +43,8 @@ class PlacasController extends BaseController
     }
 
     /**
-     * Lista TODOS los archivos (para tu UI)
-     * GET /placas/listar  (o la ruta que tengas)
+     * Lista TODOS los archivos
+     * GET /placas/listar
      */
     public function listar(): ResponseInterface
     {
@@ -54,17 +55,18 @@ class PlacasController extends BaseController
             $items = $model->orderBy('id', 'DESC')->findAll();
 
             foreach ($items as &$it) {
-                $ruta = $it['ruta'] ?? '';
-                $it['url'] = $ruta ? base_url($ruta) : null;
+                $ruta = (string) ($it['ruta'] ?? '');
+                $it['url'] = $ruta !== '' ? base_url($ruta) : null;
 
                 $it['created_at'] = $it['created_at'] ?? null;
 
                 $original = $it['original'] ?? ($it['original_name'] ?? ($it['filename'] ?? null));
                 $it['original'] = $original;
-                $it['nombre']   = $original ? pathinfo($original, PATHINFO_FILENAME) : null;
+                $it['nombre']   = $it['nombre'] ?? ($original ? pathinfo($original, PATHINFO_FILENAME) : null);
 
                 $it['lote_id'] = $it['lote_id'] ?? ($it['conjunto_id'] ?? ($it['lote'] ?? null));
             }
+            unset($it);
 
             return $this->response->setJSON([
                 'success' => true,
@@ -97,37 +99,20 @@ class PlacasController extends BaseController
             return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
         }
 
-        $loteId = (int) ($r['lote_id'] ?? 0);
-        $ruta   = (string) ($r['ruta'] ?? '');
-        $nombre = (string) ($r['nombre'] ?? '');
-
-        if ($loteId <= 0) {
-            return $this->response->setStatusCode(400)->setBody('Falta lote_id');
+        // ✅ En tu sistema la ruta guardada es relativa a FCPATH (public)
+        $ruta = (string) ($r['ruta'] ?? '');
+        if ($ruta === '') {
+            return $this->response->setStatusCode(422)->setBody('Registro incompleto: falta ruta');
         }
 
-        // 1) Si ruta ya es absoluta y existe
-        if ($ruta !== '' && is_file($ruta)) {
-            $path = $ruta;
-        } else {
-            // 2) Si ruta es relativa (por ejemplo: uploads/placas/66/archivo.png)
-            if ($ruta !== '' && is_file(WRITEPATH . $ruta)) {
-                $path = WRITEPATH . $ruta;
-            } else {
-                // 3) Si no hay ruta usable, construimos por estructura
-                if ($nombre === '') {
-                    return $this->response->setStatusCode(400)->setBody('Falta nombre o ruta');
-                }
-                $path = WRITEPATH . 'uploads/placas/' . $loteId . '/' . $nombre;
-            }
+        $fullPath = FCPATH . ltrim($ruta, '/');
+
+        if (!is_file($fullPath)) {
+            return $this->response->setStatusCode(404)->setBody("Archivo no existe en disco: {$fullPath}");
         }
 
-        if (!is_file($path)) {
-            return $this->response->setStatusCode(404)->setBody('Archivo no encontrado en disco');
-        }
-
-        $downloadName = (string) ($r['original'] ?? $nombre);
-
-        return $this->response->download($path, null)->setFileName($downloadName);
+        $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
+        return $this->response->download($fullPath, null)->setFileName($downloadName);
     }
 }
 

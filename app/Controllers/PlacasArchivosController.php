@@ -9,181 +9,203 @@ class PlacasArchivosController extends BaseController
 
 
 {
-   public function listar()
-{
-    try {
-        helper('url');
+    public function listar()
+    {
+        try {
+            helper('url');
 
-        $model = new PlacaArchivoModel();
-        $items = $model->orderBy('id', 'DESC')->findAll();
+            $model = new PlacaArchivoModel();
+            $items = $model->orderBy('id', 'DESC')->findAll();
 
-        foreach ($items as &$it) {
-            $ruta = $it['ruta'] ?? '';
-            $it['url'] = $ruta ? base_url($ruta) : null;
+            foreach ($items as &$it) {
+                $ruta = $it['ruta'] ?? '';
+                $it['url'] = base_url('placas/archivos/descargar/' . $it['id']);
 
-            $it['created_at'] = $it['created_at'] ?? null;
 
-            $it['original'] = $it['original']
-                ?? ($it['original_name'] ?? ($it['filename'] ?? null));
+                $it['created_at'] = $it['created_at'] ?? null;
 
-            $it['nombre'] = $it['nombre']
-                ?? ($it['original']
-                    ? pathinfo($it['original'], PATHINFO_FILENAME)
-                    : null
-                );
+                $it['original'] = $it['original']
+                    ?? ($it['original_name'] ?? ($it['filename'] ?? null));
 
-            $it['lote_id'] = $it['lote_id']
-                ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
+                $it['nombre'] = $it['nombre']
+                    ?? ($it['original']
+                        ? pathinfo($it['original'], PATHINFO_FILENAME)
+                        : null
+                    );
+
+                $it['lote_id'] = $it['lote_id']
+                    ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
+            }
+            unset($it);
+
+            return $this->response->setJSON([
+                'success' => true,
+                'data'    => $items
+            ]);
+
+        } catch (\Throwable $e) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine()
+            ]);
+
+            
+
         }
-        unset($it);
-
-        return $this->response->setJSON([
-            'success' => true,
-            'data'    => $items
-        ]);
-
-    } catch (\Throwable $e) {
-
-        // ✅ AQUÍ ESTABA EL ERROR
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'message' => $e->getMessage(), // ✅ correcto
-            'file'    => $e->getFile(),
-            'line'    => $e->getLine()
-        ]);
     }
-}
 
+    public function stats()
+    {
+        try {
+            $db = \Config\Database::connect();
+            $tabla = 'placas_archivos';
 
-public function stats()
-{
-    try {
-        $db = \Config\Database::connect();
+            $fields = $db->getFieldNames($tabla);
+            $hasCreatedAt = in_array('created_at', $fields, true);
 
-        // Detectar si existe created_at
-        $fields = $db->getFieldNames('placas'); // <- cambia al nombre real de tu tabla
-        $hasCreatedAt = in_array('created_at', $fields, true);
+            $total = $db->table($tabla)->countAllResults();
 
-        if (!$hasCreatedAt) {
+            if (!$hasCreatedAt) {
+                return $this->response->setJSON([
+                    'success' => true,
+                    'data' => [
+                        'total' => $total,
+                        'por_dia' => []
+                    ]
+                ]);
+            }
+
+            $porDia = $db->query("
+                SELECT DATE(created_at) as dia, COUNT(*) as total
+                FROM {$tabla}
+                GROUP BY DATE(created_at)
+                ORDER BY dia DESC
+                LIMIT 14
+            ")->getResultArray();
+
             return $this->response->setJSON([
                 'success' => true,
                 'data' => [
-                    'total' => $db->table('placas')->countAllResults()
+                    'total' => $total,
+                    'por_dia' => $porDia
                 ]
             ]);
+
+        } catch (\Throwable $e) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            
+
+            
+
         }
+    }
 
-        $total = $db->table('placas.php')->countAllResults();
-        $porDia = $db->query("
-            SELECT DATE(created_at) as dia, COUNT(*) as total
-            FROM placas_archivos
-            GROUP BY DATE(created_at)
-            ORDER BY dia DESC
-            LIMIT 14
-        ")->getResultArray();
+   public function subir()
+{
+    $producto    = trim((string) $this->request->getPost('producto'));
+    $numeroPlaca = trim((string) $this->request->getPost('numero_placa'));
 
-        return $this->response->setJSON([
-            'success' => true,
-            'data' => [
-                'total' => $total,
-                'por_dia' => $porDia
-            ]
+    $loteId = 'L' . date('Ymd_His') . '_' . bin2hex(random_bytes(4));
+    $loteNombre = $numeroPlaca ? ('Placa ' . $numeroPlaca) : ('Lote ' . date('d/m/Y H:i'));
+
+    $lista = $this->request->getFileMultiple('archivos');
+    if (empty($lista)) {
+        $single = $this->request->getFile('archivo');
+        if ($single) $lista = [$single];
+    }
+
+    if (empty($lista)) {
+        return $this->response->setStatusCode(422)->setJSON([
+            'success' => false,
+            'message' => 'No se recibieron archivos.'
         ]);
+    }
 
-    } catch (\Throwable $e) {
+    // ✅ Guardar en writable (recomendado)
+    $dir = WRITEPATH . 'uploads/placas';
+    if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
         return $this->response->setStatusCode(500)->setJSON([
             'success' => false,
-            'message' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
+            'message' => 'No se pudo crear la carpeta de subida: ' . $dir
         ]);
     }
+
+    $bloqueadas = ['php','phtml','phar','cgi','pl','asp','aspx','jsp','sh','bat','cmd','exe','dll'];
+
+    $model = new \App\Models\PlacaArchivoModel();
+    $guardados = 0;
+    $errores = [];
+
+    foreach ($lista as $file) {
+        if (!$file || !$file->isValid()) {
+            $errores[] = 'Archivo inválido';
+            continue;
+        }
+
+        if ($file->getSize() > 25 * 1024 * 1024) {
+            $errores[] = $file->getClientName() . ' (máx 25MB)';
+            continue;
+        }
+
+        $ext  = strtolower((string) $file->getExtension());
+        $mime = (string) $file->getClientMimeType();
+
+        if (in_array($ext, $bloqueadas, true)) {
+            $errores[] = $file->getClientName() . ' (extensión bloqueada)';
+            continue;
+        }
+
+        $newName = time() . '_' . bin2hex(random_bytes(8)) . ($ext ? '.' . $ext : '');
+
+        if (!$file->move($dir, $newName)) {
+            $errores[] = $file->getClientName() . ' (no se pudo mover)';
+            continue;
+        }
+
+        // ✅ ruta lógica (no pública)
+        $ruta = 'writable/uploads/placas/' . $newName;
+
+        $ok = $model->insert([
+            'nombre'       => pathinfo($file->getClientName(), PATHINFO_FILENAME),
+            'producto'     => $producto ?: null,
+            'numero_placa' => $numeroPlaca ?: null,
+            'original'     => $file->getClientName(),
+            'ruta'         => $ruta,
+            'mime'         => $mime,
+            'size'         => (int) $file->getSize(),
+            'lote_id'      => $loteId,
+            'lote_nombre'  => $loteNombre,
+            'user_id'      => (int) (session()->get('user_id') ?? session()->get('id') ?? session()->get('usuario_id') ?? 0),
+        ]);
+
+        if ($ok === false) {
+            // ❗ Si falla BD, borro el archivo para no dejar basura
+            @unlink($dir . DIRECTORY_SEPARATOR . $newName);
+
+            $dbErr = $model->db->error();
+            $errores[] = $file->getClientName() . ' (BD falló: ' . ($dbErr['message'] ?? 'desconocido') . ')';
+            continue;
+        }
+
+        $guardados++;
+    }
+
+    return $this->response->setJSON([
+        'success' => $guardados > 0,
+        'message' => $guardados
+            ? "✅ Subidos {$guardados} archivo(s) | Lote {$loteId}"
+            : 'No se pudo subir ningún archivo.',
+        'lote_id' => $loteId,
+        'errores' => $errores
+    ]);
 }
-
-
-
-
-    public function subir()
-    {
-        $producto    = trim((string) $this->request->getPost('producto'));
-        $numeroPlaca = trim((string) $this->request->getPost('numero_placa'));
-
-
-        $loteId = 'L' . date('Ymd_His') . '_' . bin2hex(random_bytes(4));
-        $loteNombre = $numeroPlaca ? ('Placa ' . $numeroPlaca) : ('Lote ' . date('d/m/Y H:i'));
-
-        $lista = $this->request->getFileMultiple('archivos');
-        if (empty($lista)) {
-            $single = $this->request->getFile('archivo');
-            if ($single) $lista = [$single];
-        }
-
-        if (empty($lista)) {
-            return $this->response->setJSON(['success' => false, 'message' => 'No se recibieron archivos.'])
-                ->setStatusCode(422);
-        }
-
-        $dir = FCPATH . 'uploads/placas';
-        if (!is_dir($dir)) @mkdir($dir, 0755, true);
-
-        $bloqueadas = ['php','phtml','phar','cgi','pl','asp','aspx','jsp','sh','bat','cmd','exe','dll'];
-
-        $model = new PlacaArchivoModel();
-        $guardados = 0;
-        $errores = [];
-
-        foreach ($lista as $file) {
-            if (!$file || !$file->isValid()) {
-                $errores[] = 'Archivo inválido';
-                continue;
-            }
-
-            if ($file->getSize() > 25 * 1024 * 1024) {
-                $errores[] = $file->getName() . ' (máx 25MB)';
-                continue;
-            }
-
-            $ext  = strtolower((string) $file->getExtension());
-            $mime = (string) $file->getClientMimeType();
-
-            if (in_array($ext, $bloqueadas, true)) {
-                $errores[] = $file->getName() . ' (extensión bloqueada)';
-                continue;
-            }
-
-            $newName = time() . '_' . bin2hex(random_bytes(8)) . ($ext ? '.' . $ext : '');
-
-            if (!$file->move($dir, $newName)) {
-                $errores[] = $file->getName() . ' (no se pudo mover)';
-                continue;
-            }
-
-            $ruta = 'uploads/placas/' . $newName;
-
-            $model->insert([
-                'nombre'       => pathinfo($file->getName(), PATHINFO_FILENAME),
-                'producto'     => $producto ?: null,
-                'numero_placa' => $numeroPlaca ?: null,
-                'original'     => $file->getName(),
-                'ruta'         => $ruta,
-                'mime'         => $mime,
-                'size'         => (int) $file->getSize(),
-                'lote_id'      => $loteId,
-                'lote_nombre'  => $loteNombre,
-            ]);
-
-            $guardados++;
-        }
-
-        return $this->response->setJSON([
-            'success' => $guardados > 0,
-            'message' => $guardados
-                ? "✅ Subidos {$guardados} archivo(s) | Lote {$loteId}"
-                : 'No se pudo subir ningún archivo.',
-            'lote_id' => $loteId,
-            'errores' => $errores
-        ]);
-    }
 
     public function renombrar()
     {
@@ -279,32 +301,19 @@ public function stats()
             return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
         }
 
-        $ruta = $r['ruta'] ?? null;
-        if ($ruta) {
-            $fullPath = FCPATH . ltrim($ruta, '/');
-            if (is_file($fullPath)) {
-                $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
-                return $this->response->download($fullPath, null)->setFileName($downloadName);
-            }
+        $ruta = $r['ruta'] ?? '';
+        if ($ruta === '') {
+            return $this->response->setStatusCode(422)->setBody('Registro incompleto: falta ruta');
         }
 
-        $folderId = (int) ($r['lote_id'] ?? $r['placa_id'] ?? $r['conjunto_id'] ?? 0);
-        $filename = (string) ($r['filename'] ?? $r['archivo'] ?? '');
+        $fullPath = ROOTPATH . ltrim($ruta, '/');
 
-        if ($folderId <= 0 || $filename === '') {
-            return $this->response->setStatusCode(422)->setJSON([
-                'success' => false,
-                'message' => 'Registro incompleto: falta ruta o (lote_id/placa_id) y filename',
-                'keys'    => array_keys($r),
-            ]);
-        }
-
-        $fullPath = FCPATH . "uploads/placas/{$folderId}/{$filename}";
 
         if (!is_file($fullPath)) {
             return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
         }
 
-        return $this->response->download($fullPath, null)->setFileName($filename);
+        $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
+        return $this->response->download($fullPath, null)->setFileName($downloadName);
     }
 }
