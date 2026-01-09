@@ -400,11 +400,17 @@ async function cargarLista(){
 
     allData = data;
     renderFromData(data);
+
+    // si tu backend devuelve total (lo podemos agregar)
+    if (data.success && data.total != null) {
+      q('placasHoy').textContent = data.total;
+    }
   } catch(e){
     q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
   }
-
+  
 }
+
 
 
 function renderModalArchivos(list, activeId) {
@@ -718,10 +724,12 @@ if (searchClear) {
   cargarStats();
   cargarLista();
 
-  setInterval(() => {
-    cargarStats();
-    cargarLista();
-  }, 15000);
+  // Refrescar cada 2 minutos (no 15s)
+setInterval(() => {
+  cargarStats();
+  cargarLista();
+}, 120000);
+
 </script>
 
 </body>
