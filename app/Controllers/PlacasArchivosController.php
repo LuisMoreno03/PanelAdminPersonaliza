@@ -128,16 +128,13 @@ class PlacasArchivosController extends BaseController
         ]);
     }
 
-    // ✅ Guardar en writable (recomendado)
     $dir = WRITEPATH . 'uploads/placas';
-    if (!is_dir($dir)) @mkdir($dir, 0775, true);
-
-
+    if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
         return $this->response->setStatusCode(500)->setJSON([
             'success' => false,
             'message' => 'No se pudo crear la carpeta de subida: ' . $dir
         ]);
-    }
+    } // ✅ ESTA LLAVE suele ser la que falta
 
     $bloqueadas = ['php','phtml','phar','cgi','pl','asp','aspx','jsp','sh','bat','cmd','exe','dll'];
 
@@ -151,14 +148,7 @@ class PlacasArchivosController extends BaseController
             continue;
         }
 
-        if ($file->getSize() > 25 * 1024 * 1024) {
-            $errores[] = $file->getClientName() . ' (máx 25MB)';
-            continue;
-        }
-
         $ext  = strtolower((string) $file->getExtension());
-        $mime = (string) $file->getClientMimeType();
-
         if (in_array($ext, $bloqueadas, true)) {
             $errores[] = $file->getClientName() . ' (extensión bloqueada)';
             continue;
@@ -169,12 +159,8 @@ class PlacasArchivosController extends BaseController
         if (!$file->move($dir, $newName)) {
             $errores[] = $file->getClientName() . ' (no se pudo mover)';
             continue;
-
-            $file->move($dir, $newName);
-            $ruta = 'writable/uploads/placas/' . $newName;
         }
 
-        // ✅ ruta lógica (no pública)
         $ruta = 'writable/uploads/placas/' . $newName;
 
         $ok = $model->insert([
@@ -183,7 +169,7 @@ class PlacasArchivosController extends BaseController
             'numero_placa' => $numeroPlaca ?: null,
             'original'     => $file->getClientName(),
             'ruta'         => $ruta,
-            'mime'         => $mime,
+            'mime'         => (string) $file->getClientMimeType(),
             'size'         => (int) $file->getSize(),
             'lote_id'      => $loteId,
             'lote_nombre'  => $loteNombre,
@@ -191,9 +177,7 @@ class PlacasArchivosController extends BaseController
         ]);
 
         if ($ok === false) {
-            // ❗ Si falla BD, borro el archivo para no dejar basura
             @unlink($dir . DIRECTORY_SEPARATOR . $newName);
-
             $dbErr = $model->db->error();
             $errores[] = $file->getClientName() . ' (BD falló: ' . ($dbErr['message'] ?? 'desconocido') . ')';
             continue;
@@ -204,13 +188,12 @@ class PlacasArchivosController extends BaseController
 
     return $this->response->setJSON([
         'success' => $guardados > 0,
-        'message' => $guardados
-            ? "✅ Subidos {$guardados} archivo(s) | Lote {$loteId}"
-            : 'No se pudo subir ningún archivo.',
+        'message' => $guardados ? "✅ Subidos {$guardados} archivo(s) | Lote {$loteId}" : 'No se pudo subir ningún archivo.',
         'lote_id' => $loteId,
         'errores' => $errores
     ]);
 }
+
 
     public function renombrar()
     {
@@ -320,5 +303,5 @@ class PlacasArchivosController extends BaseController
 
         $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
         return $this->response->download($fullPath, null)->setFileName($downloadName);
-    }
+        }}
 }
