@@ -40,7 +40,7 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     $routes->post('usuarios/crear', 'Usuarios::crear');
 
     // ✅ DETALLES: apunta al controlador correcto
-    $routes->get('detalles/(:num)', 'Dashboard::detalles/$1');
+    $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
 
     // (si ya no usas esto, lo puedes borrar)
     $routes->post('subirImagenProducto', 'DashboardController::subirImagenProducto');
