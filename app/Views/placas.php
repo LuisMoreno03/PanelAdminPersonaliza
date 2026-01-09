@@ -408,7 +408,7 @@ async function cargarLista(){
   } catch(e){
     q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
   }
-  
+
 }
 
 

@@ -308,3 +308,181 @@ class PlacasArchivosController extends BaseController
 
 
 }
+// POST /placas/archivos/subir-lote
+   { public function subirLote()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
+        }
+
+        $files = $this->request->getFiles();
+        $arr = $files['archivos'] ?? null;
+
+        if (!$arr) {
+            return $this->response->setStatusCode(422)->setJSON([
+                'success' => false,
+                'message' => 'No llegaron archivos (campo: archivos[])',
+            ]);
+        }
+
+        // Normaliza a array
+        $uploaded = is_array($arr) ? $arr : [$arr];
+
+        // Fecha de hoy (para agrupar “por día”)
+        $fecha = date('Y-m-d');
+        $now   = date('Y-m-d H:i:s');
+
+        $userId   = session()->get('user_id') ?? null;
+        $userName = session()->get('user_name') ?? session()->get('nombre') ?? null;
+
+        // 1) Crear el lote
+        $lotes = new PlacaLoteModel();
+        $loteId = $lotes->insert([
+            'fecha'            => $fecha,
+            'uploaded_by'      => $userId,
+            'uploaded_by_name' => $userName,
+            'created_at'       => $now,
+        ], true);
+
+        if (!$loteId) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => 'No se pudo crear el lote',
+            ]);
+        }
+
+        // 2) Guardar físicamente en carpeta por fecha + lote
+        //    IMPORTANTE: esta ruta debe existir o la creamos
+        $publicBase = FCPATH . 'uploads/placas/' . $fecha . '/lote_' . $loteId . '/';
+        if (!is_dir($publicBase)) {
+            @mkdir($publicBase, 0775, true);
+        }
+
+        $archivosModel = new PlacaArchivoModel();
+        $guardados = [];
+
+        foreach ($uploaded as $file) {
+            if (!$file || !$file->isValid()) continue;
+
+            $original = $file->getClientName();
+            $mime     = $file->getClientMimeType();
+            $sizeKb   = (int) ceil($file->getSize() / 1024);
+
+            // nombre seguro y único
+            $safeName = preg_replace('/[^a-zA-Z0-9\._-]/', '_', $original);
+            $finalName = time() . '_' . bin2hex(random_bytes(3)) . '_' . $safeName;
+
+            // mover a public/uploads...
+            $file->move($publicBase, $finalName);
+
+            $relative = 'uploads/placas/' . $fecha . '/lote_' . $loteId . '/' . $finalName;
+
+            $id = $archivosModel->insert([
+                'lote_id'          => $loteId,
+                'ruta'             => $relative,
+                'original_name'    => $original,
+                'size_kb'          => $sizeKb,
+                'mime'             => $mime,
+                'fecha'            => $fecha,
+                'uploaded_by'      => $userId,
+                'uploaded_by_name' => $userName,
+                'created_at'       => $now,
+            ], true);
+
+            $guardados[] = [
+                'id' => $id,
+                'lote_id' => $loteId,
+                'ruta' => $relative,
+                'url'  => base_url($relative),
+                'original_name' => $original,
+                'size_kb' => $sizeKb,
+            ];
+        }
+
+        return $this->response->setJSON([
+            'success' => true,
+            'message' => 'Lote creado y archivos subidos',
+            'lote_id' => $loteId,
+            'fecha' => $fecha,
+            'items' => $guardados
+        ]);
+    }
+
+    // GET /placas/archivos/listar-por-dia
+    // Devuelve estructura agrupada por fecha > lote > archivos
+    public function listarPorDia()
+    {
+        helper('url');
+        $db = \Config\Database::connect();
+
+        // Trae últimos días (ajusta límite)
+        $rows = $db->query("
+            SELECT
+                a.id, a.lote_id, a.ruta, a.original_name, a.size_kb, a.mime,
+                a.fecha, a.created_at, a.uploaded_by_name,
+                l.created_at AS lote_created_at, l.uploaded_by_name AS lote_uploaded_by
+            FROM placas_archivos a
+            JOIN placas_lotes l ON l.id = a.lote_id
+            ORDER BY a.fecha DESC, a.lote_id DESC, a.id DESC
+        ")->getResultArray();
+
+        $out = [];
+        foreach ($rows as $r) {
+            $fecha = $r['fecha'] ?? 'sin-fecha';
+            $lote  = (string)($r['lote_id'] ?? '0');
+
+            if (!isset($out[$fecha])) {
+                $out[$fecha] = [
+                    'fecha' => $fecha,
+                    'total_archivos' => 0,
+                    'lotes' => []
+                ];
+            }
+
+            if (!isset($out[$fecha]['lotes'][$lote])) {
+                $out[$fecha]['lotes'][$lote] = [
+                    'lote_id' => (int)$r['lote_id'],
+                    'created_at' => $r['lote_created_at'] ?? null,
+                    'uploaded_by_name' => $r['lote_uploaded_by'] ?? null,
+                    'items' => []
+                ];
+            }
+
+            $out[$fecha]['lotes'][$lote]['items'][] = [
+                'id' => (int)$r['id'],
+                'original_name' => $r['original_name'],
+                'size_kb' => (int)$r['size_kb'],
+                'created_at' => $r['created_at'],
+                'uploaded_by_name' => $r['uploaded_by_name'],
+                'ruta' => $r['ruta'],
+                'url' => $r['ruta'] ? base_url($r['ruta']) : null,
+            ];
+
+            $out[$fecha]['total_archivos']++;
+        }
+
+        // convertir lotes a array
+        $final = [];
+        foreach ($out as $fecha => $block) {
+            $block['lotes'] = array_values($block['lotes']);
+            $final[] = $block;
+        }
+
+        // conteo del día actual
+        $today = date('Y-m-d');
+        $hoyCount = 0;
+        foreach ($final as $b) {
+            if ($b['fecha'] === $today) $hoyCount = (int)$b['total_archivos'];
+        }
+
+        return $this->response->setJSON([
+            'success' => true,
+            'hoy' => $today,
+            'placas_hoy' => $hoyCount,
+            'dias' => $final
+        ]);
+    }
+}

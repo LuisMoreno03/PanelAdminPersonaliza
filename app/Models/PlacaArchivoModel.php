@@ -14,18 +14,54 @@ class PlacaArchivoModel extends Model
     protected $returnType = 'array';
 
     protected $allowedFields = [
-  'nombre','producto','numero_placa','original','ruta','mime','size',
-  'lote_id','lote_nombre','user_id','created_at'
-];
+        // archivo
+        'nombre',
+        'original',
+        'ruta',
+        'mime',
+        'size_kb',
 
+        // agrupación
+        'fecha',
+        'lote_id',
 
+        // usuario
+        'uploaded_by',
+        'uploaded_by_name',
 
+        // sistema
+        'created_at',
+    ];
 
     protected $useTimestamps = false;
 
-
+    // ===============================
+    // Obtener todos (fallback)
+    // ===============================
     public function obtenerTodos(): array
     {
         return $this->orderBy('id', 'DESC')->findAll();
     }
+
+    // ===============================
+    // Obtener por día (Drive-like)
+    // ===============================
+    public function obtenerPorFecha(): array
+    {
+        return $this->orderBy('fecha', 'DESC')
+                    ->orderBy('lote_id', 'DESC')
+                    ->orderBy('id', 'DESC')
+                    ->findAll();
+    }
+
+    // ===============================
+    // Obtener por lote
+    // ===============================
+    public function obtenerPorLote(int $loteId): array
+    {
+        return $this->where('lote_id', $loteId)
+                    ->orderBy('id', 'ASC')
+                    ->findAll();
+    }
 }
+
