@@ -130,7 +130,9 @@ class PlacasArchivosController extends BaseController
 
     // ✅ Guardar en writable (recomendado)
     $dir = WRITEPATH . 'uploads/placas';
-    if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+    if (!is_dir($dir)) @mkdir($dir, 0775, true);
+
+
         return $this->response->setStatusCode(500)->setJSON([
             'success' => false,
             'message' => 'No se pudo crear la carpeta de subida: ' . $dir
@@ -167,6 +169,9 @@ class PlacasArchivosController extends BaseController
         if (!$file->move($dir, $newName)) {
             $errores[] = $file->getClientName() . ' (no se pudo mover)';
             continue;
+
+            $file->move($dir, $newName);
+            $ruta = 'writable/uploads/placas/' . $newName;
         }
 
         // ✅ ruta lógica (no pública)
@@ -311,7 +316,7 @@ class PlacasArchivosController extends BaseController
 
         if (!is_file($fullPath)) {
             return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
-        }
+        
 
         $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
         return $this->response->download($fullPath, null)->setFileName($downloadName);
