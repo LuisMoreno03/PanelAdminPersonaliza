@@ -870,7 +870,7 @@ class DashboardController extends Controller
         if (!is_array($lineItems)) $lineItems = [];
 
         $totalRequeridas = 0;
-        $totalListas = 0;
+        $totalListas = 0; 
 
         // carpeta destino pública
         $baseDir = FCPATH . 'uploads/pedidos/' . $orderId . '/';

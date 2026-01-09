@@ -26,23 +26,23 @@ $routes->get('logout', 'Auth::logout');
 // DASHBOARD (PROTEGIDO)
 // ----------------------------------------------------
 $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollection $routes) {
-    $routes->get('/', 'Dashboard::index');
-    $routes->get('pedidos', 'Dashboard::pedidos');
-    $routes->get('filter',  'Dashboard::filter');
+    $routes->get('/', 'DashboardController::index');
+    $routes->get('pedidos', 'DashboardController::pedidos');
+    $routes->get('filter',  'DashboardController::filter');
 
-    $routes->get('etiquetas-disponibles', 'Dashboard::etiquetasDisponibles');
+    $routes->get('etiquetas-disponibles', 'DashboardController::etiquetasDisponibles');
 
-    $routes->get('ping', 'Dashboard::ping');
-    $routes->get('usuarios-estado', 'Dashboard::usuariosEstado');
+    $routes->get('ping', 'DashboardController::ping');
+    $routes->get('usuarios-estado', 'DashboardController::usuariosEstado');
 
-    // ✅ usa el MISMO controller que el resto
-    $routes->get('detalles/(:num)', 'Dashboard::detalles/$1');
+    $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
 });
+
 
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->post('_test_post', static function () {
         return json_encode(['ok' => true, 'time' => date('Y-m-d H:i:s')]);
-    });
+    }); 
 
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
