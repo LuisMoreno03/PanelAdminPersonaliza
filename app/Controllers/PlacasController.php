@@ -112,8 +112,12 @@ class PlacasController extends BaseController
         }
 
         $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
+    
         return $this->response->download($fullPath, null)->setFileName($downloadName);
+    
+    
     }
+
 }
 
 

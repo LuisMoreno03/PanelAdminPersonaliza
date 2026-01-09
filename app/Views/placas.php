@@ -211,8 +211,8 @@ function addCsrf(fd) {
   subir:  <?= json_encode(site_url('placas/archivos/subir')) ?>,
   renombrar: <?= json_encode(site_url('placas/archivos/renombrar')) ?>,
   eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
-  descargarBase: <?= json_encode(site_url('placas/descargar')) ?>,
-};
+  descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
+  };
 
 
   let modalItem = null;
@@ -268,7 +268,7 @@ let loteIndex = {};
     try{
       const res = await fetch(API.stats, { cache:'no-store' });
       const data = await res.json();
-      if (data.success) q('placasHoy').textContent = data.totalHoy;
+      if (data.success) q('placasHoy').textContent = data.data?.total ?? 0;
     }catch(e){}
   }
 
@@ -367,20 +367,29 @@ function renderFromData(data) {
   }
 
   // ====== SIN AGRUPAR (compat) ======
-  if (Array.isArray(data.items)) {
-    let items = data.items || [];
-    items.forEach(it => { placasMap[it.id] = it; });
+const flat = Array.isArray(data.items)
+  ? data.items
+  : Array.isArray(data.data)   // ✅ tu backend actual
+    ? data.data
+    : null;
 
-    if (term) items = items.filter(it => itemMatches(it, term));
+if (Array.isArray(flat)) {
+  let items = flat;
+  items.forEach(it => { placasMap[it.id] = it; });
 
-    q('grid').innerHTML = items.length
-      ? items.map(renderCard).join('')
-      : `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
-    return;
-  }
+  if (term) items = items.filter(it => itemMatches(it, term));
 
-  q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
+  q('grid').innerHTML = items.length
+    ? items.map(renderCard).join('')
+    : `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
+  return;
 }
+
+q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
+
+
+}
+
 
 
   // ✅ LISTA soporta: data.grupos o data.items
@@ -391,11 +400,17 @@ async function cargarLista(){
 
     allData = data;
     renderFromData(data);
+
+    // si tu backend devuelve total (lo podemos agregar)
+    if (data.success && data.total != null) {
+      q('placasHoy').textContent = data.total;
+    }
   } catch(e){
     q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
   }
-
+  
 }
+
 
 
 function renderModalArchivos(list, activeId) {
@@ -709,10 +724,12 @@ if (searchClear) {
   cargarStats();
   cargarLista();
 
-  setInterval(() => {
-    cargarStats();
-    cargarLista();
-  }, 15000);
+  // Refrescar cada 2 minutos (no 15s)
+setInterval(() => {
+  cargarStats();
+  cargarLista();
+}, 120000);
+
 </script>
 
 </body>
