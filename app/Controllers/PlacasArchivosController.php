@@ -173,7 +173,7 @@ class PlacasArchivosController extends BaseController
             'size'         => (int) $file->getSize(),
             'lote_id'      => $loteId,
             'lote_nombre'  => $loteNombre,
-            'user_id'      => (int) (session()->get('user_id') ?? session()->get('id') ?? session()->get('usuario_id') ?? 0),
+           
         ]);
 
         if ($ok === false) {
