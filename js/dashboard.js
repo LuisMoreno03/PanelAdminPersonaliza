@@ -267,7 +267,6 @@ function resetToFirstPage({ withFetch = false } = {}) {
   if (withFetch) cargarPedidos({ reset: true, page_info: "" }); // ✅ directo
 }
 
-+
 /* =====================================================
   CARGAR PEDIDOS (con protección anti-overwrite)
 ===================================================== */
