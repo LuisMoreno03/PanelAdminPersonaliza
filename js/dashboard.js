@@ -270,15 +270,15 @@ function resetToFirstPage({ withFetch = false } = {}) {
 /* =====================================================
   CARGAR PEDIDOS (con protección anti-overwrite)
 ===================================================== */
+/* =========================
+   CARGAR PEDIDOS (CANDIDATOS)
+========================= */
 function cargarPedidos({ page_info = "", reset = false } = {}) {
   if (isLoading) return;
   isLoading = true;
   showLoader();
 
   const fetchToken = ++lastFetchToken;
-
-  const base = apiUrl("/dashboard/pedidos");
-  const fallback = apiUrl("/dashboard/filter");
 
   if (reset) {
     currentPage = 1;
@@ -295,70 +295,92 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     return u.toString();
   };
 
-  fetch(buildUrl(base), { headers: { Accept: "application/json" } })
-    .then(async (res) => {
-      if (res.status === 404) {
-        const r2 = await fetch(buildUrl(fallback), { headers: { Accept: "application/json" } });
-        return r2.json();
-      }
-      return res.json();
-    })
-    .then((data) => {
-      // ✅ si llegó una respuesta vieja, la ignoramos
-      if (fetchToken !== lastFetchToken) return;
+  (async () => {
+    const candidates = [
+      // usando API_BASE
+      buildUrl(apiUrl("/dashboard/pedidos")),
+      buildUrl(apiUrl("/dashboard/filter")),
 
-      if (!data || !data.success) {
-        actualizarTabla([]);
-        ordersCache = [];
-        ordersById = new Map();
-        nextPageInfo = null;
-        prevPageInfo = null;
-        actualizarControlesPaginacion();
-        setPaginaUI({ totalPages: null });
-        return;
-      }
+      // sin base
+      buildUrl("/dashboard/pedidos"),
+      buildUrl("/dashboard/filter"),
 
-      nextPageInfo = data.next_page_info ?? null;
-      prevPageInfo = data.prev_page_info ?? null;
+      // con index.php
+      buildUrl("/index.php/dashboard/pedidos"),
+      buildUrl("/index.php/dashboard/filter"),
 
-      let incoming = Array.isArray(data.orders) ? data.orders : [];
+      // doble index.php (Hostinger)
+      buildUrl("/index.php/index.php/dashboard/pedidos"),
+      buildUrl("/index.php/index.php/dashboard/filter"),
+    ];
 
-      // ✅ aplicar "dirty protection"
-      const now = Date.now();
-      incoming = incoming.map((o) => {
-        const id = String(o.id ?? "");
-        if (!id) return o;
+    let data = null;
 
-        const dirty = dirtyOrders.get(id);
-        if (dirty && dirty.until > now) {
-          return {
-            ...o,
-            estado: dirty.estado,
-            last_status_change: dirty.last_status_change,
-          };
-        } else if (dirty) {
-          dirtyOrders.delete(id);
-        }
-        return o;
-      });
-
-      ordersCache = incoming;
-      ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
-
+    for (const url of candidates) {
       try {
-        actualizarTabla(ordersCache);
-      } catch (e) {
-        console.error("Error renderizando tabla:", e);
-        actualizarTabla([]);
+        const res = await fetch(url, { headers: { Accept: "application/json" } });
+        if (res.status === 404) continue;
+
+        const d = await res.json().catch(() => null);
+        if (!d) continue;
+
+        data = d;
+        break;
+      } catch {
+        // intenta siguiente
       }
+    }
 
+    // si llegó una respuesta vieja, ignorar
+    if (fetchToken !== lastFetchToken) return;
 
-      const total = document.getElementById("total-pedidos");
-      if (total) total.textContent = String(data.total_orders ?? data.count ?? 0);
-
-      setPaginaUI({ totalPages: data.total_pages ?? null });
+    if (!data || !data.success) {
+      actualizarTabla([]);
+      ordersCache = [];
+      ordersById = new Map();
+      nextPageInfo = null;
+      prevPageInfo = null;
       actualizarControlesPaginacion();
-    })
+      setPaginaUI({ totalPages: null });
+      return;
+    }
+
+    nextPageInfo = data.next_page_info ?? null;
+    prevPageInfo = data.prev_page_info ?? null;
+
+    let incoming = Array.isArray(data.orders) ? data.orders : [];
+
+    // dirty protection
+    const now = Date.now();
+    incoming = incoming.map((o) => {
+      const id = String(o.id ?? "");
+      if (!id) return o;
+
+      const dirty = dirtyOrders.get(id);
+      if (dirty && dirty.until > now) {
+        return { ...o, estado: dirty.estado, last_status_change: dirty.last_status_change };
+      } else if (dirty) {
+        dirtyOrders.delete(id);
+      }
+      return o;
+    });
+
+    ordersCache = incoming;
+    ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
+
+    try {
+      actualizarTabla(ordersCache);
+    } catch (e) {
+      console.error("Error renderizando tabla:", e);
+      actualizarTabla([]);
+    }
+
+    const total = document.getElementById("total-pedidos");
+    if (total) total.textContent = String(data.total_orders ?? data.count ?? 0);
+
+    setPaginaUI({ totalPages: data.total_pages ?? null });
+    actualizarControlesPaginacion();
+  })()
     .catch((err) => {
       if (fetchToken !== lastFetchToken) return;
 
@@ -374,13 +396,16 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     .finally(() => {
       if (fetchToken !== lastFetchToken) return;
       isLoading = false;
-      silentFetch = false; // 👈 vuelve a normal
+      silentFetch = false;
       hideLoader();
     });
-
 }
-// ✅ Exponer para llamadas que usan window.cargarPedidos(...)
+
+// global
 window.cargarPedidos = cargarPedidos;
+window.DASH = window.DASH || {};
+window.DASH.cargarPedidos = cargarPedidos;
+window.DASH.resetToFirstPage = resetToFirstPage;
 
 /* =====================================================
   CONTROLES PAGINACIÓN
