@@ -211,8 +211,8 @@ function addCsrf(fd) {
   subir:  <?= json_encode(site_url('placas/archivos/subir')) ?>,
   renombrar: <?= json_encode(site_url('placas/archivos/renombrar')) ?>,
   eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
-  descargarBase: <?= json_encode(site_url('placas/descargar')) ?>,
-};
+  descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
+  };
 
 
   let modalItem = null;

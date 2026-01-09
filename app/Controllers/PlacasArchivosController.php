@@ -306,4 +306,5 @@ class PlacasArchivosController extends BaseController
     return $this->response->download($fullPath, null)->setFileName($downloadName);
 }
 
+
 }
