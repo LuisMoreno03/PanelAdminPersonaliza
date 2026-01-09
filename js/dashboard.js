@@ -919,17 +919,9 @@ function escapeHtml(str) {
 }
 
 // ===============================
-// VER DETALLES (usa tu modal)
-// ===============================
-// ===============================
-// VER DETALLES (FULL MODAL SHOPIFY-LIKE)
-// ===============================
-
-// ===============================
 // VER DETALLES (FULL MODAL SHOPIFY-LIKE)
 // ===============================
 window.verDetalles = async function (orderId) {
-  const imagenesLocales = d.imagenes_locales || {};
   const id = String(orderId || "");
   if (!id) return;
 
@@ -1148,9 +1140,6 @@ window.verDetalles = async function (orderId) {
       .map((item, index) => {
         const props = Array.isArray(item.properties) ? item.properties : [];
 
-        window.imagenesRequeridas[index] = !!requiere;
-        window.imagenesCargadas[index] = !!localUrl; // si ya existe en BD/local, cuenta como cargada
-
         // separa properties: imagen vs texto
         const propsImg = [];
         const propsTxt = [];
@@ -1191,6 +1180,10 @@ window.verDetalles = async function (orderId) {
 
         // imagen modificada (local)
         const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
+        
+        /// ✅ ahora sí: marcar arrays globales
+        window.imagenesRequeridas[index] = !!requiere;
+        window.imagenesCargadas[index] = !!localUrl;
 
         const estadoItem = requiere ? (localUrl ? "LISTO" : "FALTA") : "NO REQUIERE";
         const badgeCls =
@@ -1291,7 +1284,7 @@ window.verDetalles = async function (orderId) {
             <div class="mt-4">
               <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
               <input type="file" accept="image/*"
-                onchange="subirImagenProducto(${Number(id)}, ${index}, this)"
+                onchange="subirImagenProducto(${Number(orderId)}, ${index}, this)"
                 class="w-full border border-slate-200 rounded-2xl p-2">
               <div id="preview_${id}_${index}" class="mt-2"></div>
             </div>
