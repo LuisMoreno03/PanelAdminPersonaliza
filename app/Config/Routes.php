@@ -42,7 +42,7 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->post('_test_post', static function () {
         return json_encode(['ok' => true, 'time' => date('Y-m-d H:i:s')]);
-    });
+    }); 
 
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');

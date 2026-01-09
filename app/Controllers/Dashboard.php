@@ -18,7 +18,7 @@ class Dashboard extends BaseController
         'Produccion',   // (sin acento como pediste)
         'Fabricando',
         'Enviado',
-    ];
+    ]; 
 
     public function __construct()
     {

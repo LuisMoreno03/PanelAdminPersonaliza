@@ -117,6 +117,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ✅ LIVE refresca la página 1 (recomendado 20s con 12 usuarios)
   startLive(30000);
+  
+  cargarPedidos({ reset: true });
 
   // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
   window.addEventListener("resize", () => {
@@ -378,6 +380,8 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     });
 
 }
+// ✅ Exponer para llamadas que usan window.cargarPedidos(...)
+window.cargarPedidos = cargarPedidos;
 
 /* =====================================================
   CONTROLES PAGINACIÓN
@@ -1676,7 +1680,7 @@ function renderOpcionesEtiquetas({ selected = [] } = {}) {
         } else {
           set.add(tag);
         }
-      }
+      } 
 
       const next = Array.from(set);
       if (inputTags) inputTags.value = serializeTags(next);
@@ -2173,5 +2177,12 @@ window.cerrarModal = function () {
 };
 
 
+// ===============================
+// Export seguro (evita colisiones con IDs del DOM)
+// ===============================
+window.DASH = window.DASH || {};
+
+window.DASH.cargarPedidos = cargarPedidos;
+window.DASH.resetToFirstPage = resetToFirstPage;
 
 console.log("✅ dashboard.js cargado - verDetalles hash:", (window.verDetalles ? window.verDetalles.toString().length : "NO verDetalles"));
