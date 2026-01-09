@@ -1337,9 +1337,11 @@ window.subirImagenProducto = async function (orderId, index, input) {
     if (!file) return;
 
     const fd = new FormData();
-    fd.append("order_id", String(orderId));
-    fd.append("index", String(index));
-    fd.append("file", file);
+    fd.append("order_id", orderId);
+    fd.append("line_index", index);
+    fd.append("required_total", String(requiredTotal));
+    fd.append("file", fileInput.files[0]);
+
 
     // CSRF (si lo usas)
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
@@ -1406,6 +1408,8 @@ window.subirImagenProducto = async function (orderId, index, input) {
 function validarEstadoAuto(orderId) {
   const req = window.imagenesRequeridas || [];
   const carg = window.imagenesCargadas || [];
+  const requiredTotal = window.imagenesRequeridas.filter(Boolean).length;
+
 
   // Solo cuentan las requeridas
   let totalReq = 0;
