@@ -4,44 +4,40 @@ namespace App\Models;
 
 use CodeIgniter\Model;
 
-class PedidoEstadoModel extends Model
+class PedidosEstadoModel extends Model
 {
     protected $table = 'pedidos_estado';
     protected $primaryKey = 'id';
     protected $allowedFields = [
-        'pedido_id',
-        'estado',
-        'user_id',
-        'created_at'
+        'order_id',
+        'estado_imagenes',
+        'imagenes_updated_at',
+        'imagenes_updated_by',
+        'imagenes_updated_by_name',
     ];
+    protected $useTimestamps = false;
 
-    public function getLastStatusChange($pedidoId)
+    public function setEstadoImagenes(int $orderId, string $estado, ?int $userId, ?string $userName): bool
     {
-        return $this->select('pedidos_estado.created_at AS changed_at, users.nombre AS user_name')
-            ->join('users', 'users.id = pedidos_estado.user_id', 'left')
-            ->where('pedidos_estado.pedido_id', $pedidoId)
-            ->orderBy('pedidos_estado.created_at', 'DESC')
-            ->first();
+        $now = date('Y-m-d H:i:s');
 
-            $estadoModel = new PedidoEstadoModel();
+        $row = $this->where('order_id', $orderId)->first();
 
-foreach ($pedidos as &$pedido) {
+        if ($row) {
+            return (bool) $this->update($row['id'], [
+                'estado_imagenes' => $estado,
+                'imagenes_updated_at' => $now,
+                'imagenes_updated_by' => $userId,
+                'imagenes_updated_by_name' => $userName,
+            ]);
+        }
 
-    $last = $estadoModel->getLastStatusChange($pedido['id']);
-
-    if ($last) {
-        $pedido['last_status_change'] = [
-            'user_name'  => $last['user_name'] ?? 'Sistema',
-            'changed_at' => $last['changed_at']
-        ];
-    } else {
-        // Si nunca se modificó desde tu sistema
-        $pedido['last_status_change'] = [
-            'user_name'  => 'Shopify',
-            'changed_at' => $pedido['created_at']
-        ];
-    }
-}
-
+        return (bool) $this->insert([
+            'order_id' => $orderId,
+            'estado_imagenes' => $estado,
+            'imagenes_updated_at' => $now,
+            'imagenes_updated_by' => $userId,
+            'imagenes_updated_by_name' => $userName,
+        ]);
     }
 }
