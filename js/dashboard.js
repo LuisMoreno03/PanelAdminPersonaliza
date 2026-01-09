@@ -263,7 +263,7 @@ function resetToFirstPage({ withFetch = false } = {}) {
   setPaginaUI({ totalPages: null });
   actualizarControlesPaginacion();
 
-  if (withFetch) cargarPedidos({ reset: true, page_info: "" });
+  if (withFetch) window.cargarPedidos({ reset: true, page_info: "" });
 }
 +
 /* =====================================================
