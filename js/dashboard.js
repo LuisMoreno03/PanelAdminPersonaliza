@@ -107,16 +107,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Usuarios online/offline
   pingUsuario();
-  userPingInterval = setInterval(pingUsuario, 30000);
+  userPingInterval = setInterval(pingUsuario, 3600000);
 
   cargarUsuariosEstado();
-  userStatusInterval = setInterval(cargarUsuariosEstado, 15000);
+  userStatusInterval = setInterval(cargarUsuariosEstado, 150000);
 
   // ✅ Inicial pedidos (página 1)
   resetToFirstPage({ withFetch: true });
 
   // ✅ LIVE refresca la página 1 (recomendado 20s con 12 usuarios)
-  startLive(20000);
+  startLive(30000);
 
   // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
   window.addEventListener("resize", () => {
