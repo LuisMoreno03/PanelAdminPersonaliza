@@ -53,10 +53,23 @@ function normalizeBase(base) {
   return base;
 }
 
+function getAppPrefix() {
+  const p = window.location.pathname || "/";
+  // todo lo que esté antes de "/dashboard"
+  const idx = p.indexOf("/dashboard");
+  if (idx === -1) return ""; // fallback
+  const prefix = p.slice(0, idx); // ej: "/index.php/index.php"
+  return normalizeBase(prefix);
+}
+
+// Base absoluta real (dominio + prefijo)
+function getBaseAbs() {
+  return normalizeBase(window.location.origin + getAppPrefix());
+}
+
 function apiUrl(path) {
   if (!path.startsWith("/")) path = "/" + path;
-  const base = normalizeBase(window.API_BASE || "");
-  return base ? base + path : path;
+  return getBaseAbs() + path;
 }
 
 function jsonHeaders() {
