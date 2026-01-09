@@ -231,7 +231,8 @@ class PlacasArchivosController extends BaseController
             return $this->response->setJSON(['success'=>false,'message'=>'No encontrado'])->setStatusCode(404);
         }
 
-        $fullPath = FCPATH . ($row['ruta'] ?? '');
+        $fullPath = ROOTPATH . ($row['ruta'] ?? '');
+
         if (is_file($fullPath)) @unlink($fullPath);
 
         $model->delete($id);
@@ -270,7 +271,8 @@ class PlacasArchivosController extends BaseController
         }
 
         foreach ($rows as $row) {
-            $fullPath = FCPATH . ($row['ruta'] ?? '');
+            $fullPath = ROOTPATH . ($row['ruta'] ?? '');
+
             if (is_file($fullPath)) @unlink($fullPath);
         }
 
@@ -280,28 +282,28 @@ class PlacasArchivosController extends BaseController
     }
 
 
-    public function descargar($archivoId)
-    {
-        $m = new PlacaArchivoModel();
-        $r = $m->find($archivoId);
+   public function descargar($archivoId)
+{
+    $m = new PlacaArchivoModel();
+    $r = $m->find($archivoId);
 
-        if (!$r) {
-            return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
-        }
+    if (!$r) {
+        return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
+    }
 
-        $ruta = $r['ruta'] ?? '';
-        if ($ruta === '') {
-            return $this->response->setStatusCode(422)->setBody('Registro incompleto: falta ruta');
-        }
+    $ruta = $r['ruta'] ?? '';
+    if ($ruta === '') {
+        return $this->response->setStatusCode(422)->setBody('Registro incompleto: falta ruta');
+    }
 
-        $fullPath = ROOTPATH . ltrim($ruta, '/');
+    $fullPath = ROOTPATH . ltrim($ruta, '/');
 
+    if (!is_file($fullPath)) {
+        return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
+    }
 
-        if (!is_file($fullPath)) {
-            return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
-        
+    $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
+    return $this->response->download($fullPath, null)->setFileName($downloadName);
+}
 
-        $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
-        return $this->response->download($fullPath, null)->setFileName($downloadName);
-        }}
 }
