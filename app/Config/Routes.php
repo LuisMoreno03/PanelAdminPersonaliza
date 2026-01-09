@@ -52,7 +52,7 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 // (FUERA del group dashboard)
 // ====================================================
 $routes->post('api/pedidos/imagenes/subir', 'PedidosImagenesController::subir', ['filter' => 'auth']);
-$routes->post('pedidos/imagenes/subir', 'PedidosImagenesController::subir');
+
 
 // ====================================================
 // API (AJAX / JSON) (PROTEGIDO)
