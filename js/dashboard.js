@@ -297,22 +297,23 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
   (async () => {
     const candidates = [
-      // usando API_BASE
-      buildUrl(apiUrl("/dashboard/pedidos")),
-      buildUrl(apiUrl("/dashboard/filter")),
+    // ✅ API (lo más probable)
+    buildUrl(apiUrl("/api/pedidos")),
+    buildUrl("/api/pedidos"),
+    buildUrl("/index.php/api/pedidos"),
+    buildUrl("/index.php/index.php/api/pedidos"),
 
-      // sin base
-      buildUrl("/dashboard/pedidos"),
-      buildUrl("/dashboard/filter"),
+    // ✅ fallback (si tu backend realmente expone esto)
+    buildUrl(apiUrl("/dashboard/pedidos")),
+    buildUrl(apiUrl("/dashboard/filter")),
+    buildUrl("/dashboard/pedidos"),
+    buildUrl("/dashboard/filter"),
+    buildUrl("/index.php/dashboard/pedidos"),
+    buildUrl("/index.php/dashboard/filter"),
+    buildUrl("/index.php/index.php/dashboard/pedidos"),
+    buildUrl("/index.php/index.php/dashboard/filter"),
+  ];
 
-      // con index.php
-      buildUrl("/index.php/dashboard/pedidos"),
-      buildUrl("/index.php/dashboard/filter"),
-
-      // doble index.php (Hostinger)
-      buildUrl("/index.php/index.php/dashboard/pedidos"),
-      buildUrl("/index.php/index.php/dashboard/filter"),
-    ];
 
     let data = null;
 
@@ -1030,13 +1031,35 @@ window.verDetalles = async function (orderId) {
   // Fetch detalles
   // -----------------------------
   try {
-    const url =
-      typeof apiUrl === "function"
-        ? apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`)
-        : `/index.php/dashboard/detalles/${encodeURIComponent(id)}`;
+    const candidates = [
+      // ✅ API (lo más probable)
+      apiUrl(`/api/pedidos/detalles/${encodeURIComponent(id)}`),
+      `/api/pedidos/detalles/${encodeURIComponent(id)}`,
+      `/index.php/api/pedidos/detalles/${encodeURIComponent(id)}`,
+      `/index.php/index.php/api/pedidos/detalles/${encodeURIComponent(id)}`,
 
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    const d = await r.json().catch(() => null);
+      // ✅ fallback antiguo
+      apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`),
+      `/dashboard/detalles/${encodeURIComponent(id)}`,
+      `/index.php/dashboard/detalles/${encodeURIComponent(id)}`,
+      `/index.php/index.php/dashboard/detalles/${encodeURIComponent(id)}`
+    ];
+
+    let r = null;
+    let d = null;
+
+    for (const url of candidates) {
+      r = await fetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
+      if (!r || r.status === 404) continue;
+      d = await r.json().catch(() => null);
+      if (d) break;
+    }
+
+    if (!r || !d || d.success !== true) {
+      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa endpoint.</div>`);
+      if (pre) pre.textContent = JSON.stringify({ tried: candidates, http: r?.status, payload: d }, null, 2);
+      return;
+    }
 
     if (!r.ok || !d || d.success !== true) {
       setHtml(
