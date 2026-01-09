@@ -4,7 +4,7 @@
 // =====================================================
 
 /* =====================================================
-   VARIABLES GLOBALES
+  VARIABLES GLOBALES
 ===================================================== */
 let nextPageInfo = null;
 let prevPageInfo = null;
@@ -41,7 +41,7 @@ let ETQ_PRODUCCION = [];
 let ETQ_DISENO = [];
 
 /* =====================================================
-   CONFIG / HELPERS DE RUTAS
+  CONFIG / HELPERS DE RUTAS
 ===================================================== */
 function hasIndexPhp() {
   return window.location.pathname.includes("/index.php/");
@@ -71,21 +71,21 @@ function jsonHeaders() {
 }
 
 /* =====================================================
-   Loader global
+  Loader global
 ===================================================== */
 function showLoader() {
-   if (silentFetch) return; // 👈 evita loader molesto
+  if (silentFetch) return; // 👈 evita loader molesto
   const el = document.getElementById("globalLoader");
   if (el) el.classList.remove("hidden");
 }
 function hideLoader() {
-   if (silentFetch) return; // 👈 evita loader molesto
+  if (silentFetch) return; // 👈 evita loader molesto
   const el = document.getElementById("globalLoader");
   if (el) el.classList.add("hidden");
 }
 
 /* =====================================================
-   INIT
+  INIT
 ===================================================== */
 document.addEventListener("DOMContentLoaded", () => {
   const btnAnterior = document.getElementById("btnAnterior");
@@ -131,7 +131,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /* =====================================================
-   LIVE CONTROL
+  LIVE CONTROL
 ===================================================== */
 function startLive(ms = 20000) {
   if (liveInterval) clearInterval(liveInterval);
@@ -153,7 +153,7 @@ function resumeLiveIfOnFirstPage() {
 }
 
 /* =====================================================
-   HELPERS
+  HELPERS
 ===================================================== */
 // Helpers imagen mejor (acepta querystring)
 function esImagenUrl(url) {
@@ -201,7 +201,7 @@ function normalizeEstado(estado) {
 }
 
 /* =====================================================
-   ESTADO PILL (igual a colores del modal)
+  ESTADO PILL (igual a colores del modal)
 ===================================================== */
 function estadoStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
@@ -231,7 +231,7 @@ function renderEstadoPill(estado) {
   const st = estadoStyle(estado);
   return `
     <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border ${st.wrap}
-                 shadow-sm font-extrabold text-[11px] uppercase tracking-wide whitespace-nowrap">
+                shadow-sm font-extrabold text-[11px] uppercase tracking-wide whitespace-nowrap">
       <span class="h-2.5 w-2.5 rounded-full ${st.dot}"></span>
       <span class="text-sm leading-none">${st.icon}</span>
       <span class="leading-none">${escapeHtml(st.label)}</span>
@@ -241,7 +241,7 @@ function renderEstadoPill(estado) {
 
 
 /* =====================================================
-   PÍLDORA PÁGINA
+  PÍLDORA PÁGINA
 ===================================================== */
 function setPaginaUI({ totalPages = null } = {}) {
   const pill = document.getElementById("pillPagina");
@@ -252,7 +252,7 @@ function setPaginaUI({ totalPages = null } = {}) {
 }
 
 /* =====================================================
-   RESET a página 1
+  RESET a página 1
 ===================================================== */
 function resetToFirstPage({ withFetch = false } = {}) {
   currentPage = 1;
@@ -265,9 +265,9 @@ function resetToFirstPage({ withFetch = false } = {}) {
 
   if (withFetch) cargarPedidos({ reset: true, page_info: "" });
 }
-
++
 /* =====================================================
-   CARGAR PEDIDOS (con protección anti-overwrite)
+  CARGAR PEDIDOS (con protección anti-overwrite)
 ===================================================== */
 function cargarPedidos({ page_info = "", reset = false } = {}) {
   if (isLoading) return;
@@ -380,7 +380,7 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 }
 
 /* =====================================================
-   CONTROLES PAGINACIÓN
+  CONTROLES PAGINACIÓN
 ===================================================== */
 function actualizarControlesPaginacion() {
   const btnSig = document.getElementById("btnSiguiente");
@@ -414,7 +414,7 @@ function paginaAnterior() {
 }
 
 /* =====================================================
-   ÚLTIMO CAMBIO
+  ÚLTIMO CAMBIO
 ===================================================== */
 function formatDateTime(dtStr) {
   if (!dtStr) return "—";
@@ -440,7 +440,7 @@ function renderLastChangeCompact(p) {
 }
 
 /* =====================================================
-   ETIQUETAS
+  ETIQUETAS
 ===================================================== */
 function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
   const raw = String(etiquetas || "").trim();
@@ -472,8 +472,8 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
     return `
       <button onclick="${onClick}"
         class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
-               bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide
-               hover:shadow-md transition whitespace-nowrap">
+              bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide
+              hover:shadow-md transition whitespace-nowrap">
         Etiquetas <span class="text-blue-700">＋</span>
       </button>`;
   }
@@ -483,8 +483,8 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
       ${pills}${more}
       <button onclick="${onClick}"
         class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl
-               bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide
-               hover:bg-slate-800 transition shadow-sm whitespace-nowrap">
+              bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide
+              hover:bg-slate-800 transition shadow-sm whitespace-nowrap">
         Etiquetas <span class="text-white/80">✎</span>
       </button>
     </div>`;
@@ -510,7 +510,7 @@ function renderEntregaPill(estadoEnvio) {
   if (!s || s === "-" || s === "null") {
     return `
       <span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
-                   bg-slate-100 text-slate-800 border border-slate-200 whitespace-nowrap">
+                  bg-slate-100 text-slate-800 border border-slate-200 whitespace-nowrap">
         ⏳ Sin preparar
       </span>
     `;
@@ -519,7 +519,7 @@ function renderEntregaPill(estadoEnvio) {
   if (s.includes("fulfilled") || s.includes("entregado")) {
     return `
       <span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
-                   bg-emerald-100 text-emerald-900 border border-emerald-200 whitespace-nowrap">
+                  bg-emerald-100 text-emerald-900 border border-emerald-200 whitespace-nowrap">
         ✅ Preparado / enviado
       </span>
     `;
@@ -528,7 +528,7 @@ function renderEntregaPill(estadoEnvio) {
   if (s.includes("partial")) {
     return `
       <span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
-                   bg-amber-100 text-amber-900 border border-amber-200 whitespace-nowrap">
+                  bg-amber-100 text-amber-900 border border-amber-200 whitespace-nowrap">
         🟡 Parcial
       </span>
     `;
@@ -537,7 +537,7 @@ function renderEntregaPill(estadoEnvio) {
   if (s.includes("unfulfilled") || s.includes("pend")) {
     return `
       <span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
-                   bg-slate-100 text-slate-800 border border-slate-200 whitespace-nowrap">
+                  bg-slate-100 text-slate-800 border border-slate-200 whitespace-nowrap">
         ⏳ Pendiente
       </span>
     `;
@@ -546,7 +546,7 @@ function renderEntregaPill(estadoEnvio) {
   // fallback
   return `
     <span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
-                 bg-white text-slate-900 border border-slate-200 whitespace-nowrap">
+                bg-white text-slate-900 border border-slate-200 whitespace-nowrap">
       📦 ${escapeHtml(estadoEnvio)}
     </span>
   `;
@@ -556,7 +556,7 @@ function renderEntregaPill(estadoEnvio) {
 window.renderEntregaPill = renderEntregaPill;
 
 /* =====================================================
-   TABLA / GRID + CARDS
+  TABLA / GRID + CARDS
 ===================================================== */
 function actualizarTabla(pedidos) {
   const cont = document.getElementById("tablaPedidos");
@@ -706,7 +706,7 @@ function actualizarTabla(pedidos) {
 }
 
 /* =====================================================
-   MODAL ESTADO
+  MODAL ESTADO
 ===================================================== */
 function abrirModal(orderId) {
   const idInput = document.getElementById("modalOrderId");
@@ -720,9 +720,9 @@ function cerrarModal() {
 }
 
 /* =====================================================
-   ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
-   + pause live + dirty TTL
-   + FIX endpoints (incluye /index.php/index.php)
+  ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
+  + pause live + dirty TTL
+  + FIX endpoints (incluye /index.php/index.php)
 ===================================================== */
 async function guardarEstado(nuevoEstado) {
   // ✅ intenta varios inputs por si cambió el modal
@@ -840,7 +840,7 @@ async function guardarEstado(nuevoEstado) {
 window.guardarEstado = guardarEstado;
 
 /* =====================================================
-   DETALLES
+  DETALLES
 ===================================================== */
 // ===============================
 // DETALLES (FULL SCREEN) - FIX IDs
@@ -926,9 +926,11 @@ function escapeHtml(str) {
 // VER DETALLES (FULL MODAL SHOPIFY-LIKE)
 // ===============================
 window.verDetalles = async function (orderId) {
+  const imagenesLocales = d.imagenes_locales || {};
   const id = String(orderId || "");
   if (!id) return;
 
+  
   // -----------------------------
   // Helpers DOM (compat)
   // -----------------------------
@@ -1135,9 +1137,16 @@ window.verDetalles = async function (orderId) {
       return;
     }
 
+    window.imagenesLocales = imagenesLocales || {};
+    window.imagenesCargadas = new Array(lineItems.length).fill(false);
+    window.imagenesRequeridas = new Array(lineItems.length).fill(false);
+
     const itemsHtml = lineItems
       .map((item, index) => {
         const props = Array.isArray(item.properties) ? item.properties : [];
+
+        window.imagenesRequeridas[index] = !!requiere;
+        window.imagenesCargadas[index] = !!localUrl; // si ya existe en BD/local, cuenta como cargada
 
         // separa properties: imagen vs texto
         const propsImg = [];
@@ -1167,7 +1176,7 @@ window.verDetalles = async function (orderId) {
         const productImgHtml = productImg
           ? `
             <a href="${escapeHtml(productImg)}" target="_blank"
-               class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
+              class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
               <img src="${escapeHtml(productImg)}" class="h-full w-full object-cover">
             </a>
           `
@@ -1249,7 +1258,7 @@ window.verDetalles = async function (orderId) {
             <div class="mt-3">
               <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
               <a href="${escapeHtml(localUrl)}" target="_blank"
-                 class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
                 <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
               </a>
             </div>
@@ -1326,21 +1335,19 @@ window.verDetalles = async function (orderId) {
 };
 
 
-
-
 // ===============================
-// SUBIR IMAGEN MODIFICADA + AUTO ESTADO
+// SUBIR IMAGEN MODIFICADA + AUTO ESTADO (FIX)
 // ===============================
 window.subirImagenProducto = async function (orderId, index, input) {
   try {
     const file = input?.files?.[0];
     if (!file) return;
 
+    // ✅ FormData correcto
     const fd = new FormData();
-    fd.append("order_id", orderId);
-    fd.append("line_index", index);
-    fd.append("required_total", String(requiredTotal));
-    fd.append("file", fileInput.files[0]);
+    fd.append("order_id", String(orderId));
+    fd.append("line_index", String(index));
+    fd.append("file", file);
 
 
     // CSRF (si lo usas)
@@ -1351,6 +1358,7 @@ window.subirImagenProducto = async function (orderId, index, input) {
       (typeof apiUrl === "function" ? apiUrl("/api/pedidos/imagenes/subir") : "/index.php/api/pedidos/imagenes/subir"),
       "/api/pedidos/imagenes/subir",
       "/index.php/api/pedidos/imagenes/subir",
+      "/index.php/index.php/api/pedidos/imagenes/subir",
     ];
 
     let lastErr = null;
@@ -1360,11 +1368,7 @@ window.subirImagenProducto = async function (orderId, index, input) {
         const headers = {};
         if (csrfToken) headers[csrfHeader] = csrfToken;
 
-        const r = await fetch(url, {
-          method: "POST",
-          headers,
-          body: fd,
-        });
+        const r = await fetch(url, { method: "POST", headers, body: fd });
 
         if (r.status === 404) continue;
 
@@ -1383,13 +1387,18 @@ window.subirImagenProducto = async function (orderId, index, input) {
           `;
         }
 
-        // ✅ marcar como cargada en memoria (tu lógica)
-        if (Array.isArray(window.imagenesCargadas)) {
-          window.imagenesCargadas[index] = true;
-        }
+        // ✅ marcar como cargada en memoria
+        if (!Array.isArray(window.imagenesCargadas)) window.imagenesCargadas = [];
+        if (!Array.isArray(window.imagenesRequeridas)) window.imagenesRequeridas = [];
+
+        window.imagenesCargadas[index] = true;
+
         if (window.imagenesLocales && typeof window.imagenesLocales === "object") {
           window.imagenesLocales[index] = d.url;
         }
+
+        // ✅ ahora sí: recalcular estado automático
+        validarEstadoAuto(orderId);
 
         return; // ✅ éxito
       } catch (e) {
@@ -1405,11 +1414,12 @@ window.subirImagenProducto = async function (orderId, index, input) {
 };
 
 
+// ===============================
+// AUTO ESTADO (FIX): Produccion / A medias
+// ===============================
 function validarEstadoAuto(orderId) {
-  const req = window.imagenesRequeridas || [];
-  const carg = window.imagenesCargadas || [];
-  const requiredTotal = window.imagenesRequeridas.filter(Boolean).length;
-
+  const req = Array.isArray(window.imagenesRequeridas) ? window.imagenesRequeridas : [];
+  const carg = Array.isArray(window.imagenesCargadas) ? window.imagenesCargadas : [];
 
   // Solo cuentan las requeridas
   let totalReq = 0;
@@ -1425,25 +1435,51 @@ function validarEstadoAuto(orderId) {
   // Si no hay requeridas, no tocamos estado
   if (totalReq === 0) return;
 
-  const nuevoEstado = okReq === totalReq ? "Producción" : "A medias";
+  // ✅ SIN ACENTO, como tu backend
+  const nuevoEstado = okReq === totalReq ? "Produccion" : "A medias";
 
-  // Guardar estado automáticamente
-  fetch("/index.php/api/estado/guardar", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: String(orderId), estado: nuevoEstado }),
-  })
-    .then((r) => r.json())
-    .then(() => {
-      // refresca lista si existe
-      if (typeof cargarPedidos === "function") cargarPedidos({ reset: false, page_info: "" });
-    })
-    .catch((e) => console.error("auto estado error:", e));
+  // ✅ usa el mismo guardarEstado robusto si existe
+  if (typeof window.guardarEstado === "function") {
+    // truco: abre modal no es necesario, guardamos directo con endpoint
+  }
+
+  // Guardar estado automáticamente (con endpoints robustos)
+  const endpoints = [
+    apiUrl("/api/estado/guardar"),
+    "/api/estado/guardar",
+    "/index.php/api/estado/guardar",
+    "/index.php/index.php/api/estado/guardar",
+  ];
+
+  (async () => {
+    for (const url of endpoints) {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: jsonHeaders(),
+          body: JSON.stringify({ id: Number(orderId), estado: nuevoEstado }),
+        });
+
+        if (r.status === 404) continue;
+
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d?.success) throw new Error(d?.message || `HTTP ${r.status}`);
+
+        // refresca lista si estás en pág 1
+        if (typeof cargarPedidos === "function" && currentPage === 1) {
+          cargarPedidos({ reset: false, page_info: "" });
+        }
+        return;
+      } catch (e) {
+        // intenta siguiente endpoint
+      }
+    }
+  })();
 }
 
 
 /* =====================================================
-   USERS STATUS
+  USERS STATUS
 ===================================================== */
 async function pingUsuario() {
   try {
@@ -1578,9 +1614,9 @@ function serializeTags(tagsArr) {
 }
 
 /**
- * Renderiza opciones de etiquetas dentro del modal si existe un contenedor.
- * Espera que tengas un div con id="modalEtiquetasOptions" (te digo abajo cómo).
- */
+* Renderiza opciones de etiquetas dentro del modal si existe un contenedor.
+* Espera que tengas un div con id="modalEtiquetasOptions" (te digo abajo cómo).
+*/
 function renderOpcionesEtiquetas({ selected = [] } = {}) {
   const cont = document.getElementById("modalEtiquetasOptions");
   if (!cont) return;
@@ -1651,9 +1687,9 @@ function renderOpcionesEtiquetas({ selected = [] } = {}) {
   });
 }
 /* =====================================================
-   ETIQUETAS (ÚNICO) - COMPATIBLE SIMPLE + COMPLETO
-   - Soporta modal "simple" (inputs) o modal "completo" (chips)
-   - Evita duplicados y sobrescrituras
+  ETIQUETAS (ÚNICO) - COMPATIBLE SIMPLE + COMPLETO
+  - Soporta modal "simple" (inputs) o modal "completo" (chips)
+  - Evita duplicados y sobrescrituras
 ===================================================== */
 
 
@@ -1673,10 +1709,10 @@ function isConfirmacionRole() {
 }
 
 /** =========================
- *  FUENTE DE ETIQUETAS
- *  1) Si existe endpoint /dashboard/etiquetas-disponibles => usarlo (completo)
- *  2) Si no, usar window.etiquetasPredeterminadas (simple)
- ========================= */
+*  FUENTE DE ETIQUETAS
+*  1) Si existe endpoint /dashboard/etiquetas-disponibles => usarlo (completo)
+*  2) Si no, usar window.etiquetasPredeterminadas (simple)
+========================= */
 async function cargarEtiquetasDisponiblesBD() {
   const endpoints = [
     apiUrl("/dashboard/etiquetas-disponibles"),
@@ -1729,8 +1765,8 @@ function serializeTags(tagsArr) {
 }
 
 /** =========================
- *  MODAL SIMPLE (inputs)
- ========================= */
+*  MODAL SIMPLE (inputs)
+========================= */
 function renderOpcionesEtiquetasSimple({ selected = [] } = {}) {
   const cont = document.getElementById("modalEtiquetasOptions");
   if (!cont) return;
@@ -1795,8 +1831,8 @@ function renderOpcionesEtiquetasSimple({ selected = [] } = {}) {
 }
 
 /** =========================
- *  MODAL COMPLETO (chips)
- ========================= */
+*  MODAL COMPLETO (chips)
+========================= */
 function chip(tag, selected) {
   const active = selected
     ? "bg-slate-900 text-white border-slate-900"
@@ -1893,8 +1929,8 @@ window.limpiarEtiquetas = function () {
 };
 
 /** =========================
- *  API GUARDAR ETIQUETAS (ÚNICO)
- ========================= */
+*  API GUARDAR ETIQUETAS (ÚNICO)
+========================= */
 async function guardarEtiquetas(orderId, tagsStr) {
   const id = String(orderId || "");
   const order = ordersById.get(id);
@@ -1972,11 +2008,11 @@ async function guardarEtiquetas(orderId, tagsStr) {
 
 
 /** =========================
- *  ABRIR/CERRAR MODAL (ÚNICO)
- *  - Si existe modal completo (#modalEtiquetas con secciones etq*) => usa chips
- *  - Si existe modal simple (#modalEtiquetasPedido o inputs) => usa inputs
- *  - Si no existe modal => prompt
- ========================= */
+*  ABRIR/CERRAR MODAL (ÚNICO)
+*  - Si existe modal completo (#modalEtiquetas con secciones etq*) => usa chips
+*  - Si existe modal simple (#modalEtiquetasPedido o inputs) => usa inputs
+*  - Si no existe modal => prompt
+========================= */
 window.abrirModalEtiquetas = async function (orderId, rawTags, numeroPedido = "") {
   const id = String(orderId ?? "");
   if (!id) return;
@@ -2137,5 +2173,5 @@ window.cerrarModal = function () {
 };
 
 
- 
+
 console.log("✅ dashboard.js cargado - verDetalles hash:", (window.verDetalles ? window.verDetalles.toString().length : "NO verDetalles"));

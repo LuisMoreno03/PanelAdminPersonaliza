@@ -201,9 +201,9 @@ class DashboardController extends Controller
             'a medias'     => 'A medias',
             'amedias'      => 'A medias',
 
-            'producción'   => 'Produccion',
             'produccion'   => 'Produccion',
-            'producción '  => 'Produccion',
+            'produccion'   => 'Produccion',
+            'produccion '  => 'Produccion',
 
             'fabricando'   => 'Fabricando',
             'preparado'    => 'Fabricando',
@@ -284,14 +284,6 @@ class DashboardController extends Controller
     // ✅ Aquí: procesa imágenes y define estado
  public function detalles($orderId)
 {
-     // 🔹 1. Obtener pedido (lo que YA tienes)
-    $order = $this->getOrderFromShopify($id); // ← tu lógica actual
-     // 🔹 1. Obtener pedido (lo que YA tienes)
-    $order = $this->getOrderFromShopify($id); // ← tu lógica actual
-
-    // 🔹 2. Cargar imágenes locales guardadas
-    $modelImg = new PedidoImagenModel();
-    $imagenesLocales = $modelImg->getByOrder((int)$id);
     if (!session()->get('logged_in')) {
         return $this->response->setStatusCode(401)->setJSON([
             'success' => false,
@@ -299,100 +291,83 @@ class DashboardController extends Controller
         ]);
     }
 
-    try {
-        $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
-        $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
-        $apiVersion = '2024-01';
+    $orderId = (string)$orderId;
+    if ($orderId === '') {
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'ID inválido',
+        ])->setStatusCode(422);
+    }
 
-        if (!$shop || !$token) {
+    try {
+        if (!$this->shop || !$this->token) {
             return $this->response->setJSON([
                 'success' => false,
-                'message' => 'Falta SHOPIFY_STORE_DOMAIN o SHOPIFY_ADMIN_TOKEN',
-            ]);
+                'message' => 'Faltan credenciales Shopify',
+            ])->setStatusCode(200);
         }
 
-        $shop = preg_replace('#^https?://#', '', $shop);
-        $shop = preg_replace('#/.*$#', '', $shop);
-
-        $client = \Config\Services::curlrequest([
-            'timeout' => 25,
-            'http_errors' => false,
-        ]);
-
         // 1) Pedido
-        $urlOrder = "https://{$shop}/admin/api/{$apiVersion}/orders/" . urlencode($orderId) . ".json";
-        $resp = $client->get($urlOrder, [
-            'headers' => [
-                'X-Shopify-Access-Token' => $token,
-                'Accept' => 'application/json',
-            ],
-        ]);
+        $urlOrder = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/" . urlencode($orderId) . ".json";
+        $resp = $this->curlShopify($urlOrder, 'GET');
 
-        $status = $resp->getStatusCode();
-        $raw = (string) $resp->getBody();
-        $json = json_decode($raw, true) ?: [];
-
-        if ($status >= 400 || empty($json['order'])) {
-            log_message('error', 'DETALLES ORDER HTTP '.$status.': '.$raw);
+        if ($resp['status'] >= 400 || $resp['status'] === 0) {
+            log_message('error', 'DETALLES ORDER HTTP '.$resp['status'].': '.$resp['body']);
             return $this->response->setJSON([
                 'success' => false,
                 'message' => 'Error consultando pedido en Shopify',
-            ]);
+                'status'  => $resp['status'],
+            ])->setStatusCode(200);
         }
 
-        $order = $json['order'];
+        $json = json_decode($resp['body'], true) ?: [];
+        $order = $json['order'] ?? null;
 
-        // 2) Enriquecer imágenes de productos
+        if (!$order) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Pedido no encontrado',
+            ])->setStatusCode(200);
+        }
+
+        // 2) product_images (por product_id)
         $lineItems = $order['line_items'] ?? [];
         $productIds = [];
+
         foreach ($lineItems as $li) {
             if (!empty($li['product_id'])) $productIds[(string)$li['product_id']] = true;
         }
         $productIds = array_keys($productIds);
 
-        $productImages = [];  // product_id => url
-        $productCache  = [];  // product_id => product json (cache request)
+        $productImages = []; // product_id => url
 
         foreach ($productIds as $pid) {
-            // cache por seguridad
-            if (isset($productCache[$pid])) continue;
+            $urlProd = "https://{$this->shop}/admin/api/{$this->apiVersion}/products/{$pid}.json?fields=id,image,images";
+            $rP = $this->curlShopify($urlProd, 'GET');
+            if ($rP['status'] >= 400 || $rP['status'] === 0) continue;
 
-            $urlProd = "https://{$shop}/admin/api/{$apiVersion}/products/{$pid}.json?fields=id,title,image,images";
-            $rP = $client->get($urlProd, [
-                'headers' => [
-                    'X-Shopify-Access-Token' => $token,
-                    'Accept' => 'application/json',
-                ],
-            ]);
+            $jP = json_decode($rP['body'], true) ?: [];
+            $p  = $jP['product'] ?? null;
+            if (!$p) continue;
 
-            $sP = $rP->getStatusCode();
-            $bP = (string)$rP->getBody();
-            $jP = json_decode($bP, true) ?: [];
+            $img = '';
+            if (!empty($p['image']['src'])) $img = $p['image']['src'];
+            elseif (!empty($p['images'][0]['src'])) $img = $p['images'][0]['src'];
 
-            if ($sP < 400 && !empty($jP['product'])) {
-                $productCache[$pid] = $jP['product'];
-
-                // Shopify: product.image.src o product.images[0].src
-                $img = '';
-                if (!empty($jP['product']['image']['src'])) $img = $jP['product']['image']['src'];
-                elseif (!empty($jP['product']['images'][0]['src'])) $img = $jP['product']['images'][0]['src'];
-
-                if ($img) $productImages[$pid] = $img;
-            } else {
-                // No rompas todo si un producto falla
-                log_message('error', 'DETALLES PRODUCT HTTP '.$sP.' pid='.$pid.' body='.$bP);
-            }
+            if ($img) $productImages[(string)$pid] = $img;
         }
 
-        // ✅ (opcional) imágenes locales tuyas (si ya lo usas)
-        // $imagenesLocales = ... tu lógica ...
-        $imagenesLocales = []; // si no tienes, déjalo vacío
+        // 3) imágenes locales desde BD (PedidoImagenModel)
+        $modelImg = new PedidoImagenModel();
+        // Espero que getByOrder te devuelva un array indexado por line_index => url
+        $imagenesLocales = $modelImg->getByOrder((int)$orderId);
+        if (!is_array($imagenesLocales)) $imagenesLocales = [];
 
         return $this->response->setJSON([
-            'success' => true,
-            'order' => $order,
-            'product_images' => $productImages,
-            'imagenes_locales' => $imagenesLocales, // 👈 ESTO ES CLAVE
+            'success'         => true,
+            'order'           => $order,
+            'product_images'  => $productImages,
+            'imagenes_locales'=> $imagenesLocales,
         ]);
 
     } catch (\Throwable $e) {
@@ -400,11 +375,9 @@ class DashboardController extends Controller
         return $this->response->setJSON([
             'success' => false,
             'message' => 'Error interno cargando detalles',
-        ]);
+        ])->setStatusCode(200);
     }
 }
-
-
 
     // ============================================================
     // ✅ BADGE DEL ESTADO (colores nuevos)
@@ -766,35 +739,64 @@ class DashboardController extends Controller
     // SUBIR IMAGEN LOCAL DEL PRODUCTO
     // ============================================================
     public function subirImagenProducto()
-    {
-        $orderId = $this->request->getPost("orderId");
-        $index   = $this->request->getPost("index");
-        $file    = $this->request->getFile("file");
-
-        if (!$file || !$file->isValid()) {
-            return $this->response->setJSON([
-                "success" => false,
-                "message" => "Archivo inválido"
-            ]);
-        }
-
-        $folder = FCPATH . "uploads/pedidos/$orderId/";
-        if (!is_dir($folder)) {
-            mkdir($folder, 0777, true);
-        }
-
-        $ext = $file->getExtension();
-        $newName = $index . "." . $ext;
-
-        $file->move($folder, $newName, true);
-
-        $url = base_url("uploads/pedidos/$orderId/$newName");
-
-        return $this->response->setJSON([
-            "success" => true,
-            "url"     => $url
-        ]);
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setJSON(['success' => false, 'message' => 'No autenticado'])->setStatusCode(401);
     }
+
+    $orderId = (string) $this->request->getPost("order_id");
+    $index   = (string) $this->request->getPost("line_index");
+    $file    = $this->request->getFile("file");
+
+    if ($orderId === '' || $index === '') {
+        return $this->response->setJSON([
+            "success" => false,
+            "message" => "Faltan order_id o line_index"
+        ])->setStatusCode(422);
+    }
+
+    if (!$file || !$file->isValid()) {
+        return $this->response->setJSON([
+            "success" => false,
+            "message" => "Archivo inválido"
+        ])->setStatusCode(422);
+    }
+
+    $orderIdInt = (int)$orderId;
+    $idxInt = (int)$index;
+
+    $folder = FCPATH . "uploads/pedidos/{$orderIdInt}/";
+    if (!is_dir($folder)) {
+        @mkdir($folder, 0777, true);
+    }
+
+    $ext = $file->getExtension();
+    $newName = "item_{$idxInt}." . $ext;
+
+    $file->move($folder, $newName, true);
+
+    $url = base_url("uploads/pedidos/{$orderIdInt}/{$newName}");
+
+    // guardar/actualizar DB
+    try {
+        $db = \Config\Database::connect();
+        $db->table('pedido_imagenes')->replace([
+            'order_id'   => $orderIdInt,
+            'line_index' => $idxInt,
+            'local_url'  => $url,
+            'status'     => 'ready',
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+    } catch (\Throwable $e) {
+        // no rompas el flujo si DB falla
+        log_message('error', 'pedido_imagenes replace ERROR: '.$e->getMessage());
+    }
+
+    return $this->response->setJSON([
+        "success" => true,
+        "url"     => $url
+    ]);
+}
 
     private function extractImageUrlsFromLineItem(array $item): array
     {
@@ -875,7 +877,9 @@ class DashboardController extends Controller
         if (!is_dir($baseDir)) @mkdir($baseDir, 0775, true);
 
         // para devolver al frontend por índice
-        $imagenesLocales = [];
+        $modelImg = new PedidoImagenModel();
+        $imagenesLocales = $modelImg->getByOrder((int)$orderId);
+
 
         foreach ($lineItems as $idx => &$item) {
             $idx = (int)$idx;
@@ -957,7 +961,7 @@ class DashboardController extends Controller
         $estadoAuto = null;
 
         if ($totalRequeridas > 0) {
-            $estadoAuto = ($totalListas >= $totalRequeridas) ? 'Producción' : 'A medias';
+            $estadoAuto = ($totalListas >= $totalRequeridas) ? 'Produccion' : 'A medias';
         }
 
         // guardar en el order para frontend
@@ -972,19 +976,36 @@ class DashboardController extends Controller
         }
     }
     private function guardarEstadoSistema(int $orderId, string $estado): void
-    {
-        try {
-            $db = \Config\Database::connect();
-            $db->table('pedidos_estado')->insert([
-                'id'         => $orderId,
-                'estado'     => $estado,
-                'user_id'    => null, // sistema
-                'created_at' => date('Y-m-d H:i:s'),
-            ]);
-        } catch (\Throwable $e) {
-            log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
+{
+    try {
+        $db = \Config\Database::connect();
+
+        $estado = $this->normalizeEstado($estado);
+
+        $insert = [
+            'estado'     => $estado,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+
+        if ($this->columnExists($db, 'pedidos_estado', 'order_id')) {
+            $insert['order_id'] = $orderId;
+        } elseif ($this->columnExists($db, 'pedidos_estado', 'pedido_id')) {
+            $insert['pedido_id'] = $orderId;
+        } else {
+            $insert['id'] = $orderId;
         }
+
+        if ($this->columnExists($db, 'pedidos_estado', 'user_id')) {
+            $insert['user_id'] = null; // sistema
+        }
+
+        $db->table('pedidos_estado')->insert($insert);
+
+    } catch (\Throwable $e) {
+        log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
     }
+}
+
 
         
 

@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use CodeIgniter\HTTP\ResponseInterface;
+use App\Models\PedidoImagenModel;
 
 class Dashboard extends BaseController
 {
