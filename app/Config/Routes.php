@@ -107,20 +107,12 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 // ====================================================
 $routes->group('placas', ['filter' => 'auth'], static function ($routes) {
 
-    // Vista principal
-    $routes->get('/', 'PlacasController::index');
-    
-    // (si aún usas esta ruta vieja por conjunto)
-    $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
+$routes->get('/', 'PlacasController::index');
+$routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
 
-    // Descarga (si tu descargar está en PlacasController)
-    $routes->get('descargar/(:num)', 'PlacasController::descargar/$1');
-    $routes->get('placas/archivos/stats', 'PlacasArchivosController::stats');
 
-    // ✅ Endpoints que tu JS está llamando:
-    // /placas/archivos/listar
-    // /placas/archivos/stats
-    $routes->group('archivos', static function ($routes) {
+
+$routes->group('archivos', static function ($routes) {
         $routes->get('listar', 'PlacasArchivosController::listar');
         $routes->get('stats',  'PlacasArchivosController::stats');
 
@@ -131,9 +123,13 @@ $routes->group('placas', ['filter' => 'auth'], static function ($routes) {
 
         $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
         $routes->post('lote/eliminar',  'PlacasArchivosController::eliminarLote');
+
+        // ✅ NUEVA: descargar desde el controller correcto
+        $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
     });
 
 });
+
 
 // ----------------------------------------------------
 // TEST FUNCIONAL
