@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use CodeIgniter\Controller;
+use App\Models\PedidoImagenModel;
 
 class DashboardController extends Controller
 {
@@ -283,6 +284,14 @@ class DashboardController extends Controller
     // ✅ Aquí: procesa imágenes y define estado
  public function detalles($orderId)
 {
+     // 🔹 1. Obtener pedido (lo que YA tienes)
+    $order = $this->getOrderFromShopify($id); // ← tu lógica actual
+     // 🔹 1. Obtener pedido (lo que YA tienes)
+    $order = $this->getOrderFromShopify($id); // ← tu lógica actual
+
+    // 🔹 2. Cargar imágenes locales guardadas
+    $modelImg = new PedidoImagenModel();
+    $imagenesLocales = $modelImg->getByOrder((int)$id);
     if (!session()->get('logged_in')) {
         return $this->response->setStatusCode(401)->setJSON([
             'success' => false,
@@ -383,7 +392,7 @@ class DashboardController extends Controller
             'success' => true,
             'order' => $order,
             'product_images' => $productImages,
-            'imagenes_locales' => $imagenesLocales,
+            'imagenes_locales' => $imagenesLocales, // 👈 ESTO ES CLAVE
         ]);
 
     } catch (\Throwable $e) {
