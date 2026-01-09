@@ -118,7 +118,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // ✅ LIVE refresca la página 1 (recomendado 20s con 12 usuarios)
   startLive(30000);
   
-  cargarPedidos({ reset: true });
 
   // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
   window.addEventListener("resize", () => {
@@ -265,8 +264,9 @@ function resetToFirstPage({ withFetch = false } = {}) {
   setPaginaUI({ totalPages: null });
   actualizarControlesPaginacion();
 
-  if (withFetch) window.cargarPedidos({ reset: true, page_info: "" });
+  if (withFetch) cargarPedidos({ reset: true, page_info: "" }); // ✅ directo
 }
+
 +
 /* =====================================================
   CARGAR PEDIDOS (con protección anti-overwrite)
