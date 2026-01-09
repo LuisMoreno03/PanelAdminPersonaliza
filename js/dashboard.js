@@ -53,23 +53,10 @@ function normalizeBase(base) {
   return base;
 }
 
-function getAppPrefix() {
-  const p = window.location.pathname || "/";
-  // todo lo que esté antes de "/dashboard"
-  const idx = p.indexOf("/dashboard");
-  if (idx === -1) return ""; // fallback
-  const prefix = p.slice(0, idx); // ej: "/index.php/index.php"
-  return normalizeBase(prefix);
-}
-
-// Base absoluta real (dominio + prefijo)
-function getBaseAbs() {
-  return normalizeBase(window.location.origin + getAppPrefix());
-}
-
 function apiUrl(path) {
   if (!path.startsWith("/")) path = "/" + path;
-  return getBaseAbs() + path;
+  const base = normalizeBase(window.API_BASE || "");
+  return base ? base + path : path;
 }
 
 function jsonHeaders() {
@@ -310,23 +297,22 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
   (async () => {
     const candidates = [
-    // ✅ API (lo más probable)
-    buildUrl(apiUrl("/api/pedidos")),
-    buildUrl("/api/pedidos"),
-    buildUrl("/index.php/api/pedidos"),
-    buildUrl("/index.php/index.php/api/pedidos"),
+      // usando API_BASE
+      buildUrl(apiUrl("/dashboard/pedidos")),
+      buildUrl(apiUrl("/dashboard/filter")),
 
-    // ✅ fallback (si tu backend realmente expone esto)
-    buildUrl(apiUrl("/dashboard/pedidos")),
-    buildUrl(apiUrl("/dashboard/filter")),
-    buildUrl("/dashboard/pedidos"),
-    buildUrl("/dashboard/filter"),
-    buildUrl("/index.php/dashboard/pedidos"),
-    buildUrl("/index.php/dashboard/filter"),
-    buildUrl("/index.php/index.php/dashboard/pedidos"),
-    buildUrl("/index.php/index.php/dashboard/filter"),
-  ];
+      // sin base
+      buildUrl("/dashboard/pedidos"),
+      buildUrl("/dashboard/filter"),
 
+      // con index.php
+      buildUrl("/index.php/dashboard/pedidos"),
+      buildUrl("/index.php/dashboard/filter"),
+
+      // doble index.php (Hostinger)
+      buildUrl("/index.php/index.php/dashboard/pedidos"),
+      buildUrl("/index.php/index.php/dashboard/filter"),
+    ];
 
     let data = null;
 
@@ -1044,35 +1030,13 @@ window.verDetalles = async function (orderId) {
   // Fetch detalles
   // -----------------------------
   try {
-    const candidates = [
-      // ✅ API (lo más probable)
-      apiUrl(`/api/pedidos/detalles/${encodeURIComponent(id)}`),
-      `/api/pedidos/detalles/${encodeURIComponent(id)}`,
-      `/index.php/api/pedidos/detalles/${encodeURIComponent(id)}`,
-      `/index.php/index.php/api/pedidos/detalles/${encodeURIComponent(id)}`,
+    const url =
+      typeof apiUrl === "function"
+        ? apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`)
+        : `/index.php/dashboard/detalles/${encodeURIComponent(id)}`;
 
-      // ✅ fallback antiguo
-      apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`),
-      `/dashboard/detalles/${encodeURIComponent(id)}`,
-      `/index.php/dashboard/detalles/${encodeURIComponent(id)}`,
-      `/index.php/index.php/dashboard/detalles/${encodeURIComponent(id)}`
-    ];
-
-    let r = null;
-    let d = null;
-
-    for (const url of candidates) {
-      r = await fetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
-      if (!r || r.status === 404) continue;
-      d = await r.json().catch(() => null);
-      if (d) break;
-    }
-
-    if (!r || !d || d.success !== true) {
-      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa endpoint.</div>`);
-      if (pre) pre.textContent = JSON.stringify({ tried: candidates, http: r?.status, payload: d }, null, 2);
-      return;
-    }
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    const d = await r.json().catch(() => null);
 
     if (!r.ok || !d || d.success !== true) {
       setHtml(
