@@ -1002,25 +1002,46 @@ window.verDetalles = async function (orderId) {
   if (pre) pre.textContent = "";
 
   // -----------------------------
-  // Fetch detalles
+  // Fetch detalles (ROBUSTO)
   // -----------------------------
-  try {
-    const url =
-      typeof apiUrl === "function"
-        ? apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`)
-        : `/index.php/dashboard/detalles/${encodeURIComponent(id)}`;
+  let r = null;
+  let d = null;
 
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    const d = await r.json().catch(() => null);
+  const candidates = [
+    typeof apiUrl === "function"
+      ? apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`)
+      : null,
+    `/dashboard/detalles/${encodeURIComponent(id)}`,
+    `/index.php/dashboard/detalles/${encodeURIComponent(id)}`,
+    `/index.php/index.php/dashboard/detalles/${encodeURIComponent(id)}`,
+  ].filter(Boolean);
 
-    if (!r.ok || !d || d.success !== true) {
-      setHtml(
-        "detItems",
-        `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa endpoint.</div>`
-      );
-      if (pre) pre.textContent = JSON.stringify({ http: r.status, payload: d }, null, 2);
-      return;
+  for (const u of candidates) {
+    try {
+      const rr = await fetch(u, { headers: { Accept: "application/json" } });
+      if (rr.status === 404) continue;
+
+      const dd = await rr.json().catch(() => null);
+      if (!rr.ok || !dd) continue;
+
+      r = rr;
+      d = dd;
+      break;
+    } catch (e) {
+      // intenta siguiente
     }
+  }
+
+  if (!r || !d || d.success !== true) {
+    setHtml(
+      "detItems",
+      `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa endpoint.</div>`
+    );
+    if (pre) pre.textContent = JSON.stringify({ error: "endpoint no válido" }, null, 2);
+    return;
+  }
+
+
 
     // debug
     if (pre) pre.textContent = JSON.stringify(d, null, 2);
@@ -1324,11 +1345,7 @@ window.verDetalles = async function (orderId) {
       .join("");
 
     setHtml("detItems", itemsHtml);
-  } catch (e) {
-    console.error("verDetalles error:", e);
-    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
-  }
-};
+  } 
 
 
 // ===============================
