@@ -110,7 +110,11 @@ $routes->group('placas', ['filter' => 'auth'], static function ($routes) {
 $routes->get('/', 'PlacasController::index');
 $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
 
-
+// ====================================================
+// SUBIDA POR LOTE - CONTADOR DIARIO DE SUBIDOS
+// ====================================================
+$routes->post('subir-lote', 'PlacasArchivosController::subirLote');
+$routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
 
 $routes->group('archivos', static function ($routes) {
         $routes->get('listar', 'PlacasArchivosController::listar');
