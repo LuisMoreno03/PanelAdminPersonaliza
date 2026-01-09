@@ -2,67 +2,79 @@
 
 namespace App\Controllers;
 
-use CodeIgniter\Controller;
+use CodeIgniter\HTTP\ResponseInterface;
+use App\Models\PedidoImagenModel;
 
-class PedidosImagenesController extends Controller
+class PedidosImagenesController extends BaseController
 {
-    public function subir()
+    public function subir(): ResponseInterface
     {
-        // ✅ Requiere sesión
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
                 'success' => false,
-                'message' => 'No autenticado'
+                'message' => 'No autenticado',
             ]);
         }
 
-        $orderId = $this->request->getPost('order_id');
-        $index   = $this->request->getPost('index');
-
-        if (!$orderId || $index === null) {
-            return $this->response->setStatusCode(422)->setJSON([
-                'success' => false,
-                'message' => 'Faltan parámetros: order_id / index'
-            ]);
-        }
+        $orderId = (int) ($this->request->getPost('order_id') ?? 0);
+        $lineIndex = (int) ($this->request->getPost('line_index') ?? -1);
 
         $file = $this->request->getFile('file');
-        if (!$file || !$file->isValid()) {
+
+        if ($orderId <= 0 || $lineIndex < 0 || !$file) {
             return $this->response->setStatusCode(422)->setJSON([
                 'success' => false,
-                'message' => 'Archivo inválido'
+                'message' => 'Faltan parámetros: order_id / line_index / file',
             ]);
         }
 
-        // ✅ Carpeta destino
-        $dir = FCPATH . 'uploads/pedidos/' . $orderId . '/';
-        if (!is_dir($dir)) {
-            mkdir($dir, 0775, true);
+        if (!$file->isValid()) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'success' => false,
+                'message' => 'Archivo inválido',
+            ]);
         }
 
-        // ✅ Nombre final
-        $ext = $file->getExtension() ?: 'jpg';
-        $filename = 'mod_' . $orderId . '_' . $index . '_' . time() . '.' . $ext;
+        $ext = strtolower($file->getExtension() ?: '');
+        $allowed = ['jpg','jpeg','png','webp'];
+        if (!in_array($ext, $allowed, true)) {
+            return $this->response->setStatusCode(415)->setJSON([
+                'success' => false,
+                'message' => 'Formato no permitido. Usa JPG/PNG/WEBP.',
+            ]);
+        }
 
-        // ✅ Mover archivo
-        $file->move($dir, $filename);
+        // Guardado físico
+        $dir = FCPATH . 'uploads/pedidos/' . $orderId;
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
 
-        $relative = 'uploads/pedidos/' . $orderId . '/' . $filename;
+        $name = 'mod_' . $lineIndex . '_' . date('Ymd_His') . '.' . $ext;
+        $file->move($dir, $name, true);
 
-        // ✅ URL pública
-        helper('url');
+        $relative = 'uploads/pedidos/' . $orderId . '/' . $name;
         $url = base_url($relative);
 
-        // 🔥 Aquí luego podemos guardar en BD (te lo dejo listo para el siguiente paso)
-        // Por ahora devolvemos url para pintar en el modal.
+        // Guardado en BD (upsert)
+        $model = new PedidoImagenModel();
+        $userId = session()->get('id') ? (int) session()->get('id') : null;
+        $userName = session()->get('nombre') ? (string) session()->get('nombre') : null;
+
+        $ok = $model->upsertImagen($orderId, $lineIndex, $url, $userId, $userName);
+
+        if (!$ok) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => 'No se pudo guardar en BD',
+            ]);
+        }
 
         return $this->response->setJSON([
             'success' => true,
-            'message' => 'Imagen subida',
-            'order_id' => (string)$orderId,
-            'index' => (int)$index,
+            'message' => 'Imagen guardada',
             'url' => $url,
-            'path' => $relative,
+            'relative' => $relative,
+            'order_id' => $orderId,
+            'line_index' => $lineIndex,
         ]);
     }
 }
