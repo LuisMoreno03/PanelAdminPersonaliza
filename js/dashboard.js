@@ -932,7 +932,6 @@ window.verDetalles = async function (orderId) {
   const id = String(orderId || "");
   if (!id) return;
 
-  
   // -----------------------------
   // Helpers DOM (compat)
   // -----------------------------
@@ -969,6 +968,15 @@ window.verDetalles = async function (orderId) {
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
+  }
+
+  // 👇 FIX: faltaba escapeAttr en esta función (lo usas en detResumen)
+  function escapeAttr(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
   }
 
   function esUrl(u) {
@@ -1028,7 +1036,6 @@ window.verDetalles = async function (orderId) {
       if (pre) pre.textContent = JSON.stringify({ http: r.status, payload: d }, null, 2);
       return;
     }
-
 
     // debug
     if (pre) pre.textContent = JSON.stringify(d, null, 2);
@@ -1090,36 +1097,55 @@ window.verDetalles = async function (orderId) {
     // -----------------------------
     const envio = o.total_shipping_price_set?.shop_money?.amount ?? o.total_shipping_price_set?.presentment_money?.amount ?? "0";
     const impuestos = o.total_tax ?? "0";
-    
-    // ✅ Fuente de tags para pintar en detalles (si el endpoint viene vacío, usa cache)
-    const tagsActuales = String(
-      o.tags ??
-      o.etiquetas ??
-      (ordersById?.get(String(o.id))?.etiquetas) ??
-      (ordersById?.get(String(id))?.etiquetas) ??
-      ""
-    ).trim();
 
-    // ✅ helper global para repintar el bloque de etiquetas SIN recargar detalles
-    window.__pintarTagsEnDetalle = function(tagsStr) {
+    // ==============================
+    // ✅ ETIQUETAS (FIX DEFINITIVO)
+    // - prefiero etiquetas BD (cache dashboard)
+    // - fallback a Shopify tags (o.tags)
+    // ==============================
+    const shopifyTags = String(o.tags || "").trim();
+
+    const cachedOrder =
+      (window.ordersById && window.ordersById.get && window.ordersById.get(String(id))) ||
+      (window.ordersById && window.ordersById.get && window.ordersById.get(String(o.id))) ||
+      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === String(id)) : null) ||
+      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === String(o.id)) : null) ||
+      null;
+
+    const dbTags = String(cachedOrder?.etiquetas || "").trim();
+
+    const tagsActuales = (dbTags || shopifyTags || "").trim();
+
+    // helper global para repintar SIN recargar detalles
+    window.__pintarTagsEnDetalle = function (tagsStr) {
       const wrap = document.getElementById("det-tags-view");
       if (!wrap) return;
 
       const clean = String(tagsStr || "").trim();
 
       wrap.innerHTML = clean
-        ? clean.split(",").map(t => `
-            <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
-              ${escapeHtml(t.trim())}
-            </span>
-          `).join("")
+        ? clean
+            .split(",")
+            .map(t => t.trim())
+            .filter(Boolean)
+            .map(tag => {
+              // usa mismo color que dashboard si existe
+              const cls =
+                (typeof window.colorEtiqueta === "function")
+                  ? window.colorEtiqueta(tag)
+                  : "bg-white border-slate-200 text-slate-900";
+              return `
+                <span class="px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide border ${cls}">
+                  ${escapeHtml(tag)}
+                </span>
+              `;
+            })
+            .join("")
         : `<span class="text-xs text-slate-400">—</span>`;
 
-      // también actualiza dataset del botón si existe
       const btn = document.getElementById("btnEtiquetasDetalle");
       if (btn) btn.dataset.orderTags = clean;
     };
-
 
     setHtml(
       "detTotales",
@@ -1145,10 +1171,11 @@ window.verDetalles = async function (orderId) {
             <div class="text-xs text-slate-500 font-extrabold uppercase">Etiquetas</div>
 
             <button
+              id="btnEtiquetasDetalle"
               type="button"
               class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
               data-order-id="${o.id}"
-              data-order-label="${escapeAttr(o.name || ('#' + o.id))}"
+              data-order-label="${escapeAttr(o.name || ("#" + o.id))}"
               data-order-tags="${escapeAttr(tagsActuales)}"
               onclick="abrirEtiquetasDesdeDetalle(this)"
             >
@@ -1156,17 +1183,7 @@ window.verDetalles = async function (orderId) {
             </button>
           </div>
 
-          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2">
-            ${
-              tagsActuales
-                ? tagsActuales.split(',').map(t => `
-                    <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
-                      ${escapeHtml(t.trim())}
-                    </span>
-                  `).join('')
-                : '<span class="text-xs text-slate-400">—</span>'
-            }
-          </div>
+          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2"></div>
         </div>
 
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -1187,177 +1204,34 @@ window.verDetalles = async function (orderId) {
       `
     );
 
-    
-    let __etq_detalle_order_id = null;
+    // ✅ IMPORTANTÍSIMO: pintamos DESPUÉS de crear el DOM de detResumen
+    window.__pintarTagsEnDetalle(tagsActuales);
 
-    window.abrirModalEtiquetasDesdeDetalles = function(orderId, tagsActuales) {
-      __etq_detalle_order_id = Number(orderId);
+    // ✅ Detalles -> abre el MISMO modal del dashboard (y marca que viene de detalles)
+    window.abrirEtiquetasDesdeDetalle = function (btn) {
+      try {
+        const orderId = btn?.dataset?.orderId;
+        const label   = btn?.dataset?.orderLabel || ("#" + orderId);
+        const tagsStr = btn?.dataset?.orderTags || "";
 
-      // Esto depende de tu implementación actual:
-      // Si ya tienes una función "abrirModalEtiquetas(id, tags)" úsala aquí.
-      // Si tu modal se abre con otra función, reemplaza esta línea por la tuya.
-      abrirModalEtiquetas(orderId, tagsActuales);
+        // marca para que guardarEtiquetasModal repinte en detalles
+        window.__ETQ_DETALLE_ORDER_ID = Number(orderId) || null;
+
+        if (typeof window.abrirModalEtiquetas === "function") {
+          window.abrirModalEtiquetas(orderId, tagsStr, label);
+          return;
+        }
+
+        // fallback
+        const modal = document.getElementById("modalEtiquetas");
+        if (modal) modal.classList.remove("hidden");
+
+        const lbl = document.getElementById("etqPedidoLabel");
+        if (lbl) lbl.textContent = label;
+      } catch (e) {
+        console.error("abrirEtiquetasDesdeDetalle error:", e);
+      }
     };
-
-
-    // ✅ Detalles -> abre el MISMO modal del dashboard
-    window.abrirEtiquetasDesdeDetalle = function(btn) {
-  try {
-    const orderId = btn?.dataset?.orderId;
-    const label   = btn?.dataset?.orderLabel || ("#" + orderId);
-    const tagsStr = btn?.dataset?.orderTags || "";
-
-    // guarda globals para refrescar luego en detalles (opcional)
-    window._detOrderId = String(orderId);
-    window._detOrderLabel = String(label);
-    window._detOrderTags = String(tagsStr);
-
-    // ✅ Si ya tienes una función real para abrir modal, úsala:
-    if (typeof window.abrirModalEtiquetas === "function") {
-      window.abrirModalEtiquetas(orderId, tagsStr, label); // si tu firma es distinta, la ajusto
-      return;
-    }
-
-    // fallback: abrir modal "a pelo"
-    const modal = document.getElementById("modalEtiquetas");
-    if (modal) modal.classList.remove("hidden");
-
-    const lbl = document.getElementById("etqPedidoLabel");
-    if (lbl) lbl.textContent = label;
-
-  } catch (e) {
-    console.error("abrirEtiquetasDesdeDetalle error:", e);
-  }
-};
-
-
-
-
-
-        // ✅ al final de guardarEtiquetasModal(), cuando ya guardó OK:
-    const det = document.getElementById("det-tags-view");
-    if (det) {
-      const tagsStr = (window._etqSelectedTagsStr || ""); // <-- pon aquí la variable REAL que tú ya usas
-      det.innerHTML = tagsStr
-        ? tagsStr.split(",").map(t => `
-            <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
-              ${escapeHtml(t.trim())}
-            </span>
-          `).join("")
-        : `<span class="text-xs text-slate-400">—</span>`;
-    }
-
-
-    let detTagsSelected = [];
-    let detTagsOriginal = [];
-
-    function editarTagsDetalle(orderId) {
-      const view = document.getElementById('det-tags-view');
-      const editor = document.getElementById('det-tags-editor');
-      const chipsWrap = document.getElementById('det-tags-chips');
-      const msg = document.getElementById('det-tags-msg');
-
-      detTagsOriginal = (view.textContent || '')
-        .split(',')
-        .map(t => t.trim())
-        .filter(Boolean);
-
-      detTagsSelected = [...detTagsOriginal];
-
-      view.classList.add('hidden');
-      editor.classList.remove('hidden');
-      msg.textContent = '';
-      chipsWrap.innerHTML = 'Cargando...';
-
-      fetch('/dashboard/etiquetas-disponibles')
-        .then(r => r.json())
-        .then(data => {
-          chipsWrap.innerHTML = '';
-          if (!data.ok) return;
-
-          const all = [...(data.diseno || []), ...(data.produccion || [])];
-
-          all.forEach(tag => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-
-            const refresh = () => {
-              const active = detTagsSelected.includes(tag);
-              btn.className = active
-                ? 'px-3 py-1 rounded-full text-xs font-semibold bg-slate-900 text-white border'
-                : 'px-3 py-1 rounded-full text-xs font-semibold bg-white border';
-            };
-
-            btn.textContent = tag;
-            refresh();
-
-            btn.onclick = () => {
-              if (detTagsSelected.includes(tag)) {
-                detTagsSelected = detTagsSelected.filter(t => t !== tag);
-              } else {
-                detTagsSelected.push(tag);
-              }
-              refresh();
-            };
-
-            chipsWrap.appendChild(btn);
-          });
-        });
-    }
-
-    function cancelarTagsDetalle() {
-      document.getElementById('det-tags-view').classList.remove('hidden');
-      document.getElementById('det-tags-editor').classList.add('hidden');
-    }
-
-    function guardarTagsDetalle(orderId) {
-      const msg = document.getElementById('det-tags-msg');
-      msg.textContent = 'Guardando...';
-
-      const tagsString = detTagsSelected.join(', ');
-
-      fetch('/api/estado_etiquetas/guardar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: orderId,
-          tags: tagsString
-        })
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (!data.success) {
-            msg.textContent = data.message || 'Error guardando etiquetas';
-            msg.className = 'text-xs mt-2 text-red-600';
-            return;
-          }
-
-          // actualizar vista
-          const view = document.getElementById('det-tags-view');
-          view.innerHTML = '';
-
-          if (!detTagsSelected.length) {
-            view.innerHTML = '<span class="text-xs text-slate-400">—</span>';
-          } else {
-            detTagsSelected.forEach(t => {
-              view.innerHTML += `
-                <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
-                  ${t}
-                </span>`;
-            });
-          }
-
-          view.classList.remove('hidden');
-          document.getElementById('det-tags-editor').classList.add('hidden');
-
-          msg.textContent = 'Guardado ✓';
-          msg.className = 'text-xs mt-2 text-green-600';
-
-          // 🔁 sincroniza también la tabla del dashboard
-          const row = document.querySelector(`tr[data-order-id="${orderId}"] .col-tags`);
-          if (row) row.textContent = tagsString || '-';
-        });
-    }
 
     // -----------------------------
     // Productos
@@ -1417,8 +1291,7 @@ window.verDetalles = async function (orderId) {
 
         // imagen modificada (local)
         const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
-        
-        /// ✅ ahora sí: marcar arrays globales
+
         window.imagenesRequeridas[index] = !!requiere;
         window.imagenesCargadas[index] = !!localUrl;
 
@@ -1566,6 +1439,7 @@ window.verDetalles = async function (orderId) {
     setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
   }
 };
+
 
 
 
