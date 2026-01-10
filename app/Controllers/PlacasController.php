@@ -90,35 +90,47 @@ class PlacasController extends BaseController
      * Descarga un archivo por id
      * GET /placas/descargar/{archivoId}
      */
-    public function descargar(int $archivoId)
-    {
-        $m = new PlacaArchivoModel();
-        $r = $m->find($archivoId);
+    public function descargar($id)
+{
+    $row = $this->archivoModel->find($id);
+    if (!$row) return $this->response->setStatusCode(404);
 
-        if (!$r) {
-            return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
+    $path = WRITEPATH . 'uploads/' . $row['ruta']; // ajusta
+    if (!is_file($path)) return $this->response->setStatusCode(404);
+
+    $mime = $row['mime'] ?: mime_content_type($path);
+    $originalName = $row['original'] ?: ('archivo_'.$id);
+
+    // ✅ si es WEBP -> convertir a PNG
+    if ($mime === 'image/webp') {
+        if (!function_exists('imagecreatefromwebp')) {
+            return $this->response->setStatusCode(500)->setBody('PHP sin soporte WEBP (GD).');
         }
 
-        // ✅ En tu sistema la ruta guardada es relativa a FCPATH (public)
-        $ruta = (string) ($r['ruta'] ?? '');
-        if ($ruta === '') {
-            return $this->response->setStatusCode(422)->setBody('Registro incompleto: falta ruta');
-        }
+        $im = imagecreatefromwebp($path);
+        if (!$im) return $this->response->setStatusCode(500)->setBody('No se pudo leer WEBP.');
 
-        $fullPath = FCPATH . ltrim($ruta, '/');
+        ob_start();
+        imagepng($im, null, 9);
+        imagedestroy($im);
+        $pngData = ob_get_clean();
 
-        if (!is_file($fullPath)) {
-            return $this->response->setStatusCode(404)->setBody("Archivo no existe en disco: {$fullPath}");
-        }
+        // cambiar nombre a .png
+        $downloadName = preg_replace('/\.(webp)$/i', '.png', $originalName);
+        if ($downloadName === $originalName) $downloadName .= '.png';
 
-        $downloadName = (string) ($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? basename($fullPath));
-    
-        return $this->response->download($fullPath, null)->setFileName($downloadName);
-    
-    
+        return $this->response
+            ->setHeader('Content-Type', 'image/png')
+            ->setHeader('Content-Disposition', 'attachment; filename="'.$downloadName.'"')
+            ->setBody($pngData);
     }
 
+    // ✅ si ya es png/jpg/etc -> descargar tal cual con nombre correcto
+    return $this->response
+        ->setHeader('Content-Type', $mime)
+        ->setHeader('Content-Disposition', 'attachment; filename="'.$originalName.'"')
+        ->setBody(file_get_contents($path));
 }
 
 
-
+}
