@@ -29,14 +29,16 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     $routes->get('/', 'DashboardController::index');
     $routes->get('pedidos', 'DashboardController::pedidos');
     $routes->get('filter',  'DashboardController::filter');
-
+    $routes->get('etiquetas-disponibles', 'DashboardController::etiquetasDisponibles');
+    $routes->get('pedidos', 'DashboardController::pedidos');   // paginado (rápido)
+    $routes->get('filter',  'DashboardController::filter');    // paginado (rápido)
     $routes->get('etiquetas-disponibles', 'DashboardController::etiquetasDisponibles');
 
     $routes->get('ping', 'DashboardController::ping');
     $routes->get('usuarios-estado', 'DashboardController::usuariosEstado');
-
     $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
 });
+
 
 
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
