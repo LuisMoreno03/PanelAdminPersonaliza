@@ -4,6 +4,8 @@ namespace App\Controllers;
 
 use App\Models\PlacaArchivoModel;
 
+use App\Models\PlacaLoteModel;
+
 class PlacasArchivosController extends BaseController
 
 
@@ -307,9 +309,9 @@ class PlacasArchivosController extends BaseController
 }
 
 
-}
+
 // POST /placas/archivos/subir-lote
-   { public function subirLote()
+    public function subirLote()
     {
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
