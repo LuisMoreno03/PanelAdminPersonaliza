@@ -102,7 +102,9 @@
 
     <div id="msg" class="muted mt-2"></div>
 
-    <div id="grid" class="grid"></div>
+    <div id="contenedorDias" class="space-y-6"></div>
+<div id="grid" class="grid hidden"></div>
+
   </div>
 </div>
 
@@ -206,13 +208,14 @@ function addCsrf(fd) {
 }
 
   const API = {
-  listar: <?= json_encode(site_url('placas/archivos/listar')) ?>,
+  listar: <?= json_encode(site_url('placas/archivos/listar-por-dia')) ?>,
   stats:  <?= json_encode(site_url('placas/archivos/stats')) ?>,
-  subir:  <?= json_encode(site_url('placas/archivos/subir')) ?>,
+  subir:  <?= json_encode(site_url('placas/archivos/subir-lote')) ?>,
   renombrar: <?= json_encode(site_url('placas/archivos/renombrar')) ?>,
   eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
   descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
-  };
+};
+
 
 
   let modalItem = null;
@@ -387,6 +390,32 @@ if (Array.isArray(flat)) {
 
 q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
 
+
+}
+
+
+
+  // ✅ LISTA soporta: data.grupos o data.items
+async function cargarLista(){
+  try{
+    const res = await fetch(API.listar, { cache:'no-store' });
+    const data = await res.json();
+
+    allData = data;
+    renderFromData(data);
+
+    // si tu backend devuelve total (lo podemos agregar)
+    if (data.success && data.total != null) {
+      q('placasHoy').textContent = data.total;
+    }
+    await cargarVistaAgrupada();
+  } catch(e){
+    q('contenedorDias').innerHTML = '<div class="muted">Error cargando archivos</div>';
+  }
+
+}
+
+
 async function cargarVistaAgrupada() {
   const res = await fetch(baseUrl + "/placas/archivos/listar-por-dia");
   const data = await res.json();
@@ -445,28 +474,7 @@ async function cargarVistaAgrupada() {
   }
 }
 
-}
 
-
-
-  // ✅ LISTA soporta: data.grupos o data.items
-async function cargarLista(){
-  try{
-    const res = await fetch(API.listar, { cache:'no-store' });
-    const data = await res.json();
-
-    allData = data;
-    renderFromData(data);
-
-    // si tu backend devuelve total (lo podemos agregar)
-    if (data.success && data.total != null) {
-      q('placasHoy').textContent = data.total;
-    }
-  } catch(e){
-    q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
-  }
-
-}
 
 
 
@@ -758,6 +766,7 @@ let searchT = null;
 function applySearch(v) {
   searchTerm = v || '';
   if (searchClear) searchClear.classList.toggle('hidden', !searchTerm.trim());
+  cargarVistaAgrupada();
   if (allData) renderFromData(allData);
 }
 
