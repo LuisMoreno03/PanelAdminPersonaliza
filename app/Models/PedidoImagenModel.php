@@ -6,7 +6,7 @@ use CodeIgniter\Model;
 
 class PedidoImagenModel extends Model
 {
-    protected $table = 'pedidos_imagenes';
+    protected $table = 'pedido_imagenes';
     protected $primaryKey = 'id';
 
     protected $allowedFields = [
