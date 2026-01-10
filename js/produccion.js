@@ -108,13 +108,17 @@ function getCsrfHeaders() {
 // API
 // ==============================
 async function apiGet(url) {
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      "Accept": "application/json",
-    }
-  });
-  return res.json();
+  const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+  const text = await res.text();
+
+  let data;
+  try { data = JSON.parse(text); }
+  catch { data = { ok: false, error: "Respuesta no JSON", raw: text }; }
+
+  if (!res.ok) {
+    console.error("GET FAIL", url, res.status, data);
+  }
+  return data;
 }
 
 async function apiPost(url, payload) {
@@ -130,13 +134,16 @@ async function apiPost(url, payload) {
     body: JSON.stringify(payload ?? {}),
   });
 
-  // Si CI4 devuelve HTML de error, evitamos romper
   const text = await res.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { ok: false, error: "Respuesta no JSON", raw: text };
+
+  let data;
+  try { data = JSON.parse(text); }
+  catch { data = { ok: false, error: "Respuesta no JSON", raw: text }; }
+
+  if (!res.ok) {
+    console.error("POST FAIL", url, res.status, data);
   }
+  return data;
 }
 
 // ==============================
@@ -244,6 +251,7 @@ async function cargarMiCola() {
   try {
     const json = await apiGet(ENDPOINT_QUEUE);
     if (!json || json.ok !== true) {
+      alert(json?.error ? JSON.stringify(json.error) : "Error en my-queue. Mira consola.");
       console.error("Queue error:", json);
       pedidosCache = [];
       pedidosFiltrados = [];
