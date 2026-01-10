@@ -1104,9 +1104,52 @@ window.verDetalles = async function (orderId) {
       `
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Tags</div>
-          <div class="mt-1 font-semibold break-words">${escapeHtml(o.tags || "—")}</div>
+          <div class="flex items-center justify-between">
+            <div class="text-xs text-slate-500 font-extrabold uppercase">Tags</div>
+            <button
+              class="text-xs font-semibold text-blue-600 hover:underline"
+              onclick="editarTagsDetalle(${o.id})"
+            >
+              Editar
+            </button>
+          </div>
+
+          <!-- Tags actuales -->
+          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2">
+            ${
+              o.tags
+                ? o.tags.split(',').map(t =>
+                    `<span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+                      ${escapeHtml(t.trim())}
+                    </span>`
+                  ).join('')
+                : '<span class="text-xs text-slate-400">—</span>'
+            }
+          </div>
+
+          <!-- Editor (oculto) -->
+          <div id="det-tags-editor" class="hidden mt-3">
+            <div id="det-tags-chips" class="flex flex-wrap gap-2"></div>
+
+            <div class="flex gap-2 mt-3">
+              <button
+                class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-white"
+                onclick="guardarTagsDetalle(${o.id})"
+              >
+                Guardar
+              </button>
+              <button
+                class="px-3 py-1 rounded-lg text-xs font-semibold border"
+                onclick="cancelarTagsDetalle()"
+              >
+                Cancelar
+              </button>
+            </div>
+
+            <div id="det-tags-msg" class="text-xs mt-2"></div>
+          </div>
         </div>
+
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
           <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
@@ -1122,6 +1165,117 @@ window.verDetalles = async function (orderId) {
       </div>
       `
     );
+    
+    let detTagsSelected = [];
+    let detTagsOriginal = [];
+
+    function editarTagsDetalle(orderId) {
+      const view = document.getElementById('det-tags-view');
+      const editor = document.getElementById('det-tags-editor');
+      const chipsWrap = document.getElementById('det-tags-chips');
+      const msg = document.getElementById('det-tags-msg');
+
+      detTagsOriginal = (view.textContent || '')
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      detTagsSelected = [...detTagsOriginal];
+
+      view.classList.add('hidden');
+      editor.classList.remove('hidden');
+      msg.textContent = '';
+      chipsWrap.innerHTML = 'Cargando...';
+
+      fetch('/dashboard/etiquetas-disponibles')
+        .then(r => r.json())
+        .then(data => {
+          chipsWrap.innerHTML = '';
+          if (!data.ok) return;
+
+          const all = [...(data.diseno || []), ...(data.produccion || [])];
+
+          all.forEach(tag => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+
+            const refresh = () => {
+              const active = detTagsSelected.includes(tag);
+              btn.className = active
+                ? 'px-3 py-1 rounded-full text-xs font-semibold bg-slate-900 text-white border'
+                : 'px-3 py-1 rounded-full text-xs font-semibold bg-white border';
+            };
+
+            btn.textContent = tag;
+            refresh();
+
+            btn.onclick = () => {
+              if (detTagsSelected.includes(tag)) {
+                detTagsSelected = detTagsSelected.filter(t => t !== tag);
+              } else {
+                detTagsSelected.push(tag);
+              }
+              refresh();
+            };
+
+            chipsWrap.appendChild(btn);
+          });
+        });
+    }
+
+    function cancelarTagsDetalle() {
+      document.getElementById('det-tags-view').classList.remove('hidden');
+      document.getElementById('det-tags-editor').classList.add('hidden');
+    }
+
+    function guardarTagsDetalle(orderId) {
+      const msg = document.getElementById('det-tags-msg');
+      msg.textContent = 'Guardando...';
+
+      const tagsString = detTagsSelected.join(', ');
+
+      fetch('/api/estado_etiquetas/guardar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: orderId,
+          tags: tagsString
+        })
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (!data.success) {
+            msg.textContent = data.message || 'Error guardando etiquetas';
+            msg.className = 'text-xs mt-2 text-red-600';
+            return;
+          }
+
+          // actualizar vista
+          const view = document.getElementById('det-tags-view');
+          view.innerHTML = '';
+
+          if (!detTagsSelected.length) {
+            view.innerHTML = '<span class="text-xs text-slate-400">—</span>';
+          } else {
+            detTagsSelected.forEach(t => {
+              view.innerHTML += `
+                <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+                  ${t}
+                </span>`;
+            });
+          }
+
+          view.classList.remove('hidden');
+          document.getElementById('det-tags-editor').classList.add('hidden');
+
+          msg.textContent = 'Guardado ✓';
+          msg.className = 'text-xs mt-2 text-green-600';
+
+          // 🔁 sincroniza también la tabla del dashboard
+          const row = document.querySelector(`tr[data-order-id="${orderId}"] .col-tags`);
+          if (row) row.textContent = tagsString || '-';
+        });
+    }
 
     // -----------------------------
     // Productos
