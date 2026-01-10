@@ -1110,7 +1110,10 @@ window.verDetalles = async function (orderId) {
           <button
             type="button"
             class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
-            onclick="abrirEtiquetasDesdeDetalle(${o.id}, ${JSON.stringify(o.name || ("#" + o.id))}, ${JSON.stringify(o.tags || "")})"
+            data-order-id="${o.id}"
+            data-order-label="${escapeAttr(o.name || ('#' + o.id))}"
+            data-order-tags="${escapeAttr(o.tags || '')}"
+            onclick="abrirEtiquetasDesdeDetalle(this)"
           >
             ETIQUETAS <span class="ml-1 font-black">+</span>
           </button>
@@ -1129,6 +1132,7 @@ window.verDetalles = async function (orderId) {
         </div>
       </div>
 
+          
 
 
       <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -1150,30 +1154,39 @@ window.verDetalles = async function (orderId) {
     
 
     // ✅ Detalles -> abre el MISMO modal del dashboard
-    window.abrirEtiquetasDesdeDetalle = function(orderId, pedidoLabel, tagsStr) {
-      // 1) Actualiza label del modal si tu dashboard lo hace así
-      const lbl = document.getElementById("etqPedidoLabel");
-      if (lbl) lbl.textContent = pedidoLabel || ("#" + orderId);
+    window.abrirEtiquetasDesdeDetalle = function(btn) {
+  try {
+    const orderId = btn?.dataset?.orderId;
+    const label   = btn?.dataset?.orderLabel || ("#" + orderId);
+    const tagsStr = btn?.dataset?.orderTags || "";
 
-      // 2) Guarda en variables globales que tu modal ya use
-      //    (ajusta estos nombres a los que tú ya tengas en tu dashboard.js)
-      window._etqOrderId = String(orderId);
-      window._etqInitialTags = String(tagsStr || "");
+    // guarda globals para refrescar luego en detalles (opcional)
+    window._detOrderId = String(orderId);
+    window._detOrderLabel = String(label);
+    window._detOrderTags = String(tagsStr);
 
-      // 3) Llama a TU función real de abrir modal (la del dashboard)
-      //    Si ya tienes abrirModalEtiquetas(orderId, tags) úsala.
-      if (typeof window.abrirModalEtiquetas === "function") {
-        // intenta con firma (id, tags)
-        try {
-          window.abrirModalEtiquetas(String(orderId), String(tagsStr || ""));
-          return;
-        } catch (e) {}
-      }
+    // ✅ Si ya tienes una función real para abrir modal, úsala:
+    if (typeof window.abrirModalEtiquetas === "function") {
+      window.abrirModalEtiquetas(orderId, tagsStr, label); // si tu firma es distinta, la ajusto
+      return;
+    }
 
-      // 4) Si tu modal se abre solo quitando hidden:
+    // fallback: abrir modal "a pelo"
     const modal = document.getElementById("modalEtiquetas");
-      if (modal) modal.classList.remove("hidden");
-    };
+    if (modal) modal.classList.remove("hidden");
+
+    const lbl = document.getElementById("etqPedidoLabel");
+    if (lbl) lbl.textContent = label;
+
+  } catch (e) {
+    console.error("abrirEtiquetasDesdeDetalle error:", e);
+  }
+};
+
+
+
+
+
         // ✅ al final de guardarEtiquetasModal(), cuando ya guardó OK:
     const det = document.getElementById("det-tags-view");
     if (det) {
