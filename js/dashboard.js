@@ -1102,67 +1102,68 @@ window.verDetalles = async function (orderId) {
     setHtml(
       "detResumen",
       `
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="flex items-center justify-between">
-            <div class="text-xs text-slate-500 font-extrabold uppercase">Tags</div>
+     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Tags</div>
+          <button
+            class="text-xs font-semibold text-blue-600 hover:underline"
+            onclick="editarTagsDetalle(${o.id})"
+          >
+            Editar
+          </button>
+        </div>
+
+        <!-- Tags actuales -->
+        <div id="det-tags-view" data-tags="${escapeHtml(o.tags || "")}" class="mt-2 flex flex-wrap gap-2">
+          ${
+            o.tags
+              ? o.tags.split(',').map(t =>
+                  `<span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+                    ${escapeHtml(t.trim())}
+                  </span>`
+                ).join('')
+              : '<span class="text-xs text-slate-400">—</span>'
+          }
+        </div>
+
+        <!-- Editor (oculto) -->
+        <div id="det-tags-editor" class="hidden mt-3">
+          <div id="det-tags-chips" class="flex flex-wrap gap-2"></div>
+
+          <div class="flex gap-2 mt-3">
             <button
-              class="text-xs font-semibold text-blue-600 hover:underline"
-              onclick="editarTagsDetalle(${o.id})"
+              class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-white"
+              onclick="guardarTagsDetalle(${o.id})"
             >
-              Editar
+              Guardar
+            </button>
+            <button
+              class="px-3 py-1 rounded-lg text-xs font-semibold border"
+              onclick="cancelarTagsDetalle()"
+            >
+              Cancelar
             </button>
           </div>
 
-          <!-- Tags actuales -->
-          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2">
-            ${
-              o.tags
-                ? o.tags.split(',').map(t =>
-                    `<span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
-                      ${escapeHtml(t.trim())}
-                    </span>`
-                  ).join('')
-                : '<span class="text-xs text-slate-400">—</span>'
-            }
-          </div>
-
-          <!-- Editor (oculto) -->
-          <div id="det-tags-editor" class="hidden mt-3">
-            <div id="det-tags-chips" class="flex flex-wrap gap-2"></div>
-
-            <div class="flex gap-2 mt-3">
-              <button
-                class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-white"
-                onclick="guardarTagsDetalle(${o.id})"
-              >
-                Guardar
-              </button>
-              <button
-                class="px-3 py-1 rounded-lg text-xs font-semibold border"
-                onclick="cancelarTagsDetalle()"
-              >
-                Cancelar
-              </button>
-            </div>
-
-            <div id="det-tags-msg" class="text-xs mt-2"></div>
-          </div>
-        </div>
-
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
-          <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
-        </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Entrega</div>
-          <div class="mt-1 font-semibold">${escapeHtml(o.fulfillment_status || "—")}</div>
-        </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Creado</div>
-          <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
+          <div id="det-tags-msg" class="text-xs mt-2"></div>
         </div>
       </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
+        <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
+      </div>
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div class="text-xs text-slate-500 font-extrabold uppercase">Entrega</div>
+        <div class="mt-1 font-semibold">${escapeHtml(o.fulfillment_status || "—")}</div>
+      </div>
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div class="text-xs text-slate-500 font-extrabold uppercase">Creado</div>
+        <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
+      </div>
+    </div>
+
       `
     );
     
@@ -2333,3 +2334,161 @@ window.DASH.cargarPedidos = cargarPedidos;
 window.DASH.resetToFirstPage = resetToFirstPage;
 
 console.log("✅ dashboard.js cargado - verDetalles hash:", (window.verDetalles ? window.verDetalles.toString().length : "NO verDetalles"));
+
+// =============================
+// TAGS EN DETALLES (GLOBAL)
+// =============================
+(function () {
+  let detTagsSelected = [];
+  let detTagsOriginal = [];
+
+  function editarTagsDetalle(orderId) {
+    const view = document.getElementById("det-tags-view");
+    const editor = document.getElementById("det-tags-editor");
+    const chipsWrap = document.getElementById("det-tags-chips");
+    const msg = document.getElementById("det-tags-msg");
+
+    if (!view || !editor || !chipsWrap || !msg) {
+      console.error("Faltan contenedores det-tags-* en el DOM");
+      return;
+    }
+
+    // tags actuales desde el order (si no hay, array vacío)
+    const currentTagsText = (view.getAttribute("data-tags") || "").trim();
+    detTagsOriginal = currentTagsText
+      ? currentTagsText.split(",").map(t => t.trim()).filter(Boolean)
+      : [];
+
+    detTagsSelected = [...detTagsOriginal];
+
+    view.classList.add("hidden");
+    editor.classList.remove("hidden");
+    msg.textContent = "";
+    msg.className = "text-xs mt-2 text-slate-500";
+
+    chipsWrap.innerHTML = "Cargando...";
+
+    fetch("/dashboard/etiquetas-disponibles", { credentials: "include" })
+      .then(r => r.json())
+      .then(data => {
+        chipsWrap.innerHTML = "";
+
+        if (!data || !data.ok) {
+          chipsWrap.innerHTML = `<span class="text-xs text-red-600">No se pudieron cargar etiquetas</span>`;
+          return;
+        }
+
+        const all = [...(data.diseno || []), ...(data.produccion || [])];
+
+        if (!all.length) {
+          chipsWrap.innerHTML = `<span class="text-xs text-slate-500">No hay etiquetas disponibles</span>`;
+          return;
+        }
+
+        all.forEach(tag => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+
+          const refresh = () => {
+            const active = detTagsSelected.includes(tag);
+            btn.className = active
+              ? "px-3 py-1 rounded-full text-xs font-semibold bg-slate-900 text-white border"
+              : "px-3 py-1 rounded-full text-xs font-semibold bg-white border";
+          };
+
+          btn.textContent = tag;
+          refresh();
+
+          btn.addEventListener("click", () => {
+            if (detTagsSelected.includes(tag)) {
+              detTagsSelected = detTagsSelected.filter(t => t !== tag);
+            } else {
+              detTagsSelected.push(tag);
+            }
+            refresh();
+          });
+
+          chipsWrap.appendChild(btn);
+        });
+      })
+      .catch(err => {
+        console.error(err);
+        chipsWrap.innerHTML = `<span class="text-xs text-red-600">Error cargando etiquetas</span>`;
+      });
+  }
+
+  function cancelarTagsDetalle() {
+    const view = document.getElementById("det-tags-view");
+    const editor = document.getElementById("det-tags-editor");
+    if (view) view.classList.remove("hidden");
+    if (editor) editor.classList.add("hidden");
+  }
+
+  function guardarTagsDetalle(orderId) {
+    const msg = document.getElementById("det-tags-msg");
+    const view = document.getElementById("det-tags-view");
+    const editor = document.getElementById("det-tags-editor");
+
+    if (!msg || !view || !editor) return;
+
+    msg.textContent = "Guardando...";
+    msg.className = "text-xs mt-2 text-slate-500";
+
+    const tagsString = detTagsSelected.join(", ");
+
+    fetch("/api/estado_etiquetas/guardar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        id: orderId,
+        tags: tagsString,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (!data || !data.success) {
+          msg.textContent = (data && data.message) ? data.message : "Error guardando etiquetas";
+          msg.className = "text-xs mt-2 text-red-600";
+          return;
+        }
+
+        // Render chips en vista
+        view.innerHTML = "";
+
+        if (!detTagsSelected.length) {
+          view.innerHTML = `<span class="text-xs text-slate-400">—</span>`;
+          view.setAttribute("data-tags", "");
+        } else {
+          detTagsSelected.forEach(t => {
+            view.innerHTML += `
+              <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+                ${escapeHtml(t)}
+              </span>
+            `;
+          });
+          view.setAttribute("data-tags", detTagsSelected.join(", "));
+        }
+
+        view.classList.remove("hidden");
+        editor.classList.add("hidden");
+
+        msg.textContent = "Guardado ✓";
+        msg.className = "text-xs mt-2 text-green-600";
+
+        // (Opcional) sincroniza tabla si existe una celda
+        const rowCell = document.querySelector(`tr[data-order-id="${orderId}"] .col-tags`);
+        if (rowCell) rowCell.textContent = tagsString || "-";
+      })
+      .catch(err => {
+        console.error(err);
+        msg.textContent = "Error guardando etiquetas";
+        msg.className = "text-xs mt-2 text-red-600";
+      });
+  }
+
+  // ✅ EXPONER A GLOBAL (para onclick=)
+  window.editarTagsDetalle = editarTagsDetalle;
+  window.cancelarTagsDetalle = cancelarTagsDetalle;
+  window.guardarTagsDetalle = guardarTagsDetalle;
+})();
