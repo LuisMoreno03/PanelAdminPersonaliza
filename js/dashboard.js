@@ -2315,33 +2315,33 @@ window.guardarEtiquetasModal = async function () {
     }
     return;
   }
-  // 1) Actualiza vista DETALLES (si aplica)
-  if (window.__ETQ_DETALLE_ORDER_ID) {
-  // refresca el detalle para que se vean las etiquetas nuevas
-  if (typeof verDetalles === "function") {
-    verDetalles(window.__ETQ_DETALLE_ORDER_ID);
-  }
-}
-window.__ETQ_DETALLE_ORDER_ID = null;
-
-
-  // 2) Opcional (recomendado): también refrescar el pedido entero
-  // para que todo quede 100% sincronizado:
-  if (typeof verDetalles === 'function' && __etq_detalle_order_id) {
-    verDetalles(__etq_detalle_order_id);
-  }
 
   const etiquetas = Array.from(_etqSelected).join(", ");
 
   try {
     if (btn) btn.disabled = true;
 
+    // ✅ 1) Guardar en Shopify (y en cache del dashboard)
     await guardarEtiquetas(_etqOrderId, etiquetas);
 
+    // ✅ 2) Si el modal se abrió desde DETALLES, pinta inmediatamente ahí
+    if (window.__ETQ_DETALLE_ORDER_ID) {
+      pintarTagsDetalle(etiquetas);
+
+      // también actualiza el dataset del botón si existe (para reabrir con lo nuevo)
+      const btnDet = document.querySelector('[onclick*="abrirEtiquetasDesdeDetalle"], [data-order-id]');
+      // (si quieres lo hacemos más exacto con un id fijo del botón)
+      if (btnDet && btnDet.dataset) {
+        btnDet.dataset.orderTags = etiquetas;
+      }
+    }
+
+    // ✅ 3) Cerrar modal
     window.cerrarModalEtiquetas();
 
-    // refrescar pedidos (sin romper live)
+    // ✅ 4) refrescar tabla dashboard (sin romper live)
     if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
+
   } catch (e) {
     console.error(e);
     if (err) {
@@ -2350,8 +2350,11 @@ window.__ETQ_DETALLE_ORDER_ID = null;
     }
   } finally {
     if (btn) btn.disabled = false;
+    // limpia al final (no antes)
+    window.__ETQ_DETALLE_ORDER_ID = null;
   }
 };
+
 
 window.abrirModalEtiquetasDesdeDetalles = function (orderId, tagsActuales) {
   window.__ETQ_DETALLE_ORDER_ID = Number(orderId) || null;
