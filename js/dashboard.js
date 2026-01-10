@@ -1091,9 +1091,35 @@ window.verDetalles = async function (orderId) {
     const envio = o.total_shipping_price_set?.shop_money?.amount ?? o.total_shipping_price_set?.presentment_money?.amount ?? "0";
     const impuestos = o.total_tax ?? "0";
     
+    // ✅ Fuente de tags para pintar en detalles (si el endpoint viene vacío, usa cache)
     const tagsActuales = String(
-      o.tags ?? o.etiquetas ?? ordersById?.get(String(o.id))?.etiquetas ?? ""
+      o.tags ??
+      o.etiquetas ??
+      (ordersById?.get(String(o.id))?.etiquetas) ??
+      (ordersById?.get(String(id))?.etiquetas) ??
+      ""
     ).trim();
+
+    // ✅ helper global para repintar el bloque de etiquetas SIN recargar detalles
+    window.__pintarTagsEnDetalle = function(tagsStr) {
+      const wrap = document.getElementById("det-tags-view");
+      if (!wrap) return;
+
+      const clean = String(tagsStr || "").trim();
+
+      wrap.innerHTML = clean
+        ? clean.split(",").map(t => `
+            <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+              ${escapeHtml(t.trim())}
+            </span>
+          `).join("")
+        : `<span class="text-xs text-slate-400">—</span>`;
+
+      // también actualiza dataset del botón si existe
+      const btn = document.getElementById("btnEtiquetasDetalle");
+      if (btn) btn.dataset.orderTags = clean;
+    };
+
 
     setHtml(
       "detTotales",
