@@ -39,6 +39,13 @@ let _etqSelected = new Set();
 // Etiquetas dinámicas desde BD (modal completo)
 let ETQ_PRODUCCION = [];
 let ETQ_DISENO = [];
+function escapeAttr(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 /* =====================================================
   CONFIG / HELPERS DE RUTAS
