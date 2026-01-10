@@ -1539,6 +1539,7 @@ window.verDetalles = async function (orderId) {
 };
 
 
+
 // ===============================
 // SUBIR IMAGEN MODIFICADA + AUTO ESTADO (FIX)
 // ===============================
