@@ -109,32 +109,30 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 // ====================================================
 $routes->group('placas', ['filter' => 'auth'], static function ($routes) {
 
-$routes->get('/', 'PlacasController::index');
-$routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
+  $routes->get('/', 'PlacasController::index');
+  $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
 
-// ====================================================
-// SUBIDA POR LOTE - CONTADOR DIARIO DE SUBIDOS
-// ====================================================
-$routes->post('subir-lote', 'PlacasArchivosController::subirLote');
-$routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
+  $routes->group('archivos', static function ($routes) {
+      $routes->get('listar', 'PlacasArchivosController::listar');
+      $routes->get('stats',  'PlacasArchivosController::stats');
 
-$routes->group('archivos', static function ($routes) {
-        $routes->get('listar', 'PlacasArchivosController::listar');
-        $routes->get('stats',  'PlacasArchivosController::stats');
+      // ✅ NUEVAS (aquí)
+      $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
+      $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
 
-        $routes->post('subir', 'PlacasArchivosController::subir');
+      $routes->post('subir', 'PlacasArchivosController::subir');
+      $routes->post('renombrar', 'PlacasArchivosController::renombrar');
+      $routes->post('eliminar',  'PlacasArchivosController::eliminar');
 
-        $routes->post('renombrar', 'PlacasArchivosController::renombrar');
-        $routes->post('eliminar',  'PlacasArchivosController::eliminar');
+      $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
+      $routes->post('lote/eliminar',  'PlacasArchivosController::eliminarLote');
 
-        $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
-        $routes->post('lote/eliminar',  'PlacasArchivosController::eliminarLote');
+      $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
+  });
 
         // ✅ NUEVA: descargar desde el controller correcto
         $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
     });
-
-});
 
 
 // ----------------------------------------------------

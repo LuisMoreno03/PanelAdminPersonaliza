@@ -102,7 +102,9 @@
 
     <div id="msg" class="muted mt-2"></div>
 
-    <div id="grid" class="grid"></div>
+    <div id="contenedorDias" class="space-y-6"></div>
+<div id="grid" class="grid hidden"></div>
+
   </div>
 </div>
 
@@ -206,13 +208,14 @@ function addCsrf(fd) {
 }
 
   const API = {
-  listar: <?= json_encode(site_url('placas/archivos/listar')) ?>,
+  listar: <?= json_encode(site_url('placas/archivos/listar-por-dia')) ?>,
   stats:  <?= json_encode(site_url('placas/archivos/stats')) ?>,
-  subir:  <?= json_encode(site_url('placas/archivos/subir')) ?>,
+  subir:  <?= json_encode(site_url('placas/archivos/subir-lote')) ?>,
   renombrar: <?= json_encode(site_url('placas/archivos/renombrar')) ?>,
   eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
   descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
-  };
+};
+
 
 
   let modalItem = null;
@@ -405,11 +408,73 @@ async function cargarLista(){
     if (data.success && data.total != null) {
       q('placasHoy').textContent = data.total;
     }
+    await cargarVistaAgrupada();
   } catch(e){
-    q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
+    q('contenedorDias').innerHTML = '<div class="muted">Error cargando archivos</div>';
   }
 
 }
+
+
+async function cargarVistaAgrupada() {
+  const res = await fetch(baseUrl + "/placas/archivos/listar-por-dia");
+  const data = await res.json();
+
+  document.getElementById("placasHoy").textContent = data.placas_hoy;
+
+  const cont = document.getElementById("contenedorDias");
+  cont.innerHTML = "";
+
+  for (const dia of data.dias) {
+    const diaBox = document.createElement("div");
+    diaBox.className = "card mb-4";
+
+    diaBox.innerHTML = `
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-lg font-extrabold">${dia.fecha}</div>
+          <div class="text-sm text-gray-500">Total: ${dia.total_archivos}</div>
+        </div>
+      </div>
+      <div class="mt-3 space-y-3" id="dia_${dia.fecha.replaceAll('-','')}"></div>
+    `;
+
+    cont.appendChild(diaBox);
+
+    const lotesCont = diaBox.querySelector(`#dia_${dia.fecha.replaceAll('-','')}`);
+
+    for (const lote of dia.lotes) {
+      const loteBox = document.createElement("div");
+      loteBox.className = "border rounded-xl p-3 bg-gray-50";
+
+      loteBox.innerHTML = `
+        <div class="flex items-center justify-between">
+          <div class="font-bold">Lote #${lote.lote_id}</div>
+          <div class="text-xs text-gray-500">Por: ${lote.uploaded_by_name ?? '-'}</div>
+        </div>
+        <div class="text-xs text-gray-500">${lote.created_at ?? ''} · Archivos: ${lote.items.length}</div>
+
+        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          ${lote.items.map(it => `
+            <div class="bg-white border rounded-xl p-2">
+              ${it.url && it.mime?.startsWith("image/")
+                ? `<img src="${it.url}" class="w-full h-32 object-cover rounded-lg">`
+                : `<div class="h-32 flex items-center justify-center text-gray-400">Archivo</div>`
+              }
+              <div class="mt-2 text-sm font-semibold break-all">${escapeHtml(it.original || '')}</div>
+              <div class="text-xs text-gray-500">${Math.round((it.size||0)/1024)} KB</div>
+              <div class="text-xs text-gray-500">Subido por: ${it.uploaded_by_name ?? '-'}</div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+
+      lotesCont.appendChild(loteBox);
+    }
+  }
+}
+
+
 
 
 
@@ -701,6 +766,7 @@ let searchT = null;
 function applySearch(v) {
   searchTerm = v || '';
   if (searchClear) searchClear.classList.toggle('hidden', !searchTerm.trim());
+  cargarVistaAgrupada();
   if (allData) renderFromData(allData);
 }
 
