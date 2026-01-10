@@ -1105,50 +1105,31 @@ window.verDetalles = async function (orderId) {
      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
         <div class="flex items-center justify-between">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Tags</div>
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Etiquetas</div>
+
           <button
-            class="text-xs font-semibold text-blue-600 hover:underline"
-            onclick="editarTagsDetalle(${o.id})"
+            type="button"
+            class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
+            onclick="abrirEtiquetasDesdeDetalle(${o.id}, ${JSON.stringify(o.name || ("#" + o.id))}, ${JSON.stringify(o.tags || "")})"
           >
-            Editar
+            ETIQUETAS <span class="ml-1 font-black">+</span>
           </button>
         </div>
 
-        <!-- Tags actuales -->
-        <div id="det-tags-view" data-tags="${escapeHtml(o.tags || "")}" class="mt-2 flex flex-wrap gap-2">
+        <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2">
           ${
             o.tags
-              ? o.tags.split(',').map(t =>
-                  `<span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+              ? o.tags.split(',').map(t => `
+                  <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
                     ${escapeHtml(t.trim())}
-                  </span>`
-                ).join('')
+                  </span>
+                `).join('')
               : '<span class="text-xs text-slate-400">—</span>'
           }
         </div>
-
-        <!-- Editor (oculto) -->
-        <div id="det-tags-editor" class="hidden mt-3">
-          <div id="det-tags-chips" class="flex flex-wrap gap-2"></div>
-
-          <div class="flex gap-2 mt-3">
-            <button
-              class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-900 text-white"
-              onclick="guardarTagsDetalle(${o.id})"
-            >
-              Guardar
-            </button>
-            <button
-              class="px-3 py-1 rounded-lg text-xs font-semibold border"
-              onclick="cancelarTagsDetalle()"
-            >
-              Cancelar
-            </button>
-          </div>
-
-          <div id="det-tags-msg" class="text-xs mt-2"></div>
-        </div>
       </div>
+
+
 
       <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
         <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
@@ -1167,6 +1148,46 @@ window.verDetalles = async function (orderId) {
       `
     );
     
+
+    // ✅ Detalles -> abre el MISMO modal del dashboard
+    window.abrirEtiquetasDesdeDetalle = function(orderId, pedidoLabel, tagsStr) {
+      // 1) Actualiza label del modal si tu dashboard lo hace así
+      const lbl = document.getElementById("etqPedidoLabel");
+      if (lbl) lbl.textContent = pedidoLabel || ("#" + orderId);
+
+      // 2) Guarda en variables globales que tu modal ya use
+      //    (ajusta estos nombres a los que tú ya tengas en tu dashboard.js)
+      window._etqOrderId = String(orderId);
+      window._etqInitialTags = String(tagsStr || "");
+
+      // 3) Llama a TU función real de abrir modal (la del dashboard)
+      //    Si ya tienes abrirModalEtiquetas(orderId, tags) úsala.
+      if (typeof window.abrirModalEtiquetas === "function") {
+        // intenta con firma (id, tags)
+        try {
+          window.abrirModalEtiquetas(String(orderId), String(tagsStr || ""));
+          return;
+        } catch (e) {}
+      }
+
+      // 4) Si tu modal se abre solo quitando hidden:
+    const modal = document.getElementById("modalEtiquetas");
+      if (modal) modal.classList.remove("hidden");
+    };
+        // ✅ al final de guardarEtiquetasModal(), cuando ya guardó OK:
+    const det = document.getElementById("det-tags-view");
+    if (det) {
+      const tagsStr = (window._etqSelectedTagsStr || ""); // <-- pon aquí la variable REAL que tú ya usas
+      det.innerHTML = tagsStr
+        ? tagsStr.split(",").map(t => `
+            <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+              ${escapeHtml(t.trim())}
+            </span>
+          `).join("")
+        : `<span class="text-xs text-slate-400">—</span>`;
+    }
+
+
     let detTagsSelected = [];
     let detTagsOriginal = [];
 
