@@ -2299,6 +2299,8 @@ window.guardarEtiquetasDesdeModal = function () {
   guardarEtiquetas(id, tags);
   window.cerrarModalEtiquetas();
 };
+// ✅ OrderId actual cuando el modal se abre desde Detalles
+window.__ETQ_DETALLE_ORDER_ID = null;
 
 window.guardarEtiquetasModal = async function () {
   const err = document.getElementById("etqError");
@@ -2314,9 +2316,14 @@ window.guardarEtiquetasModal = async function () {
     return;
   }
   // 1) Actualiza vista DETALLES (si aplica)
-  if (__etq_detalle_order_id) {
-    pintarTagsDetalle(tagsFinal); // <- usa la variable real que envías a Shopify
+  if (window.__ETQ_DETALLE_ORDER_ID) {
+  // refresca el detalle para que se vean las etiquetas nuevas
+  if (typeof verDetalles === "function") {
+    verDetalles(window.__ETQ_DETALLE_ORDER_ID);
   }
+}
+window.__ETQ_DETALLE_ORDER_ID = null;
+
 
   // 2) Opcional (recomendado): también refrescar el pedido entero
   // para que todo quede 100% sincronizado:
@@ -2346,6 +2353,13 @@ window.guardarEtiquetasModal = async function () {
   }
 };
 
+window.abrirModalEtiquetasDesdeDetalles = function (orderId, tagsActuales) {
+  window.__ETQ_DETALLE_ORDER_ID = Number(orderId) || null;
+
+  // Llama a tu función existente del modal (la que ya usas en Dashboard)
+  // Si se llama distinto en tu código, cambia SOLO esta línea:
+  abrirModalEtiquetas(orderId, tagsActuales);
+};
 
 function pintarTagsDetalle(tagsStr) {
   const wrap = document.getElementById('det-tags-view');
