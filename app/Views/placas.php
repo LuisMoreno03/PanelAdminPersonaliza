@@ -387,6 +387,63 @@ if (Array.isArray(flat)) {
 
 q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
 
+async function cargarVistaAgrupada() {
+  const res = await fetch(baseUrl + "/placas/archivos/listar-por-dia");
+  const data = await res.json();
+
+  document.getElementById("placasHoy").textContent = data.placas_hoy;
+
+  const cont = document.getElementById("contenedorDias");
+  cont.innerHTML = "";
+
+  for (const dia of data.dias) {
+    const diaBox = document.createElement("div");
+    diaBox.className = "card mb-4";
+
+    diaBox.innerHTML = `
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-lg font-extrabold">${dia.fecha}</div>
+          <div class="text-sm text-gray-500">Total: ${dia.total_archivos}</div>
+        </div>
+      </div>
+      <div class="mt-3 space-y-3" id="dia_${dia.fecha.replaceAll('-','')}"></div>
+    `;
+
+    cont.appendChild(diaBox);
+
+    const lotesCont = diaBox.querySelector(`#dia_${dia.fecha.replaceAll('-','')}`);
+
+    for (const lote of dia.lotes) {
+      const loteBox = document.createElement("div");
+      loteBox.className = "border rounded-xl p-3 bg-gray-50";
+
+      loteBox.innerHTML = `
+        <div class="flex items-center justify-between">
+          <div class="font-bold">Lote #${lote.lote_id}</div>
+          <div class="text-xs text-gray-500">Por: ${lote.uploaded_by_name ?? '-'}</div>
+        </div>
+        <div class="text-xs text-gray-500">${lote.created_at ?? ''} · Archivos: ${lote.items.length}</div>
+
+        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          ${lote.items.map(it => `
+            <div class="bg-white border rounded-xl p-2">
+              ${it.url && it.mime?.startsWith("image/")
+                ? `<img src="${it.url}" class="w-full h-32 object-cover rounded-lg">`
+                : `<div class="h-32 flex items-center justify-center text-gray-400">Archivo</div>`
+              }
+              <div class="mt-2 text-sm font-semibold break-all">${it.original_name}</div>
+              <div class="text-xs text-gray-500">${it.size_kb} KB</div>
+              <div class="text-xs text-gray-500">Subido por: ${it.uploaded_by_name ?? '-'}</div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+
+      lotesCont.appendChild(loteBox);
+    }
+  }
+}
 
 }
 
