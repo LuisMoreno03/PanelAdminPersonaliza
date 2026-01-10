@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use CodeIgniter\Controller;
+use CodeIgniter\HTTP\ResponseInterface;
 use App\Models\PedidoImagenModel;
 
 class DashboardController extends Controller
@@ -11,7 +12,7 @@ class DashboardController extends Controller
     private string $token = '';
     private string $apiVersion = '2025-10';
 
-    // ✅ Estados nuevos permitidos
+    // ✅ Estados permitidos (los nuevos del modal)
     private array $allowedEstados = [
         'Por preparar',
         'A medias',
@@ -22,12 +23,15 @@ class DashboardController extends Controller
 
     public function __construct()
     {
+        // 1) Config/Shopify.php
         $this->loadShopifyFromConfig();
 
+        // 2) archivo fuera del repo
         if (!$this->shop || !$this->token) {
             $this->loadShopifySecretsFromFile();
         }
 
+        // 3) env() (fallback)
         if (!$this->shop || !$this->token) {
             $this->loadShopifyFromEnv();
         }
@@ -43,7 +47,7 @@ class DashboardController extends Controller
     }
 
     // =====================================================
-    // CONFIG LOADERS (igual que Dashboard.php)
+    // CONFIG LOADERS
     // =====================================================
 
     private function loadShopifyFromConfig(): void
@@ -100,7 +104,6 @@ class DashboardController extends Controller
     {
         try {
             $dbName = $db->getDatabase();
-
             $row = $db->query(
                 "SELECT 1
                  FROM INFORMATION_SCHEMA.COLUMNS
@@ -110,7 +113,6 @@ class DashboardController extends Controller
                  LIMIT 1",
                 [$dbName, $table, $column]
             )->getRowArray();
-
             return !empty($row);
         } catch (\Throwable $e) {
             return false;
@@ -130,7 +132,6 @@ class DashboardController extends Controller
         if (preg_match('/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="previous"/', $linkHeader, $m2)) {
             $prev = urldecode($m2[1]);
         }
-
         return [$next, $prev];
     }
 
@@ -187,6 +188,7 @@ class DashboardController extends Controller
     // ============================================================
     // ✅ NORMALIZAR ESTADOS (viejos -> nuevos)
     // ============================================================
+
     private function normalizeEstado(?string $estado): string
     {
         $s = trim((string)($estado ?? ''));
@@ -202,8 +204,7 @@ class DashboardController extends Controller
             'amedias'      => 'A medias',
 
             'produccion'   => 'Produccion',
-            'produccion'   => 'Produccion',
-            'produccion '  => 'Produccion',
+            'producción'   => 'Produccion',
 
             'fabricando'   => 'Fabricando',
             'preparado'    => 'Fabricando',
@@ -211,14 +212,12 @@ class DashboardController extends Controller
             'enviado'      => 'Enviado',
             'entregado'    => 'Enviado',
 
-            // antiguos que ya no existen -> default
             'cancelado'    => 'Por preparar',
             'devuelto'     => 'Por preparar',
         ];
 
         if (isset($map[$lower])) return $map[$lower];
 
-        // si ya viene alguno válido con otra capitalización
         foreach ($this->allowedEstados as $ok) {
             if (mb_strtolower($ok) === $lower) return $ok;
         }
@@ -227,161 +226,499 @@ class DashboardController extends Controller
     }
 
     // ============================================================
-    // ETIQUETAS SEGÚN ROL Y USUARIO (tu lógica, sin romper)
+    // ETIQUETAS/TAGS POR USUARIO
     // ============================================================
+
     private function getEtiquetasUsuario(): array
     {
-        $db = \Config\Database::connect();
-        $session = session();
+        // Defaults reales de ETIQUETAS/TAGS (NO estados)
+        $defaults = [
+            'D.Diseño',
+            'P.Produccion',
+            'Cancelar pedido',
+            'Reembolso completo',
+            'No contesta 24h',
+        ];
 
-        $userId = $session->get('user_id');
-        if (!$userId) return ["General"];
+        $userId = session()->get('user_id');
+        if (!$userId) return $defaults;
 
-        $usuario = $db->table('users')->where('id', $userId)->get()->getRow();
-        if (!$usuario) return ["General"];
+        try {
+            $db = \Config\Database::connect();
 
-        $nombre = ucfirst((string) $usuario->nombre);
-        $rol = strtolower((string) $usuario->role);
+            $tableExists = $db->query(
+                "SELECT 1
+                 FROM information_schema.tables
+                 WHERE table_schema = ?
+                   AND table_name = ?
+                 LIMIT 1",
+                [$db->getDatabase(), 'usuarios_etiquetas']
+            )->getRowArray();
 
-        if ($rol === "confirmacion") return ["D.$nombre"];
-        if ($rol === "produccion") return ["D.$nombre", "P.$nombre"];
+            if (empty($tableExists)) return $defaults;
 
-        if ($rol === "admin") {
-            $usuarios = $db->table('users')->get()->getResult();
+            $rows = $db->table('usuarios_etiquetas')
+                ->select('etiqueta')
+                ->where('user_id', $userId)
+                ->orderBy('id', 'ASC')
+                ->get()
+                ->getResultArray();
+
             $etiquetas = [];
-
-            foreach ($usuarios as $u) {
-                $nombreU = ucfirst((string) $u->nombre);
-                $rolU = strtolower((string) $u->role);
-
-                if ($rolU === "confirmacion") {
-                    $etiquetas[] = "D.$nombreU";
-                } elseif ($rolU === "produccion") {
-                    $etiquetas[] = "D.$nombreU";
-                    $etiquetas[] = "P.$nombreU";
-                }
+            foreach ($rows as $r) {
+                $val = trim((string)($r['etiqueta'] ?? ''));
+                if ($val !== '') $etiquetas[] = $val;
             }
 
-            return array_values(array_unique($etiquetas));
-        }
+            return !empty($etiquetas) ? $etiquetas : $defaults;
 
-        return ["General"];
+        } catch (\Throwable $e) {
+            log_message('error', 'getEtiquetasUsuario ERROR: ' . $e->getMessage());
+            return $defaults;
+        }
     }
 
     // ============================================================
     // VISTA PRINCIPAL
     // ============================================================
+
     public function index()
     {
+        if (!session()->get('logged_in')) {
+            return redirect()->to('/');
+        }
+
         return view('dashboard', [
-            "etiquetasPredeterminadas" => $this->getEtiquetasUsuario(),
+            'etiquetasPredeterminadas' => $this->getEtiquetasUsuario(),
         ]);
+    }
+
+    // ============================================================
+    // PEDIDOS (paginados)
+    // ============================================================
+
+    public function pedidos()
+    {
+        return $this->pedidosPaginados();
+    }
+
+    public function filter()
+    {
+        return $this->pedidosPaginados();
+    }
+
+    private function pedidosPaginados(): ResponseInterface
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
+        }
+
+        try {
+            $pageInfo = (string) ($this->request->getGet('page_info') ?? '');
+            $limit    = 50;
+
+            $page = (int) ($this->request->getGet('page') ?? 1);
+            if ($page < 1) $page = 1;
+
+            $debug = (string) ($this->request->getGet('debug') ?? '');
+            $debugEnabled = ($debug === '1' || $debug === 'true');
+
+            if (!$this->shop || !$this->token) {
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Faltan credenciales Shopify',
+                    'orders'  => [],
+                    'count'   => 0,
+                ])->setStatusCode(200);
+            }
+
+            // -----------------------------------------------------
+            // 1) COUNT total pedidos (cache 5 min)
+            // -----------------------------------------------------
+            $cacheKey = 'shopify_orders_count_any';
+            $totalOrders = cache($cacheKey);
+
+            if ($totalOrders === null) {
+                $countUrl = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/count.json?status=any";
+                $countResp = $this->curlShopify($countUrl, 'GET');
+
+                $countStatus = $countResp['status'];
+                $countRaw = $countResp['body'];
+                $countJson = json_decode($countRaw, true) ?: [];
+
+                if ($countStatus >= 200 && $countStatus < 300) {
+                    $totalOrders = (int) ($countJson['count'] ?? 0);
+                    cache()->save($cacheKey, $totalOrders, 300);
+                } else {
+                    $totalOrders = 0;
+                    log_message('error', 'SHOPIFY COUNT HTTP ' . $countStatus . ': ' . substr($countRaw ?? '', 0, 500));
+                }
+            }
+
+            $totalPages = $totalOrders > 0 ? (int) ceil($totalOrders / $limit) : null;
+
+            // -----------------------------------------------------
+            // 2) ORDERS (50 en 50) con page_info
+            // -----------------------------------------------------
+            if ($pageInfo !== '') {
+                $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
+            } else {
+                $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&status=any&order=created_at%20desc";
+            }
+
+            $resp = $this->curlShopify($url, 'GET');
+            $status = $resp['status'];
+            $raw    = $resp['body'];
+            $json   = json_decode($raw, true) ?: [];
+
+            if ($status === 0 || !empty($resp['error'])) {
+                log_message('error', 'SHOPIFY CURL ERROR: ' . ($resp['error'] ?? 'unknown'));
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Error conectando con Shopify (cURL)',
+                    'orders'  => [],
+                    'count'   => 0,
+                    'status'  => $status,
+                    'curl_error' => $resp['error'],
+                    'shopify_body' => $debugEnabled ? $raw : null,
+                ])->setStatusCode(200);
+            }
+
+            if ($status >= 400) {
+                log_message('error', 'SHOPIFY ORDERS HTTP ' . $status . ': ' . substr($raw ?? '', 0, 500));
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Error consultando Shopify',
+                    'orders'  => [],
+                    'count'   => 0,
+                    'status'  => $status,
+                    'shopify_body' => $debugEnabled ? $raw : null,
+                ])->setStatusCode(200);
+            }
+
+            if (!empty($json['errors'])) {
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Shopify devolvió errors',
+                    'orders'  => [],
+                    'count'   => 0,
+                    'status'  => $status,
+                    'shopify_errors' => $json['errors'],
+                    'shopify_body' => $debugEnabled ? $raw : null,
+                ])->setStatusCode(200);
+            }
+
+            $ordersRaw = $json['orders'] ?? [];
+
+            // Link header para page_info
+            $linkHeader = $resp['headers']['link'] ?? null;
+            if (is_array($linkHeader)) $linkHeader = end($linkHeader);
+            [$nextPageInfo, $prevPageInfo] = $this->parseLinkHeaderForPageInfo(is_string($linkHeader) ? $linkHeader : null);
+
+            // -----------------------------------------------------
+            // 3) Mapear formato dashboard
+            // -----------------------------------------------------
+            $orders = [];
+            foreach ($ordersRaw as $o) {
+                $orderId = $o['id'] ?? null;
+
+                $numero = $o['name'] ?? ('#' . ($o['order_number'] ?? $orderId));
+                $fecha  = isset($o['created_at']) ? substr((string)$o['created_at'], 0, 10) : '-';
+
+                $cliente = '-';
+                if (!empty($o['customer'])) {
+                    $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
+                    if ($cliente === '') $cliente = '-';
+                }
+
+                $total = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
+                $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
+
+                $estado_envio = $o['fulfillment_status'] ?? '-';
+                $forma_envio  = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
+
+                $orders[] = [
+                    'id'           => $orderId,
+                    'numero'       => $numero,
+                    'fecha'        => $fecha,
+                    'cliente'      => $cliente,
+                    'total'        => $total,
+                    'estado'       => 'Por preparar',
+                    'etiquetas'    => $o['tags'] ?? '',
+                    'articulos'    => $articulos,
+                    'estado_envio' => $estado_envio ?: '-',
+                    'forma_envio'  => $forma_envio ?: '-',
+                    'last_status_change' => null,
+                ];
+            }
+
+            // -----------------------------------------------------
+            // 4) Estado desde BD (OPTIMIZADO)
+            //    (respeta tabla pedidos_estado con id)
+            // -----------------------------------------------------
+            try {
+                $db = \Config\Database::connect();
+                $dbName = $db->getDatabase();
+
+                $tbl = $db->query(
+                    "SELECT 1 FROM information_schema.tables
+                     WHERE table_schema = ? AND table_name = ?
+                     LIMIT 1",
+                    [$dbName, 'pedidos_estado']
+                )->getRowArray();
+
+                if (!empty($tbl) && !empty($orders)) {
+
+                    $hasId          = $this->columnExists($db, 'pedidos_estado', 'id');
+                    $hasEstado      = $this->columnExists($db, 'pedidos_estado', 'estado');
+                    $hasUserName    = $this->columnExists($db, 'pedidos_estado', 'user_name');
+                    $hasUserId      = $this->columnExists($db, 'pedidos_estado', 'user_id');
+                    $hasCreatedAt   = $this->columnExists($db, 'pedidos_estado', 'created_at');
+                    $hasActualizado = $this->columnExists($db, 'pedidos_estado', 'actualizado');
+
+                    if ($hasId && $hasEstado) {
+                        $ids = [];
+                        foreach ($orders as $o) {
+                            if (!empty($o['id'])) $ids[] = (string)$o['id'];
+                        }
+                        $ids = array_values(array_unique($ids));
+
+                        if (!empty($ids)) {
+                            $select = ['id', 'estado'];
+                            if ($hasUserName)    $select[] = 'user_name';
+                            if ($hasUserId)      $select[] = 'user_id';
+                            if ($hasActualizado) $select[] = 'actualizado';
+                            if ($hasCreatedAt)   $select[] = 'created_at';
+
+                            $rows = $db->table('pedidos_estado')
+                                ->select(implode(',', $select))
+                                ->whereIn('id', $ids)
+                                ->get()
+                                ->getResultArray();
+
+                            $estadoById = [];
+                            $userIdsNeeded = [];
+
+                            foreach ($rows as $r) {
+                                $rid = (string)($r['id'] ?? '');
+                                if ($rid === '') continue;
+
+                                $estadoById[$rid] = $r;
+
+                                if (!$hasUserName && $hasUserId && !empty($r['user_id'])) {
+                                    $userIdsNeeded[] = (int)$r['user_id'];
+                                }
+                            }
+
+                            $usersById = [];
+                            if (!empty($userIdsNeeded)) {
+                                $userIdsNeeded = array_values(array_unique($userIdsNeeded));
+                                try {
+                                    $uRows = $db->table('users')
+                                        ->select('id, nombre')
+                                        ->whereIn('id', $userIdsNeeded)
+                                        ->get()
+                                        ->getResultArray();
+
+                                    foreach ($uRows as $u) {
+                                        $usersById[(int)$u['id']] = $u['nombre'] ?? null;
+                                    }
+                                } catch (\Throwable $e) {
+                                    // no rompe
+                                }
+                            }
+
+                            foreach ($orders as &$ord) {
+                                $oid = (string)($ord['id'] ?? '');
+                                if ($oid === '') continue;
+
+                                $row = $estadoById[$oid] ?? null;
+                                if (!$row) continue;
+
+                                $ord['estado'] = !empty($row['estado'])
+                                    ? $this->normalizeEstado((string)$row['estado'])
+                                    : 'Por preparar';
+
+                                $changedAt = null;
+                                if ($hasActualizado && !empty($row['actualizado'])) $changedAt = $row['actualizado'];
+                                elseif ($hasCreatedAt && !empty($row['created_at'])) $changedAt = $row['created_at'];
+
+                                $uName = null;
+                                if ($hasUserName && !empty($row['user_name'])) {
+                                    $uName = $row['user_name'];
+                                } elseif ($hasUserId && !empty($row['user_id'])) {
+                                    $uid = (int)$row['user_id'];
+                                    $uName = $usersById[$uid] ?? null;
+                                }
+
+                                $ord['last_status_change'] = [
+                                    'user_name'  => $uName ?: 'Sistema',
+                                    'changed_at' => $changedAt,
+                                ];
+                            }
+                            unset($ord);
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                log_message('error', 'Bloque pedidos_estado falló: ' . $e->getMessage());
+            }
+
+            // -----------------------------------------------------
+            // 5) Respuesta final + debug opcional
+            // -----------------------------------------------------
+            $payload = [
+                'success'        => true,
+                'orders'         => $orders,
+                'count'          => count($orders),
+                'limit'          => $limit,
+                'page'           => $page,
+                'total_orders'   => $totalOrders,
+                'total_pages'    => $totalPages,
+                'next_page_info' => $nextPageInfo,
+                'prev_page_info' => $prevPageInfo,
+            ];
+
+            if ($debugEnabled) {
+                $payload['shopify_debug'] = [
+                    'shop' => $this->shop,
+                    'api_version' => $this->apiVersion,
+                    'orders_url' => $url,
+                    'orders_status' => $status,
+                    'link' => $linkHeader,
+                    'orders_returned' => count($ordersRaw),
+                ];
+            }
+
+            return $this->response->setJSON($payload);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'DASHBOARD PEDIDOS ERROR: ' . $e->getMessage());
+
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error interno consultando pedidos',
+                'orders'  => [],
+                'count'   => 0,
+            ])->setStatusCode(200);
+        }
     }
 
     // ============================================================
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
     // ============================================================
-    // ✅ Aquí: procesa imágenes y define estado
- public function detalles($orderId)
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setStatusCode(401)->setJSON([
-            'success' => false,
-            'message' => 'No autenticado',
-        ]);
-    }
 
-    $orderId = (string)$orderId;
-    if ($orderId === '') {
-        return $this->response->setJSON([
-            'success' => false,
-            'message' => 'ID inválido',
-        ])->setStatusCode(422);
-    }
+    public function detalles($orderId)
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
+        }
 
-    try {
-        if (!$this->shop || !$this->token) {
+        $orderId = (string)$orderId;
+        if ($orderId === '') {
             return $this->response->setJSON([
                 'success' => false,
-                'message' => 'Faltan credenciales Shopify',
-            ])->setStatusCode(200);
+                'message' => 'ID inválido',
+            ])->setStatusCode(422);
         }
 
-        // 1) Pedido
-        $urlOrder = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/" . urlencode($orderId) . ".json";
-        $resp = $this->curlShopify($urlOrder, 'GET');
+        try {
+            if (!$this->shop || !$this->token) {
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Faltan credenciales Shopify',
+                ])->setStatusCode(200);
+            }
 
-        if ($resp['status'] >= 400 || $resp['status'] === 0) {
-            log_message('error', 'DETALLES ORDER HTTP '.$resp['status'].': '.$resp['body']);
+            // 1) Pedido
+            $urlOrder = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/" . urlencode($orderId) . ".json";
+            $resp = $this->curlShopify($urlOrder, 'GET');
+
+            if ($resp['status'] >= 400 || $resp['status'] === 0) {
+                log_message('error', 'DETALLES ORDER HTTP '.$resp['status'].': '.$resp['body']);
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Error consultando pedido en Shopify',
+                    'status'  => $resp['status'],
+                ])->setStatusCode(200);
+            }
+
+            $json = json_decode($resp['body'], true) ?: [];
+            $order = $json['order'] ?? null;
+
+            if (!$order) {
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Pedido no encontrado',
+                ])->setStatusCode(200);
+            }
+
+            // ✅ opcional: activar autoproceso de imágenes + estado
+            // $this->procesarImagenesYEstado($order);
+
+            // 2) product_images (por product_id)
+            $lineItems = $order['line_items'] ?? [];
+            $productIds = [];
+
+            foreach ($lineItems as $li) {
+                if (!empty($li['product_id'])) $productIds[(string)$li['product_id']] = true;
+            }
+            $productIds = array_keys($productIds);
+
+            $productImages = []; // product_id => url
+
+            foreach ($productIds as $pid) {
+                $urlProd = "https://{$this->shop}/admin/api/{$this->apiVersion}/products/{$pid}.json?fields=id,image,images";
+                $rP = $this->curlShopify($urlProd, 'GET');
+                if ($rP['status'] >= 400 || $rP['status'] === 0) continue;
+
+                $jP = json_decode($rP['body'], true) ?: [];
+                $p  = $jP['product'] ?? null;
+                if (!$p) continue;
+
+                $img = '';
+                if (!empty($p['image']['src'])) $img = $p['image']['src'];
+                elseif (!empty($p['images'][0]['src'])) $img = $p['images'][0]['src'];
+
+                if ($img) $productImages[(string)$pid] = $img;
+            }
+
+            // 3) imágenes locales desde BD
+            $modelImg = new PedidoImagenModel();
+            $imagenesLocales = $modelImg->getByOrder((int)$orderId);
+            if (!is_array($imagenesLocales)) $imagenesLocales = [];
+
+            return $this->response->setJSON([
+                'success'          => true,
+                'order'            => $order,
+                'product_images'   => $productImages,
+                'imagenes_locales' => $imagenesLocales,
+
+                // si activas procesarImagenesYEstado:
+                // 'auto_estado' => $order['auto_estado'] ?? null,
+                // 'auto_images_required' => $order['auto_images_required'] ?? 0,
+                // 'auto_images_ready' => $order['auto_images_ready'] ?? 0,
+            ]);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'DETALLES ERROR: '.$e->getMessage());
             return $this->response->setJSON([
                 'success' => false,
-                'message' => 'Error consultando pedido en Shopify',
-                'status'  => $resp['status'],
+                'message' => 'Error interno cargando detalles',
             ])->setStatusCode(200);
         }
-
-        $json = json_decode($resp['body'], true) ?: [];
-        $order = $json['order'] ?? null;
-
-        if (!$order) {
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => 'Pedido no encontrado',
-            ])->setStatusCode(200);
-        }
-
-        // 2) product_images (por product_id)
-        $lineItems = $order['line_items'] ?? [];
-        $productIds = [];
-
-        foreach ($lineItems as $li) {
-            if (!empty($li['product_id'])) $productIds[(string)$li['product_id']] = true;
-        }
-        $productIds = array_keys($productIds);
-
-        $productImages = []; // product_id => url
-
-        foreach ($productIds as $pid) {
-            $urlProd = "https://{$this->shop}/admin/api/{$this->apiVersion}/products/{$pid}.json?fields=id,image,images";
-            $rP = $this->curlShopify($urlProd, 'GET');
-            if ($rP['status'] >= 400 || $rP['status'] === 0) continue;
-
-            $jP = json_decode($rP['body'], true) ?: [];
-            $p  = $jP['product'] ?? null;
-            if (!$p) continue;
-
-            $img = '';
-            if (!empty($p['image']['src'])) $img = $p['image']['src'];
-            elseif (!empty($p['images'][0]['src'])) $img = $p['images'][0]['src'];
-
-            if ($img) $productImages[(string)$pid] = $img;
-        }
-
-        // 3) imágenes locales desde BD (PedidoImagenModel)
-        $modelImg = new PedidoImagenModel();
-        // Espero que getByOrder te devuelva un array indexado por line_index => url
-        $imagenesLocales = $modelImg->getByOrder((int)$orderId);
-        if (!is_array($imagenesLocales)) $imagenesLocales = [];
-
-        return $this->response->setJSON([
-            'success'         => true,
-            'order'           => $order,
-            'product_images'  => $productImages,
-            'imagenes_locales'=> $imagenesLocales,
-        ]);
-
-    } catch (\Throwable $e) {
-        log_message('error', 'DETALLES ERROR: '.$e->getMessage());
-        return $this->response->setJSON([
-            'success' => false,
-            'message' => 'Error interno cargando detalles',
-        ])->setStatusCode(200);
     }
-}
 
     // ============================================================
-    // ✅ BADGE DEL ESTADO (colores nuevos)
+    // BADGE ESTADO
     // ============================================================
+
     private function badgeEstado(string $estado): string
     {
         $estado = $this->normalizeEstado($estado);
@@ -401,189 +738,148 @@ class DashboardController extends Controller
     }
 
     // ============================================================
-    // PING / USUARIOS ESTADO (no romper si falta last_seen)
+    // PING / USUARIOS ESTADO
     // ============================================================
+
     public function ping()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setJSON(['success' => false])->setStatusCode(401);
-        }
+        try {
+            $userId = session('user_id');
+            if (!$userId) {
+                return $this->response->setJSON(['success' => false])->setStatusCode(200);
+            }
 
-        $userId = session()->get('user_id');
-        if (!$userId) {
-            return $this->response->setJSON(['success' => false])->setStatusCode(401);
-        }
+            $db = \Config\Database::connect();
+            if ($this->columnExists($db, 'users', 'last_seen')) {
+                $db->table('users')->where('id', $userId)->update([
+                    'last_seen' => date('Y-m-d H:i:s'),
+                ]);
+            }
 
-        $db = \Config\Database::connect();
-        if ($this->columnExists($db, 'users', 'last_seen')) {
-            $db->table('users')->where('id', $userId)->update([
-                'last_seen' => date('Y-m-d H:i:s'),
-            ]);
-        }
+            return $this->response->setJSON(['success' => true])->setStatusCode(200);
 
-        return $this->response->setJSON(['success' => true]);
+        } catch (\Throwable $e) {
+            log_message('error', 'PING ERROR: ' . $e->getMessage());
+            return $this->response->setJSON(['success' => false])->setStatusCode(200);
+        }
     }
 
     public function usuariosEstado()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setJSON(['success' => false])->setStatusCode(401);
-        }
+        try {
+            if (!session()->get('logged_in')) {
+                return $this->response->setJSON(['success' => false])->setStatusCode(401);
+            }
 
-        $db = \Config\Database::connect();
+            $db = \Config\Database::connect();
 
-        if (!$this->columnExists($db, 'users', 'last_seen')) {
+            if (!$this->columnExists($db, 'users', 'last_seen')) {
+                return $this->response->setJSON([
+                    'success' => true,
+                    'online_count' => 0,
+                    'offline_count' => 0,
+                    'users' => [],
+                ])->setStatusCode(200);
+            }
+
+            $usuarios = $db->table('users')
+                ->select('id, nombre, role, last_seen')
+                ->orderBy('nombre', 'ASC')
+                ->get()
+                ->getResultArray();
+
+            $now = time();
+            $onlineThreshold = 120;
+
+            foreach ($usuarios as &$u) {
+                $ts = $u['last_seen'] ? strtotime($u['last_seen']) : 0;
+                $u['seconds_since_seen'] = ($ts > 0) ? ($now - $ts) : null;
+                $u['online'] = ($ts > 0 && ($now - $ts) <= $onlineThreshold);
+            }
+            unset($u);
+
+            $onlineCount = 0;
+            $offlineCount = 0;
+            foreach ($usuarios as $u) {
+                if (!empty($u['online'])) $onlineCount++;
+                else $offlineCount++;
+            }
+
             return $this->response->setJSON([
                 'success' => true,
+                'online_count' => $onlineCount,
+                'offline_count' => $offlineCount,
+                'users' => $usuarios,
+            ])->setStatusCode(200);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'USUARIOS_ESTADO ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'success' => false,
                 'online_count' => 0,
                 'offline_count' => 0,
                 'users' => [],
-            ]);
-        }
-
-        $usuarios = $db->table('users')
-            ->select('id, nombre, role, last_seen')
-            ->orderBy('nombre', 'ASC')
-            ->get()
-            ->getResultArray();
-
-        $now = time();
-        $onlineThreshold = 120;
-
-        foreach ($usuarios as &$u) {
-            $ts = $u['last_seen'] ? strtotime($u['last_seen']) : 0;
-            $u['seconds_since_seen'] = ($ts > 0) ? ($now - $ts) : null;
-            $u['online'] = ($ts > 0 && ($now - $ts) <= $onlineThreshold);
-        }
-        unset($u);
-
-        $onlineCount = 0;
-        $offlineCount = 0;
-        foreach ($usuarios as $u) {
-            if (!empty($u['online'])) $onlineCount++;
-            else $offlineCount++;
-        }
-
-        return $this->response->setJSON([
-            'success' => true,
-            'online_count' => $onlineCount,
-            'offline_count' => $offlineCount,
-            'users' => $usuarios,
-        ]);
-    }
-
-    // ============================================================
-    // ESTADO INTERNO (arreglado: id vs order_id/pedido_id)
-    // ============================================================
-    private function obtenerEstadoInterno($orderId): string
-    {
-        try {
-            $db = \Config\Database::connect();
-
-            $dbName = $db->getDatabase();
-            $tbl = $db->query(
-                "SELECT 1 FROM information_schema.tables
-                 WHERE table_schema = ? AND table_name = ?
-                 LIMIT 1",
-                [$dbName, 'pedidos_estado']
-            )->getRowArray();
-
-            if (empty($tbl)) return "Por preparar";
-
-            $hasOrderId  = $this->columnExists($db, 'pedidos_estado', 'order_id');
-            $hasPedidoId = $this->columnExists($db, 'pedidos_estado', 'pedido_id');
-            $hasEstado   = $this->columnExists($db, 'pedidos_estado', 'estado');
-
-            if (!$hasEstado) return "Por preparar";
-
-            $q = $db->table('pedidos_estado')->select('estado');
-
-            if ($hasOrderId)      $q->where('order_id', $orderId);
-            elseif ($hasPedidoId) $q->where('pedido_id', $orderId);
-            else                  $q->where('id', $orderId);
-
-            $row = $q->orderBy('id', 'DESC')->limit(1)->get()->getRowArray();
-
-            return $this->normalizeEstado($row['estado'] ?? "Por preparar");
-        } catch (\Throwable $e) {
-            return "Por preparar";
+            ])->setStatusCode(200);
         }
     }
 
     // ============================================================
-    // GUARDAR ESTADO (valida 5 estados nuevos)
+    // ETIQUETAS DISPONIBLES
     // ============================================================
-    public function guardarEstado()
+
+    public function etiquetasDisponibles()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setJSON(['success' => false, 'message' => 'No autenticado'])->setStatusCode(401);
+            return $this->response->setJSON([
+                'ok' => false,
+                'diseno' => [],
+                'produccion' => [],
+                'message' => 'No autenticado',
+            ])->setStatusCode(401);
         }
-
-        $json = $this->request->getJSON(true) ?? [];
-        $orderId = (string)($json["id"] ?? '');
-        $estado  = (string)($json["estado"] ?? '');
-
-        $orderId = trim($orderId);
-        $estado  = $this->normalizeEstado($estado);
-
-        if ($orderId === '') {
-            return $this->response->setJSON(['success' => false, 'message' => 'Falta id'])->setStatusCode(422);
-        }
-
-        // ✅ valida contra lista final
-        if (!in_array($estado, $this->allowedEstados, true)) {
-            return $this->response->setJSON(['success' => false, 'message' => 'Estado inválido'])->setStatusCode(422);
-        }
-
-        $db = \Config\Database::connect();
 
         try {
-            $dbName = $db->getDatabase();
-            $tbl = $db->query(
-                "SELECT 1 FROM information_schema.tables
-                 WHERE table_schema = ? AND table_name = ?
-                 LIMIT 1",
-                [$dbName, 'pedidos_estado']
-            )->getRowArray();
+            $userId = (int) (session('user_id') ?? 0);
+            $rol    = strtolower(trim((string) (session('role') ?? '')));
 
-            if (empty($tbl)) {
-                return $this->response->setJSON(['success' => false, 'message' => 'No existe tabla pedidos_estado'])->setStatusCode(500);
+            $db = \Config\Database::connect();
+            $builder = $db->table('user_tags')->select('tag');
+
+            if ($rol !== 'admin') {
+                $builder->where('user_id', $userId);
             }
 
-            $hasOrderId  = $this->columnExists($db, 'pedidos_estado', 'order_id');
-            $hasPedidoId = $this->columnExists($db, 'pedidos_estado', 'pedido_id');
+            $rows = $builder->orderBy('tag', 'ASC')->get()->getResultArray();
 
-            $hasEstado   = $this->columnExists($db, 'pedidos_estado', 'estado');
-            $hasUserId   = $this->columnExists($db, 'pedidos_estado', 'user_id');
-            $hasCreated  = $this->columnExists($db, 'pedidos_estado', 'created_at');
+            $diseno = [];
+            $produccion = [];
 
-            if ($hasEstado && ($hasOrderId || $hasPedidoId) && ($hasUserId || $hasCreated)) {
-                $insert = [];
+            foreach ($rows as $r) {
+                $t = (string) ($r['tag'] ?? '');
+                if ($t === '') continue;
 
-                if ($hasOrderId)  $insert['order_id'] = $orderId;
-                if ($hasPedidoId) $insert['pedido_id'] = $orderId;
-
-                $insert['estado'] = $estado;
-
-                if ($hasUserId)  $insert['user_id'] = (int)(session()->get('user_id') ?? 0);
-                if ($hasCreated) $insert['created_at'] = date('Y-m-d H:i:s');
-
-                $db->table('pedidos_estado')->insert($insert);
-            } else {
-                $db->table("pedidos_estado")->replace([
-                    "id" => $orderId,
-                    "estado" => $estado
-                ]);
+                if (stripos($t, 'D.') === 0) $diseno[] = $t;
+                if (stripos($t, 'P.') === 0) $produccion[] = $t;
             }
 
-            return $this->response->setJSON(["success" => true, "estado" => $estado]);
+            return $this->response->setJSON([
+                'ok' => true,
+                'diseno' => array_values(array_unique($diseno)),
+                'produccion' => array_values(array_unique($produccion)),
+            ])->setStatusCode(200);
+
         } catch (\Throwable $e) {
-            return $this->response->setJSON(["success" => false, "message" => $e->getMessage()])->setStatusCode(500);
+            log_message('error', 'ETIQUETAS DISPONIBLES ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'ok' => false,
+                'diseno' => [],
+                'produccion' => [],
+            ])->setStatusCode(200);
         }
     }
 
     // ============================================================
-    // GUARDAR ETIQUETAS (Shopify PUT) - lo dejo igual
+    // GUARDAR ETIQUETAS (Shopify PUT) - unificado
     // ============================================================
 
     public function guardarEtiquetas()
@@ -595,208 +891,119 @@ class DashboardController extends Controller
             ]);
         }
 
-        $payload = $this->request->getJSON(true) ?? [];
-        $orderId = (string)($payload['id'] ?? '');
-        $tagsRaw = (string)($payload['etiquetas'] ?? '');
+        $data = $this->request->getJSON(true);
+        if (!is_array($data)) $data = [];
+
+        $orderId = trim((string)($data['id'] ?? ''));
+        $tagsRaw = trim((string)($data['tags'] ?? ($data['etiquetas'] ?? '')));
 
         if ($orderId === '') {
-            return $this->response->setStatusCode(422)->setJSON([
-                'success' => false,
-                'message' => 'Falta id del pedido'
-            ]);
-        }
-
-        $tags = array_values(array_filter(array_map('trim', explode(',', $tagsRaw))));
-        $tags = array_slice($tags, 0, 6);
-
-        $shop  = trim((string) env('SHOPIFY_STORE_DOMAIN'));
-        $token = trim((string) env('SHOPIFY_ADMIN_TOKEN'));
-        $apiVersion = '2024-01';
-
-        if (!$shop || !$token) {
             return $this->response->setJSON([
                 'success' => false,
-                'message' => 'Falta SHOPIFY_STORE_DOMAIN o SHOPIFY_ADMIN_TOKEN'
+                'message' => 'ID inválido',
             ])->setStatusCode(200);
         }
 
-        $shop = preg_replace('#^https?://#', '', $shop);
-        $shop = preg_replace('#/.*$#', '', $shop);
-
-        $url = "https://{$shop}/admin/api/{$apiVersion}/orders/{$orderId}.json";
-
-        $client = \Config\Services::curlrequest([
-            'timeout' => 25,
-            'http_errors' => false,
-        ]);
-
-        $resp = $client->put($url, [
-            'headers' => [
-                'X-Shopify-Access-Token' => $token,
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-            ],
-            'body' => json_encode([
-                'order' => [
-                    'id' => (int)$orderId,
-                    'tags' => implode(', ', $tags),
-                ]
-            ]),
-        ]);
-
-        $status = $resp->getStatusCode();
-        $raw = (string)$resp->getBody();
-
-        if ($status >= 400) {
-            log_message('error', 'SHOPIFY update tags error '.$status.': '.$raw);
+        if (!$this->shop || !$this->token) {
             return $this->response->setJSON([
                 'success' => false,
-                'message' => 'Error guardando etiquetas en Shopify',
-                'status' => $status
+                'message' => 'Faltan credenciales Shopify',
+            ])->setStatusCode(200);
+        }
+
+        // limitar a 6 tags como ya tenías en DashboardController
+        $tags = array_values(array_filter(array_map('trim', explode(',', $tagsRaw))));
+        $tags = array_slice($tags, 0, 6);
+
+        $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/{$orderId}.json";
+
+        $resp = $this->curlShopify($url, 'PUT', [
+            'order' => [
+                'id'   => (int)$orderId,
+                'tags' => implode(', ', $tags),
+            ]
+        ]);
+
+        if ($resp['status'] >= 400 || $resp['status'] === 0) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Shopify HTTP ' . $resp['status'],
+                'shopify_body' => substr((string)$resp['body'], 0, 500),
             ])->setStatusCode(200);
         }
 
         return $this->response->setJSON([
             'success' => true,
             'message' => 'Etiquetas guardadas',
-            'tags' => $tags
-        ]);
+            'tags'    => $tags,
+        ])->setStatusCode(200);
     }
 
     // ============================================================
-    // LISTAR TODOS LOS PEDIDOS (con paginación REAL Link header)
-    // ✅ ARREGLADO: devuelve estado TEXTO + badge opcional
+    // SUBIR IMAGEN LOCAL DEL PRODUCTO (mantengo tu versión)
     // ============================================================
-    public function filter()
+
+    public function subirImagenProducto()
     {
-        $allOrders = [];
-        $limit = 250;
+        if (!session()->get('logged_in')) {
+            return $this->response->setJSON(['success' => false, 'message' => 'No autenticado'])->setStatusCode(401);
+        }
 
-        $pageInfo = null;
-        $loops = 0;
+        $orderId = (string) $this->request->getPost("order_id");
+        $index   = (string) $this->request->getPost("line_index");
+        $file    = $this->request->getFile("file");
 
-        do {
-            $loops++;
-            if ($loops > 30) break;
+        if ($orderId === '' || $index === '') {
+            return $this->response->setJSON([
+                "success" => false,
+                "message" => "Faltan order_id o line_index"
+            ])->setStatusCode(422);
+        }
 
-            if ($pageInfo) {
-                $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
-            } else {
-                $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&status=any&order=created_at%20desc";
-            }
+        if (!$file || !$file->isValid()) {
+            return $this->response->setJSON([
+                "success" => false,
+                "message" => "Archivo inválido"
+            ])->setStatusCode(422);
+        }
 
-            $resp = $this->curlShopify($url, 'GET');
-            if ($resp['status'] >= 400 || $resp['status'] === 0) break;
+        $orderIdInt = (int)$orderId;
+        $idxInt = (int)$index;
 
-            $decoded = json_decode($resp['body'], true) ?: [];
-            if (!isset($decoded["orders"])) break;
+        $folder = FCPATH . "uploads/pedidos/{$orderIdInt}/";
+        if (!is_dir($folder)) {
+            @mkdir($folder, 0777, true);
+        }
 
-            $allOrders = array_merge($allOrders, $decoded["orders"]);
+        $ext = $file->getExtension();
+        $newName = "item_{$idxInt}." . $ext;
 
-            $linkHeader = $resp['headers']['link'] ?? null;
-            if (is_array($linkHeader)) $linkHeader = end($linkHeader);
+        $file->move($folder, $newName, true);
 
-            [$nextPageInfo, $prev] = $this->parseLinkHeaderForPageInfo(is_string($linkHeader) ? $linkHeader : null);
-            $pageInfo = $nextPageInfo;
+        $url = base_url("uploads/pedidos/{$orderIdInt}/{$newName}");
 
-        } while ($pageInfo);
-
-        $resultado = [];
-
-        foreach ($allOrders as $o) {
-            $estadoInterno = $this->obtenerEstadoInterno($o["id"]); // ✅ texto normalizado
-            $badge         = $this->badgeEstado($estadoInterno);
-
-            $resultado[] = [
-                "id"           => $o["id"],
-                "numero"       => $o["name"] ?? ("#" . ($o["order_number"] ?? $o["id"])),
-                "fecha"        => isset($o["created_at"]) ? substr((string)$o["created_at"], 0, 10) : "-",
-                "cliente"      => trim(($o["customer"]["first_name"] ?? "Desconocido") . ' ' . ($o["customer"]["last_name"] ?? "")),
-                "total"        => ($o["total_price"] ?? "-") . " €",
-
-                // ✅ IMPORTANTE: estado como TEXTO para tu dashboard.js
-                "estado"       => $estadoInterno,
-                "estado_raw"   => $estadoInterno,
-
-                // (opcional) si quieres un badge HTML para otros usos
-                "estado_badge" => $badge,
-
-                "etiquetas"    => $o["tags"] ?? "-",
-                "articulos"    => count($o["line_items"] ?? []),
-                "estado_envio" => $o["fulfillment_status"] ?? "-",
-                "forma_envio"  => $o["shipping_lines"][0]["title"] ?? "-"
-            ];
+        try {
+            $db = \Config\Database::connect();
+            $db->table('pedido_imagenes')->replace([
+                'order_id'   => $orderIdInt,
+                'line_index' => $idxInt,
+                'local_url'  => $url,
+                'status'     => 'ready',
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'pedido_imagenes replace ERROR: '.$e->getMessage());
         }
 
         return $this->response->setJSON([
             "success" => true,
-            "orders"  => $resultado,
-            "count"   => count($resultado)
+            "url"     => $url
         ]);
     }
 
     // ============================================================
-    // SUBIR IMAGEN LOCAL DEL PRODUCTO
+    // HELPERS IMAGENES (los tuyos)
     // ============================================================
-    public function subirImagenProducto()
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setJSON(['success' => false, 'message' => 'No autenticado'])->setStatusCode(401);
-    }
-
-    $orderId = (string) $this->request->getPost("order_id");
-    $index   = (string) $this->request->getPost("line_index");
-    $file    = $this->request->getFile("file");
-
-    if ($orderId === '' || $index === '') {
-        return $this->response->setJSON([
-            "success" => false,
-            "message" => "Faltan order_id o line_index"
-        ])->setStatusCode(422);
-    }
-
-    if (!$file || !$file->isValid()) {
-        return $this->response->setJSON([
-            "success" => false,
-            "message" => "Archivo inválido"
-        ])->setStatusCode(422);
-    }
-
-    $orderIdInt = (int)$orderId;
-    $idxInt = (int)$index;
-
-    $folder = FCPATH . "uploads/pedidos/{$orderIdInt}/";
-    if (!is_dir($folder)) {
-        @mkdir($folder, 0777, true);
-    }
-
-    $ext = $file->getExtension();
-    $newName = "item_{$idxInt}." . $ext;
-
-    $file->move($folder, $newName, true);
-
-    $url = base_url("uploads/pedidos/{$orderIdInt}/{$newName}");
-
-    // guardar/actualizar DB
-    try {
-        $db = \Config\Database::connect();
-        $db->table('pedido_imagenes')->replace([
-            'order_id'   => $orderIdInt,
-            'line_index' => $idxInt,
-            'local_url'  => $url,
-            'status'     => 'ready',
-            'updated_at' => date('Y-m-d H:i:s'),
-        ]);
-    } catch (\Throwable $e) {
-        // no rompas el flujo si DB falla
-        log_message('error', 'pedido_imagenes replace ERROR: '.$e->getMessage());
-    }
-
-    return $this->response->setJSON([
-        "success" => true,
-        "url"     => $url
-    ]);
-}
 
     private function extractImageUrlsFromLineItem(array $item): array
     {
@@ -808,12 +1015,10 @@ class DashboardController extends Controller
                 $val = (string)($p['value'] ?? '');
                 if ($val === '') continue;
 
-                // URL normal
                 if (preg_match('#^https?://#i', $val) && preg_match('#\.(png|jpe?g|webp|gif|svg)(\?.*)?$#i', $val)) {
                     $urls[] = $val;
                 }
 
-                // base64
                 if (str_starts_with($val, 'data:image/')) {
                     $urls[] = $val;
                 }
@@ -822,10 +1027,10 @@ class DashboardController extends Controller
 
         return array_values(array_unique($urls));
     }
+
     private function buildModifiedImage(string $src, string $destAbsPath): bool
     {
         try {
-            // 1) obtener bytes (url o base64)
             $bytes = null;
 
             if (str_starts_with($src, 'data:image/')) {
@@ -840,14 +1045,12 @@ class DashboardController extends Controller
 
             if (!$bytes) return false;
 
-            // 2) guardo temporal
             $tmp = WRITEPATH . 'cache/img_' . uniqid() . '.bin';
             file_put_contents($tmp, $bytes);
 
-            // 3) proceso (resize + webp)
             $image = \Config\Services::image();
             $image->withFile($tmp)
-                ->resize(1200, 1200, true, 'width') // mantiene proporción
+                ->resize(1200, 1200, true, 'width')
                 ->convert(IMAGETYPE_WEBP)
                 ->save($destAbsPath, 85);
 
@@ -859,6 +1062,7 @@ class DashboardController extends Controller
             return false;
         }
     }
+
     private function procesarImagenesYEstado(array &$order): void
     {
         $orderId = (int)($order['id'] ?? 0);
@@ -870,31 +1074,24 @@ class DashboardController extends Controller
         if (!is_array($lineItems)) $lineItems = [];
 
         $totalRequeridas = 0;
-        $totalListas = 0; 
+        $totalListas = 0;
 
-        // carpeta destino pública
         $baseDir = FCPATH . 'uploads/pedidos/' . $orderId . '/';
         if (!is_dir($baseDir)) @mkdir($baseDir, 0775, true);
 
-        // para devolver al frontend por índice
         $modelImg = new PedidoImagenModel();
         $imagenesLocales = $modelImg->getByOrder((int)$orderId);
-
+        if (!is_array($imagenesLocales)) $imagenesLocales = [];
 
         foreach ($lineItems as $idx => &$item) {
             $idx = (int)$idx;
 
             $urls = $this->extractImageUrlsFromLineItem($item);
-            if (!$urls) {
-                // esta línea NO requiere imagen
-                continue;
-            }
+            if (!$urls) continue;
 
             $totalRequeridas++;
+            $original = $urls[0];
 
-            $original = $urls[0]; // primera imagen que detecte
-
-            // lookup en DB
             $row = $db->table('pedido_imagenes')
                 ->where('order_id', $orderId)
                 ->where('line_index', $idx)
@@ -903,7 +1100,6 @@ class DashboardController extends Controller
             $localUrl = $row['local_url'] ?? null;
             $status   = $row['status'] ?? 'missing';
 
-            // si ya está lista
             if ($localUrl && $status === 'ready') {
                 $totalListas++;
                 $imagenesLocales[$idx] = $localUrl;
@@ -911,7 +1107,6 @@ class DashboardController extends Controller
                 continue;
             }
 
-            // marcar processing
             $db->table('pedido_imagenes')->replace([
                 'order_id'     => $orderId,
                 'line_index'   => $idx,
@@ -921,7 +1116,6 @@ class DashboardController extends Controller
                 'updated_at'   => date('Y-m-d H:i:s'),
             ]);
 
-            // generar archivo
             $fileName = "item_{$idx}.webp";
             $destAbs = $baseDir . $fileName;
             $destUrl = base_url("uploads/pedidos/{$orderId}/{$fileName}");
@@ -954,59 +1148,49 @@ class DashboardController extends Controller
         }
         unset($item);
 
-        // ✅ decidir estado automáticamente
-        // - si hay requeridas y todas listas => Producción
-        // - si hay requeridas y falta alguna => A medias
-        // - si no hay requeridas => no tocar estado (o pon Por preparar, tú decides)
         $estadoAuto = null;
-
         if ($totalRequeridas > 0) {
             $estadoAuto = ($totalListas >= $totalRequeridas) ? 'Produccion' : 'A medias';
         }
 
-        // guardar en el order para frontend
         $order['imagenes_locales'] = $imagenesLocales;
         $order['auto_estado'] = $estadoAuto;
         $order['auto_images_required'] = $totalRequeridas;
         $order['auto_images_ready'] = $totalListas;
 
-        // Persistir estado en BD (tu tabla pedidos_estado)
         if ($estadoAuto) {
             $this->guardarEstadoSistema($orderId, $estadoAuto);
         }
     }
+
     private function guardarEstadoSistema(int $orderId, string $estado): void
-{
-    try {
-        $db = \Config\Database::connect();
+    {
+        try {
+            $db = \Config\Database::connect();
 
-        $estado = $this->normalizeEstado($estado);
+            $estado = $this->normalizeEstado($estado);
 
-        $insert = [
-            'estado'     => $estado,
-            'created_at' => date('Y-m-d H:i:s'),
-        ];
+            $insert = [
+                'estado'     => $estado,
+                'created_at' => date('Y-m-d H:i:s'),
+            ];
 
-        if ($this->columnExists($db, 'pedidos_estado', 'order_id')) {
-            $insert['order_id'] = $orderId;
-        } elseif ($this->columnExists($db, 'pedidos_estado', 'pedido_id')) {
-            $insert['pedido_id'] = $orderId;
-        } else {
-            $insert['id'] = $orderId;
+            if ($this->columnExists($db, 'pedidos_estado', 'order_id')) {
+                $insert['order_id'] = $orderId;
+            } elseif ($this->columnExists($db, 'pedidos_estado', 'pedido_id')) {
+                $insert['pedido_id'] = $orderId;
+            } else {
+                $insert['id'] = $orderId;
+            }
+
+            if ($this->columnExists($db, 'pedidos_estado', 'user_id')) {
+                $insert['user_id'] = null; // sistema
+            }
+
+            $db->table('pedidos_estado')->insert($insert);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
         }
-
-        if ($this->columnExists($db, 'pedidos_estado', 'user_id')) {
-            $insert['user_id'] = null; // sistema
-        }
-
-        $db->table('pedidos_estado')->insert($insert);
-
-    } catch (\Throwable $e) {
-        log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
     }
-}
-
-
-        
-
 }
