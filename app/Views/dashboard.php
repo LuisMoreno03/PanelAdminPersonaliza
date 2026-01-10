@@ -125,7 +125,7 @@
         </section>
 
         <!-- USUARIOS -->
-        <section class="mb-6 d-none">
+        <section class="mb-6 hidden">
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
             <h3 class="text-lg font-extrabold text-slate-900 mb-3">Estado de usuarios</h3>
 
