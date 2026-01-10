@@ -27,12 +27,12 @@ $routes->get('logout', 'Auth::logout');
 // ----------------------------------------------------
 $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->get('/', 'DashboardController::index');
--   $routes->get('pedidos', 'DashboardController::pedidos');
--   $routes->get('filter',  'DashboardController::filter');
--   $routes->get('etiquetas-disponibles', 'DashboardController::etiquetasDisponibles');
-+   $routes->get('pedidos', 'Dashboard::pedidos');   // paginado (rápido)
-+   $routes->get('filter',  'Dashboard::filter');    // paginado (rápido)
-+   $routes->get('etiquetas-disponibles', 'Dashboard::etiquetasDisponibles');
+    $routes->get('pedidos', 'DashboardController::pedidos');
+    $routes->get('filter',  'DashboardController::filter');
+    $routes->get('etiquetas-disponibles', 'DashboardController::etiquetasDisponibles');
+    $routes->get('pedidos', 'DashboardController::pedidos');   // paginado (rápido)
+    $routes->get('filter',  'DashboardController::filter');    // paginado (rápido)
+    $routes->get('etiquetas-disponibles', 'DashboardController::etiquetasDisponibles');
 
     $routes->get('ping', 'DashboardController::ping');
     $routes->get('usuarios-estado', 'DashboardController::usuariosEstado');
