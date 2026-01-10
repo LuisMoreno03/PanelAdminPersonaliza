@@ -1090,6 +1090,10 @@ window.verDetalles = async function (orderId) {
     // -----------------------------
     const envio = o.total_shipping_price_set?.shop_money?.amount ?? o.total_shipping_price_set?.presentment_money?.amount ?? "0";
     const impuestos = o.total_tax ?? "0";
+    
+    const tagsActuales = String(
+      o.tags ?? o.etiquetas ?? ordersById?.get(String(o.id))?.etiquetas ?? ""
+    ).trim();
 
     setHtml(
       "detTotales",
