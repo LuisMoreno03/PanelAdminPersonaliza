@@ -1109,55 +1109,54 @@ window.verDetalles = async function (orderId) {
     setHtml(
       "detResumen",
       `
-     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <div class="flex items-center justify-between">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Etiquetas</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="flex items-center justify-between">
+            <div class="text-xs text-slate-500 font-extrabold uppercase">Etiquetas</div>
 
-          <button
-            type="button"
-            class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
-            data-order-id="${o.id}"
-            data-order-label="${escapeAttr(o.name || ('#' + o.id))}"
-            data-order-tags="${escapeAttr(o.tags || '')}"
-            onclick="abrirEtiquetasDesdeDetalle(this)"
-          >
-            ETIQUETAS <span class="ml-1 font-black">+</span>
-          </button>
+            <button
+              type="button"
+              class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
+              data-order-id="${o.id}"
+              data-order-label="${escapeAttr(o.name || ('#' + o.id))}"
+              data-order-tags="${escapeAttr(tagsActuales)}"
+              onclick="abrirEtiquetasDesdeDetalle(this)"
+            >
+              ETIQUETAS <span class="ml-1 font-black">+</span>
+            </button>
+          </div>
+
+          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2">
+            ${
+              tagsActuales
+                ? tagsActuales.split(',').map(t => `
+                    <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+                      ${escapeHtml(t.trim())}
+                    </span>
+                  `).join('')
+                : '<span class="text-xs text-slate-400">—</span>'
+            }
+          </div>
         </div>
 
-        <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2">
-          ${
-            o.tags
-              ? o.tags.split(',').map(t => `
-                  <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
-                    ${escapeHtml(t.trim())}
-                  </span>
-                `).join('')
-              : '<span class="text-xs text-slate-400">—</span>'
-          }
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
+          <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Entrega</div>
+          <div class="mt-1 font-semibold">${escapeHtml(o.fulfillment_status || "—")}</div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Creado</div>
+          <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
         </div>
       </div>
-
-          
-
-
-      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
-        <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
-      </div>
-      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <div class="text-xs text-slate-500 font-extrabold uppercase">Entrega</div>
-        <div class="mt-1 font-semibold">${escapeHtml(o.fulfillment_status || "—")}</div>
-      </div>
-      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <div class="text-xs text-slate-500 font-extrabold uppercase">Creado</div>
-        <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
-      </div>
-    </div>
-
       `
     );
+
     
     let __etq_detalle_order_id = null;
 
