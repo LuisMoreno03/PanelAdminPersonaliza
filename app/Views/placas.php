@@ -214,7 +214,9 @@ function addCsrf(fd) {
   renombrar: <?= json_encode(site_url('placas/archivos/renombrar')) ?>,
   eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
   descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
+  descargarPngLote: <?= json_encode(site_url('placas/archivos/descargar-png-lote')) ?>,
 };
+
 
 
 
@@ -509,7 +511,47 @@ async function cargarVistaAgrupada() {
           `).join("")}
         </div>
       `;
+const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
 
+loteBox.innerHTML = `
+  <div class="flex items-center justify-between flex-wrap gap-2">
+    <div class="font-bold">📦 ${escapeHtml(lnombre)}</div>
+    <div class="text-xs text-gray-500">${escapeHtml(lote.created_at ?? "")}</div>
+  </div>
+
+  <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    ${
+      principal
+      ? `
+        <div class="bg-white border rounded-xl p-2 cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
+          ${
+            principal.thumb_url
+              ? `<img src="${principal.thumb_url}" class="w-full h-32 object-cover rounded-lg">`
+              : (principal.url && (principal.mime || "").startsWith("image/"))
+                ? `<img src="${principal.url}" class="w-full h-32 object-cover rounded-lg">`
+                : `<div class="h-32 flex items-center justify-center text-gray-400">Carpeta</div>`
+          }
+          <div class="mt-2 text-sm font-semibold">Lote ${escapeHtml(lid)}</div>
+          <div class="text-xs text-gray-500">${(lote.items || []).length} archivo(s)</div>
+
+          <div class="mt-2 flex gap-2">
+            <a class="btn-blue" style="background:#10b981; padding:8px 12px; border-radius:12px;"
+               href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
+               onclick="event.stopPropagation()">
+              Descargar PNG
+            </a>
+
+            <button class="btn-blue" style="background:#111827; padding:8px 12px; border-radius:12px;"
+                    onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
+              Ver
+            </button>
+          </div>
+        </div>
+      `
+      : `<div class="muted">Sin archivos</div>`
+    }
+  </div>
+`;
       lotesCont.appendChild(loteBox);
     }
   }
@@ -565,6 +607,18 @@ function getLoteItemsFor(item) {
   if (!lid) return [item];
   return loteIndex[lid] || [item];
 }
+
+// ✅ FUERA de la función (GLOBAL)
+window.openLote = function(loteId){
+  const list = loteIndex[String(loteId)] || [];
+  if (!list.length) return;
+
+  const principal = list.find(x => Number(x.is_primary) === 1) || list[0];
+  openModal(principal.id);
+};
+
+
+
 
       
 
