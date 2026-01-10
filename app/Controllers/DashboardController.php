@@ -611,109 +611,139 @@ class DashboardController extends Controller
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
     // ============================================================
 
-    public function detalles($orderId)
-    {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
+   public function detalles($orderId)
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setStatusCode(401)->setJSON([
+            'success' => false,
+            'message' => 'No autenticado',
+        ]);
+    }
 
-        $orderId = (string)$orderId;
-        if ($orderId === '') {
+    $orderId = (string)$orderId;
+    if ($orderId === '') {
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'ID inválido',
+        ])->setStatusCode(422);
+    }
+
+    try {
+        if (!$this->shop || !$this->token) {
             return $this->response->setJSON([
                 'success' => false,
-                'message' => 'ID inválido',
-            ])->setStatusCode(422);
-        }
-
-        try {
-            if (!$this->shop || !$this->token) {
-                return $this->response->setJSON([
-                    'success' => false,
-                    'message' => 'Faltan credenciales Shopify',
-                ])->setStatusCode(200);
-            }
-
-            // 1) Pedido
-            $urlOrder = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/" . urlencode($orderId) . ".json";
-            $resp = $this->curlShopify($urlOrder, 'GET');
-
-            if ($resp['status'] >= 400 || $resp['status'] === 0) {
-                log_message('error', 'DETALLES ORDER HTTP '.$resp['status'].': '.$resp['body']);
-                return $this->response->setJSON([
-                    'success' => false,
-                    'message' => 'Error consultando pedido en Shopify',
-                    'status'  => $resp['status'],
-                ])->setStatusCode(200);
-            }
-
-            $json = json_decode($resp['body'], true) ?: [];
-            $order = $json['order'] ?? null;
-
-            if (!$order) {
-                return $this->response->setJSON([
-                    'success' => false,
-                    'message' => 'Pedido no encontrado',
-                ])->setStatusCode(200);
-            }
-
-            // ✅ opcional: activar autoproceso de imágenes + estado
-            // $this->procesarImagenesYEstado($order);
-
-            // 2) product_images (por product_id)
-            $lineItems = $order['line_items'] ?? [];
-            $productIds = [];
-
-            foreach ($lineItems as $li) {
-                if (!empty($li['product_id'])) $productIds[(string)$li['product_id']] = true;
-            }
-            $productIds = array_keys($productIds);
-
-            $productImages = []; // product_id => url
-
-            foreach ($productIds as $pid) {
-                $urlProd = "https://{$this->shop}/admin/api/{$this->apiVersion}/products/{$pid}.json?fields=id,image,images";
-                $rP = $this->curlShopify($urlProd, 'GET');
-                if ($rP['status'] >= 400 || $rP['status'] === 0) continue;
-
-                $jP = json_decode($rP['body'], true) ?: [];
-                $p  = $jP['product'] ?? null;
-                if (!$p) continue;
-
-                $img = '';
-                if (!empty($p['image']['src'])) $img = $p['image']['src'];
-                elseif (!empty($p['images'][0]['src'])) $img = $p['images'][0]['src'];
-
-                if ($img) $productImages[(string)$pid] = $img;
-            }
-
-            // 3) imágenes locales desde BD
-            $modelImg = new PedidoImagenModel();
-            $imagenesLocales = $modelImg->getByOrder((int)$orderId);
-            if (!is_array($imagenesLocales)) $imagenesLocales = [];
-
-            return $this->response->setJSON([
-                'success'          => true,
-                'order'            => $order,
-                'product_images'   => $productImages,
-                'imagenes_locales' => $imagenesLocales,
-
-                // si activas procesarImagenesYEstado:
-                // 'auto_estado' => $order['auto_estado'] ?? null,
-                // 'auto_images_required' => $order['auto_images_required'] ?? 0,
-                // 'auto_images_ready' => $order['auto_images_ready'] ?? 0,
-            ]);
-
-        } catch (\Throwable $e) {
-            log_message('error', 'DETALLES ERROR: '.$e->getMessage());
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => 'Error interno cargando detalles',
+                'message' => 'Faltan credenciales Shopify',
             ])->setStatusCode(200);
         }
+
+        // --------------------------------------------------
+        // 1) PEDIDO SHOPIFY
+        // --------------------------------------------------
+        $urlOrder = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/" . urlencode($orderId) . ".json";
+        $resp = $this->curlShopify($urlOrder, 'GET');
+
+        if ($resp['status'] >= 400 || $resp['status'] === 0) {
+            log_message('error', 'DETALLES ORDER HTTP '.$resp['status'].': '.$resp['body']);
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error consultando pedido en Shopify',
+                'status'  => $resp['status'],
+            ])->setStatusCode(200);
+        }
+
+        $json = json_decode($resp['body'], true) ?: [];
+        $order = $json['order'] ?? null;
+
+        if (!$order) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Pedido no encontrado',
+            ])->setStatusCode(200);
+        }
+
+        // --------------------------------------------------
+        // 2) IMÁGENES DE PRODUCTOS (SHOPIFY)
+        // --------------------------------------------------
+        $lineItems = $order['line_items'] ?? [];
+        $productIds = [];
+
+        foreach ($lineItems as $li) {
+            if (!empty($li['product_id'])) {
+                $productIds[(string)$li['product_id']] = true;
+            }
+        }
+        $productIds = array_keys($productIds);
+
+        $productImages = []; // product_id => url
+
+        foreach ($productIds as $pid) {
+            $urlProd = "https://{$this->shop}/admin/api/{$this->apiVersion}/products/{$pid}.json?fields=id,image,images";
+            $rP = $this->curlShopify($urlProd, 'GET');
+            if ($rP['status'] >= 400 || $rP['status'] === 0) continue;
+
+            $jP = json_decode($rP['body'], true) ?: [];
+            $p  = $jP['product'] ?? null;
+            if (!$p) continue;
+
+            $img = '';
+            if (!empty($p['image']['src'])) {
+                $img = $p['image']['src'];
+            } elseif (!empty($p['images'][0]['src'])) {
+                $img = $p['images'][0]['src'];
+            }
+
+            if ($img) {
+                $productImages[(string)$pid] = $img;
+            }
+        }
+
+        // --------------------------------------------------
+        // 3) IMÁGENES LOCALES (BD)  ✅ NO DEPENDE DE MODEL
+        // --------------------------------------------------
+        $imagenesLocales = [];
+
+        try {
+            $db = \Config\Database::connect();
+
+            $rows = $db->table('pedido_imagenes')
+                ->select('line_index, local_url')
+                ->where('order_id', (int)$orderId)
+                ->get()
+                ->getResultArray();
+
+            foreach ($rows as $r) {
+                $idx = (int)($r['line_index'] ?? -1);
+                $url = trim((string)($r['local_url'] ?? ''));
+                if ($idx >= 0 && $url !== '') {
+                    $imagenesLocales[$idx] = $url;
+                }
+            }
+        } catch (\Throwable $e) {
+            log_message('error', 'DETALLES imagenesLocales ERROR: '.$e->getMessage());
+        }
+
+        // --------------------------------------------------
+        // RESPUESTA FINAL
+        // --------------------------------------------------
+        return $this->response->setJSON([
+            'success'          => true,
+            'order'            => $order,
+            'product_images'   => $productImages,
+            'imagenes_locales' => $imagenesLocales,
+        ]);
+
+    } catch (\Throwable $e) {
+        log_message(
+            'error',
+            'DETALLES ERROR: '.$e->getMessage().' :: '.$e->getFile().':'.$e->getLine()
+        );
+
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'Error interno cargando detalles',
+        ])->setStatusCode(200);
     }
+}
 
     // ============================================================
     // BADGE ESTADO
