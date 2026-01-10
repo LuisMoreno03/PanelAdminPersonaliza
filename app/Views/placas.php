@@ -214,7 +214,9 @@ function addCsrf(fd) {
   renombrar: <?= json_encode(site_url('placas/archivos/renombrar')) ?>,
   eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
   descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
+  descargarPngLote: <?= json_encode(site_url('placas/archivos/descargar-png-lote')) ?>,
 };
+
 
 
 
@@ -521,7 +523,7 @@ loteBox.innerHTML = `
     ${
       principal
       ? `
-        <div class="bg-white border rounded-xl p-2 cursor-pointer" onclick="openLote(${escapeHtml(lid)})">
+        <div class="bg-white border rounded-xl p-2 cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
           ${
             principal.thumb_url
               ? `<img src="${principal.thumb_url}" class="w-full h-32 object-cover rounded-lg">`
@@ -604,17 +606,19 @@ function getLoteItemsFor(item) {
   const lid = item?.lote_id ?? '';
   if (!lid) return [item];
   return loteIndex[lid] || [item];
+}
 
-  window.openLote = function(loteId){
+// ✅ FUERA de la función (GLOBAL)
+window.openLote = function(loteId){
   const list = loteIndex[String(loteId)] || [];
   if (!list.length) return;
 
-  // abre el modal mostrando por defecto el principal (o el primero)
   const principal = list.find(x => Number(x.is_primary) === 1) || list[0];
   openModal(principal.id);
 };
 
-}
+
+
 
       
 
