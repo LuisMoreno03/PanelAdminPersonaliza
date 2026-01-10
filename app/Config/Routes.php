@@ -27,43 +27,48 @@ $routes->get('logout', 'Auth::logout');
 // ----------------------------------------------------
 $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->get('/', 'DashboardController::index');
+
+    // pedidos
     $routes->get('pedidos', 'DashboardController::pedidos');
     $routes->get('filter',  'DashboardController::filter');
-    $routes->get('etiquetas-disponibles', 'DashboardController::etiquetasDisponibles');
-    $routes->get('pedidos', 'DashboardController::pedidos');   // paginado (rápido)
-    $routes->get('filter',  'DashboardController::filter');    // paginado (rápido)
+
+    // etiquetas
     $routes->get('etiquetas-disponibles', 'DashboardController::etiquetasDisponibles');
 
+    // presencia
     $routes->get('ping', 'DashboardController::ping');
     $routes->get('usuarios-estado', 'DashboardController::usuariosEstado');
+
+    // detalles
     $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
 });
 
-
-
+// ----------------------------------------------------
+// API (PROTEGIDO)
+// ----------------------------------------------------
 $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->post('_test_post', static function () {
         return json_encode(['ok' => true, 'time' => date('Y-m-d H:i:s')]);
-    }); 
+    });
 
+    // estados
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
 
-    $routes->post('estado/etiquetas/guardar', 'Dashboard::guardarEtiquetas');
-    $routes->post('estado_etiquetas/guardar', 'Dashboard::guardarEtiquetas');
+    // ✅ guardar etiquetas (Dashboard eliminado -> DashboardController)
+    $routes->post('estado/etiquetas/guardar', 'DashboardController::guardarEtiquetas');
+    $routes->post('estado_etiquetas/guardar', 'DashboardController::guardarEtiquetas');
 
-    // ✅ subir imagen modificada
+    // imagenes pedidos
     $routes->post('pedidos/imagenes/subir', 'PedidosImagenesController::subir');
 
     $routes->get('confirmados', 'Confirmados::filter');
 });
 
-
 // ====================================================
 // SHOPIFY (PROTEGIDO)
 // ====================================================
 $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection $routes) {
-
     $routes->get('orders', 'ShopifyController::getOrders');
     $routes->get('orders/all', 'ShopifyController::getAllOrders');
     $routes->get('order/(:num)', 'ShopifyController::getOrder/$1');
@@ -75,7 +80,6 @@ $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection
     $routes->get('products/(:num)', 'ShopifyController::getProduct/$1');
 
     $routes->get('customers', 'ShopifyController::getCustomers');
-
     $routes->get('test', 'ShopifyController::test');
 });
 
@@ -107,33 +111,27 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 // ====================================================
 // PLACAS (PROTEGIDO)
 // ====================================================
-$routes->group('placas', ['filter' => 'auth'], static function ($routes) {
+$routes->group('placas', ['filter' => 'auth'], static function (RouteCollection $routes) {
+    $routes->get('/', 'PlacasController::index');
+    $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
 
-  $routes->get('/', 'PlacasController::index');
-  $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
+    $routes->group('archivos', static function (RouteCollection $routes) {
+        $routes->get('listar', 'PlacasArchivosController::listar');
+        $routes->get('stats',  'PlacasArchivosController::stats');
 
-  $routes->group('archivos', static function ($routes) {
-      $routes->get('listar', 'PlacasArchivosController::listar');
-      $routes->get('stats',  'PlacasArchivosController::stats');
+        $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
+        $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
 
-      // ✅ NUEVAS (aquí)
-      $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
-      $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
+        $routes->post('subir', 'PlacasArchivosController::subir');
+        $routes->post('renombrar', 'PlacasArchivosController::renombrar');
+        $routes->post('eliminar',  'PlacasArchivosController::eliminar');
 
-      $routes->post('subir', 'PlacasArchivosController::subir');
-      $routes->post('renombrar', 'PlacasArchivosController::renombrar');
-      $routes->post('eliminar',  'PlacasArchivosController::eliminar');
+        $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
+        $routes->post('lote/eliminar',  'PlacasArchivosController::eliminarLote');
 
-      $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
-      $routes->post('lote/eliminar',  'PlacasArchivosController::eliminarLote');
-
-      $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
-  });
-
-        // ✅ NUEVA: descargar desde el controller correcto
         $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
     });
-
+});
 
 // ----------------------------------------------------
 // TEST FUNCIONAL
