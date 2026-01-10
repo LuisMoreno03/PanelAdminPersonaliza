@@ -1159,6 +1159,17 @@ window.verDetalles = async function (orderId) {
       `
     );
     
+    let __etq_detalle_order_id = null;
+
+    window.abrirModalEtiquetasDesdeDetalles = function(orderId, tagsActuales) {
+      __etq_detalle_order_id = Number(orderId);
+
+      // Esto depende de tu implementación actual:
+      // Si ya tienes una función "abrirModalEtiquetas(id, tags)" úsala aquí.
+      // Si tu modal se abre con otra función, reemplaza esta línea por la tuya.
+      abrirModalEtiquetas(orderId, tagsActuales);
+    };
+
 
     // ✅ Detalles -> abre el MISMO modal del dashboard
     window.abrirEtiquetasDesdeDetalle = function(btn) {
@@ -2302,6 +2313,16 @@ window.guardarEtiquetasModal = async function () {
     }
     return;
   }
+  // 1) Actualiza vista DETALLES (si aplica)
+  if (__etq_detalle_order_id) {
+    pintarTagsDetalle(tagsFinal); // <- usa la variable real que envías a Shopify
+  }
+
+  // 2) Opcional (recomendado): también refrescar el pedido entero
+  // para que todo quede 100% sincronizado:
+  if (typeof verDetalles === 'function' && __etq_detalle_order_id) {
+    verDetalles(__etq_detalle_order_id);
+  }
 
   const etiquetas = Array.from(_etqSelected).join(", ");
 
@@ -2324,6 +2345,28 @@ window.guardarEtiquetasModal = async function () {
     if (btn) btn.disabled = false;
   }
 };
+
+
+function pintarTagsDetalle(tagsStr) {
+  const wrap = document.getElementById('det-tags-view');
+  if (!wrap) return; // si no estás en pantalla detalles, no hace nada
+
+  const clean = (tagsStr || '').trim();
+  if (!clean) {
+    wrap.innerHTML = '<span class="text-xs text-slate-400">—</span>';
+    return;
+  }
+
+  wrap.innerHTML = clean.split(',')
+    .map(t => t.trim())
+    .filter(Boolean)
+    .map(t => `
+      <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+        ${escapeHtml(t)}
+      </span>
+    `)
+    .join('');
+}
 
 // Cargar etiquetas BD al iniciar (solo si existe el modal completo)
 document.addEventListener("DOMContentLoaded", () => {
