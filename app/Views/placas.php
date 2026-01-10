@@ -827,25 +827,15 @@ if (searchClear) {
   });
 }
 
-let refresco = null;
+// Inicial
+  cargarStats();
+  cargarLista();
 
-async function refrescarTodo() {
-  // Si hay errores de BD, NO sigas spameando
-  try {
-    await cargarStats();
-    await cargarLista();
-  } catch (e) {
-    console.log("Refresco detenido por error", e);
-    if (refresco) clearInterval(refresco);
-    refresco = null;
-  }
-}
-
-// Inicial (1 sola vez)
-refrescarTodo();
-
-// Refresca cada 10 minutos (menos agresivo)
-refresco = setInterval(refrescarTodo, 600000);
+  // Refrescar cada 2 minutos (no 15s)
+setInterval(() => {
+  cargarStats();
+  cargarLista();
+}, 120000);
 
 </script>
 
