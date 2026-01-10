@@ -417,53 +417,94 @@ async function cargarLista(){
 
 
 async function cargarVistaAgrupada() {
-  const res = await fetch(baseUrl + "/placas/archivos/listar-por-dia");
+  placasMap = {};
+  loteIndex = {};
+
+  const res = await fetch(API.listar, { cache: "no-store" });
   const data = await res.json();
 
-  document.getElementById("placasHoy").textContent = data.placas_hoy;
+  // contador hoy (usa el valor del endpoint)
+  if (data?.success) q("placasHoy").textContent = data.placas_hoy ?? 0;
 
-  const cont = document.getElementById("contenedorDias");
+  const cont = q("contenedorDias");
   cont.innerHTML = "";
 
-  for (const dia of data.dias) {
+  if (!data.success || !Array.isArray(data.dias)) {
+    cont.innerHTML = `<div class="muted">No hay datos para mostrar.</div>`;
+    return;
+  }
+
+  const term = normalizeText(searchTerm);
+
+  // filtra por buscador (fecha / lote / archivos)
+  const diasFiltrados = data.dias
+    .map(dia => {
+      const lotes = (dia.lotes || []).map(lote => {
+        const items = (lote.items || []).filter(it => itemMatches(it, term));
+        const okLote = normalizeText([lote.lote_id, lote.lote_nombre, lote.created_at].join(" ")).includes(term);
+        return okLote ? lote : { ...lote, items };
+      }).filter(l => (l.items || []).length > 0);
+
+      const okDia = normalizeText(dia.fecha).includes(term);
+      return okDia ? dia : { ...dia, lotes, total_archivos: lotes.reduce((a,l)=>a+(l.items?.length||0),0) };
+    })
+    .filter(d => (d.lotes || []).length > 0);
+
+  if (term && !diasFiltrados.length) {
+    cont.innerHTML = `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
+    return;
+  }
+
+  const dias = term ? diasFiltrados : data.dias;
+
+  for (const dia of dias) {
     const diaBox = document.createElement("div");
-    diaBox.className = "card mb-4";
+    diaBox.className = "card";
 
     diaBox.innerHTML = `
       <div class="flex items-center justify-between">
         <div>
-          <div class="text-lg font-extrabold">${dia.fecha}</div>
+          <div class="text-lg font-extrabold">${escapeHtml(dia.fecha)}</div>
           <div class="text-sm text-gray-500">Total: ${dia.total_archivos}</div>
         </div>
       </div>
-      <div class="mt-3 space-y-3" id="dia_${dia.fecha.replaceAll('-','')}"></div>
+      <div class="mt-3 space-y-3"></div>
     `;
 
+    const lotesCont = diaBox.querySelector(".space-y-3");
     cont.appendChild(diaBox);
 
-    const lotesCont = diaBox.querySelector(`#dia_${dia.fecha.replaceAll('-','')}`);
+    for (const lote of (dia.lotes || [])) {
+      const lid = String(lote.lote_id ?? "");
+      const lnombre = lote.lote_nombre || lid;
 
-    for (const lote of dia.lotes) {
+      // ✅ mantener índices para el modal
+      loteIndex[lid] = lote.items || [];
+      (lote.items || []).forEach(it => {
+        it.lote_id = it.lote_id ?? lid;
+        placasMap[it.id] = it;
+      });
+
       const loteBox = document.createElement("div");
       loteBox.className = "border rounded-xl p-3 bg-gray-50";
 
       loteBox.innerHTML = `
-        <div class="flex items-center justify-between">
-          <div class="font-bold">Lote #${lote.lote_id}</div>
-          <div class="text-xs text-gray-500">Por: ${lote.uploaded_by_name ?? '-'}</div>
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="font-bold">📦 ${escapeHtml(lnombre)}</div>
+          <div class="text-xs text-gray-500">${escapeHtml(lote.created_at ?? "")}</div>
         </div>
-        <div class="text-xs text-gray-500">${lote.created_at ?? ''} · Archivos: ${lote.items.length}</div>
+
 
         <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          ${lote.items.map(it => `
-            <div class="bg-white border rounded-xl p-2">
-              ${it.url && it.mime?.startsWith("image/")
+          ${(lote.items || []).map(it => `
+            <div class="bg-white border rounded-xl p-2 cursor-pointer" onclick="openModal(${it.id})">
+              ${(it.url && (it.mime || "").startsWith("image/"))
                 ? `<img src="${it.url}" class="w-full h-32 object-cover rounded-lg">`
                 : `<div class="h-32 flex items-center justify-center text-gray-400">Archivo</div>`
               }
-              <div class="mt-2 text-sm font-semibold break-all">${escapeHtml(it.original || '')}</div>
-              <div class="text-xs text-gray-500">${Math.round((it.size||0)/1024)} KB</div>
-              <div class="text-xs text-gray-500">Subido por: ${it.uploaded_by_name ?? '-'}</div>
+              <div class="mt-2 text-sm font-semibold break-all">${escapeHtml(it.original || "")}</div>
+              <div class="text-xs text-gray-500">${Math.round((it.size || 0) / 1024)} KB</div>
+              <div class="text-xs text-gray-500">${escapeHtml(it.created_at || "")}</div>
             </div>
           `).join("")}
         </div>
@@ -767,7 +808,7 @@ function applySearch(v) {
   searchTerm = v || '';
   if (searchClear) searchClear.classList.toggle('hidden', !searchTerm.trim());
   cargarVistaAgrupada();
-  if (allData) renderFromData(allData);
+  
 }
 
 if (searchInput) {
