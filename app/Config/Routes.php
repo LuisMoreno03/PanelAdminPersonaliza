@@ -106,6 +106,11 @@ $routes->group('pedidos', ['filter' => 'auth'], static function (RouteCollection
 $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->get('/', 'ProduccionController::index');
     $routes->get('filter', 'ProduccionController::filter');
+
+    // ✅ NUEVAS RUTAS (cola por usuario)
+    $routes->get('my-queue', 'ProduccionController::myQueue');
+    $routes->post('pull', 'ProduccionController::pull');
+    $routes->post('return-all', 'ProduccionController::returnAll');
 });
 
 // ====================================================
