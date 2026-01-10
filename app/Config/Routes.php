@@ -103,12 +103,10 @@ $routes->group('pedidos', ['filter' => 'auth'], static function (RouteCollection
 // ====================================================
 // PRODUCCION (PROTEGIDO)
 // ====================================================
-$routes->group('produccion', function($routes) {
-    $routes->get('my-queue', 'Produccion::myQueue');
-    $routes->post('pull', 'Produccion::pull');
-    $routes->post('return-all', 'Produccion::returnAll');
+$routes->group('produccion', ['filter' => 'auth'], static function (RouteCollection $routes) {
+    $routes->get('/', 'ProduccionController::index');
+    $routes->get('filter', 'ProduccionController::filter');
 });
-
 
 // ====================================================
 // PLACAS (PROTEGIDO)
