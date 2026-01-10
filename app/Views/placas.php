@@ -461,8 +461,8 @@ async function cargarVistaAgrupada() {
                 ? `<img src="${it.url}" class="w-full h-32 object-cover rounded-lg">`
                 : `<div class="h-32 flex items-center justify-center text-gray-400">Archivo</div>`
               }
-              <div class="mt-2 text-sm font-semibold break-all">${it.original_name}</div>
-              <div class="text-xs text-gray-500">${it.size_kb} KB</div>
+              <div class="mt-2 text-sm font-semibold break-all">${escapeHtml(it.original || '')}</div>
+              <div class="text-xs text-gray-500">${Math.round((it.size||0)/1024)} KB</div>
               <div class="text-xs text-gray-500">Subido por: ${it.uploaded_by_name ?? '-'}</div>
             </div>
           `).join("")}

@@ -413,78 +413,82 @@ class PlacasArchivosController extends BaseController
         ]);
     }
 
-    // GET /placas/archivos/listar-por-dia
     // Devuelve estructura agrupada por fecha > lote > archivos
     public function listarPorDia()
-    {
-        helper('url');
-        $db = \Config\Database::connect();
+{
+    helper('url');
+    $db = \Config\Database::connect();
 
-        // Trae últimos días (ajusta límite)
-        $rows = $db->query("
-            SELECT
-                a.id, a.lote_id, a.ruta, a.original_name, a.size_kb, a.mime,
-                a.fecha, a.created_at, a.uploaded_by_name,
-                l.created_at AS lote_created_at, l.uploaded_by_name AS lote_uploaded_by
-            FROM placas_archivos a
-            JOIN placas_lotes l ON l.id = a.lote_id
-            ORDER BY a.fecha DESC, a.lote_id DESC, a.id DESC
-        ")->getResultArray();
+    // Solo usamos placas_archivos (SIN placas_lotes)
+    $rows = $db->query("
+        SELECT id, lote_id, lote_nombre, ruta, original, mime, size, created_at
+        FROM placas_archivos
+        ORDER BY created_at DESC, lote_id DESC, id DESC
+    ")->getResultArray();
 
-        $out = [];
-        foreach ($rows as $r) {
-            $fecha = $r['fecha'] ?? 'sin-fecha';
-            $lote  = (string)($r['lote_id'] ?? '0');
+    $out = [];
 
-            if (!isset($out[$fecha])) {
-                $out[$fecha] = [
-                    'fecha' => $fecha,
-                    'total_archivos' => 0,
-                    'lotes' => []
-                ];
-            }
+    foreach ($rows as $r) {
+        $created = $r['created_at'] ?? null;
+        $fecha = $created ? date('Y-m-d', strtotime($created)) : 'sin-fecha';
 
-            if (!isset($out[$fecha]['lotes'][$lote])) {
-                $out[$fecha]['lotes'][$lote] = [
-                    'lote_id' => (int)$r['lote_id'],
-                    'created_at' => $r['lote_created_at'] ?? null,
-                    'uploaded_by_name' => $r['lote_uploaded_by'] ?? null,
-                    'items' => []
-                ];
-            }
+        $loteId = (string)($r['lote_id'] ?? 'sin-lote');
+        $loteNombre = (string)($r['lote_nombre'] ?? $loteId);
 
-            $out[$fecha]['lotes'][$lote]['items'][] = [
-                'id' => (int)$r['id'],
-                'original_name' => $r['original_name'],
-                'size_kb' => (int)$r['size_kb'],
-                'created_at' => $r['created_at'],
-                'uploaded_by_name' => $r['uploaded_by_name'],
-                'ruta' => $r['ruta'],
-                'url' => $r['ruta'] ? base_url($r['ruta']) : null,
+        if (!isset($out[$fecha])) {
+            $out[$fecha] = [
+                'fecha' => $fecha,
+                'total_archivos' => 0,
+                'lotes' => []
             ];
-
-            $out[$fecha]['total_archivos']++;
         }
 
-        // convertir lotes a array
-        $final = [];
-        foreach ($out as $fecha => $block) {
-            $block['lotes'] = array_values($block['lotes']);
-            $final[] = $block;
+        if (!isset($out[$fecha]['lotes'][$loteId])) {
+            $out[$fecha]['lotes'][$loteId] = [
+                'lote_id' => $loteId,
+                'lote_nombre' => $loteNombre,
+                'created_at' => $created,
+                'uploaded_by_name' => null, // si luego lo agregas a tu tabla, aquí lo pones
+                'items' => []
+            ];
         }
 
-        // conteo del día actual
-        $today = date('Y-m-d');
-        $hoyCount = 0;
-        foreach ($final as $b) {
-            if ($b['fecha'] === $today) $hoyCount = (int)$b['total_archivos'];
-        }
+        $out[$fecha]['lotes'][$loteId]['items'][] = [
+            'id' => (int)$r['id'],
+            'nombre' => $r['nombre'] ?? null,
+            'original' => $r['original'] ?? null,
+            'mime' => $r['mime'] ?? null,
+            'size' => (int)($r['size'] ?? 0),
+            'created_at' => $created,
+            'ruta' => $r['ruta'] ?? null,
+            'url'  => base_url('placas/archivos/descargar/' . $r['id']), // ✅ tu forma correcta
+        ];
 
-        return $this->response->setJSON([
-            'success' => true,
-            'hoy' => $today,
-            'placas_hoy' => $hoyCount,
-            'dias' => $final
-        ]);
+        $out[$fecha]['total_archivos']++;
     }
+
+    // convertir lotes a array
+    $final = [];
+    foreach ($out as $block) {
+        $block['lotes'] = array_values($block['lotes']);
+        $final[] = $block;
+    }
+
+    $today = date('Y-m-d');
+    $hoyCount = 0;
+    foreach ($final as $b) {
+        if ($b['fecha'] === $today) {
+            $hoyCount = (int)$b['total_archivos'];
+            break;
+        }
+    }
+
+    return $this->response->setJSON([
+        'success' => true,
+        'hoy' => $today,
+        'placas_hoy' => $hoyCount,
+        'dias' => $final
+    ]);
+}
+
 }
