@@ -201,11 +201,12 @@ function normalizeEstado(estado) {
 
   if (s.includes("por preparar")) return "Por preparar";
   if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
-  if (s.includes("confirmado") || s.includes("confirmado")) return "confirmado";
-  if (s.includes("diseñado")) return "diseñado";
+  if (s.includes("confirmado")) return "Confirmado";
+  if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
   if (s.includes("por producir")) return "Por producir";
   if (s.includes("enviado")) return "Enviado";
-  return estado || "Por preparar";
+
+  return estado ? String(estado).trim() : "Por preparar";
 }
 
 /* =====================================================
@@ -214,26 +215,66 @@ function normalizeEstado(estado) {
 function estadoStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
 
-  if (s.includes("por preparar")) {
-    return { wrap: "bg-gray-400 border-slate-200 text-slate-800", dot: "bg-slate-500", icon: "⏳", label: "Por preparar" };
-  }
-  if (s.includes("faltan archivos") || s.includes("faltan_archivos")) {
-    return { wrap: "bg-yellow-500 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "🟡", label: "Faltan archivos" };
-  }
-  if (s.includes("confirmado") || s.includes("confirmado")) {
-    return { wrap: "bg-purple-500 border-purple-200 text-black-900", dot: "bg-purple-700", icon: "🏭", label: "Confirmado" };
-  }
-  if (s.includes("diseñado")) {
-    return { wrap: "bg-blue-100 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🛠️", label: "Diseñado" };
-  }
-  if (s.includes("por producir")) {
-    return { wrap: "bg-amber-100 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "🏗️", label: "Por producir" };
-  }
-  if (s.includes("enviado")) {
-    return { wrap: "bg-emerald-100 border-emerald-200 text-emerald-900", dot: "bg-emerald-500", icon: "🚚", label: "Enviado" };
+ if (s.includes("por preparar")) {
+    return {
+      label,
+      icon: "⏳",
+      wrap: `${base} bg-slate-900 border-slate-700 text-white`,
+      dot: `${dotBase} bg-slate-300`,
+    };
   }
 
-  return { wrap: "bg-white border-slate-200 text-slate-900", dot: "bg-slate-400", icon: "📍", label: estado || "—" };
+   if (s.includes("faltan archivos")) {
+    return {
+      label,
+      icon: "⚠️",
+      wrap: `${base} bg-yellow-400 border-yellow-500 text-black`,
+      dot: `${dotBase} bg-black/80`,
+    };
+  }
+
+  if (s.includes("confirmado")) {
+    return {
+      label,
+      icon: "✅",
+      wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`,
+      dot: `${dotBase} bg-white`,
+    };
+  }
+
+    if (s.includes("diseñado")) {
+    return {
+      label,
+      icon: "🎨",
+      wrap: `${base} bg-blue-600 border-blue-700 text-white`,
+      dot: `${dotBase} bg-sky-200`,
+    };
+  }
+
+   if (s.includes("por producir")) {
+    return {
+      label,
+      icon: "🏗️",
+      wrap: `${base} bg-orange-600 border-orange-700 text-white`,
+      dot: `${dotBase} bg-amber-200`,
+    };
+  }
+
+  if (s.includes("enviado")) {
+    return {
+      label,
+      icon: "🚚",
+      wrap: `${base} bg-emerald-600 border-emerald-700 text-white`,
+      dot: `${dotBase} bg-lime-200`,
+    };
+  }
+
+   return {
+    label: label || "—",
+    icon: "📍",
+    wrap: `${base} bg-slate-700 border-slate-600 text-white`,
+    dot: `${dotBase} bg-slate-200`,
+  };
 }
 
 function renderEstadoPill(estado) {
@@ -1817,7 +1858,7 @@ const ETQ_GENERALES = [
   "Retrasado",
   "Contacto cliente",
   "Pendiente pago",
-  
+
 ];
 
 function isConfirmacionRole() {
