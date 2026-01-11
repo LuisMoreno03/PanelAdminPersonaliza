@@ -124,7 +124,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ✅ LIVE refresca la página 1 (recomendado 20s con 12 usuarios)
   startLive(30000);
-  
+
 
   // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
   window.addEventListener("resize", () => {
@@ -133,7 +133,7 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const orders = JSON.parse(cont.dataset.lastOrders);
         actualizarTabla(Array.isArray(orders) ? orders : []);
-      } catch {}
+      } catch { }
     }
   });
 });
@@ -145,11 +145,11 @@ function startLive(ms = 20000) {
   if (liveInterval) clearInterval(liveInterval);
 
   liveInterval = setInterval(() => {
-  if (liveMode && currentPage === 1 && !isLoading) {
-    silentFetch = true; // 👈 NO loader
-    cargarPedidos({ reset: false, page_info: "" });
-  }
-}, ms);
+    if (liveMode && currentPage === 1 && !isLoading) {
+      silentFetch = true; // 👈 NO loader
+      cargarPedidos({ reset: false, page_info: "" });
+    }
+  }, ms);
 
 }
 
@@ -197,18 +197,18 @@ function renderEstado(valor) {
   return escapeHtml(valor ?? "-");
 }
 
-  function normalizeEstado(estado) {
-    const s = String(estado || "").trim().toLowerCase();
+function normalizeEstado(estado) {
+  const s = String(estado || "").trim().toLowerCase();
 
-    if (s.includes("por preparar")) return "Por preparar";
-    if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
-    if (s.includes("confirmado")) return "Confirmado";
-    if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
-    if (s.includes("por producir")) return "Por producir";
-    if (s.includes("enviado")) return "Enviado";
+  if (s.includes("por preparar")) return "Por preparar";
+  if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
+  if (s.includes("confirmado")) return "Confirmado";
+  if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
+  if (s.includes("por producir")) return "Por producir";
+  if (s.includes("enviado")) return "Enviado";
 
-    return estado ? String(estado).trim() : "Por preparar";
-  }
+  return estado ? String(estado).trim() : "Por preparar";
+}
 
 /* =====================================================
   ESTADO PILL (igual a colores del modal)
@@ -223,7 +223,7 @@ function estadoStyle(estado) {
   const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
 
 
- if (s.includes("por preparar")) {
+  if (s.includes("por preparar")) {
     return {
       label,
       icon: "⏳",
@@ -232,7 +232,7 @@ function estadoStyle(estado) {
     };
   }
 
-   if (s.includes("faltan archivos")) {
+  if (s.includes("faltan archivos")) {
     return {
       label,
       icon: "⚠️",
@@ -250,7 +250,7 @@ function estadoStyle(estado) {
     };
   }
 
-    if (s.includes("diseñado")) {
+  if (s.includes("diseñado")) {
     return {
       label,
       icon: "🎨",
@@ -259,7 +259,7 @@ function estadoStyle(estado) {
     };
   }
 
-   if (s.includes("por producir")) {
+  if (s.includes("por producir")) {
     return {
       label,
       icon: "🏗️",
@@ -277,7 +277,7 @@ function estadoStyle(estado) {
     };
   }
 
-   return {
+  return {
     label: label || "—",
     icon: "📍",
     wrap: `${base} bg-slate-700 border-slate-600 text-white`,
@@ -285,7 +285,7 @@ function estadoStyle(estado) {
   };
 }
 
-function renderEstadoPill(estado) {           
+function renderEstadoPill(estado) {
   if (esBadgeHtml(estado)) return String(estado);
 
   const st = estadoStyle(estado);
@@ -329,99 +329,44 @@ function resetToFirstPage({ withFetch = false } = {}) {
 /* =====================================================
   CARGAR PEDIDOS (con protección anti-overwrite)
 ===================================================== */
-  function cargarPedidos({ page_info = "", reset = false } = {}) {
-    if (isLoading) return;
-    isLoading = true;
-    showLoader();
+function cargarPedidos({ page_info = "", reset = false } = {}) {
+  if (isLoading) return;
+  isLoading = true;
+  showLoader();
 
-    const fetchToken = ++lastFetchToken;
+  const fetchToken = ++lastFetchToken;
 
-    const base = apiUrl("/dashboard/pedidos");
-    const fallback = apiUrl("/dashboard/filter");
+  const base = apiUrl("/dashboard/pedidos");
+  const fallback = apiUrl("/dashboard/filter");
 
-    if (reset) {
-      currentPage = 1;
-      nextPageInfo = null;
-      prevPageInfo = null;
-      page_info = "";
-      liveMode = true;
-    }
+  if (reset) {
+    currentPage = 1;
+    nextPageInfo = null;
+    prevPageInfo = null;
+    page_info = "";
+    liveMode = true;
+  }
 
-    const buildUrl = (endpoint) => {
-      const u = new URL(endpoint, window.location.origin);
-      u.searchParams.set("page", String(currentPage));
-      if (page_info) u.searchParams.set("page_info", page_info);
-      return u.toString();
-    };
+  const buildUrl = (endpoint) => {
+    const u = new URL(endpoint, window.location.origin);
+    u.searchParams.set("page", String(currentPage));
+    if (page_info) u.searchParams.set("page_info", page_info);
+    return u.toString();
+  };
 
-    fetch(buildUrl(base), { headers: { Accept: "application/json" } })
-      .then(async (res) => {
-        if (res.status === 404) {
-          const r2 = await fetch(buildUrl(fallback), { headers: { Accept: "application/json" } });
-          return r2.json();
-        }
-        return res.json();
-      })
-      .then((data) => {
-        // ✅ si llegó una respuesta vieja, la ignoramos
-        if (fetchToken !== lastFetchToken) return;
+  fetch(buildUrl(base), { headers: { Accept: "application/json" } })
+    .then(async (res) => {
+      if (res.status === 404) {
+        const r2 = await fetch(buildUrl(fallback), { headers: { Accept: "application/json" } });
+        return r2.json();
+      }
+      return res.json();
+    })
+    .then((data) => {
+      // ✅ si llegó una respuesta vieja, la ignoramos
+      if (fetchToken !== lastFetchToken) return;
 
-        if (!data || !data.success) {
-          actualizarTabla([]);
-          ordersCache = [];
-          ordersById = new Map();
-          nextPageInfo = null;
-          prevPageInfo = null;
-          actualizarControlesPaginacion();
-          setPaginaUI({ totalPages: null });
-          return;
-        }
-
-        nextPageInfo = data.next_page_info ?? null;
-        prevPageInfo = data.prev_page_info ?? null;
-
-        let incoming = Array.isArray(data.orders) ? data.orders : [];
-
-        // ✅ aplicar "dirty protection"
-        const now = Date.now();
-        incoming = incoming.map((o) => {
-          const id = String(o.id ?? "");
-          if (!id) return o;
-
-          const dirty = dirtyOrders.get(id);
-          if (dirty && dirty.until > now) {
-            return {
-              ...o,
-              estado: dirty.estado,
-              last_status_change: dirty.last_status_change,
-            };
-          } else if (dirty) {
-            dirtyOrders.delete(id);
-          }
-          return o;
-        });
-
-        ordersCache = incoming;
-        ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
-
-        try {
-          actualizarTabla(ordersCache);
-        } catch (e) {
-          console.error("Error renderizando tabla:", e);
-          actualizarTabla([]);
-        }
-
-
-        const total = document.getElementById("total-pedidos");
-        if (total) total.textContent = String(data.total_orders ?? data.count ?? 0);
-
-        setPaginaUI({ totalPages: data.total_pages ?? null });
-        actualizarControlesPaginacion();
-      })
-      .catch((err) => {
-        if (fetchToken !== lastFetchToken) return;
-
-        console.error("Error cargando pedidos:", err);
+      if (!data || !data.success) {
         actualizarTabla([]);
         ordersCache = [];
         ordersById = new Map();
@@ -429,17 +374,72 @@ function resetToFirstPage({ withFetch = false } = {}) {
         prevPageInfo = null;
         actualizarControlesPaginacion();
         setPaginaUI({ totalPages: null });
-      })
-      .finally(() => {
-        if (fetchToken !== lastFetchToken) return;
-        isLoading = false;
-        silentFetch = false; // 👈 vuelve a normal
-        hideLoader();
+        return;
+      }
+
+      nextPageInfo = data.next_page_info ?? null;
+      prevPageInfo = data.prev_page_info ?? null;
+
+      let incoming = Array.isArray(data.orders) ? data.orders : [];
+
+      // ✅ aplicar "dirty protection"
+      const now = Date.now();
+      incoming = incoming.map((o) => {
+        const id = String(o.id ?? "");
+        if (!id) return o;
+
+        const dirty = dirtyOrders.get(id);
+        if (dirty && dirty.until > now) {
+          return {
+            ...o,
+            estado: dirty.estado,
+            last_status_change: dirty.last_status_change,
+          };
+        } else if (dirty) {
+          dirtyOrders.delete(id);
+        }
+        return o;
       });
 
-  }
-  // ✅ Exponer para llamadas que usan window.cargarPedidos(...)
-  window.cargarPedidos = cargarPedidos;
+      ordersCache = incoming;
+      ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
+
+      try {
+        actualizarTabla(ordersCache);
+      } catch (e) {
+        console.error("Error renderizando tabla:", e);
+        actualizarTabla([]);
+      }
+
+
+      const total = document.getElementById("total-pedidos");
+      if (total) total.textContent = String(data.total_orders ?? data.count ?? 0);
+
+      setPaginaUI({ totalPages: data.total_pages ?? null });
+      actualizarControlesPaginacion();
+    })
+    .catch((err) => {
+      if (fetchToken !== lastFetchToken) return;
+
+      console.error("Error cargando pedidos:", err);
+      actualizarTabla([]);
+      ordersCache = [];
+      ordersById = new Map();
+      nextPageInfo = null;
+      prevPageInfo = null;
+      actualizarControlesPaginacion();
+      setPaginaUI({ totalPages: null });
+    })
+    .finally(() => {
+      if (fetchToken !== lastFetchToken) return;
+      isLoading = false;
+      silentFetch = false; // 👈 vuelve a normal
+      hideLoader();
+    });
+
+}
+// ✅ Exponer para llamadas que usan window.cargarPedidos(...)
+window.cargarPedidos = cargarPedidos;
 
 /* =====================================================
   CONTROLES PAGINACIÓN
@@ -660,12 +660,24 @@ function actualizarTabla(pedidos) {
                 </div>
 
                 <!-- Estado -->
-                <div class="whitespace-nowrap relative z-10">
-                  <button type="button" onclick="abrirModal('${escapeJsString(String(id))}')"
-                    class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0">
-                    ${renderEstadoPill(p.estado ?? "-")}
-                  </button>
-                </div>
+                  <div class="whitespace-nowrap relative z-10">
+                    <button
+                      type="button"
+                      onclick="abrirModal('${escapeJsString(String(id))}')"
+                      class="
+                        group inline-flex items-center gap-2
+                        rounded-2xl px-1.5 py-1
+                        bg-transparent
+                        hover:bg-slate-100
+                        transition
+                        focus:outline-none
+                      "
+                      title="Cambiar estado"
+                    >
+                      ${renderEstadoPill(p.estado ?? "-")}
+                    </button>
+                  </div>
+
 
                 <!-- Último cambio -->
                 <div class="min-w-0">
@@ -1177,22 +1189,22 @@ window.verDetalles = async function (orderId) {
 
       wrap.innerHTML = clean
         ? clean
-            .split(",")
-            .map(t => t.trim())
-            .filter(Boolean)
-            .map(tag => {
-              // usa mismo color que dashboard si existe
-              const cls =
-                (typeof window.colorEtiqueta === "function")
-                  ? window.colorEtiqueta(tag)
-                  : "bg-white border-slate-200 text-slate-900";
-              return `
+          .split(",")
+          .map(t => t.trim())
+          .filter(Boolean)
+          .map(tag => {
+            // usa mismo color que dashboard si existe
+            const cls =
+              (typeof window.colorEtiqueta === "function")
+                ? window.colorEtiqueta(tag)
+                : "bg-white border-slate-200 text-slate-900";
+            return `
                 <span class="px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide border ${cls}">
                   ${escapeHtml(tag)}
                 </span>
               `;
-            })
-            .join("")
+          })
+          .join("")
         : `<span class="text-xs text-slate-400">—</span>`;
 
       const btn = document.getElementById("btnEtiquetasDetalle");
@@ -1263,7 +1275,7 @@ window.verDetalles = async function (orderId) {
     window.abrirEtiquetasDesdeDetalle = function (btn) {
       try {
         const orderId = btn?.dataset?.orderId;
-        const label   = btn?.dataset?.orderLabel || ("#" + orderId);
+        const label = btn?.dataset?.orderLabel || ("#" + orderId);
         const tagsStr = btn?.dataset?.orderTags || "";
 
         // marca para que guardarEtiquetasModal repinte en detalles
@@ -1315,8 +1327,8 @@ window.verDetalles = async function (orderId) {
             value === null || value === undefined
               ? ""
               : typeof value === "object"
-              ? JSON.stringify(value)
-              : String(value);
+                ? JSON.stringify(value)
+                : String(value);
 
           if (esImagenUrl(v)) propsImg.push({ name, value: v });
           else propsTxt.push({ name, value: v });
@@ -1352,8 +1364,8 @@ window.verDetalles = async function (orderId) {
           estadoItem === "LISTO"
             ? "bg-emerald-50 border-emerald-200 text-emerald-900"
             : estadoItem === "FALTA"
-            ? "bg-amber-50 border-amber-200 text-amber-900"
-            : "bg-slate-50 border-slate-200 text-slate-700";
+              ? "bg-amber-50 border-amber-200 text-amber-900"
+              : "bg-slate-50 border-slate-200 text-slate-700";
         const badgeText =
           estadoItem === "LISTO" ? "Listo" : estadoItem === "FALTA" ? "Falta imagen" : "Sin imagen";
 
@@ -1364,23 +1376,23 @@ window.verDetalles = async function (orderId) {
               <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
               <div class="space-y-1 text-sm">
                 ${propsTxt
-                  .map(({ name, value }) => {
-                    const safeV = escapeHtml(value || "—");
-                    const safeName = escapeHtml(name);
+            .map(({ name, value }) => {
+              const safeV = escapeHtml(value || "—");
+              const safeName = escapeHtml(name);
 
-                    const val =
-                      esUrl(value)
-                        ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
-                        : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
+              const val =
+                esUrl(value)
+                  ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                  : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
 
-                    return `
+              return `
                       <div class="flex gap-2">
                         <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
                         <div class="flex-1">${val}</div>
                       </div>
                     `;
-                  })
-                  .join("")}
+            })
+            .join("")}
               </div>
             </div>
           `
@@ -1393,8 +1405,8 @@ window.verDetalles = async function (orderId) {
               <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
               <div class="flex flex-wrap gap-3">
                 ${propsImg
-                  .map(
-                    ({ name, value }) => `
+            .map(
+              ({ name, value }) => `
                     <a href="${escapeHtml(value)}" target="_blank"
                       class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                       <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
@@ -1403,8 +1415,8 @@ window.verDetalles = async function (orderId) {
                       </div>
                     </a>
                   `
-                  )
-                  .join("")}
+            )
+            .join("")}
               </div>
             </div>
           `
@@ -1422,8 +1434,8 @@ window.verDetalles = async function (orderId) {
             </div>
           `
           : requiere
-          ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
-          : "";
+            ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+            : "";
 
         // datos del item (tipo Shopify)
         const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
@@ -1644,7 +1656,7 @@ function validarEstadoAuto(orderId) {
 async function pingUsuario() {
   try {
     await fetch(apiUrl("/dashboard/ping"), { headers: { Accept: "application/json" } });
-  } catch (e) {}
+  } catch (e) { }
 }
 
 async function cargarUsuariosEstado() {
@@ -1678,8 +1690,8 @@ window.renderUsersStatus = function (payload) {
       u.seconds_since_seen != null
         ? Number(u.seconds_since_seen)
         : u.last_seen
-        ? Math.max(0, Math.floor((Date.now() - new Date(String(u.last_seen).replace(" ", "T")).getTime()) / 1000))
-        : null;
+          ? Math.max(0, Math.floor((Date.now() - new Date(String(u.last_seen).replace(" ", "T")).getTime()) / 1000))
+          : null;
 
     return { ...u, seconds_since_seen: isNaN(secs) ? null : secs };
   });
@@ -1715,8 +1727,7 @@ function renderUserRow(mode) {
           </span>`;
 
     return `
-      <li class="flex items-center justify-between gap-3 p-3 rounded-2xl border ${
-        mode === "online" ? "border-emerald-200 bg-white/70" : "border-rose-200 bg-white/70"
+      <li class="flex items-center justify-between gap-3 p-3 rounded-2xl border ${mode === "online" ? "border-emerald-200 bg-white/70" : "border-rose-200 bg-white/70"
       }">
         <div class="min-w-0">
           <div class="font-extrabold text-slate-900 truncate">${nombre}</div>
@@ -1792,20 +1803,20 @@ function renderOpcionesEtiquetas({ selected = [] } = {}) {
     </div>
     <div class="flex flex-wrap gap-2">
       ${disponibles
-        .map((tag) => {
-          const on = selectedSet.has(tag);
-          const cls = on
-            ? "bg-slate-900 text-white border-slate-900"
-            : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50";
-          return `
+      .map((tag) => {
+        const on = selectedSet.has(tag);
+        const cls = on
+          ? "bg-slate-900 text-white border-slate-900"
+          : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50";
+        return `
             <button type="button"
               data-tag="${escapeHtml(tag)}"
               class="px-3 py-2 rounded-2xl border text-[11px] font-extrabold uppercase tracking-wide ${cls}">
               ${escapeHtml(tag)}
             </button>
           `;
-        })
-        .join("")}
+      })
+      .join("")}
     </div>
   `;
 
@@ -1836,7 +1847,7 @@ function renderOpcionesEtiquetas({ selected = [] } = {}) {
         } else {
           set.add(tag);
         }
-      } 
+      }
 
       const next = Array.from(set);
       if (inputTags) inputTags.value = serializeTags(next);
@@ -1947,20 +1958,20 @@ function renderOpcionesEtiquetasSimple({ selected = [] } = {}) {
     </div>
     <div class="flex flex-wrap gap-2">
       ${disponibles
-        .map((tag) => {
-          const on = selectedSet.has(tag);
-          const cls = on
-            ? "bg-slate-900 text-white border-slate-900"
-            : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50";
-          return `
+      .map((tag) => {
+        const on = selectedSet.has(tag);
+        const cls = on
+          ? "bg-slate-900 text-white border-slate-900"
+          : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50";
+        return `
             <button type="button"
               data-tag="${escapeHtml(tag)}"
               class="px-3 py-2 rounded-2xl border text-[11px] font-extrabold uppercase tracking-wide ${cls}">
               ${escapeHtml(tag)}
             </button>
           `;
-        })
-        .join("")}
+      })
+      .join("")}
     </div>
   `;
 
@@ -2027,8 +2038,8 @@ function renderSelected() {
 
   wrap.innerHTML = arr.length
     ? arr
-        .map(
-          (t) => `
+      .map(
+        (t) => `
         <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-900 text-white text-xs font-extrabold">
           ${escapeHtml(t)}
           <button type="button"
@@ -2036,8 +2047,8 @@ function renderSelected() {
             onclick="toggleEtiqueta('${escapeJsString(t)}')">×</button>
         </span>
       `
-        )
-        .join("")
+      )
+      .join("")
     : `<span class="text-sm text-slate-500">Ninguna</span>`;
 
   if (hint) hint.classList.toggle("hidden", arr.length <= 6);
