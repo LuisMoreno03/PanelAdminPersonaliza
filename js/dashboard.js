@@ -215,13 +215,13 @@ function estadoStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
 
   if (s.includes("por preparar")) {
-    return { wrap: "bg-gray-600 border-slate-200 text-slate-800", dot: "bg-slate-500", icon: "⏳", label: "Por preparar" };
+    return { wrap: "bg-gray-400 border-slate-200 text-slate-800", dot: "bg-slate-500", icon: "⏳", label: "Por preparar" };
   }
   if (s.includes("a medias") || s.includes("medias")) {
     return { wrap: "bg-yellow-500 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "🟡", label: "A medias" };
   }
   if (s.includes("producción") || s.includes("produccion")) {
-    return { wrap: "bg-purple-100 border-purple-200 text-purple-900", dot: "bg-purple-500", icon: "🏭", label: "Producción" };
+    return { wrap: "bg-purple-500 border-purple-200 text-purple-900", dot: "bg-purple-500", icon: "🏭", label: "Producción" };
   }
   if (s.includes("fabricando")) {
     return { wrap: "bg-blue-100 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🛠️", label: "Fabricando" };
