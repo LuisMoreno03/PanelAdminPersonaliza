@@ -1,55 +1,46 @@
 <?php
 // app/Views/layouts/modales_estados.php
-// ✅ MISMA LÓGICA / MISMO FUNCIONAMIENTO
-// ✅ Diseño moderno + súper visual + colores fuertes
+// ✅ Limpio + moderno
+// ✅ Botones de estado oscuros (solo dark)
+// ✅ Mantiene #modalOrderId y guardarEstado('...')
+// ✅ Mantiene modalEtiquetas (chips)
 ?>
 
 <!-- =============================================================== -->
 <!-- MODAL CAMBIAR ESTADO DEL PEDIDO -->
 <!-- =============================================================== -->
 <div id="modalEstado"
-     class="hidden fixed inset-0 z-[9999] p-4 bg-black/80 backdrop-blur-md flex items-center justify-center">
+     class="hidden fixed inset-0 z-[9999] p-4 bg-black/70 backdrop-blur-md flex items-center justify-center">
 
-  <!-- Card -->
-  <div class="w-full max-w-md rounded-[32px] overflow-hidden shadow-[0_20px_80px_rgba(0,0,0,.55)] border border-white/10 animate-fadeIn">
+  <div class="w-full max-w-md rounded-[28px] overflow-hidden bg-white shadow-2xl border border-slate-200 animate-fadeIn">
 
     <!-- Header -->
-    <div class="relative px-6 py-6 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950">
-      <!-- glow -->
-      <div class="pointer-events-none absolute -top-24 -right-24 h-56 w-56 rounded-full bg-fuchsia-600/20 blur-3xl"></div>
-      <div class="pointer-events-none absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-blue-600/20 blur-3xl"></div>
-
-      <div class="flex items-start justify-between gap-4 relative">
+    <div class="px-6 py-5 border-b border-slate-200 bg-white">
+      <div class="flex items-start justify-between gap-4">
         <div>
-          <h2 class="text-2xl font-extrabold text-white tracking-tight">Cambiar estado</h2>
-          <p class="text-sm text-white/70 mt-1">Selecciona el nuevo estado del pedido</p>
+          <h2 class="text-xl font-extrabold text-slate-900 tracking-tight">Cambiar estado</h2>
+          <p class="text-sm text-slate-500 mt-1">Selecciona el nuevo estado del pedido</p>
         </div>
 
         <button type="button" onclick="cerrarModal()"
-          class="h-11 w-11 rounded-2xl bg-white/10 border border-white/10 text-white
-                 hover:bg-white/20 hover:border-white/20 transition font-extrabold text-2xl leading-none grid place-items-center">
+          class="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-700
+                 hover:bg-slate-50 hover:border-slate-300 transition font-extrabold text-xl leading-none grid place-items-center">
           ×
         </button>
       </div>
 
       <!-- ✅ ESTE INPUT lo usa guardarEstado() -->
       <input type="hidden" id="modalOrderId" value="">
-
-      <!-- microhint -->
-      <div class="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white/10 border border-white/10 text-xs font-extrabold text-white/90">
-        <span class="h-2.5 w-2.5 rounded-full bg-emerald-300"></span>
-        Se guarda automáticamente al tocar un estado
-      </div>
     </div>
 
     <!-- Body -->
-    <div class="p-6 bg-white">
-      <div class="grid gap-3" id="estadoOptionsWrap"></div>
+    <div class="p-6">
+      <div class="grid gap-2.5" id="estadoOptionsWrap"></div>
 
       <button type="button"
         onclick="cerrarModal()"
-        class="mt-6 w-full px-4 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800
-               text-white font-extrabold transition shadow-md active:scale-[0.99]">
+        class="mt-5 w-full px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200
+               text-slate-900 font-extrabold transition">
         Cerrar
       </button>
     </div>
@@ -63,77 +54,62 @@
 <!-- MODAL EDITAR ETIQUETAS (CHIPS) -->
 <!-- =============================================================== -->
 <div id="modalEtiquetas"
-     class="hidden fixed inset-0 z-[9999] p-4 bg-black/80 backdrop-blur-md flex items-center justify-center">
+     class="hidden fixed inset-0 z-[9999] p-4 bg-black/70 backdrop-blur-md flex items-center justify-center">
 
-  <div class="w-full max-w-3xl rounded-[32px] bg-white shadow-[0_20px_80px_rgba(0,0,0,.55)] border border-slate-200 overflow-hidden animate-fadeIn">
+  <div class="w-full max-w-3xl rounded-[28px] bg-white shadow-2xl border border-slate-200 overflow-hidden animate-fadeIn">
 
     <!-- Header -->
-    <div class="relative p-6 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 flex items-start justify-between gap-4">
-      <div class="pointer-events-none absolute -top-24 -right-24 h-56 w-56 rounded-full bg-emerald-500/20 blur-3xl"></div>
-      <div class="pointer-events-none absolute -bottom-24 -left-24 h-56 w-56 rounded-full bg-yellow-400/20 blur-3xl"></div>
-
-      <div class="relative">
-        <h2 class="text-2xl font-extrabold text-white tracking-tight">Editar etiquetas</h2>
-        <p class="text-sm text-white/70 mt-1">Toca para agregar / quitar chips</p>
-
-        <div class="mt-4 flex flex-wrap gap-2">
-          <span class="px-3 py-1.5 rounded-2xl bg-white/10 border border-white/10 text-xs font-extrabold text-white/90">Máximo recomendado: 6</span>
-          <span class="px-3 py-1.5 rounded-2xl bg-white/10 border border-white/10 text-xs font-extrabold text-white/90">P.* Producción</span>
-          <span class="px-3 py-1.5 rounded-2xl bg-white/10 border border-white/10 text-xs font-extrabold text-white/90">D.* Diseño</span>
-        </div>
+    <div class="p-6 border-b border-slate-200 bg-white flex items-start justify-between gap-4">
+      <div>
+        <h2 class="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">Editar etiquetas</h2>
+        <p class="text-sm text-slate-500 mt-1">Toca para agregar / quitar chips</p>
       </div>
 
       <button type="button" onclick="cerrarModalEtiquetas()"
-        class="relative h-11 w-11 rounded-2xl bg-white/10 border border-white/10 text-white
-               hover:bg-white/20 hover:border-white/20 transition font-extrabold text-2xl leading-none grid place-items-center">
+        class="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-700
+               hover:bg-slate-50 hover:border-slate-300 transition font-extrabold text-xl leading-none grid place-items-center">
         ×
       </button>
     </div>
 
-    <div class="p-6 space-y-6">
+    <div class="p-6 space-y-5">
       <input type="hidden" id="modalEtiquetasOrderId" value="">
 
       <!-- Seleccionadas -->
       <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
         <div class="flex items-center justify-between gap-3">
-          <div class="text-lg font-extrabold text-slate-900">Etiquetas del pedido</div>
+          <div class="font-extrabold text-slate-900">Etiquetas del pedido</div>
 
           <button type="button" onclick="limpiarEtiquetas?.()"
-                  class="text-xs font-extrabold text-rose-600 hover:text-rose-700 underline">
+                  class="text-xs font-extrabold text-slate-700 hover:text-slate-900 underline">
             Limpiar
           </button>
         </div>
 
         <div id="etiquetasSeleccionadas"
-             class="mt-4 min-h-[58px] p-3 rounded-2xl border border-slate-200 bg-white flex flex-wrap gap-2 soft-scroll">
+             class="mt-3 min-h-[54px] p-3 rounded-2xl border border-slate-200 bg-white flex flex-wrap gap-2">
         </div>
 
-        <p class="mt-3 text-xs text-slate-600">
+        <p class="mt-3 text-xs text-slate-500">
           Consejo: usa <b>P.*</b> (producción) o <b>D.*</b> (diseño) + una etiqueta de acción.
         </p>
       </div>
 
       <!-- Rápidas -->
       <div class="rounded-3xl border border-slate-200 bg-white p-5">
-        <div class="flex items-center justify-between">
-          <div class="text-lg font-extrabold text-slate-900">Etiquetas rápidas</div>
-          <button type="button" onclick="mostrarEtiquetasRapidas()"
-                  class="text-xs font-extrabold text-slate-700 hover:text-slate-900 underline">
-            Recargar
-          </button>
-        </div>
-        <div id="listaEtiquetasRapidas" class="mt-4 flex flex-wrap gap-2"></div>
+        <div class="font-extrabold text-slate-900">Etiquetas rápidas</div>
+        <div id="listaEtiquetasRapidas" class="mt-3 flex flex-wrap gap-2"></div>
       </div>
 
       <!-- Botones -->
       <div class="flex flex-col sm:flex-row gap-3">
         <button type="button" onclick="guardarEtiquetas()"
-                class="w-full px-4 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition shadow-md active:scale-[0.99]">
+                class="w-full px-4 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold transition shadow-sm">
           Guardar cambios
         </button>
 
         <button type="button" onclick="cerrarModalEtiquetas()"
-                class="w-full px-4 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold transition shadow-md active:scale-[0.99]">
+                class="w-full px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-900 font-extrabold transition">
           Cerrar
         </button>
       </div>
@@ -162,99 +138,46 @@ function normalizeEstado(estado) {
 }
 
 /* =====================================================
-  ESTADO STYLE (FUERTE) - SOLO PARA ESTOS ESTADOS
-  ✅ FIX: ahora detecta "Faltan archivos" correctamente
+  ESTADO STYLE (DARK ONLY) - limpio + moderno
+  ✅ Sin colores neón: solo dark con acentos sutiles
 ===================================================== */
 function estadoStyle(estado) {
   const label = normalizeEstado(estado);
   const s = String(label || "").toLowerCase().trim();
 
-  // base pill (pero en modal usamos un card-boton más potente)
   const base =
     "w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl " +
-    "border font-extrabold tracking-wide shadow-md transition " +
-    "hover:scale-[1.01] active:scale-[0.99]";
+    "border text-white font-extrabold shadow-sm transition " +
+    "hover:translate-y-[-1px] active:translate-y-[0px] active:scale-[0.995]";
 
-  // icon capsule
-  const iconWrap =
-    "h-10 w-10 rounded-2xl grid place-items-center text-lg " +
-    "shadow-sm border border-white/15";
+  const iconWrap = "h-10 w-10 rounded-2xl grid place-items-center text-lg bg-white/10 border border-white/10";
+  const dotBase  = "h-2.5 w-2.5 rounded-full ring-2 ring-white/20";
 
-  // dot
-  const dotBase = "h-3 w-3 rounded-full ring-2";
-
+  // ✅ Solo tonos oscuros, con un acento muy sutil por estado
   if (s.includes("por preparar")) {
-    return {
-      label,
-      icon: "⏳",
-      wrap: `${base} bg-slate-950 text-white border-slate-800 hover:bg-slate-900`,
-      iconWrap: `${iconWrap} bg-white/10`,
-      dot: `${dotBase} bg-slate-200 ring-white/30`,
-    };
+    return { label, icon: "⏳", wrap: `${base} bg-slate-950 border-slate-700 hover:border-slate-500`, iconWrap, dot: `${dotBase} bg-slate-200` };
   }
-
   if (s.includes("faltan archivos")) {
-    return {
-      label,
-      icon: "⚠️",
-      wrap: `${base} bg-yellow-400 text-black border-yellow-500 hover:bg-yellow-300`,
-      iconWrap: `${iconWrap} bg-black/10 border-black/10`,
-      dot: `${dotBase} bg-black/80 ring-black/20`,
-    };
+    return { label, icon: "⚠️", wrap: `${base} bg-zinc-950 border-yellow-700/60 hover:border-yellow-500/80`, iconWrap, dot: `${dotBase} bg-yellow-300` };
   }
-
   if (s.includes("confirmado")) {
-    return {
-      label,
-      icon: "✅",
-      wrap: `${base} bg-fuchsia-600 text-white border-fuchsia-700 hover:bg-fuchsia-500`,
-      iconWrap: `${iconWrap} bg-white/15`,
-      dot: `${dotBase} bg-white ring-white/30`,
-    };
+    return { label, icon: "✅", wrap: `${base} bg-slate-950 border-fuchsia-700/60 hover:border-fuchsia-500/80`, iconWrap, dot: `${dotBase} bg-fuchsia-300` };
   }
-
   if (s.includes("diseñado")) {
-    return {
-      label,
-      icon: "🎨",
-      wrap: `${base} bg-blue-600 text-white border-blue-700 hover:bg-blue-500`,
-      iconWrap: `${iconWrap} bg-white/15`,
-      dot: `${dotBase} bg-sky-200 ring-white/30`,
-    };
+    return { label, icon: "🎨", wrap: `${base} bg-slate-950 border-sky-700/60 hover:border-sky-500/80`, iconWrap, dot: `${dotBase} bg-sky-300` };
   }
-
   if (s.includes("por producir")) {
-    return {
-      label,
-      icon: "🏗️",
-      wrap: `${base} bg-orange-600 text-white border-orange-700 hover:bg-orange-500`,
-      iconWrap: `${iconWrap} bg-white/15`,
-      dot: `${dotBase} bg-amber-200 ring-white/30`,
-    };
+    return { label, icon: "🏗️", wrap: `${base} bg-slate-950 border-orange-700/60 hover:border-orange-500/80`, iconWrap, dot: `${dotBase} bg-orange-300` };
   }
-
   if (s.includes("enviado")) {
-    return {
-      label,
-      icon: "🚚",
-      wrap: `${base} bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-500`,
-      iconWrap: `${iconWrap} bg-white/15`,
-      dot: `${dotBase} bg-lime-200 ring-white/30`,
-    };
+    return { label, icon: "🚚", wrap: `${base} bg-slate-950 border-emerald-700/60 hover:border-emerald-500/80`, iconWrap, dot: `${dotBase} bg-emerald-300` };
   }
 
-  return {
-    label: label || "—",
-    icon: "📍",
-    wrap: `${base} bg-slate-700 text-white border-slate-600 hover:bg-slate-600`,
-    iconWrap: `${iconWrap} bg-white/15`,
-    dot: `${dotBase} bg-slate-200 ring-white/30`,
-  };
+  return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-950 border-slate-700 hover:border-slate-500`, iconWrap, dot: `${dotBase} bg-slate-200` };
 }
 
 /* ============================================================
    ✅ BOTÓN DEL MODAL (usa guardarEstado(valor))
-   Se manda el estadoValue TAL CUAL (como lo tenías)
 ============================================================ */
 function renderEstadoOptionButtonHTML(estadoValue) {
   const st = estadoStyle(estadoValue);
@@ -267,9 +190,7 @@ function renderEstadoOptionButtonHTML(estadoValue) {
         <span class="${st.iconWrap}">${st.icon}</span>
         <span class="min-w-0">
           <span class="block text-sm sm:text-base leading-none">${st.label}</span>
-          <span class="block text-[11px] font-bold opacity-80 mt-1">
-            Toca para guardar
-          </span>
+          <span class="block text-[11px] font-bold text-white/70 mt-1">Toca para guardar</span>
         </span>
       </span>
       <span class="${st.dot}"></span>
@@ -278,8 +199,7 @@ function renderEstadoOptionButtonHTML(estadoValue) {
 }
 
 /* ============================================================
-   ✅ ESTADOS QUE APARECEN EN EL MODAL (los de tu normalizeEstado)
-   (dejo faltan_archivos tal cual lo tenías)
+   ✅ ESTADOS QUE APARECEN EN EL MODAL
 ============================================================ */
 function renderEstadosModal() {
   const wrap = document.getElementById("estadoOptionsWrap");
@@ -316,9 +236,8 @@ function mostrarEtiquetasRapidas() {
     cont.innerHTML += `
       <button type="button"
         onclick="agregarEtiqueta('${String(tag).replace(/'/g, "\\'")}')"
-        class="px-4 py-2 rounded-2xl text-xs sm:text-sm font-extrabold
-               border shadow-md hover:scale-[1.03] active:scale-[0.99] transition
-               ${colorEtiqueta(tag)}">
+        class="px-4 py-2 rounded-2xl text-xs sm:text-sm font-extrabold border shadow-sm
+               hover:scale-[1.03] active:scale-[0.99] transition ${colorEtiqueta(tag)}">
         ${tag}
       </button>
     `;
@@ -326,7 +245,7 @@ function mostrarEtiquetasRapidas() {
 }
 
 /* ============================================================
-   COLORES DE ETIQUETA (FUERTES)
+   COLORES DE ETIQUETA (limpio)
 ============================================================ */
 function colorEtiqueta(tag) {
   tag = String(tag || "").toLowerCase();
@@ -334,7 +253,7 @@ function colorEtiqueta(tag) {
   if (tag.startsWith("d.")) return "bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-500";
   if (tag.startsWith("p.")) return "bg-yellow-400 text-black border-yellow-500 hover:bg-yellow-300";
 
-  return "bg-slate-950 text-white border-slate-800 hover:bg-slate-900";
+  return "bg-slate-900 text-white border-slate-800 hover:bg-slate-800";
 }
 
 /* ============================================================
