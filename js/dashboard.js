@@ -213,6 +213,7 @@ function normalizeEstado(estado) {
   ESTADO PILL (igual a colores del modal)
 ===================================================== */
 function estadoStyle(estado) {
+  const label = normalizeEstado(estado); // ✅ ahora SÍ existe
   const s = String(estado || "").toLowerCase().trim();
 
  if (s.includes("por preparar")) {
