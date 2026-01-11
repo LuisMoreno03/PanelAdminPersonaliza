@@ -215,7 +215,7 @@ function estadoStyle(estado) {
   const s = String(estado || "").toLowerCase().trim();
 
   if (s.includes("por preparar")) {
-    return { wrap: "bg-slate-100 border-slate-200 text-slate-800", dot: "bg-slate-500", icon: "⏳", label: "Por preparar" };
+    return { wrap: "bg-gray-700 border-slate-200 text-slate-800", dot: "bg-slate-500", icon: "⏳", label: "Por preparar" };
   }
   if (s.includes("a medias") || s.includes("medias")) {
     return { wrap: "bg-amber-100 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "🟡", label: "A medias" };
@@ -1809,6 +1809,7 @@ const ETQ_GENERALES = [
   "Reembolso completo",
   "Repetir",
   "No contesta 24h",
+  "Test",
 ];
 
 function isConfirmacionRole() {
