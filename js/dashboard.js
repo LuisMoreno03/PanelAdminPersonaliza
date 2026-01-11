@@ -221,7 +221,7 @@ function estadoStyle(estado) {
     return { wrap: "bg-yellow-500 border-amber-200 text-amber-900", dot: "bg-amber-500", icon: "🟡", label: "A medias" };
   }
   if (s.includes("producción") || s.includes("produccion")) {
-    return { wrap: "bg-purple-500 border-purple-200 text-purple-900", dot: "bg-purple-500", icon: "🏭", label: "Producción" };
+    return { wrap: "bg-purple-500 border-purple-200 text-black-900", dot: "bg-purple-700", icon: "🏭", label: "Producción" };
   }
   if (s.includes("fabricando")) {
     return { wrap: "bg-blue-100 border-blue-200 text-blue-900", dot: "bg-blue-500", icon: "🛠️", label: "Fabricando" };
