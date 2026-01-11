@@ -665,8 +665,8 @@ function actualizarTabla(pedidos) {
                       type="button"
                       onclick="abrirModal('${escapeJsString(String(id))}')"
                       class="
-                        group inline-flex items-center gap-2
-                        rounded-2xl px-1.5 py-1
+                        group inline-flex items-center gap-1
+                        rounded-xl px-1 py-0.5
                         bg-transparent
                         hover:bg-slate-100
                         transition
@@ -677,6 +677,7 @@ function actualizarTabla(pedidos) {
                       ${renderEstadoPill(p.estado ?? "-")}
                     </button>
                   </div>
+
 
 
                 <!-- Último cambio -->
