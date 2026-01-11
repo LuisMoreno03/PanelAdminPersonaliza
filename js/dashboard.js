@@ -196,6 +196,7 @@ function renderEstado(valor) {
   if (esBadgeHtml(valor)) return String(valor);
   return escapeHtml(valor ?? "-");
 }
+
 function normalizeEstado(estado) {
   const s = String(estado || "").trim().toLowerCase();
 

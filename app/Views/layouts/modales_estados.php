@@ -1,5 +1,5 @@
 <!-- =============================================================== -->
-<!-- MODAL CAMBIAR ESTADO DEL PEDIDO (COLORES FUERTES / LLAMATIVOS) -->
+<!-- MODAL CAMBIAR ESTADO DEL PEDIDO (USA TU estadoStyle() PARA EL HTML) -->
 <!-- =============================================================== -->
 <div id="modalEstado"
      class="hidden fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
@@ -28,78 +28,8 @@
 
     <!-- Body -->
     <div class="p-6 bg-white">
-      <div class="grid gap-3">
-
-        <!-- Por preparar -->
-        <button type="button"
-          onclick="guardarEstado('Por preparar')"
-          class="group w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl
-                 bg-slate-950 text-white font-extrabold tracking-wide
-                 border border-slate-800 shadow-md
-                 hover:scale-[1.01] hover:bg-slate-900 active:scale-[0.99] transition">
-          <span class="flex items-center gap-3">
-            <span class="h-9 w-9 rounded-2xl bg-white/10 grid place-items-center text-lg">⏳</span>
-            <span>Por preparar</span>
-          </span>
-          <span class="h-2.5 w-2.5 rounded-full bg-slate-200 ring-2 ring-white/30"></span>
-        </button>
-
-        <!-- A medias (amarillo neón) -->
-        <button type="button"
-          onclick="guardarEstado('A medias')"
-          class="group w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl
-                 bg-yellow-400 text-black font-extrabold tracking-wide
-                 border border-yellow-500 shadow-md
-                 hover:scale-[1.01] hover:bg-yellow-300 active:scale-[0.99] transition">
-          <span class="flex items-center gap-3">
-            <span class="h-9 w-9 rounded-2xl bg-black/10 grid place-items-center text-lg">🟡</span>
-            <span>A medias</span>
-          </span>
-          <span class="h-2.5 w-2.5 rounded-full bg-black/80 ring-2 ring-black/20"></span>
-        </button>
-
-        <!-- Producción (fucsia eléctrico) -->
-        <button type="button"
-          onclick="guardarEstado('Producción')"
-          class="group w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl
-                 bg-fuchsia-600 text-white font-extrabold tracking-wide
-                 border border-fuchsia-700 shadow-md
-                 hover:scale-[1.01] hover:bg-fuchsia-500 active:scale-[0.99] transition">
-          <span class="flex items-center gap-3">
-            <span class="h-9 w-9 rounded-2xl bg-white/15 grid place-items-center text-lg">🏭</span>
-            <span>Producción</span>
-          </span>
-          <span class="h-2.5 w-2.5 rounded-full bg-white ring-2 ring-white/30"></span>
-        </button>
-
-        <!-- Fabricando (azul intenso) -->
-        <button type="button"
-          onclick="guardarEstado('Fabricando')"
-          class="group w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl
-                 bg-blue-600 text-white font-extrabold tracking-wide
-                 border border-blue-700 shadow-md
-                 hover:scale-[1.01] hover:bg-blue-500 active:scale-[0.99] transition">
-          <span class="flex items-center gap-3">
-            <span class="h-9 w-9 rounded-2xl bg-white/15 grid place-items-center text-lg">🛠️</span>
-            <span>Fabricando</span>
-          </span>
-          <span class="h-2.5 w-2.5 rounded-full bg-sky-200 ring-2 ring-white/30"></span>
-        </button>
-
-        <!-- Enviado (verde fuerte) -->
-        <button type="button"
-          onclick="guardarEstado('Enviado')"
-          class="group w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl
-                 bg-emerald-600 text-white font-extrabold tracking-wide
-                 border border-emerald-700 shadow-md
-                 hover:scale-[1.01] hover:bg-emerald-500 active:scale-[0.99] transition">
-          <span class="flex items-center gap-3">
-            <span class="h-9 w-9 rounded-2xl bg-white/15 grid place-items-center text-lg">🚚</span>
-            <span>Enviado</span>
-          </span>
-          <span class="h-2.5 w-2.5 rounded-full bg-lime-200 ring-2 ring-white/30"></span>
-        </button>
-
+      <div class="grid gap-3" id="estadoOptionsWrap">
+        <!-- ✅ Se renderiza por JS con estadoStyle() -->
       </div>
 
       <button type="button"
@@ -186,6 +116,101 @@
 
 <script>
 /* ============================================================
+   ✅ TU normalizeEstado() + estadoStyle() (tal cual) + HTML basado en eso
+============================================================ */
+function normalizeEstado(estado) {
+  const s = String(estado || "").trim().toLowerCase();
+
+  if (s.includes("por preparar")) return "Por preparar";
+  if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
+  if (s.includes("confirmado")) return "Confirmado";
+  if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
+  if (s.includes("por producir")) return "Por producir";
+  if (s.includes("enviado")) return "Enviado";
+
+  return estado ? String(estado).trim() : "Por preparar";
+}
+
+function estadoStyle(estado) {
+  const label = normalizeEstado(estado);
+  const s = String(label || "").toLowerCase().trim(); // ✅ IMPORTANTÍSIMO usar label (no estado)
+  const base =
+    "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
+    "text-xs font-extrabold shadow-sm tracking-wide uppercase";
+
+  const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
+
+  if (s.includes("por preparar")) {
+    return { label, icon: "⏳", wrap: `${base} bg-slate-900 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
+  }
+  if (s.includes("faltan archivos")) {
+    return { label, icon: "⚠️", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
+  }
+  if (s.includes("confirmado")) {
+    return { label, icon: "✅", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
+  }
+  if (s.includes("diseñado")) {
+    return { label, icon: "🎨", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
+  }
+  if (s.includes("por producir")) {
+    return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
+  }
+  if (s.includes("enviado")) {
+    return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
+  }
+
+  return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
+}
+
+/* ============================================================
+   ✅ HTML DEL BOTÓN EN MODAL BASADO EN estadoStyle()
+   (usa wrap/dot/icon/label)
+============================================================ */
+function renderEstadoOptionButtonHTML(estadoValue) {
+  const st = estadoStyle(estadoValue);
+
+  return `
+    <button type="button"
+      onclick="guardarEstado('${String(estadoValue).replace(/'/g, "\\'")}')"
+      class="group w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl
+             ${st.wrap}
+             hover:scale-[1.01] active:scale-[0.99] transition shadow-md">
+      <span class="flex items-center gap-3">
+        <span class="h-9 w-9 rounded-2xl bg-white/10 grid place-items-center text-lg">
+          ${st.icon}
+        </span>
+        <span class="leading-none">${st.label}</span>
+      </span>
+      <span class="${st.dot}"></span>
+    </button>
+  `;
+}
+
+/* ============================================================
+   ✅ RENDERIZA LAS OPCIONES DEL MODAL (una sola vez)
+============================================================ */
+function renderEstadosModal() {
+  const wrap = document.getElementById("estadoOptionsWrap");
+  if (!wrap) return;
+
+  const estados = [
+    "Por preparar",
+    "Faltan archivos",
+    "Confirmado",
+    "Diseñado",
+    "Por producir",
+    "Enviado",
+  ];
+
+  wrap.innerHTML = estados.map(renderEstadoOptionButtonHTML).join("");
+}
+
+// Render al cargar
+document.addEventListener("DOMContentLoaded", () => {
+  renderEstadosModal();
+});
+
+/* ============================================================
    ETIQUETAS PREDETERMINADAS DESDE PHP
 ============================================================ */
 window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
@@ -212,9 +237,6 @@ function mostrarEtiquetasRapidas() {
 
 /* ============================================================
    COLORES DE ETIQUETA (FUERTES)
-   - D.*  => verde fuerte
-   - P.*  => amarillo neón
-   - default => slate fuerte
 ============================================================ */
 function colorEtiqueta(tag) {
   tag = String(tag || "").toLowerCase();
