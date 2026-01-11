@@ -1,9 +1,16 @@
 <?php
-// layouts/modales_estados.php
+// app/Views/layouts/modales_estados.php
+// ✅ Compatible con tu guardarEstado() actual:
+// - usa <input id="modalOrderId"> (OBLIGATORIO)
+// - botones llaman guardarEstado('...') con estados válidos
+// ✅ Diseño fuerte/llamativo
+// ✅ Render de botones basado en normalizeEstado() + estadoStyle() (dashboard.js vibe)
+// ✅ Incluye A medias / Producción / Fabricando (para que guarde como tu modal original)
+// ✅ Corrige el bug típico: estadoStyle usa label para detectar (más robusto)
 ?>
 
 <!-- =============================================================== -->
-<!-- MODAL CAMBIAR ESTADO DEL PEDIDO (DISEÑO BASADO EN dashboard.js) -->
+<!-- MODAL CAMBIAR ESTADO DEL PEDIDO -->
 <!-- =============================================================== -->
 <div id="modalEstado"
      class="hidden fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
@@ -25,13 +32,13 @@
         </button>
       </div>
 
-      <!-- ✅ ESTE ID lo usa tu guardarEstado() -->
-      <input type="hidden" id="modalOrderId">
+      <!-- ✅ ESTE INPUT ES EL QUE LEE guardarEstado() -->
+      <input type="hidden" id="modalOrderId" value="">
     </div>
 
     <!-- Body -->
     <div class="p-6 bg-white">
-      <div class="grid gap-3" id="estadoOptionsWrap"><!-- JS render --></div>
+      <div class="grid gap-3" id="estadoOptionsWrap"></div>
 
       <button type="button"
         onclick="cerrarModal()"
@@ -47,7 +54,7 @@
 
 
 <!-- =============================================================== -->
-<!-- MODAL EDITAR ETIQUETAS (COLORES FUERTES / CHIPS PRO) -->
+<!-- MODAL EDITAR ETIQUETAS (CHIPS) -->
 <!-- =============================================================== -->
 <div id="modalEtiquetas"
      class="hidden fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
@@ -58,7 +65,7 @@
     <div class="p-6 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 flex items-start justify-between gap-4">
       <div>
         <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">Editar etiquetas</h2>
-        <p class="text-sm text-white/70 mt-1">Toca para agregar / quitar chips. Visual fuerte y claro.</p>
+        <p class="text-sm text-white/70 mt-1">Toca para agregar / quitar chips</p>
       </div>
 
       <button type="button" onclick="cerrarModalEtiquetas()"
@@ -69,12 +76,13 @@
     </div>
 
     <div class="p-6 space-y-5">
-      <input type="hidden" id="modalEtiquetasOrderId">
+      <input type="hidden" id="modalEtiquetasOrderId" value="">
 
       <!-- Seleccionadas -->
       <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
         <div class="flex items-center justify-between gap-3">
           <div class="font-extrabold text-slate-900">Etiquetas del pedido</div>
+
           <button type="button" onclick="limpiarEtiquetas?.()"
                   class="text-xs font-extrabold text-slate-700 hover:text-slate-900 underline">
             Limpiar
@@ -117,73 +125,97 @@
 
 <script>
 /* ============================================================
-   ✅ DISEÑO basado en TU dashboard.js (MISMAS FUNCIONES)
-   Nota: esto debe estar cargado ANTES de renderEstadosModal()
-   Si ya existen en dashboard.js, esto no las pisa.
+   ✅ ESTADOS (LOS QUE TU API REALMENTE GUARDA)
+   (estos son los del modal original que te funcionaba)
 ============================================================ */
+const ESTADOS_MODAL = [
+  "Por preparar",
+  "A medias",
+  "Producción",
+  "Fabricando",
+  "Enviado",
+];
 
-if (typeof normalizeEstado !== "function") {
-  function normalizeEstado(estado) {
-    const s = String(estado || "").trim().toLowerCase();
+/* ============================================================
+   ✅ normalizeEstado (basado en dashboard.js + soporte de producción)
+============================================================ */
+function normalizeEstado(estado) {
+  const s = String(estado || "").trim().toLowerCase();
 
-    if (s.includes("por preparar")) return "Por preparar";
-    if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
-    if (s.includes("confirmado")) return "Confirmado";
-    if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
-    if (s.includes("por producir")) return "Por producir";
-    if (s.includes("enviado")) return "Enviado";
+  // dashboard.js
+  if (s.includes("por preparar")) return "Por preparar";
+  if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
+  if (s.includes("confirmado")) return "Confirmado";
+  if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
+  if (s.includes("por producir")) return "Por producir";
+  if (s.includes("enviado")) return "Enviado";
 
-    return estado ? String(estado).trim() : "Por preparar";
-  }
+  // producción (tu flujo real)
+  if (s.includes("a medias") || s.includes("amedias")) return "A medias";
+  if (s.includes("producción") || s.includes("produccion")) return "Producción";
+  if (s.includes("fabricando")) return "Fabricando";
+
+  return estado ? String(estado).trim() : "Por preparar";
 }
 
-if (typeof estadoStyle !== "function") {
-  function estadoStyle(estado) {
-    const label = normalizeEstado(estado); // ✅ ahora SÍ existe
+/* =====================================================
+  ✅ ESTADO STYLE (muy llamativo)
+  IMPORTANTE: usamos label para detectar (robusto)
+===================================================== */
+function estadoStyle(estado) {
+  const label = normalizeEstado(estado);
+  const s = String(label || "").toLowerCase().trim(); // ✅ robusto
 
-    // ⚠️ En tu código original usas `estado` para detectar.
-    // Recomendado sería:
-    // const s = String(label || "").toLowerCase().trim();
-    const s = String(label || "").toLowerCase().trim();
+  const base =
+    "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
+    "text-xs font-extrabold shadow-sm tracking-wide uppercase";
 
+  const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
 
-    const base =
-      "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
-      "text-xs font-extrabold shadow-sm tracking-wide uppercase";
-
-    const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
-
-    if (s.includes("por preparar")) {
-      return { label, icon: "⏳", wrap: `${base} bg-slate-900 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
-    }
-
-    if (s.includes("faltan archivos")) {
-      return { label, icon: "⚠️", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
-    }
-
-    if (s.includes("confirmado")) {
-      return { label, icon: "✅", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
-    }
-
-    if (s.includes("diseñado")) {
-      return { label, icon: "🎨", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
-    }
-
-    if (s.includes("por producir")) {
-      return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
-    }
-
-    if (s.includes("enviado")) {
-      return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
-    }
-
-    return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
+  if (s.includes("por preparar")) {
+    return { label, icon: "⏳", wrap: `${base} bg-slate-900 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
+
+  // A medias (amarillo neón)
+  if (s.includes("a medias")) {
+    return { label, icon: "🟡", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
+  }
+
+  // Producción (fucsia)
+  if (s.includes("producción") || s.includes("produccion")) {
+    return { label, icon: "🏭", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
+  }
+
+  // Fabricando (azul)
+  if (s.includes("fabricando")) {
+    return { label, icon: "🛠️", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
+  }
+
+  // Enviado (verde fuerte)
+  if (s.includes("enviado")) {
+    return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
+  }
+
+  // Opcionales dashboard.js (por si tu sistema los muestra en pills)
+  if (s.includes("faltan archivos")) {
+    return { label, icon: "⚠️", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
+  }
+  if (s.includes("confirmado")) {
+    return { label, icon: "✅", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
+  }
+  if (s.includes("diseñado")) {
+    return { label, icon: "🎨", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
+  }
+  if (s.includes("por producir")) {
+    return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
+  }
+
+  return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
 }
 
 /* ============================================================
-   ✅ Render de opciones del modal usando estadoStyle()
-   PERO manteniendo estados reales del backend
+   ✅ HTML de botón del modal usando estadoStyle()
+   IMPORTANTE: el valor enviado a guardarEstado es el estadoValue ORIGINAL
 ============================================================ */
 function renderEstadoOptionButtonHTML(estadoValue) {
   const st = estadoStyle(estadoValue);
@@ -203,34 +235,24 @@ function renderEstadoOptionButtonHTML(estadoValue) {
   `;
 }
 
+/* ============================================================
+   ✅ Renderiza opciones del modal (una sola vez)
+============================================================ */
 function renderEstadosModal() {
   const wrap = document.getElementById("estadoOptionsWrap");
   if (!wrap) return;
-
-  // ✅ Estados según TU dashboard.js (los que normalizas)
-  // Si en tu backend existen más, los agregas aquí:
-  const estados = [
-    "Por preparar",
-    "Faltan archivos",
-    "Confirmado",
-    "Diseñado",
-    "Por producir",
-    "Enviado"
-  ];
-
-  wrap.innerHTML = estados.map(renderEstadoOptionButtonHTML).join("");
+  wrap.innerHTML = ESTADOS_MODAL.map(renderEstadoOptionButtonHTML).join("");
 }
-
-document.addEventListener("DOMContentLoaded", () => {
-  renderEstadosModal();
-});
-
+document.addEventListener("DOMContentLoaded", renderEstadosModal);
 
 /* ============================================================
-   ETIQUETAS PREDETERMINADAS DESDE PHP
+   ✅ ETIQUETAS PREDETERMINADAS DESDE PHP
 ============================================================ */
 window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
 
+/* ============================================================
+   MOSTRAR ETIQUETAS RÁPIDAS
+============================================================ */
 function mostrarEtiquetasRapidas() {
   const cont = document.getElementById("listaEtiquetasRapidas");
   if (!cont) return;
@@ -249,15 +271,19 @@ function mostrarEtiquetasRapidas() {
   });
 }
 
+/* ============================================================
+   COLORES DE ETIQUETA (FUERTES)
+============================================================ */
 function colorEtiqueta(tag) {
   tag = String(tag || "").toLowerCase();
-
   if (tag.startsWith("d.")) return "bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-500";
   if (tag.startsWith("p.")) return "bg-yellow-400 text-black border-yellow-500 hover:bg-yellow-300";
-
   return "bg-slate-900 text-white border-slate-800 hover:bg-slate-800";
 }
 
+/* ============================================================
+   CERRAR MODAL ETIQUETAS
+============================================================ */
 function cerrarModalEtiquetas() {
   document.getElementById("modalEtiquetas")?.classList.add("hidden");
 }
