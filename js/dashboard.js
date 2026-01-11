@@ -197,18 +197,18 @@ function renderEstado(valor) {
   return escapeHtml(valor ?? "-");
 }
 
-function normalizeEstado(estado) {
-  const s = String(estado || "").trim().toLowerCase();
+  function normalizeEstado(estado) {
+    const s = String(estado || "").trim().toLowerCase();
 
-  if (s.includes("por preparar")) return "Por preparar";
-  if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
-  if (s.includes("confirmado")) return "Confirmado";
-  if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
-  if (s.includes("por producir")) return "Por producir";
-  if (s.includes("enviado")) return "Enviado";
+    if (s.includes("por preparar")) return "Por preparar";
+    if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
+    if (s.includes("confirmado")) return "Confirmado";
+    if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
+    if (s.includes("por producir")) return "Por producir";
+    if (s.includes("enviado")) return "Enviado";
 
-  return estado ? String(estado).trim() : "Por preparar";
-}
+    return estado ? String(estado).trim() : "Por preparar";
+  }
 
 /* =====================================================
   ESTADO PILL (igual a colores del modal)
@@ -285,7 +285,7 @@ function estadoStyle(estado) {
   };
 }
 
-function renderEstadoPill(estado) {
+function renderEstadoPill(estado) {           
   if (esBadgeHtml(estado)) return String(estado);
 
   const st = estadoStyle(estado);

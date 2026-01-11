@@ -10,16 +10,18 @@ class EstadoController extends BaseController
     private string $estadoTable  = 'pedidos_estado';
     private string $usersTable   = 'users';
 
-    // ✅ Estados nuevos permitidos
+    // ✅ Estados "por hacer" permitidos (DASHBOARD)
     private array $allowedEstados = [
         'Por preparar',
-        'A medias',
-        'Produccion',
-        'Fabricando',
+        'Faltan archivos',
+        'Confirmado',
+        'Diseñado',
+        'Por producir',
         'Enviado',
     ];
 
     // ✅ Normaliza estados (viejos / tildes / mayúsculas)
+    // Basado en tu normalizeEstado() de dashboard.js, pero extendido para compatibilidad
     private function normalizeEstado(?string $estado): string
     {
         $s = trim((string)($estado ?? ''));
@@ -28,20 +30,32 @@ class EstadoController extends BaseController
         $lower = mb_strtolower($s);
 
         $map = [
-            // nuevos
-            'por preparar' => 'Por preparar',
-            'a medias'     => 'A medias',
-            'amedias'      => 'A medias',
-            'produccion'   => 'Produccion',
-            'producción'   => 'Produccion',
-            'fabricando'   => 'Fabricando',
-            'enviado'      => 'Enviado',
+            // ✅ nuevos (dashboard)
+            'por preparar'      => 'Por preparar',
+            'faltan archivos'   => 'Faltan archivos',
+            'faltan_archivos'   => 'Faltan archivos',
+            'confirmado'        => 'Confirmado',
+            'diseñado'          => 'Diseñado',
+            'disenado'          => 'Diseñado',
+            'por producir'      => 'Por producir',
+            'enviado'           => 'Enviado',
 
-            // viejos -> nuevos (para no romper datos antiguos)
-            'preparado'    => 'Fabricando',
-            'entregado'    => 'Enviado',
-            'cancelado'    => 'Por preparar',
-            'devuelto'     => 'Por preparar',
+            // ✅ tolerancia extra (tildes / variantes)
+            'por produccion'    => 'Por producir',
+            'por producción'    => 'Por producir',
+
+            // ✅ viejos -> nuevos (compat)
+            'preparado'         => 'Confirmado',      // antes lo mandabas a Fabricando; ahora en "por hacer"
+            'fabricando'        => 'Por producir',    // si viene de otro flujo, lo aterrizamos
+            'produccion'        => 'Por producir',
+            'producción'        => 'Por producir',
+            'a medias'          => 'Faltan archivos', // opcional: ajústalo si quieres otro mapping
+            'amedias'           => 'Faltan archivos',
+
+            // otros históricos
+            'entregado'         => 'Enviado',
+            'cancelado'         => 'Por preparar',
+            'devuelto'          => 'Por preparar',
         ];
 
         if (isset($map[$lower])) return $map[$lower];
@@ -64,9 +78,9 @@ class EstadoController extends BaseController
                 ]);
             }
 
-            $payload = $this->request->getJSON(true) ?? [];
-            $orderId = isset($payload['id']) ? trim((string)$payload['id']) : '';
-            $estadoIn  = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
+            $payload  = $this->request->getJSON(true) ?? [];
+            $orderId  = isset($payload['id']) ? trim((string)$payload['id']) : '';
+            $estadoIn = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
 
             if ($orderId === '' || $estadoIn === '') {
                 return $this->response->setStatusCode(422)->setJSON([
@@ -83,6 +97,8 @@ class EstadoController extends BaseController
                     'success' => false,
                     'message' => 'Estado inválido',
                     'allowed' => $this->allowedEstados,
+                    'received' => $estadoIn,
+                    'normalized' => $estado,
                 ]);
             }
 
@@ -110,16 +126,11 @@ class EstadoController extends BaseController
                     ->limit(1)
                     ->get()
                     ->getRowArray();
-
                 // no bloqueamos si no existe
-                if (!$pedido) {
-                    // log_message('warning', "Pedido {$orderId} no existe en tabla pedidos (se guardará estado igualmente).");
-                }
             }
 
             // ---------------------------------------------------------
             // 1) Validar esquema de pedidos_estado (estado ACTUAL)
-            //    Tu BD: id, estado, actualizado, created_at, user_id
             // ---------------------------------------------------------
             $hasId          = $db->fieldExists('id', $this->estadoTable);
             $hasEstado      = $db->fieldExists('estado', $this->estadoTable);
@@ -138,7 +149,7 @@ class EstadoController extends BaseController
             // ---------------------------------------------------------
             // 2) Detectar tabla historial (si existe)
             // ---------------------------------------------------------
-            $histTable = 'pedidos_estado_historial';
+            $histTable  = 'pedidos_estado_historial';
             $histExists = $db->query(
                 "SELECT 1 FROM information_schema.tables
                  WHERE table_schema = ? AND table_name = ?
@@ -221,7 +232,7 @@ class EstadoController extends BaseController
                 'success' => true,
                 'order' => [
                     'id' => $orderId,
-                    'estado' => $estado, // ✅ normalizado
+                    'estado' => $estado, // ✅ normalizado al estilo nuevo
                     'last_status_change' => [
                         'user_name'  => $userName,
                         'changed_at' => $now,
@@ -271,7 +282,6 @@ class EstadoController extends BaseController
                 ->getResultArray();
 
             foreach ($rows as &$r) {
-                // ✅ normaliza el estado al devolver
                 if (isset($r['estado'])) {
                     $r['estado'] = $this->normalizeEstado((string)$r['estado']);
                 }
@@ -289,9 +299,9 @@ class EstadoController extends BaseController
             unset($r);
 
             return $this->response->setJSON([
-                'success' => true,
+                'success'  => true,
                 'order_id' => $orderId,
-                'history' => $rows,
+                'history'  => $rows,
             ]);
 
         } catch (\Throwable $e) {
