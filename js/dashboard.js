@@ -159,6 +159,36 @@ function pauseLive() {
 function resumeLiveIfOnFirstPage() {
   if (currentPage === 1) liveMode = true;
 }
+function isLlaveroItem(item) {
+  const title = String(item?.title || item?.name || "").toLowerCase();
+  const productType = String(item?.product_type || "").toLowerCase();
+  const sku = String(item?.sku || "").toLowerCase();
+
+  // ✅ Ajusta aquí tus palabras clave reales
+  const hayLlavero =
+    title.includes("llavero") ||
+    productType.includes("llavero") ||
+    sku.includes("llav");
+
+  return hayLlavero;
+}
+
+/**
+ * ✅ Reglas: requiere imagen modificada si:
+ * - trae personalización (como ya haces)
+ * - o es llavero (aunque no traiga imagen)
+ */
+function requiereImagenModificada(item) {
+  // tu regla actual (ejemplo): si hay imagen original o props de personalización
+  const tienePersonalizacion =
+    !!item?.properties?.length ||
+    !!item?.properties?.Personalizacion ||
+    !!item?.custom_properties ||
+    !!item?.image_original ||
+    !!item?.image_url;
+
+  return tienePersonalizacion || isLlaveroItem(item);
+}
 
 /* =====================================================
   HELPERS
@@ -991,6 +1021,7 @@ function escapeHtml(str) {
     .replaceAll("'", "&#039;");
 }
 
+
 // ===============================
 // VER DETALLES (FULL MODAL SHOPIFY-LIKE)
 // ===============================
@@ -1036,7 +1067,6 @@ window.verDetalles = async function (orderId) {
       .replaceAll("'", "&#039;");
   }
 
-  // 👇 FIX: faltaba escapeAttr en esta función (lo usas en detResumen)
   function escapeAttr(str) {
     return String(str ?? "")
       .replace(/&/g, "&amp;")
@@ -1062,6 +1092,28 @@ window.verDetalles = async function (orderId) {
     const q = Number(qty);
     if (isNaN(p) || isNaN(q)) return null;
     return (p * q).toFixed(2);
+  }
+
+  // ==============================
+  // ✅ DETECCIÓN DE LLAVEROS + REQUIERE IMAGEN
+  // ==============================
+  function isLlaveroItem(item) {
+    const title = String(item?.title || item?.name || "").toLowerCase();
+    const productType = String(item?.product_type || "").toLowerCase();
+    const sku = String(item?.sku || "").toLowerCase();
+
+    return (
+      title.includes("llavero") ||
+      title.includes("llaver") ||
+      productType.includes("llavero") ||
+      sku.includes("llav")
+    );
+  }
+
+  function requiereImagenModificada(item, propsImg) {
+    const requierePorImagenCliente = (propsImg?.length || 0) > 0;
+    const requierePorLlavero = isLlaveroItem(item);
+    return requierePorImagenCliente || requierePorLlavero;
   }
 
   // -----------------------------
@@ -1103,13 +1155,11 @@ window.verDetalles = async function (orderId) {
       return;
     }
 
-    // debug
     if (pre) pre.textContent = JSON.stringify(d, null, 2);
 
     const o = d.order || {};
     const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
 
-    // mapas extra del backend
     const imagenesLocales = d.imagenes_locales || {};
     const productImages = d.product_images || {};
 
@@ -1164,55 +1214,6 @@ window.verDetalles = async function (orderId) {
     const envio = o.total_shipping_price_set?.shop_money?.amount ?? o.total_shipping_price_set?.presentment_money?.amount ?? "0";
     const impuestos = o.total_tax ?? "0";
 
-    // ==============================
-    // ✅ ETIQUETAS (FIX DEFINITIVO)
-    // - prefiero etiquetas BD (cache dashboard)
-    // - fallback a Shopify tags (o.tags)
-    // ==============================
-    const shopifyTags = String(o.tags || "").trim();
-
-    const cachedOrder =
-      (window.ordersById && window.ordersById.get && window.ordersById.get(String(id))) ||
-      (window.ordersById && window.ordersById.get && window.ordersById.get(String(o.id))) ||
-      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === String(id)) : null) ||
-      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === String(o.id)) : null) ||
-      null;
-
-    const dbTags = String(cachedOrder?.etiquetas || "").trim();
-
-    const tagsActuales = (dbTags || shopifyTags || "").trim();
-
-    // helper global para repintar SIN recargar detalles
-    window.__pintarTagsEnDetalle = function (tagsStr) {
-      const wrap = document.getElementById("det-tags-view");
-      if (!wrap) return;
-
-      const clean = String(tagsStr || "").trim();
-
-      wrap.innerHTML = clean
-        ? clean
-          .split(",")
-          .map(t => t.trim())
-          .filter(Boolean)
-          .map(tag => {
-            // usa mismo color que dashboard si existe
-            const cls =
-              (typeof window.colorEtiqueta === "function")
-                ? window.colorEtiqueta(tag)
-                : "bg-white border-slate-200 text-slate-900";
-            return `
-                <span class="px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide border ${cls}">
-                  ${escapeHtml(tag)}
-                </span>
-              `;
-          })
-          .join("")
-        : `<span class="text-xs text-slate-400">—</span>`;
-
-      const btn = document.getElementById("btnEtiquetasDetalle");
-      if (btn) btn.dataset.orderTags = clean;
-    };
-
     setHtml(
       "detTotales",
       `
@@ -1224,80 +1225,6 @@ window.verDetalles = async function (orderId) {
       </div>
       `
     );
-
-    // -----------------------------
-    // Resumen
-    // -----------------------------
-    setHtml(
-      "detResumen",
-      `
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="flex items-center justify-between">
-            <div class="text-xs text-slate-500 font-extrabold uppercase">Etiquetas</div>
-
-            <button
-              id="btnEtiquetasDetalle"
-              type="button"
-              class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
-              data-order-id="${o.id}"
-              data-order-label="${escapeAttr(o.name || ("#" + o.id))}"
-              data-order-tags="${escapeAttr(tagsActuales)}"
-              onclick="abrirEtiquetasDesdeDetalle(this)"
-            >
-              ETIQUETAS <span class="ml-1 font-black">+</span>
-            </button>
-          </div>
-
-          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2"></div>
-        </div>
-
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
-          <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
-        </div>
-
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Entrega</div>
-          <div class="mt-1 font-semibold">${escapeHtml(o.fulfillment_status || "—")}</div>
-        </div>
-
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Creado</div>
-          <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
-        </div>
-      </div>
-      `
-    );
-
-    // ✅ IMPORTANTÍSIMO: pintamos DESPUÉS de crear el DOM de detResumen
-    window.__pintarTagsEnDetalle(tagsActuales);
-
-    // ✅ Detalles -> abre el MISMO modal del dashboard (y marca que viene de detalles)
-    window.abrirEtiquetasDesdeDetalle = function (btn) {
-      try {
-        const orderId = btn?.dataset?.orderId;
-        const label = btn?.dataset?.orderLabel || ("#" + orderId);
-        const tagsStr = btn?.dataset?.orderTags || "";
-
-        // marca para que guardarEtiquetasModal repinte en detalles
-        window.__ETQ_DETALLE_ORDER_ID = Number(orderId) || null;
-
-        if (typeof window.abrirModalEtiquetas === "function") {
-          window.abrirModalEtiquetas(orderId, tagsStr, label);
-          return;
-        }
-
-        // fallback
-        const modal = document.getElementById("modalEtiquetas");
-        if (modal) modal.classList.remove("hidden");
-
-        const lbl = document.getElementById("etqPedidoLabel");
-        if (lbl) lbl.textContent = label;
-      } catch (e) {
-        console.error("abrirEtiquetasDesdeDetalle error:", e);
-      }
-    };
 
     // -----------------------------
     // Productos
@@ -1317,7 +1244,6 @@ window.verDetalles = async function (orderId) {
       .map((item, index) => {
         const props = Array.isArray(item.properties) ? item.properties : [];
 
-        // separa properties: imagen vs texto
         const propsImg = [];
         const propsTxt = [];
 
@@ -1336,9 +1262,11 @@ window.verDetalles = async function (orderId) {
           else propsTxt.push({ name, value: v });
         }
 
-        const requiere = propsImg.length > 0;
+        // ✅ NUEVO: requiere imagen si trae imagen cliente O si es llavero
+        const requiere = requiereImagenModificada(item, propsImg);
+        const esLlavero = isLlaveroItem(item);
 
-        // imagen producto (desde backend)
+        // imagen producto
         const pid = String(item.product_id || "");
         const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
 
@@ -1362,39 +1290,45 @@ window.verDetalles = async function (orderId) {
         window.imagenesCargadas[index] = !!localUrl;
 
         const estadoItem = requiere ? (localUrl ? "LISTO" : "FALTA") : "NO REQUIERE";
+
         const badgeCls =
           estadoItem === "LISTO"
             ? "bg-emerald-50 border-emerald-200 text-emerald-900"
             : estadoItem === "FALTA"
-              ? "bg-amber-50 border-amber-200 text-amber-900"
+              ? "bg-rose-50 border-rose-200 text-rose-900"
               : "bg-slate-50 border-slate-200 text-slate-700";
-        const badgeText =
-          estadoItem === "LISTO" ? "Listo" : estadoItem === "FALTA" ? "Falta imagen" : "Sin imagen";
 
-        // props texto (personalización)
+        const badgeText =
+          estadoItem === "LISTO"
+            ? "Listo"
+            : estadoItem === "FALTA"
+              ? (esLlavero ? "Falta imagen (llavero)" : "Falta imagen")
+              : "Sin imagen";
+
+        // props texto
         const propsTxtHtml = propsTxt.length
           ? `
             <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
               <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
               <div class="space-y-1 text-sm">
                 ${propsTxt
-            .map(({ name, value }) => {
-              const safeV = escapeHtml(value || "—");
-              const safeName = escapeHtml(name);
+                  .map(({ name, value }) => {
+                    const safeV = escapeHtml(value || "—");
+                    const safeName = escapeHtml(name);
 
-              const val =
-                esUrl(value)
-                  ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
-                  : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
+                    const val =
+                      esUrl(value)
+                        ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                        : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
 
-              return `
+                    return `
                       <div class="flex gap-2">
                         <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
                         <div class="flex-1">${val}</div>
                       </div>
                     `;
-            })
-            .join("")}
+                  })
+                  .join("")}
               </div>
             </div>
           `
@@ -1407,8 +1341,8 @@ window.verDetalles = async function (orderId) {
               <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
               <div class="flex flex-wrap gap-3">
                 ${propsImg
-            .map(
-              ({ name, value }) => `
+                  .map(
+                    ({ name, value }) => `
                     <a href="${escapeHtml(value)}" target="_blank"
                       class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                       <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
@@ -1417,8 +1351,8 @@ window.verDetalles = async function (orderId) {
                       </div>
                     </a>
                   `
-            )
-            .join("")}
+                  )
+                  .join("")}
               </div>
             </div>
           `
@@ -1439,7 +1373,7 @@ window.verDetalles = async function (orderId) {
             ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
             : "";
 
-        // datos del item (tipo Shopify)
+        // datos item
         const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
         const sku = item.sku || "";
         const qty = item.quantity ?? 1;
@@ -1455,6 +1389,7 @@ window.verDetalles = async function (orderId) {
           </div>
         `;
 
+        // ✅ Subida obligatoria si requiere
         const uploadHtml = requiere
           ? `
             <div class="mt-4">
@@ -1475,7 +1410,9 @@ window.verDetalles = async function (orderId) {
               <div class="min-w-0 flex-1">
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
-                    <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || item.name || "Producto")}</div>
+                    <div class="font-extrabold text-slate-900 truncate">
+                      ${escapeHtml(item.title || item.name || "Producto")}
+                    </div>
                     <div class="text-sm text-slate-600 mt-1">
                       Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
                       ${tot ? ` · Total: <b>${escapeHtml(tot)} €</b>` : ""}
@@ -1500,13 +1437,12 @@ window.verDetalles = async function (orderId) {
       .join("");
 
     setHtml("detItems", itemsHtml);
+
   } catch (e) {
     console.error("verDetalles error:", e);
     setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
   }
 };
-
-
 
 
 // ===============================
