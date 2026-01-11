@@ -1,13 +1,22 @@
+<?php
+// layouts/modales_estados.php
+// ✅ Modales bonitos + compatibles con tu JS actual:
+// - guardarEstado(nuevoEstado) usa #modalOrderId
+// - cerrarModal() cierra #modalEstado
+// - modalEtiquetas usa #modalEtiquetasOrderId
+// - mostrarEtiquetasRapidas(), agregarEtiqueta(), guardarEtiquetas(), limpiarEtiquetas?.()
+// - estilos fuertes/llamativos
+?>
+
 <!-- =============================================================== -->
-<!-- MODAL CAMBIAR ESTADO DEL PEDIDO (USA TU estadoStyle() PARA EL HTML) -->
+<!-- MODAL CAMBIAR ESTADO DEL PEDIDO (FUERTE / LLAMATIVO, COMPATIBLE) -->
 <!-- =============================================================== -->
 <div id="modalEstado"
      class="hidden fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
 
-  <!-- Card -->
   <div class="w-full max-w-md rounded-[28px] overflow-hidden shadow-2xl border border-white/10 animate-fadeIn">
 
-    <!-- Header (gradiente fuerte) -->
+    <!-- Header -->
     <div class="px-6 py-5 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950">
       <div class="flex items-start justify-between gap-4">
         <div>
@@ -22,14 +31,14 @@
         </button>
       </div>
 
-      <!-- ID usado por dashboard.js -->
+      <!-- ✅ ID usado por dashboard.js / produccion.js -->
       <input type="hidden" id="modalOrderId">
     </div>
 
     <!-- Body -->
     <div class="p-6 bg-white">
       <div class="grid gap-3" id="estadoOptionsWrap">
-        <!-- ✅ Se renderiza por JS con estadoStyle() -->
+        <!-- ✅ Se renderiza con JS (o queda hardcodeado si prefieres) -->
       </div>
 
       <button type="button"
@@ -44,20 +53,19 @@
 </div>
 
 
-
 <!-- =============================================================== -->
-<!-- MODAL EDITAR ETIQUETAS (COLORES FUERTES / CHIPS PRO) -->
+<!-- MODAL EDITAR ETIQUETAS (FUERTE / CHIPS, COMPATIBLE) -->
 <!-- =============================================================== -->
 <div id="modalEtiquetas"
      class="hidden fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[9999] p-4">
 
   <div class="w-full max-w-3xl rounded-[28px] bg-white shadow-2xl border border-slate-200 overflow-hidden animate-fadeIn">
 
-    <!-- Header fuerte -->
+    <!-- Header -->
     <div class="p-6 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 flex items-start justify-between gap-4">
       <div>
         <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">Editar etiquetas</h2>
-        <p class="text-sm text-white/70 mt-1">Toca para agregar / quitar chips. Visual fuerte y claro.</p>
+        <p class="text-sm text-white/70 mt-1">Toca para agregar / quitar chips</p>
       </div>
 
       <button type="button" onclick="cerrarModalEtiquetas()"
@@ -74,6 +82,7 @@
       <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
         <div class="flex items-center justify-between gap-3">
           <div class="font-extrabold text-slate-900">Etiquetas del pedido</div>
+
           <button type="button" onclick="limpiarEtiquetas?.()"
                   class="text-xs font-extrabold text-slate-700 hover:text-slate-900 underline">
             Limpiar
@@ -113,27 +122,30 @@
 </div>
 
 
-
 <script>
 /* ============================================================
-   ✅ TU normalizeEstado() + estadoStyle() (tal cual) + HTML basado en eso
+   ✅ ESTADOS: MISMO VALOR QUE TU BACKEND ESPERA
+   (si tu backend espera "Producción" con tilde, aquí va con tilde)
 ============================================================ */
 function normalizeEstado(estado) {
   const s = String(estado || "").trim().toLowerCase();
 
   if (s.includes("por preparar")) return "Por preparar";
-  if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
-  if (s.includes("confirmado")) return "Confirmado";
-  if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
-  if (s.includes("por producir")) return "Por producir";
+  if (s.includes("a medias") || s.includes("amedias")) return "A medias";
+  if (s.includes("producción") || s.includes("produccion")) return "Producción";
+  if (s.includes("fabricando")) return "Fabricando";
   if (s.includes("enviado")) return "Enviado";
 
   return estado ? String(estado).trim() : "Por preparar";
 }
 
+/* =====================================================
+  ESTADO STYLE (PILLS FUERTES / LLAMATIVAS)
+===================================================== */
 function estadoStyle(estado) {
   const label = normalizeEstado(estado);
-  const s = String(label || "").toLowerCase().trim(); // ✅ IMPORTANTÍSIMO usar label (no estado)
+  const s = String(label || "").toLowerCase().trim();
+
   const base =
     "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
     "text-xs font-extrabold shadow-sm tracking-wide uppercase";
@@ -143,17 +155,14 @@ function estadoStyle(estado) {
   if (s.includes("por preparar")) {
     return { label, icon: "⏳", wrap: `${base} bg-slate-900 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
-  if (s.includes("faltan archivos")) {
-    return { label, icon: "⚠️", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
+  if (s.includes("a medias")) {
+    return { label, icon: "🟡", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
   }
-  if (s.includes("confirmado")) {
-    return { label, icon: "✅", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
+  if (s.includes("producción") || s.includes("produccion")) {
+    return { label, icon: "🏭", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
   }
-  if (s.includes("diseñado")) {
-    return { label, icon: "🎨", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
-  }
-  if (s.includes("por producir")) {
-    return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
+  if (s.includes("fabricando")) {
+    return { label, icon: "🛠️", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
   }
   if (s.includes("enviado")) {
     return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
@@ -163,8 +172,8 @@ function estadoStyle(estado) {
 }
 
 /* ============================================================
-   ✅ HTML DEL BOTÓN EN MODAL BASADO EN estadoStyle()
-   (usa wrap/dot/icon/label)
+   ✅ HTML del botón del modal basado en estadoStyle()
+   (mantiene guardarEstado('VALOR') EXACTO)
 ============================================================ */
 function renderEstadoOptionButtonHTML(estadoValue) {
   const st = estadoStyle(estadoValue);
@@ -187,39 +196,33 @@ function renderEstadoOptionButtonHTML(estadoValue) {
 }
 
 /* ============================================================
-   ✅ RENDERIZA LAS OPCIONES DEL MODAL (una sola vez)
+   ✅ Renderiza opciones (solo 1 vez)
 ============================================================ */
 function renderEstadosModal() {
   const wrap = document.getElementById("estadoOptionsWrap");
   if (!wrap) return;
 
-  const estados = [
-    "Por preparar",
-    "Faltan archivos",
-    "Confirmado",
-    "Diseñado",
-    "Por producir",
-    "Enviado",
-  ];
-
+  // ✅ los mismos que tenías antes (para no romper el guardado)
+  const estados = ["Por preparar", "A medias", "Producción", "Fabricando", "Enviado"];
   wrap.innerHTML = estados.map(renderEstadoOptionButtonHTML).join("");
 }
 
-// Render al cargar
 document.addEventListener("DOMContentLoaded", () => {
   renderEstadosModal();
 });
 
+
 /* ============================================================
    ETIQUETAS PREDETERMINADAS DESDE PHP
 ============================================================ */
-window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
+window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
 
 /* ============================================================
    MOSTRAR ETIQUETAS RÁPIDAS (chips fuertes + hover)
 ============================================================ */
 function mostrarEtiquetasRapidas() {
   const cont = document.getElementById("listaEtiquetasRapidas");
+  if (!cont) return;
   cont.innerHTML = "";
 
   (window.etiquetasPredeterminadas || []).forEach(tag => {
@@ -251,6 +254,6 @@ function colorEtiqueta(tag) {
    CERRAR MODAL ETIQUETAS
 ============================================================ */
 function cerrarModalEtiquetas() {
-  document.getElementById("modalEtiquetas").classList.add("hidden");
+  document.getElementById("modalEtiquetas")?.classList.add("hidden");
 }
 </script>
