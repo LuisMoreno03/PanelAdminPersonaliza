@@ -150,7 +150,10 @@ function estadoStyle(estado) {
     "border text-white font-extrabold shadow-sm transition " +
     "hover:translate-y-[-1px] active:translate-y-[0px] active:scale-[0.995]";
 
-  const iconWrap = "h-10 w-10 rounded-2xl grid place-items-center text-lg bg-white/10 border border-white/10";
+  const iconWrap =
+  "h-12 w-12 rounded-2xl grid place-items-center text-2xl " +
+  "bg-white/10 border border-white/10";
+
   const dotBase  = "h-2.5 w-2.5 rounded-full ring-2 ring-white/20";
 
   // ✅ Solo tonos oscuros, con un acento muy sutil por estado
