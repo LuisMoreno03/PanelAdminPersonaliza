@@ -290,14 +290,15 @@ function renderEstadoPill(estado) {
 
   const st = estadoStyle(estado);
   return `
-    <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border ${st.wrap}
-                shadow-sm font-extrabold text-[11px] uppercase tracking-wide whitespace-nowrap">
-      <span class="h-2.5 w-2.5 rounded-full ${st.dot}"></span>
+    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl border ${st.wrap}
+                shadow-sm font-extrabold text-[10px] uppercase tracking-wide whitespace-nowrap">
+      <span class="h-2 w-2 rounded-full ${st.dot}"></span>
       <span class="text-sm leading-none">${st.icon}</span>
       <span class="leading-none">${escapeHtml(st.label)}</span>
     </span>
   `;
 }
+
 
 
 /* =====================================================
