@@ -211,24 +211,22 @@ function normalizeEstado(estado) {
 }
 
 /* =====================================================
-  ESTADO PILL (igual a colores del modal)
+  ESTADO PILL (LIMPIO + DARK)
 ===================================================== */
 function estadoStyle(estado) {
-  const label = normalizeEstado(estado); // ✅ ahora SÍ existe
-  const s = String(estado || "").toLowerCase().trim();
-  const base =
-    "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
-    "text-xs font-extrabold shadow-sm tracking-wide uppercase";
+  const label = normalizeEstado(estado);
+  const s = String(label || "").toLowerCase().trim();
 
-  const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
-
+  // ✅ solo "clases de color", sin repetir inline-flex/padding
+  const base = "border text-white";
+  const dotBase = "h-3 w-3 rounded-full ring-2 ring-white/15";
 
   if (s.includes("por preparar")) {
     return {
       label,
       icon: "⏳",
-      wrap: `${base} bg-slate-900 border-slate-700 text-white`,
-      dot: `${dotBase} bg-slate-300`,
+      wrap: `${base} bg-slate-950 border-slate-700`,
+      dot: `${dotBase} bg-slate-200`,
     };
   }
 
@@ -236,8 +234,8 @@ function estadoStyle(estado) {
     return {
       label,
       icon: "⚠️",
-      wrap: `${base} bg-yellow-400 border-yellow-500 text-black`,
-      dot: `${dotBase} bg-black/80`,
+      wrap: `${base} bg-slate-950 border-yellow-700/70`,
+      dot: `${dotBase} bg-yellow-300`,
     };
   }
 
@@ -245,8 +243,8 @@ function estadoStyle(estado) {
     return {
       label,
       icon: "✅",
-      wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`,
-      dot: `${dotBase} bg-white`,
+      wrap: `${base} bg-slate-950 border-fuchsia-700/70`,
+      dot: `${dotBase} bg-fuchsia-300`,
     };
   }
 
@@ -254,8 +252,8 @@ function estadoStyle(estado) {
     return {
       label,
       icon: "🎨",
-      wrap: `${base} bg-blue-600 border-blue-700 text-white`,
-      dot: `${dotBase} bg-sky-200`,
+      wrap: `${base} bg-slate-950 border-sky-700/70`,
+      dot: `${dotBase} bg-sky-300`,
     };
   }
 
@@ -263,8 +261,8 @@ function estadoStyle(estado) {
     return {
       label,
       icon: "🏗️",
-      wrap: `${base} bg-orange-600 border-orange-700 text-white`,
-      dot: `${dotBase} bg-amber-200`,
+      wrap: `${base} bg-slate-950 border-orange-700/70`,
+      dot: `${dotBase} bg-orange-300`,
     };
   }
 
@@ -272,15 +270,15 @@ function estadoStyle(estado) {
     return {
       label,
       icon: "🚚",
-      wrap: `${base} bg-emerald-600 border-emerald-700 text-white`,
-      dot: `${dotBase} bg-lime-200`,
+      wrap: `${base} bg-slate-950 border-emerald-700/70`,
+      dot: `${dotBase} bg-emerald-300`,
     };
   }
 
   return {
     label: label || "—",
     icon: "📍",
-    wrap: `${base} bg-slate-700 border-slate-600 text-white`,
+    wrap: `${base} bg-slate-950 border-slate-700`,
     dot: `${dotBase} bg-slate-200`,
   };
 }
@@ -289,11 +287,18 @@ function renderEstadoPill(estado) {
   if (esBadgeHtml(estado)) return String(estado);
 
   const st = estadoStyle(estado);
+
   return `
-    <span class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl border ${st.wrap}
-                shadow-sm font-extrabold text-[11px] uppercase tracking-wide whitespace-nowrap">
-      <span class="h-2.5 w-2.5 rounded-full ${st.dot}"></span>
-      <span class="text-sm leading-none">${st.icon}</span>
+    <span class="
+      inline-flex items-center gap-2
+      px-3 py-2 rounded-2xl
+      ${st.wrap}
+      shadow-sm
+      font-extrabold text-[11px] uppercase tracking-wide
+      whitespace-nowrap
+    ">
+      <span class="${st.dot}"></span>
+      <span class="text-[16px] leading-none">${st.icon}</span>
       <span class="leading-none">${escapeHtml(st.label)}</span>
     </span>
   `;
