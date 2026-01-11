@@ -144,7 +144,8 @@ if (typeof estadoStyle !== "function") {
     // ⚠️ En tu código original usas `estado` para detectar.
     // Recomendado sería:
     // const s = String(label || "").toLowerCase().trim();
-    const s = String(estado || "").toLowerCase().trim();
+    const s = String(label || "").toLowerCase().trim();
+
 
     const base =
       "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
