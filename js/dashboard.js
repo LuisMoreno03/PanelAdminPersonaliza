@@ -215,6 +215,12 @@ function normalizeEstado(estado) {
 function estadoStyle(estado) {
   const label = normalizeEstado(estado); // ✅ ahora SÍ existe
   const s = String(estado || "").toLowerCase().trim();
+  const base =
+    "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
+    "text-xs font-extrabold shadow-sm tracking-wide uppercase";
+
+  const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
+
 
  if (s.includes("por preparar")) {
     return {
