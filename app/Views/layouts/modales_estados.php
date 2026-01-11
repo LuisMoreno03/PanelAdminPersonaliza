@@ -1,12 +1,10 @@
 <?php
 // app/Views/layouts/modales_estados.php
-// ✅ Compatible con tu guardarEstado() actual:
-// - usa <input id="modalOrderId"> (OBLIGATORIO)
-// - botones llaman guardarEstado('...') con estados válidos
-// ✅ Diseño fuerte/llamativo
-// ✅ Render de botones basado en normalizeEstado() + estadoStyle() (dashboard.js vibe)
-// ✅ Incluye A medias / Producción / Fabricando (para que guarde como tu modal original)
-// ✅ Corrige el bug típico: estadoStyle usa label para detectar (más robusto)
+// ✅ BASADO EN TU normalizeEstado() EXACTO (sin inventar estados nuevos)
+// ✅ Modal de estados + Modal de etiquetas
+// ✅ Botones del modal de estado se renderizan con JS y usan guardarEstado('...')
+// ✅ Mantiene #modalOrderId (tu guardarEstado() lo necesita)
+// ✅ Colores fuertes/llamativos (pero siguiendo los estados de normalizeEstado)
 ?>
 
 <!-- =============================================================== -->
@@ -32,7 +30,7 @@
         </button>
       </div>
 
-      <!-- ✅ ESTE INPUT ES EL QUE LEE guardarEstado() -->
+      <!-- ✅ ESTE INPUT lo usa guardarEstado() -->
       <input type="hidden" id="modalOrderId" value="">
     </div>
 
@@ -125,24 +123,11 @@
 
 <script>
 /* ============================================================
-   ✅ ESTADOS (LOS QUE TU API REALMENTE GUARDA)
-   (estos son los del modal original que te funcionaba)
-============================================================ */
-const ESTADOS_MODAL = [
-  "Por preparar",
-  "A medias",
-  "Producción",
-  "Fabricando",
-  "Enviado",
-];
-
-/* ============================================================
-   ✅ normalizeEstado (basado en dashboard.js + soporte de producción)
+   ✅ BASADO EN TU normalizeEstado() (MISMO TEXTO, MISMOS ESTADOS)
 ============================================================ */
 function normalizeEstado(estado) {
   const s = String(estado || "").trim().toLowerCase();
 
-  // dashboard.js
   if (s.includes("por preparar")) return "Por preparar";
   if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
   if (s.includes("confirmado")) return "Confirmado";
@@ -150,21 +135,17 @@ function normalizeEstado(estado) {
   if (s.includes("por producir")) return "Por producir";
   if (s.includes("enviado")) return "Enviado";
 
-  // producción (tu flujo real)
-  if (s.includes("a medias") || s.includes("amedias")) return "A medias";
-  if (s.includes("producción") || s.includes("produccion")) return "Producción";
-  if (s.includes("fabricando")) return "Fabricando";
-
   return estado ? String(estado).trim() : "Por preparar";
 }
 
 /* =====================================================
-  ✅ ESTADO STYLE (muy llamativo)
-  IMPORTANTE: usamos label para detectar (robusto)
+  ESTADO STYLE (FUERTE) - SOLO PARA ESTOS ESTADOS
 ===================================================== */
 function estadoStyle(estado) {
   const label = normalizeEstado(estado);
-  const s = String(label || "").toLowerCase().trim(); // ✅ robusto
+
+  // ✅ aquí sí usamos label para detectar, así siempre cuadra
+  const s = String(label || "").toLowerCase().trim();
 
   const base =
     "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
@@ -175,28 +156,6 @@ function estadoStyle(estado) {
   if (s.includes("por preparar")) {
     return { label, icon: "⏳", wrap: `${base} bg-slate-900 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
-
-  // A medias (amarillo neón)
-  if (s.includes("a medias")) {
-    return { label, icon: "🟡", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
-  }
-
-  // Producción (fucsia)
-  if (s.includes("producción") || s.includes("produccion")) {
-    return { label, icon: "🏭", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
-  }
-
-  // Fabricando (azul)
-  if (s.includes("fabricando")) {
-    return { label, icon: "🛠️", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
-  }
-
-  // Enviado (verde fuerte)
-  if (s.includes("enviado")) {
-    return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
-  }
-
-  // Opcionales dashboard.js (por si tu sistema los muestra en pills)
   if (s.includes("faltan archivos")) {
     return { label, icon: "⚠️", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
   }
@@ -209,13 +168,16 @@ function estadoStyle(estado) {
   if (s.includes("por producir")) {
     return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
   }
+  if (s.includes("enviado")) {
+    return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
+  }
 
   return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
 }
 
 /* ============================================================
-   ✅ HTML de botón del modal usando estadoStyle()
-   IMPORTANTE: el valor enviado a guardarEstado es el estadoValue ORIGINAL
+   ✅ BOTÓN DEL MODAL (usa guardarEstado(valor))
+   OJO: se manda el estadoValue TAL CUAL
 ============================================================ */
 function renderEstadoOptionButtonHTML(estadoValue) {
   const st = estadoStyle(estadoValue);
@@ -236,17 +198,29 @@ function renderEstadoOptionButtonHTML(estadoValue) {
 }
 
 /* ============================================================
-   ✅ Renderiza opciones del modal (una sola vez)
+   ✅ ESTADOS QUE APARECEN EN EL MODAL
+   (exactamente los de normalizeEstado)
 ============================================================ */
 function renderEstadosModal() {
   const wrap = document.getElementById("estadoOptionsWrap");
   if (!wrap) return;
-  wrap.innerHTML = ESTADOS_MODAL.map(renderEstadoOptionButtonHTML).join("");
+
+  const estados = [
+    "Por preparar",
+    "Faltan archivos",
+    "Confirmado",
+    "Diseñado",
+    "Por producir",
+    "Enviado"
+  ];
+
+  wrap.innerHTML = estados.map(renderEstadoOptionButtonHTML).join("");
 }
+
 document.addEventListener("DOMContentLoaded", renderEstadosModal);
 
 /* ============================================================
-   ✅ ETIQUETAS PREDETERMINADAS DESDE PHP
+   ETIQUETAS PREDETERMINADAS DESDE PHP
 ============================================================ */
 window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
 
@@ -276,8 +250,10 @@ function mostrarEtiquetasRapidas() {
 ============================================================ */
 function colorEtiqueta(tag) {
   tag = String(tag || "").toLowerCase();
+
   if (tag.startsWith("d.")) return "bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-500";
   if (tag.startsWith("p.")) return "bg-yellow-400 text-black border-yellow-500 hover:bg-yellow-300";
+
   return "bg-slate-900 text-white border-slate-800 hover:bg-slate-800";
 }
 
