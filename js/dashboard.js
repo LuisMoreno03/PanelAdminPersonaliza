@@ -1210,6 +1210,8 @@ window.verDetalles = async function (orderId) {
       </div>
       `
     );
+    window.__pintarClienteDrawer(o);
+    window.__pintarPedidosDelCliente(o.customer?.id, o.email);
 
     // -----------------------------
     // Envío
