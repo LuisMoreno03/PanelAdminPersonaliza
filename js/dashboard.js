@@ -1023,7 +1023,7 @@ function escapeHtml(str) {
 
 
 // ===============================
-// VER DETALLES (FULL MODAL SHOPIFY-LIKE)
+// VER DETALLES (FULL MODAL SHOPIFY-LIKE) ✅ FIX tagsActuales + resumen + llaveros requieren imagen
 // ===============================
 window.verDetalles = async function (orderId) {
   const id = String(orderId || "");
@@ -1034,22 +1034,35 @@ window.verDetalles = async function (orderId) {
   // -----------------------------
   function $(x) { return document.getElementById(x); }
 
+  function setHtml(elId, html) {
+    const el = $(elId);
+    if (!el) return false;
+    el.innerHTML = html;
+    return true;
+  }
+
+  function setText(elId, txt) {
+    const el = $(elId);
+    if (!el) return false;
+    el.textContent = txt ?? "";
+    return true;
+  }
+
   function setHtmlAny(ids, html) {
-    for (const id of ids) {
-      const el = $(id);
+    for (const k of ids) {
+      const el = $(k);
       if (el) { el.innerHTML = html; return true; }
     }
     return false;
   }
 
   function setTextAny(ids, txt) {
-    for (const id of ids) {
-      const el = $(id);
+    for (const k of ids) {
+      const el = $(k);
       if (el) { el.textContent = txt ?? ""; return true; }
     }
     return false;
   }
-
 
   function abrirDetallesFull() {
     const modal = $("modalDetallesFull");
@@ -1061,7 +1074,6 @@ window.verDetalles = async function (orderId) {
   // -----------------------------
   // Helpers sanitize
   // -----------------------------
-
   function escapeHtml(str) {
     return String(str ?? "")
       .replaceAll("&", "&amp;")
@@ -1105,7 +1117,6 @@ window.verDetalles = async function (orderId) {
     const title = String(item?.title || item?.name || "").toLowerCase();
     const productType = String(item?.product_type || "").toLowerCase();
     const sku = String(item?.sku || "").toLowerCase();
-
     return (
       title.includes("llavero") ||
       title.includes("llaver") ||
@@ -1125,15 +1136,15 @@ window.verDetalles = async function (orderId) {
   // -----------------------------
   abrirDetallesFull();
 
-  setText("detTitle", "Cargando…");
-  setText("detSubtitle", "—");
-  setText("detItemsCount", "0");
+  setTextAny(["detTitle", "detTitleFull"], "Cargando…");
+  setTextAny(["detSubtitle", "detSubtitleFull"], "—");
+  setTextAny(["detItemsCount", "detItemsCountFull"], "0");
 
-  setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
-  setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
+  setHtmlAny(["detItems", "detItemsFull"], `<div class="text-slate-500">Cargando productos…</div>`);
+  setHtmlAny(["detResumen", "detResumenFull", "detResumenBox", "detResumenWrap"], `<div class="text-slate-500">Cargando…</div>`);
+  setHtmlAny(["detCliente", "detClienteFull"], `<div class="text-slate-500">Cargando…</div>`);
+  setHtmlAny(["detEnvio", "detEnvioFull"], `<div class="text-slate-500">Cargando…</div>`);
+  setHtmlAny(["detTotales", "detTotalesFull"], `<div class="text-slate-500">Cargando…</div>`);
 
   const pre = $("detJson");
   if (pre) pre.textContent = "";
@@ -1151,8 +1162,8 @@ window.verDetalles = async function (orderId) {
     const d = await r.json().catch(() => null);
 
     if (!r.ok || !d || d.success !== true) {
-      setHtml(
-        "detItems",
+      setHtmlAny(
+        ["detItems", "detItemsFull"],
         `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa endpoint.</div>`
       );
       if (pre) pre.textContent = JSON.stringify({ http: r.status, payload: d }, null, 2);
@@ -1170,19 +1181,19 @@ window.verDetalles = async function (orderId) {
     // -----------------------------
     // Header
     // -----------------------------
-    setText("detTitle", `Pedido ${o.name || ("#" + id)}`);
+    setTextAny(["detTitle", "detTitleFull"], `Pedido ${o.name || ("#" + id)}`);
 
     const clienteNombre = o.customer
       ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
       : "";
 
-    setText("detSubtitle", clienteNombre ? clienteNombre : (o.email || "—"));
+    setTextAny(["detSubtitle", "detSubtitleFull"], clienteNombre ? clienteNombre : (o.email || "—"));
 
     // -----------------------------
     // Cliente
     // -----------------------------
-    setHtml(
-      "detCliente",
+    setHtmlAny(
+      ["detCliente", "detClienteFull"],
       `
       <div class="space-y-2">
         <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre || "—")}</div>
@@ -1197,8 +1208,8 @@ window.verDetalles = async function (orderId) {
     // Envío
     // -----------------------------
     const a = o.shipping_address || {};
-    setHtml(
-      "detEnvio",
+    setHtmlAny(
+      ["detEnvio", "detEnvioFull"],
       `
       <div class="space-y-1">
         <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
@@ -1215,11 +1226,15 @@ window.verDetalles = async function (orderId) {
     // -----------------------------
     // Totales
     // -----------------------------
-    const envio = o.total_shipping_price_set?.shop_money?.amount ?? o.total_shipping_price_set?.presentment_money?.amount ?? "0";
+    const envio =
+      o.total_shipping_price_set?.shop_money?.amount ??
+      o.total_shipping_price_set?.presentment_money?.amount ??
+      "0";
+
     const impuestos = o.total_tax ?? "0";
 
-    setHtml(
-      "detTotales",
+    setHtmlAny(
+      ["detTotales", "detTotalesFull"],
       `
       <div class="space-y-1">
         <div><b>Subtotal:</b> ${escapeHtml(o.subtotal_price || "0")} €</div>
@@ -1229,56 +1244,122 @@ window.verDetalles = async function (orderId) {
       </div>
       `
     );
-  
+
+    // ==============================
+    // ✅ TAGS ACTUALES (FIX: evita ReferenceError)
+    // ==============================
+    const shopifyTags = String(o.tags || "").trim();
+
+    const cachedOrder =
+      (window.ordersById && window.ordersById.get && window.ordersById.get(String(id))) ||
+      (window.ordersById && window.ordersById.get && window.ordersById.get(String(o.id))) ||
+      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === String(id)) : null) ||
+      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === String(o.id)) : null) ||
+      null;
+
+    const dbTags = String(cachedOrder?.etiquetas || "").trim();
+    const tagsActuales = (dbTags || shopifyTags || "").trim();
+
     // -----------------------------
     // Resumen
     // -----------------------------
-    setHtmlAny(["detResumen", "detResumenFull", "detResumenBox", "detResumenWrap"], `
-  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <div class="flex items-center justify-between">
-        <div class="text-xs text-slate-500 font-extrabold uppercase">Etiquetas</div>
+    setHtmlAny(
+      ["detResumen", "detResumenFull", "detResumenBox", "detResumenWrap"],
+      `
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="flex items-center justify-between">
+            <div class="text-xs text-slate-500 font-extrabold uppercase">Etiquetas</div>
 
-        <button
-          id="btnEtiquetasDetalle"
-          type="button"
-          class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
-          data-order-id="${o.id}"
-          data-order-label="${escapeAttr(o.name || ("#" + o.id))}"
-          data-order-tags="${escapeAttr(tagsActuales)}"
-          onclick="abrirEtiquetasDesdeDetalle(this)"
-        >
-          ETIQUETAS <span class="ml-1 font-black">+</span>
-        </button>
+            <button
+              id="btnEtiquetasDetalle"
+              type="button"
+              class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
+              data-order-id="${escapeAttr(o.id)}"
+              data-order-label="${escapeAttr(o.name || ("#" + o.id))}"
+              data-order-tags="${escapeAttr(tagsActuales)}"
+              onclick="abrirEtiquetasDesdeDetalle(this)"
+            >
+              ETIQUETAS <span class="ml-1 font-black">+</span>
+            </button>
+          </div>
+
+          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2"></div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
+          <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Entrega</div>
+          <div class="mt-1 font-semibold">${escapeHtml(o.fulfillment_status || "—")}</div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Creado</div>
+          <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
+        </div>
       </div>
+      `
+    );
 
-      <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2"></div>
-    </div>
+    // ✅ Pinta tags debajo del botón (sin depender de funciones externas)
+    (() => {
+      const wrap = document.getElementById("det-tags-view");
+      if (!wrap) return;
 
-    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
-      <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
-    </div>
+      const clean = String(tagsActuales || "").trim();
 
-    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <div class="text-xs text-slate-500 font-extrabold uppercase">Entrega</div>
-      <div class="mt-1 font-semibold">${escapeHtml(o.fulfillment_status || "—")}</div>
-    </div>
+      wrap.innerHTML = clean
+        ? clean
+            .split(",")
+            .map(t => t.trim())
+            .filter(Boolean)
+            .map(tag => {
+              const cls =
+                (typeof window.colorEtiqueta === "function")
+                  ? window.colorEtiqueta(tag)
+                  : "bg-white border-slate-200 text-slate-900";
+              return `<span class="px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide border ${cls}">${escapeHtml(tag)}</span>`;
+            })
+            .join("")
+        : `<span class="text-xs text-slate-400">—</span>`;
 
-    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <div class="text-xs text-slate-500 font-extrabold uppercase">Creado</div>
-      <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
-    </div>
-  </div>
-`);
+      const btn = document.getElementById("btnEtiquetasDetalle");
+      if (btn) btn.dataset.orderTags = clean;
+    })();
+
+    // ✅ Detalles -> abre el MISMO modal de etiquetas (si existe)
+    window.abrirEtiquetasDesdeDetalle = function (btn) {
+      try {
+        const orderId2 = btn?.dataset?.orderId;
+        const label = btn?.dataset?.orderLabel || ("#" + orderId2);
+        const tagsStr = btn?.dataset?.orderTags || "";
+
+        // marca para repintar en detalles (si tu flujo lo usa)
+        window.__ETQ_DETALLE_ORDER_ID = Number(orderId2) || null;
+
+        if (typeof window.abrirModalEtiquetas === "function") {
+          window.abrirModalEtiquetas(orderId2, tagsStr, label);
+          return;
+        }
+
+        const modal = document.getElementById("modalEtiquetas");
+        if (modal) modal.classList.remove("hidden");
+      } catch (e) {
+        console.error("abrirEtiquetasDesdeDetalle error:", e);
+      }
+    };
 
     // -----------------------------
     // Productos
     // -----------------------------
-    setText("detItemsCount", String(lineItems.length));
+    setTextAny(["detItemsCount", "detItemsCountFull"], String(lineItems.length));
 
     if (!lineItems.length) {
-      setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
+      setHtmlAny(["detItems", "detItemsFull"], `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
       return;
     }
 
@@ -1301,14 +1382,14 @@ window.verDetalles = async function (orderId) {
             value === null || value === undefined
               ? ""
               : typeof value === "object"
-                ? JSON.stringify(value)
-                : String(value);
+              ? JSON.stringify(value)
+              : String(value);
 
           if (esImagenUrl(v)) propsImg.push({ name, value: v });
           else propsTxt.push({ name, value: v });
         }
 
-        // ✅ NUEVO: requiere imagen si trae imagen cliente O si es llavero
+        // ✅ requiere imagen si trae imagen cliente O si es llavero
         const requiere = requiereImagenModificada(item, propsImg);
         const esLlavero = isLlaveroItem(item);
 
@@ -1341,15 +1422,15 @@ window.verDetalles = async function (orderId) {
           estadoItem === "LISTO"
             ? "bg-emerald-50 border-emerald-200 text-emerald-900"
             : estadoItem === "FALTA"
-              ? "bg-rose-50 border-rose-200 text-rose-900"
-              : "bg-slate-50 border-slate-200 text-slate-700";
+            ? "bg-rose-50 border-rose-200 text-rose-900"
+            : "bg-slate-50 border-slate-200 text-slate-700";
 
         const badgeText =
           estadoItem === "LISTO"
             ? "Listo"
             : estadoItem === "FALTA"
-              ? (esLlavero ? "Falta imagen (llavero)" : "Falta imagen")
-              : "Sin imagen";
+            ? (esLlavero ? "Falta imagen (llavero)" : "Falta imagen")
+            : "Sin imagen";
 
         // props texto
         const propsTxtHtml = propsTxt.length
@@ -1357,24 +1438,22 @@ window.verDetalles = async function (orderId) {
             <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
               <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
               <div class="space-y-1 text-sm">
-                ${propsTxt
-                  .map(({ name, value }) => {
-                    const safeV = escapeHtml(value || "—");
-                    const safeName = escapeHtml(name);
+                ${propsTxt.map(({ name, value }) => {
+                  const safeV = escapeHtml(value || "—");
+                  const safeName = escapeHtml(name);
 
-                    const val =
-                      esUrl(value)
-                        ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
-                        : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
+                  const val =
+                    esUrl(value)
+                      ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                      : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
 
-                    return `
-                      <div class="flex gap-2">
-                        <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
-                        <div class="flex-1">${val}</div>
-                      </div>
-                    `;
-                  })
-                  .join("")}
+                  return `
+                    <div class="flex gap-2">
+                      <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
+                      <div class="flex-1">${val}</div>
+                    </div>
+                  `;
+                }).join("")}
               </div>
             </div>
           `
@@ -1386,25 +1465,21 @@ window.verDetalles = async function (orderId) {
             <div class="mt-3">
               <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
               <div class="flex flex-wrap gap-3">
-                ${propsImg
-                  .map(
-                    ({ name, value }) => `
-                    <a href="${escapeHtml(value)}" target="_blank"
-                      class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                      <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
-                      <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
-                        ${escapeHtml(name)}
-                      </div>
-                    </a>
-                  `
-                  )
-                  .join("")}
+                ${propsImg.map(({ name, value }) => `
+                  <a href="${escapeHtml(value)}" target="_blank"
+                    class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                    <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
+                    <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
+                      ${escapeHtml(name)}
+                    </div>
+                  </a>
+                `).join("")}
               </div>
             </div>
           `
           : "";
 
-        // imagen modificada mostrada
+        // imagen modificada
         const modificadaHtml = `
           <div class="mt-3">
             <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
@@ -1416,11 +1491,13 @@ window.verDetalles = async function (orderId) {
                     <img src="${escapeHtml(localUrl)}" class="h-44 w-44 object-cover">
                   </a>
                 `
-                : (requiere ? `<div class="mt-2 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>` : `<div class="mt-2 text-xs text-slate-400">No requiere</div>`)
+                : (requiere
+                    ? `<div class="mt-2 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+                    : `<div class="mt-2 text-xs text-slate-400">No requiere</div>`
+                  )
             }
           </div>
         `;
-
 
         // datos item
         const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
@@ -1485,11 +1562,11 @@ window.verDetalles = async function (orderId) {
       })
       .join("");
 
-    setHtml("detItems", itemsHtml);
+    setHtmlAny(["detItems", "detItemsFull"], itemsHtml);
 
   } catch (e) {
     console.error("verDetalles error:", e);
-    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
+    setHtmlAny(["detItems", "detItemsFull"], `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
   }
 };
 
