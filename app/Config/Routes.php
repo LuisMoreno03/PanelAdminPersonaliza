@@ -65,6 +65,7 @@ $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $ro
     $routes->get('confirmados', 'Confirmados::filter');
 });
 $routes->post('api/estado/guardar', 'Api\Estado::guardar');
+$routes->post('dashboard/guardar-estado', 'DashboardController::guardarEstadoPedido');
 
 // ====================================================
 // SHOPIFY (PROTEGIDO)
