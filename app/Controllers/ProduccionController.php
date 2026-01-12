@@ -72,23 +72,26 @@ class ProduccionController extends BaseController
         $db->transBegin();
 
         try {
-            $available = $db->table('pedidos p')
-                                ->select('p.id')
-                                ->join('pedidos_estado pe', 'pe.id = p.id', 'inner', false)
-                                ->where('pe.estado', $this->estadoProduccion)
-                                ->where('p.assigned_to_user_id', null)
-                                ->orderBy('p.fecha', 'ASC')
-                                ->limit($count)
-                                ->get()
-                                ->getResultArray();
+            $builder = $db->table('pedidos p')
+                ->select('p.id')
+                ->join('pedidos_estado pe', 'pe.id = p.id', 'inner', false)
+                ->where('pe.estado', $this->estadoProduccion)
+                ->where('p.assigned_to_user_id', null)
+                ->orderBy('p.id', 'ASC') // <- Cambia a p.created_at si existe
+                ->limit($count);
 
+            $query = $builder->get();
+
+            if ($query === false) {
+                $dbError = $db->error();
+                throw new \RuntimeException('DB error: ' . ($dbError['message'] ?? 'unknown'));
+            }
+
+            $available = $query->getResultArray();
 
             if (!$available) {
                 $db->transCommit();
-                return $this->response->setJSON([
-                    'ok' => true,
-                    'assigned' => 0
-                ]);
+                return $this->response->setJSON(['ok' => true, 'assigned' => 0]);
             }
 
             $ids = array_column($available, 'id');
@@ -115,6 +118,7 @@ class ProduccionController extends BaseController
             ]);
         }
     }
+
 
     /**
      * POST /produccion/return-all
