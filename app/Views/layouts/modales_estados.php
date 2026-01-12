@@ -221,6 +221,7 @@ function renderEstadosModal() {
     "Repetir"
   ];
 
+
   wrap.innerHTML = estados.map(renderEstadoOptionButtonHTML).join("");
 }
 
