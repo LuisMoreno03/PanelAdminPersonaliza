@@ -36,14 +36,15 @@ class ProduccionController extends BaseController
 
         $db = Database::connect();
 
-        $rows = $db->table('pedidos p')
+       $rows = $db->table('pedidos p')
             ->select('p.*, pe.estado')
-            ->join('pedidos_estado pe', 'pe.pedido_id = p.id', 'inner')
+            ->join('pedidos_estado pe', 'pe.id = p.id', 'inner', false)
             ->where('p.assigned_to_user_id', $userId)
             ->where('pe.estado', $this->estadoProduccion)
             ->orderBy('p.assigned_at', 'DESC')
             ->get()
             ->getResultArray();
+
 
         return $this->response->setJSON([
             'ok' => true,
@@ -72,14 +73,15 @@ class ProduccionController extends BaseController
 
         try {
             $available = $db->table('pedidos p')
-                ->select('p.id')
-                ->join('pedidos_estado pe', 'pe.pedido_id = p.id', 'inner')
-                ->where('pe.estado', $this->estadoProduccion)
-                ->where('p.assigned_to_user_id', null)
-                ->orderBy('p.fecha', 'ASC')
-                ->limit($count)
-                ->get()
-                ->getResultArray();
+                                ->select('p.id')
+                                ->join('pedidos_estado pe', 'pe.id = p.id', 'inner', false)
+                                ->where('pe.estado', $this->estadoProduccion)
+                                ->where('p.assigned_to_user_id', null)
+                                ->orderBy('p.fecha', 'ASC')
+                                ->limit($count)
+                                ->get()
+                                ->getResultArray();
+
 
             if (!$available) {
                 $db->transCommit();
