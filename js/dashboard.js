@@ -1446,21 +1446,18 @@ window.verDetalles = async function (orderId) {
 
 
 // ===============================
-// SUBIR IMAGEN MODIFICADA + AUTO ESTADO (FIX)
+// SUBIR IMAGEN MODIFICADA (ROBUSTO)
 // ===============================
 window.subirImagenProducto = async function (orderId, index, input) {
   try {
     const file = input?.files?.[0];
     if (!file) return;
 
-    // ✅ FormData correcto
     const fd = new FormData();
     fd.append("order_id", String(orderId));
     fd.append("line_index", String(index));
     fd.append("file", file);
 
-
-    // CSRF (si lo usas)
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
     const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
 
@@ -1478,12 +1475,44 @@ window.subirImagenProducto = async function (orderId, index, input) {
         const headers = {};
         if (csrfToken) headers[csrfHeader] = csrfToken;
 
-        const r = await fetch(url, { method: "POST", headers, body: fd });
+        const r = await fetch(url, {
+          method: "POST",
+          headers,
+          body: fd,
+          credentials: "same-origin", // ✅ CLAVE: manda cookies de sesión
+        });
 
         if (r.status === 404) continue;
 
-        const d = await r.json().catch(() => null);
-        if (!r.ok || !d?.success) throw new Error(d?.message || `HTTP ${r.status}`);
+        // ✅ si el server devolvió 401/403: sesión muerta
+        if (r.status === 401 || r.status === 403) {
+          throw new Error("No autenticado. Tu sesión venció (401/403). Recarga el panel y vuelve a iniciar sesión.");
+        }
+
+        // ✅ parse inteligente (JSON o texto)
+        const ct = (r.headers.get("content-type") || "").toLowerCase();
+        let d = null;
+        let rawText = "";
+
+        if (ct.includes("application/json")) {
+          d = await r.json().catch(() => null);
+        } else {
+          rawText = await r.text().catch(() => "");
+          // si parece HTML (login / error page), lo marcamos
+          if (rawText.trim().startsWith("<!doctype") || rawText.trim().startsWith("<html")) {
+            throw new Error("El servidor devolvió HTML (probable login / sesión expirada). Recarga el panel.");
+          }
+          // si es texto, intentamos convertirlo
+          d = { success: true, url: rawText.trim() };
+        }
+
+        // ✅ acepta varias formas
+        const success = (d && (d.success === true || typeof d.url === "string"));
+        const urlFinal = d?.url ? String(d.url) : "";
+
+        if (!r.ok || !success || !urlFinal) {
+          throw new Error(d?.message || `Respuesta inválida del servidor (HTTP ${r.status}).`);
+        }
 
         // ✅ pintar preview
         const previewId = `preview_${orderId}_${index}`;
@@ -1492,23 +1521,25 @@ window.subirImagenProducto = async function (orderId, index, input) {
           prev.innerHTML = `
             <div class="mt-2">
               <div class="text-xs font-extrabold text-slate-500">Imagen modificada subida ✅</div>
-              <img src="${d.url}" class="mt-2 w-44 rounded-2xl border border-slate-200 shadow-sm object-cover">
+              <img src="${urlFinal}" class="mt-2 w-44 rounded-2xl border border-slate-200 shadow-sm object-cover">
             </div>
           `;
         }
 
-        // ✅ marcar como cargada en memoria
+        // ✅ marcar como cargada
         if (!Array.isArray(window.imagenesCargadas)) window.imagenesCargadas = [];
         if (!Array.isArray(window.imagenesRequeridas)) window.imagenesRequeridas = [];
 
         window.imagenesCargadas[index] = true;
 
         if (window.imagenesLocales && typeof window.imagenesLocales === "object") {
-          window.imagenesLocales[index] = d.url;
+          window.imagenesLocales[index] = urlFinal;
         }
 
-        // ✅ ahora sí: recalcular estado automático
-        validarEstadoAuto(orderId);
+        // ✅ recalcular estado automático
+        if (typeof window.validarEstadoAuto === "function") {
+          window.validarEstadoAuto(orderId);
+        }
 
         return; // ✅ éxito
       } catch (e) {
@@ -1522,6 +1553,7 @@ window.subirImagenProducto = async function (orderId, index, input) {
     alert("Error subiendo imagen: " + (e?.message || e));
   }
 };
+
 
 
 // ===============================
