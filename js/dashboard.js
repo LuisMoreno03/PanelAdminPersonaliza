@@ -1029,9 +1029,10 @@ function escapeHtml(str) {
 }
 
 
-// ===============================
-// VER DETALLES (FULL MODAL SHOPIFY-LIKE) ✅ FIX tagsActuales + resumen + llaveros requieren imagen
-// ===============================
+// =====================================================
+// DETALLES: TAGS visibles + repintado al guardar
+// (reemplaza tu window.verDetalles actual por este)
+// =====================================================
 window.verDetalles = async function (orderId) {
   const id = String(orderId || "");
   if (!id) return;
@@ -1099,39 +1100,6 @@ window.verDetalles = async function (orderId) {
     return (p * q).toFixed(2);
   }
 
-  // pinta tags en formato pills (usa colorEtiqueta si existe)
-  function renderTagsPills(tagsStr) {
-    const clean = String(tagsStr || "").trim();
-    if (!clean) return `<span class="text-xs text-slate-400">—</span>`;
-
-    const list = clean.split(",").map(t => t.trim()).filter(Boolean);
-
-    return list.map(t => {
-      const cls = (typeof window.colorEtiqueta === "function")
-        ? window.colorEtiqueta(t)
-        : "bg-white border-slate-200 text-slate-800";
-
-      return `
-        <span class="px-3 py-1 rounded-full text-xs font-semibold border ${cls}">
-          ${escapeHtml(t)}
-        </span>
-      `;
-    }).join("");
-  }
-
-  // ✅ GLOBAL: repintar tags en detalles (lo llama el modal al guardar)
-  window.__pintarTagsEnDetalle = function (tagsStr) {
-    const wrap = document.getElementById("det-tags-view");
-    if (!wrap) return;
-
-    const clean = String(tagsStr || "").trim();
-    wrap.innerHTML = renderTagsPills(clean);
-
-    // actualiza dataset del botón (para reabrir modal con lo último)
-    const btn = document.getElementById("btnEtiquetasDetalle");
-    if (btn) btn.dataset.orderTags = clean;
-  };
-
   // -----------------------------
   // Open modal + placeholders
   // -----------------------------
@@ -1190,25 +1158,20 @@ window.verDetalles = async function (orderId) {
     // -----------------------------
     // Cliente
     // -----------------------------
-    setHtml(
-      "detCliente",
-      `
+    setHtml("detCliente", `
       <div class="space-y-2">
         <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre || "—")}</div>
         <div><span class="text-slate-500">Email:</span> ${escapeHtml(o.email || "—")}</div>
         <div><span class="text-slate-500">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
         <div><span class="text-slate-500">ID:</span> ${escapeHtml(o.customer?.id || "—")}</div>
       </div>
-      `
-    );
+    `);
 
     // -----------------------------
     // Envío
     // -----------------------------
     const a = o.shipping_address || {};
-    setHtml(
-      "detEnvio",
-      `
+    setHtml("detEnvio", `
       <div class="space-y-1">
         <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
         <div>${escapeHtml(a.address1 || "")}</div>
@@ -1218,8 +1181,7 @@ window.verDetalles = async function (orderId) {
         <div>${escapeHtml(a.country || "")}</div>
         <div class="pt-2"><span class="text-slate-500">Tel envío:</span> ${escapeHtml(a.phone || "—")}</div>
       </div>
-      `
-    );
+    `);
 
     // -----------------------------
     // Totales
@@ -1228,65 +1190,52 @@ window.verDetalles = async function (orderId) {
       o.total_shipping_price_set?.shop_money?.amount ??
       o.total_shipping_price_set?.presentment_money?.amount ??
       "0";
-
     const impuestos = o.total_tax ?? "0";
 
-    setHtml(
-      "detTotales",
-      `
+    setHtml("detTotales", `
       <div class="space-y-1">
         <div><b>Subtotal:</b> ${escapeHtml(o.subtotal_price || "0")} €</div>
         <div><b>Envío:</b> ${escapeHtml(envio)} €</div>
         <div><b>Impuestos:</b> ${escapeHtml(impuestos)} €</div>
         <div class="text-lg font-extrabold"><b>Total:</b> ${escapeHtml(o.total_price || "0")} €</div>
       </div>
-      `
-    );
+    `);
 
     // -----------------------------
-    // ✅ TAGS: usar Shopify + BD + cache dashboard
+    // ✅ TAGS: fuente robusta
     // -----------------------------
-    const cacheTags =
-      (typeof window.ordersById?.get === "function"
-        ? (window.ordersById.get(String(o.id || id))?.etiquetas || "")
-        : "") || "";
+    const fromDetalles = String(o.tags ?? o.etiquetas ?? "").trim();
+    const fromCache =
+      String(
+        (window.ordersById?.get(String(o.id))?.etiquetas) ??
+        (window.ordersById?.get(String(id))?.etiquetas) ??
+        ""
+      ).trim();
 
-    const tagsActuales = String(
-      o.tags ??
-      o.etiquetas ??
-      cacheTags ??
-      ""
-    ).trim();
+    const tagsActuales = (fromDetalles || fromCache || "").trim();
 
-    // -----------------------------
-    // ✅ Detalles -> abre modal y marca que viene desde Detalles
-    // -----------------------------
-    window.abrirEtiquetasDesdeDetalle = function (btn) {
-      try {
-        const orderId = btn?.dataset?.orderId;
-        const label   = btn?.dataset?.orderLabel || ("#" + orderId);
-        const tagsStr = btn?.dataset?.orderTags || "";
+    // ✅ repintado global (se usa cuando guardas en el modal)
+    window.__pintarTagsEnDetalle = function (tagsStr) {
+      const wrap = document.getElementById("det-tags-view");
+      if (!wrap) return;
 
-        // 🔥 importante: marcar ORIGEN DETALLES
-        window.__ETQ_DETALLE_ORDER_ID = Number(orderId) || null;
+      const clean = String(tagsStr || "").trim();
+      wrap.innerHTML = clean
+        ? clean.split(",").map(t => `
+            <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+              ${escapeHtml(t.trim())}
+            </span>
+          `).join("")
+        : `<span class="text-xs text-slate-400">—</span>`;
 
-        if (typeof window.abrirModalEtiquetas === "function") {
-          window.abrirModalEtiquetas(orderId, tagsStr, label);
-          return;
-        }
-
-        console.warn("No existe window.abrirModalEtiquetas (modal etiquetas).");
-      } catch (e) {
-        console.error("abrirEtiquetasDesdeDetalle error:", e);
-      }
+      const btn = document.getElementById("btnEtiquetasDetalle");
+      if (btn) btn.dataset.orderTags = clean;
     };
 
     // -----------------------------
     // Resumen
     // -----------------------------
-    setHtml(
-      "detResumen",
-      `
+    setHtml("detResumen", `
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div class="flex items-center justify-between">
@@ -1305,9 +1254,7 @@ window.verDetalles = async function (orderId) {
             </button>
           </div>
 
-          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2">
-            ${renderTagsPills(tagsActuales)}
-          </div>
+          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2"></div>
         </div>
 
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -1325,8 +1272,32 @@ window.verDetalles = async function (orderId) {
           <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
         </div>
       </div>
-      `
-    );
+    `);
+
+    // ✅ pintar tags DESPUÉS de insertar el HTML (esto era lo que faltaba)
+    window.__pintarTagsEnDetalle(tagsActuales);
+
+    // ✅ Detalles -> abre el MISMO modal del dashboard y marca "viene de detalles"
+    window.abrirEtiquetasDesdeDetalle = function (btn) {
+      try {
+        const orderId = btn?.dataset?.orderId;
+        const label = btn?.dataset?.orderLabel || ("#" + orderId);
+        const tagsStr = btn?.dataset?.orderTags || "";
+
+        // marca para que guardarEtiquetasModal repinte detalles al guardar
+        window.__ETQ_DETALLE_ORDER_ID = Number(orderId) || null;
+
+        if (typeof window.abrirModalEtiquetas === "function") {
+          window.abrirModalEtiquetas(orderId, tagsStr, label);
+          return;
+        }
+
+        const modal = document.getElementById("modalEtiquetas");
+        if (modal) modal.classList.remove("hidden");
+      } catch (e) {
+        console.error("abrirEtiquetasDesdeDetalle error:", e);
+      }
+    };
 
     // -----------------------------
     // Productos
@@ -1342,189 +1313,183 @@ window.verDetalles = async function (orderId) {
     window.imagenesCargadas = new Array(lineItems.length).fill(false);
     window.imagenesRequeridas = new Array(lineItems.length).fill(false);
 
-    const itemsHtml = lineItems
-      .map((item, index) => {
-        const props = Array.isArray(item.properties) ? item.properties : [];
-        const propsImg = [];
-        const propsTxt = [];
+    const itemsHtml = lineItems.map((item, index) => {
+      const props = Array.isArray(item.properties) ? item.properties : [];
 
-        for (const p of props) {
-          const name = String(p?.name ?? "").trim() || "Campo";
-          const value = p?.value;
+      const propsImg = [];
+      const propsTxt = [];
 
-          const v =
-            value === null || value === undefined
-              ? ""
-              : typeof value === "object"
-              ? JSON.stringify(value)
-              : String(value);
+      for (const p of props) {
+        const name = String(p?.name ?? "").trim() || "Campo";
+        const value = p?.value;
 
-          if (esImagenUrl(v)) propsImg.push({ name, value: v });
-          else propsTxt.push({ name, value: v });
-        }
+        const v =
+          value === null || value === undefined
+            ? ""
+            : typeof value === "object"
+            ? JSON.stringify(value)
+            : String(value);
 
-        const requiere = propsImg.length > 0;
+        if (esImagenUrl(v)) propsImg.push({ name, value: v });
+        else propsTxt.push({ name, value: v });
+      }
 
-        const pid = String(item.product_id || "");
-        const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
+      const requiere = propsImg.length > 0;
 
-        const productImgHtml = productImg
-          ? `
-            <a href="${escapeHtml(productImg)}" target="_blank"
-              class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
-              <img src="${escapeHtml(productImg)}" class="h-full w-full object-cover">
-            </a>
-          `
-          : `
-            <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
-              🧾
-            </div>
-          `;
+      const pid = String(item.product_id || "");
+      const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
 
-        const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
-
-        window.imagenesRequeridas[index] = !!requiere;
-        window.imagenesCargadas[index] = !!localUrl;
-
-        const estadoItem = requiere ? (localUrl ? "LISTO" : "FALTA") : "NO REQUIERE";
-        const badgeCls =
-          estadoItem === "LISTO"
-            ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-            : estadoItem === "FALTA"
-            ? "bg-amber-50 border-amber-200 text-amber-900"
-            : "bg-slate-50 border-slate-200 text-slate-700";
-        const badgeText =
-          estadoItem === "LISTO" ? "Listo" : estadoItem === "FALTA" ? "Falta imagen" : "Sin imagen";
-
-        const propsTxtHtml = propsTxt.length
-          ? `
-            <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
-              <div class="space-y-1 text-sm">
-                ${propsTxt
-                  .map(({ name, value }) => {
-                    const safeV = escapeHtml(value || "—");
-                    const safeName = escapeHtml(name);
-
-                    const val =
-                      esUrl(value)
-                        ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
-                        : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
-
-                    return `
-                      <div class="flex gap-2">
-                        <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
-                        <div class="flex-1">${val}</div>
-                      </div>
-                    `;
-                  })
-                  .join("")}
-              </div>
-            </div>
-          `
-          : "";
-
-        const propsImgsHtml = propsImg.length
-          ? `
-            <div class="mt-3">
-              <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
-              <div class="flex flex-wrap gap-3">
-                ${propsImg
-                  .map(
-                    ({ name, value }) => `
-                    <a href="${escapeHtml(value)}" target="_blank"
-                      class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                      <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
-                      <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
-                        ${escapeHtml(name)}
-                      </div>
-                    </a>
-                  `
-                  )
-                  .join("")}
-              </div>
-            </div>
-          `
-          : "";
-
-        const modificadaHtml = localUrl
-          ? `
-            <div class="mt-3">
-              <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
-              <a href="${escapeHtml(localUrl)}" target="_blank"
-                class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-                <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
-              </a>
-            </div>
-          `
-          : requiere
-          ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
-          : "";
-
-        const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
-        const sku = item.sku || "";
-        const qty = item.quantity ?? 1;
-        const price = item.price ?? "0";
-        const tot = totalLinea(price, qty);
-
-        const datosProductoHtml = `
-          <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-            ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
-            ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
-            ${item.product_id ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(item.product_id)}</span></div>` : ""}
-            ${item.variant_id ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(item.variant_id)}</span></div>` : ""}
+      const productImgHtml = productImg
+        ? `
+          <a href="${escapeHtml(productImg)}" target="_blank"
+            class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
+            <img src="${escapeHtml(productImg)}" class="h-full w-full object-cover">
+          </a>
+        `
+        : `
+          <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
+            🧾
           </div>
         `;
 
-        const uploadHtml = requiere
-          ? `
-            <div class="mt-4">
-              <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
-              <input type="file" accept="image/*"
-                onchange="subirImagenProducto(${Number(orderId)}, ${index}, this)"
-                class="w-full border border-slate-200 rounded-2xl p-2">
-              <div id="preview_${id}_${index}" class="mt-2"></div>
-            </div>
-          `
-          : "";
+      const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
 
-        return `
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
-            <div class="flex items-start gap-4">
-              ${productImgHtml}
-              <div class="min-w-0 flex-1">
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0">
-                    <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || item.name || "Producto")}</div>
-                    <div class="text-sm text-slate-600 mt-1">
-                      Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
-                      ${tot ? ` · Total: <b>${escapeHtml(tot)} €</b>` : ""}
-                    </div>
+      window.imagenesRequeridas[index] = !!requiere;
+      window.imagenesCargadas[index] = !!localUrl;
+
+      const estadoItem = requiere ? (localUrl ? "LISTO" : "FALTA") : "NO REQUIERE";
+      const badgeCls =
+        estadoItem === "LISTO"
+          ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+          : estadoItem === "FALTA"
+          ? "bg-amber-50 border-amber-200 text-amber-900"
+          : "bg-slate-50 border-slate-200 text-slate-700";
+      const badgeText =
+        estadoItem === "LISTO" ? "Listo" : estadoItem === "FALTA" ? "Falta imagen" : "Sin imagen";
+
+      const propsTxtHtml = propsTxt.length
+        ? `
+          <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
+            <div class="space-y-1 text-sm">
+              ${propsTxt.map(({ name, value }) => {
+                const safeV = escapeHtml(value || "—");
+                const safeName = escapeHtml(name);
+
+                const val = esUrl(value)
+                  ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                  : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
+
+                return `
+                  <div class="flex gap-2">
+                    <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
+                    <div class="flex-1">${val}</div>
                   </div>
-                  <span class="text-xs font-extrabold px-3 py-1 rounded-full border ${badgeCls}">
-                    ${badgeText}
-                  </span>
+                `;
+              }).join("")}
+            </div>
+          </div>
+        `
+        : "";
+
+      const propsImgsHtml = propsImg.length
+        ? `
+          <div class="mt-3">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
+            <div class="flex flex-wrap gap-3">
+              ${propsImg.map(({ name, value }) => `
+                <a href="${escapeHtml(value)}" target="_blank"
+                  class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                  <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
+                  <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
+                    ${escapeHtml(name)}
+                  </div>
+                </a>
+              `).join("")}
+            </div>
+          </div>
+        `
+        : "";
+
+      const modificadaHtml = localUrl
+        ? `
+          <div class="mt-3">
+            <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
+            <a href="${escapeHtml(localUrl)}" target="_blank"
+              class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+              <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
+            </a>
+          </div>
+        `
+        : requiere
+        ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+        : "";
+
+      const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
+      const sku = item.sku || "";
+      const qty = item.quantity ?? 1;
+      const price = item.price ?? "0";
+      const tot = totalLinea(price, qty);
+
+      const datosProductoHtml = `
+        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+          ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
+          ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
+          ${item.product_id ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(item.product_id)}</span></div>` : ""}
+          ${item.variant_id ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(item.variant_id)}</span></div>` : ""}
+        </div>
+      `;
+
+      const uploadHtml = requiere
+        ? `
+          <div class="mt-4">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
+            <input type="file" accept="image/*"
+              onchange="subirImagenProducto(${Number(orderId)}, ${index}, this)"
+              class="w-full border border-slate-200 rounded-2xl p-2">
+            <div id="preview_${id}_${index}" class="mt-2"></div>
+          </div>
+        `
+        : "";
+
+      return `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+          <div class="flex items-start gap-4">
+            ${productImgHtml}
+
+            <div class="min-w-0 flex-1">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || item.name || "Producto")}</div>
+                  <div class="text-sm text-slate-600 mt-1">
+                    Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
+                    ${tot ? ` · Total: <b>${escapeHtml(tot)} €</b>` : ""}
+                  </div>
                 </div>
 
-                ${datosProductoHtml}
-                ${propsTxtHtml}
-                ${propsImgsHtml}
-                ${modificadaHtml}
-                ${uploadHtml}
+                <span class="text-xs font-extrabold px-3 py-1 rounded-full border ${badgeCls}">
+                  ${badgeText}
+                </span>
               </div>
+
+              ${datosProductoHtml}
+              ${propsTxtHtml}
+              ${propsImgsHtml}
+              ${modificadaHtml}
+              ${uploadHtml}
             </div>
           </div>
-        `;
-      })
-      .join("");
+        </div>
+      `;
+    }).join("");
 
     setHtml("detItems", itemsHtml);
-
   } catch (e) {
     console.error("verDetalles error:", e);
     setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
   }
 };
+
 
 
 
