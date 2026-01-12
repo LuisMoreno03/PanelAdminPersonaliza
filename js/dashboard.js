@@ -1359,19 +1359,22 @@ window.verDetalles = async function (orderId) {
           : "";
 
         // imagen modificada mostrada
-        const modificadaHtml = localUrl
-          ? `
-            <div class="mt-3">
-              <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
-              <a href="${escapeHtml(localUrl)}" target="_blank"
-                class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-                <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
-              </a>
-            </div>
-          `
-          : requiere
-            ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
-            : "";
+        const modificadaHtml = `
+          <div class="mt-3">
+            <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
+            ${
+              localUrl
+                ? `
+                  <a href="${escapeHtml(localUrl)}" target="_blank"
+                    class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                    <img src="${escapeHtml(localUrl)}" class="h-44 w-44 object-cover">
+                  </a>
+                `
+                : (requiere ? `<div class="mt-2 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>` : `<div class="mt-2 text-xs text-slate-400">No requiere</div>`)
+            }
+          </div>
+        `;
+
 
         // datos item
         const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
@@ -1557,8 +1560,9 @@ window.subirImagenProducto = async function (orderId, index, input) {
 
 
 // =====================================
-// AUTO-ESTADO: FALTAN ARCHIVOS
-// - Si requiere 2+ imágenes y falta alguna => estado = "Faltan archivos"
+// AUTO-ESTADO (2+ imágenes requeridas)
+// - si falta alguna => "Faltan archivos"
+// - si están todas => "Confirmado"
 // =====================================
 window.validarEstadoAuto = async function (orderId) {
   try {
@@ -1568,35 +1572,33 @@ window.validarEstadoAuto = async function (orderId) {
     const req = Array.isArray(window.imagenesRequeridas) ? window.imagenesRequeridas : [];
     const ok  = Array.isArray(window.imagenesCargadas) ? window.imagenesCargadas : [];
 
-    // Cantidad de items que requieren imagen
-    const requiredIdx = req
-      .map((v, i) => (v ? i : -1))
-      .filter(i => i >= 0);
-
+    const requiredIdx = req.map((v, i) => (v ? i : -1)).filter(i => i >= 0);
     const requiredCount = requiredIdx.length;
 
-    // Solo aplica si requiere 2 o más imágenes
+    // Solo aplica regla automática si requiere 2 o más imágenes
     if (requiredCount < 2) return;
 
-    // Cuántas de las requeridas están cargadas
     const uploadedCount = requiredIdx.filter(i => ok[i] === true).length;
-
     const faltaAlguna = uploadedCount < requiredCount;
-    if (!faltaAlguna) return; // si ya están todas, no forzamos nada
 
-    // Si ya está en "Faltan archivos", no repetir
+    const nuevoEstado = faltaAlguna ? "Faltan archivos" : "Confirmado";
+
+    // Si ya está en el mismo estado, no hagas nada
     const order =
       (window.ordersById && window.ordersById.get && window.ordersById.get(oid)) ||
       (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === oid) : null);
 
     const estadoActual = String(order?.estado || "").toLowerCase().trim();
-    if (estadoActual.includes("faltan archivos") || estadoActual.includes("faltan_archivos")) return;
+    const nuevoLower = nuevoEstado.toLowerCase();
 
-    // ✅ Llamar al mismo flujo de guardado que ya tienes
-    // (guardarEstado necesita que exista #modalOrderId con el ID)
+    if (
+      (nuevoLower.includes("faltan") && (estadoActual.includes("faltan archivos") || estadoActual.includes("faltan_archivos"))) ||
+      (nuevoLower.includes("confirmado") && estadoActual.includes("confirmado"))
+    ) return;
+
+    // asegurar que guardarEstado encuentre el input
     let idInput = document.getElementById("modalOrderId");
     if (!idInput) {
-      // fallback: si no existe (por algún motivo), lo creamos invisible
       idInput = document.createElement("input");
       idInput.type = "hidden";
       idInput.id = "modalOrderId";
@@ -1604,8 +1606,7 @@ window.validarEstadoAuto = async function (orderId) {
     }
     idInput.value = oid;
 
-    // IMPORTANTE: usa el mismo string que tu normalizeEstado maneja
-    await window.guardarEstado("Faltan archivos");
+    await window.guardarEstado(nuevoEstado);
   } catch (e) {
     console.error("validarEstadoAuto error:", e);
   }
