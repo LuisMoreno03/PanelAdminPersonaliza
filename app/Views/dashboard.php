@@ -347,10 +347,21 @@
 
   <!-- ✅ Variables globales (UNA sola vez) -->
   <script>
-    window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
-    window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
-    window.API_BASE = "<?= rtrim(site_url(), '/') ?>";
-  </script>
+  window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
+  window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
+
+  // ✅ Endpoints correctos (sin concatenaciones peligrosas)
+  window.API = {
+    pedidos: "<?= site_url('dashboard/pedidos') ?>",
+    filter: "<?= site_url('dashboard/filter') ?>",
+    etiquetas: "<?= site_url('dashboard/etiquetas-disponibles') ?>",
+    ping: "<?= site_url('dashboard/ping') ?>",
+    usuariosEstado: "<?= site_url('dashboard/usuarios-estado') ?>",
+    guardarEstado: "<?= site_url('dashboard/guardar-estado') ?>",
+    guardarEtiquetas: "<?= site_url('api/estado/etiquetas/guardar') ?>",
+  };
+</script>
+
 
   <!-- ✅ romper caché -->
   <script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>
