@@ -1556,68 +1556,61 @@ window.subirImagenProducto = async function (orderId, index, input) {
 
 
 
-// ===============================
-// AUTO ESTADO (FIX): Produccion / A medias
-// ===============================
-function validarEstadoAuto(orderId) {
-  const req = Array.isArray(window.imagenesRequeridas) ? window.imagenesRequeridas : [];
-  const carg = Array.isArray(window.imagenesCargadas) ? window.imagenesCargadas : [];
+// =====================================
+// AUTO-ESTADO: FALTAN ARCHIVOS
+// - Si requiere 2+ imágenes y falta alguna => estado = "Faltan archivos"
+// =====================================
+window.validarEstadoAuto = async function (orderId) {
+  try {
+    const oid = String(orderId || "");
+    if (!oid) return;
 
-  // Solo cuentan las requeridas
-  let totalReq = 0;
-  let okReq = 0;
+    const req = Array.isArray(window.imagenesRequeridas) ? window.imagenesRequeridas : [];
+    const ok  = Array.isArray(window.imagenesCargadas) ? window.imagenesCargadas : [];
 
-  for (let i = 0; i < req.length; i++) {
-    if (req[i]) {
-      totalReq++;
-      if (carg[i]) okReq++;
+    // Cantidad de items que requieren imagen
+    const requiredIdx = req
+      .map((v, i) => (v ? i : -1))
+      .filter(i => i >= 0);
+
+    const requiredCount = requiredIdx.length;
+
+    // Solo aplica si requiere 2 o más imágenes
+    if (requiredCount < 2) return;
+
+    // Cuántas de las requeridas están cargadas
+    const uploadedCount = requiredIdx.filter(i => ok[i] === true).length;
+
+    const faltaAlguna = uploadedCount < requiredCount;
+    if (!faltaAlguna) return; // si ya están todas, no forzamos nada
+
+    // Si ya está en "Faltan archivos", no repetir
+    const order =
+      (window.ordersById && window.ordersById.get && window.ordersById.get(oid)) ||
+      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === oid) : null);
+
+    const estadoActual = String(order?.estado || "").toLowerCase().trim();
+    if (estadoActual.includes("faltan archivos") || estadoActual.includes("faltan_archivos")) return;
+
+    // ✅ Llamar al mismo flujo de guardado que ya tienes
+    // (guardarEstado necesita que exista #modalOrderId con el ID)
+    let idInput = document.getElementById("modalOrderId");
+    if (!idInput) {
+      // fallback: si no existe (por algún motivo), lo creamos invisible
+      idInput = document.createElement("input");
+      idInput.type = "hidden";
+      idInput.id = "modalOrderId";
+      document.body.appendChild(idInput);
     }
+    idInput.value = oid;
+
+    // IMPORTANTE: usa el mismo string que tu normalizeEstado maneja
+    await window.guardarEstado("Faltan archivos");
+  } catch (e) {
+    console.error("validarEstadoAuto error:", e);
   }
+};
 
-  // Si no hay requeridas, no tocamos estado
-  if (totalReq === 0) return;
-
-  // ✅ SIN ACENTO, como tu backend
-  const nuevoEstado = okReq === totalReq ? "Confirmado" : "Faltan Archivos";
-
-  // ✅ usa el mismo guardarEstado robusto si existe
-  if (typeof window.guardarEstado === "function") {
-    // truco: abre modal no es necesario, guardamos directo con endpoint
-  }
-
-  // Guardar estado automáticamente (con endpoints robustos)
-  const endpoints = [
-    apiUrl("/api/estado/guardar"),
-    "/api/estado/guardar",
-    "/index.php/api/estado/guardar",
-    "/index.php/index.php/api/estado/guardar",
-  ];
-
-  (async () => {
-    for (const url of endpoints) {
-      try {
-        const r = await fetch(url, {
-          method: "POST",
-          headers: jsonHeaders(),
-          body: JSON.stringify({ id: Number(orderId), estado: nuevoEstado }),
-        });
-
-        if (r.status === 404) continue;
-
-        const d = await r.json().catch(() => null);
-        if (!r.ok || !d?.success) throw new Error(d?.message || `HTTP ${r.status}`);
-
-        // refresca lista si estás en pág 1
-        if (typeof cargarPedidos === "function" && currentPage === 1) {
-          cargarPedidos({ reset: false, page_info: "" });
-        }
-        return;
-      } catch (e) {
-        // intenta siguiente endpoint
-      }
-    }
-  })();
-}
 
 
 /* =====================================================
