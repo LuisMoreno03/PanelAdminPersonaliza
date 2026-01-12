@@ -7,8 +7,8 @@ use Config\Database;
 
 class ProduccionController extends BaseController
 {
-    private string $estadoProduccion = 'Produccion';
-    private string $estadoFabricando = 'Fabricando';
+    private string $estadoProduccion = 'Confirmado';
+    private string $estadoFabricando = 'Diseñado';
 
     /**
      * GET /produccion
