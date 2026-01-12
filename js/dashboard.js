@@ -1034,19 +1034,22 @@ window.verDetalles = async function (orderId) {
   // -----------------------------
   function $(x) { return document.getElementById(x); }
 
-  function setHtml(elId, html) {
-    const el = $(elId);
-    if (!el) return false;
-    el.innerHTML = html;
-    return true;
+  function setHtmlAny(ids, html) {
+    for (const id of ids) {
+      const el = $(id);
+      if (el) { el.innerHTML = html; return true; }
+    }
+    return false;
   }
 
-  function setText(elId, txt) {
-    const el = $(elId);
-    if (!el) return false;
-    el.textContent = txt ?? "";
-    return true;
+  function setTextAny(ids, txt) {
+    for (const id of ids) {
+      const el = $(id);
+      if (el) { el.textContent = txt ?? ""; return true; }
+    }
+    return false;
   }
+
 
   function abrirDetallesFull() {
     const modal = $("modalDetallesFull");
@@ -1058,6 +1061,7 @@ window.verDetalles = async function (orderId) {
   // -----------------------------
   // Helpers sanitize
   // -----------------------------
+
   function escapeHtml(str) {
     return String(str ?? "")
       .replaceAll("&", "&amp;")
@@ -1225,6 +1229,48 @@ window.verDetalles = async function (orderId) {
       </div>
       `
     );
+  
+    // -----------------------------
+    // Resumen
+    // -----------------------------
+    setHtmlAny(["detResumen", "detResumenFull", "detResumenBox", "detResumenWrap"], `
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-slate-500 font-extrabold uppercase">Etiquetas</div>
+
+        <button
+          id="btnEtiquetasDetalle"
+          type="button"
+          class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
+          data-order-id="${o.id}"
+          data-order-label="${escapeAttr(o.name || ("#" + o.id))}"
+          data-order-tags="${escapeAttr(tagsActuales)}"
+          onclick="abrirEtiquetasDesdeDetalle(this)"
+        >
+          ETIQUETAS <span class="ml-1 font-black">+</span>
+        </button>
+      </div>
+
+      <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2"></div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+      <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
+      <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+      <div class="text-xs text-slate-500 font-extrabold uppercase">Entrega</div>
+      <div class="mt-1 font-semibold">${escapeHtml(o.fulfillment_status || "—")}</div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+      <div class="text-xs text-slate-500 font-extrabold uppercase">Creado</div>
+      <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
+    </div>
+  </div>
+`);
 
     // -----------------------------
     // Productos
