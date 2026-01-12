@@ -7,15 +7,25 @@ use Config\Database;
 
 class ProduccionController extends BaseController
 {
-    private string $estadoProduccion = 'Produccion';   // AJUSTA si es "Preparado"
-    private string $estadoFabricando = 'Fabricando';   // solo referencia futura
+    private string $estadoProduccion = 'Produccion';
+    private string $estadoFabricando = 'Fabricando';
 
-    // ============================
-    // GET /produccion/my-queue
-    // ============================
+    /**
+     * GET /produccion
+     * Página principal
+     */
+    public function index()
+    {
+        // Ajusta la vista si es otra
+        return view('produccion');
+    }
+
+    /**
+     * GET /produccion/my-queue
+     */
     public function myQueue()
     {
-        $userId = session()->get('user_id'); // ajusta si tu sesión usa otro nombre
+        $userId = session()->get('user_id');
 
         if (!$userId) {
             return $this->response->setJSON([
@@ -41,9 +51,9 @@ class ProduccionController extends BaseController
         ]);
     }
 
-    // ============================
-    // POST /produccion/pull
-    // ============================
+    /**
+     * POST /produccion/pull
+     */
     public function pull()
     {
         $userId = session()->get('user_id');
@@ -61,7 +71,6 @@ class ProduccionController extends BaseController
         $db->transBegin();
 
         try {
-            // Buscar pedidos disponibles en PRODUCCION y sin asignar
             $available = $db->table('pedidos p')
                 ->select('p.id')
                 ->join('pedidos_estado pe', 'pe.pedido_id = p.id', 'inner')
@@ -74,12 +83,14 @@ class ProduccionController extends BaseController
 
             if (!$available) {
                 $db->transCommit();
-                return $this->response->setJSON(['ok' => true, 'assigned' => 0]);
+                return $this->response->setJSON([
+                    'ok' => true,
+                    'assigned' => 0
+                ]);
             }
 
             $ids = array_column($available, 'id');
 
-            // Asignar al usuario
             $db->table('pedidos')
                 ->whereIn('id', $ids)
                 ->update([
@@ -103,15 +114,18 @@ class ProduccionController extends BaseController
         }
     }
 
-    // ============================
-    // POST /produccion/return-all
-    // ============================
+    /**
+     * POST /produccion/return-all
+     */
     public function returnAll()
     {
         $userId = session()->get('user_id');
 
         if (!$userId) {
-            return $this->response->setJSON(['ok' => true, 'returned' => 0]);
+            return $this->response->setJSON([
+                'ok' => true,
+                'returned' => 0
+            ]);
         }
 
         $db = Database::connect();
