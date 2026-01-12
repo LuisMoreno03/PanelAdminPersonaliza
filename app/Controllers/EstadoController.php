@@ -18,6 +18,7 @@ class EstadoController extends BaseController
         'Diseñado',
         'Por producir',
         'Enviado',
+        'Repetir',
     ];
 
     // ✅ Normaliza estados (viejos / tildes / mayúsculas)
@@ -40,7 +41,7 @@ class EstadoController extends BaseController
             'por producir'      => 'Por producir',
             'enviado'           => 'Enviado',
             'repetir'           => 'Repetir',
-            
+
             // ✅ tolerancia extra (tildes / variantes)
             'por produccion'    => 'Por producir',
             'por producción'    => 'Por producir',
