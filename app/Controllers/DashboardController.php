@@ -101,25 +101,6 @@ class DashboardController extends Controller
     // HELPERS
     // =====================================================
 
-    private function columnExists($db, string $table, string $column): bool
-    {
-        try {
-            $dbName = $db->getDatabase();
-            $row = $db->query(
-                "SELECT 1
-                 FROM INFORMATION_SCHEMA.COLUMNS
-                 WHERE TABLE_SCHEMA = ?
-                   AND TABLE_NAME = ?
-                   AND COLUMN_NAME = ?
-                 LIMIT 1",
-                [$dbName, $table, $column]
-            )->getRowArray();
-            return !empty($row);
-        } catch (\Throwable $e) {
-            return false;
-        }
-    }
-
     private function parseLinkHeaderForPageInfo(?string $linkHeader): array
     {
         $next = null;
@@ -419,7 +400,7 @@ class DashboardController extends Controller
             [$nextPageInfo, $prevPageInfo] = $this->parseLinkHeaderForPageInfo(is_string($linkHeader) ? $linkHeader : null);
 
             // -----------------------------------------------------
-            // 3) Mapear formato dashboard
+            // 3) Mapear formato dashboard (DEFAULT)
             // -----------------------------------------------------
             $orders = [];
             foreach ($ordersRaw as $o) {
@@ -446,7 +427,10 @@ class DashboardController extends Controller
                     'fecha'        => $fecha,
                     'cliente'      => $cliente,
                     'total'        => $total,
+
+                    // 👇 default, luego se sobreescribe desde BD
                     'estado'       => 'Por preparar',
+
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
                     'estado_envio' => $estado_envio ?: '-',
@@ -457,11 +441,12 @@ class DashboardController extends Controller
 
             // -----------------------------------------------------
             // 4) ✅ OVERRIDE ESTADO desde BD (pedidos_estado.order_id)
+            //    -> Esto garantiza que al recargar se vea el estado manual
             // -----------------------------------------------------
             try {
                 $ids = [];
-                foreach ($orders as $o) {
-                    if (!empty($o['id'])) $ids[] = (int)$o['id'];
+                foreach ($orders as $ord) {
+                    if (!empty($ord['id'])) $ids[] = (int)$ord['id'];
                 }
                 $ids = array_values(array_unique($ids));
 
@@ -469,22 +454,22 @@ class DashboardController extends Controller
                     $estadoModel = new PedidosEstadoModel();
                     $map = $estadoModel->getEstadosForOrderIds($ids); // key = order_id (string)
 
-                    foreach ($orders as &$ord) {
-                        $oid = (string)($ord['id'] ?? '');
+                    foreach ($orders as &$ord2) {
+                        $oid = (string)($ord2['id'] ?? '');
                         if ($oid === '' || !isset($map[$oid])) continue;
 
                         $rowEstado = $map[$oid];
 
                         if (!empty($rowEstado['estado'])) {
-                            $ord['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
+                            $ord2['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
                         }
 
-                        $ord['last_status_change'] = [
+                        $ord2['last_status_change'] = [
                             'user_name'  => $rowEstado['estado_updated_by_name'] ?? 'Sistema',
                             'changed_at' => $rowEstado['estado_updated_at'] ?? null,
                         ];
                     }
-                    unset($ord);
+                    unset($ord2);
                 }
             } catch (\Throwable $e) {
                 log_message('error', 'Override estado pedidos_estado falló: ' . $e->getMessage());
@@ -892,27 +877,36 @@ class DashboardController extends Controller
         $order['auto_images_required'] = $totalRequeridas;
         $order['auto_images_ready'] = $totalListas;
 
+        // ✅ IMPORTANTE: el auto-estado NO debe pisar el estado manual
         if ($estadoAuto) {
             $this->guardarEstadoSistema($orderId, $estadoAuto);
         }
     }
 
+    /**
+     * ✅ Auto-estado del sistema SIN PISAR el manual.
+     * Requiere que PedidosEstadoModel tenga getEstadoPedido($orderId).
+     */
     private function guardarEstadoSistema(int $orderId, string $estado): void
     {
         try {
             $estado = $this->normalizeEstado($estado);
 
             $model = new PedidosEstadoModel();
-            $actual = $model->getEstadoPedido($orderId);
 
-            // ✅ Si ya hay un estado puesto por un usuario, NO lo pises
-            if ($actual) {
-                $byName = trim((string)($actual['estado_updated_by_name'] ?? ''));
-                $byId   = (int)($actual['estado_updated_by'] ?? 0);
+            // ✅ Si ya hay estado manual, no sobrescribir
+            // (Necesitas este método en el model: getEstadoPedido)
+            if (method_exists($model, 'getEstadoPedido')) {
+                $actual = $model->getEstadoPedido($orderId);
 
-                // Si NO es sistema, respetar estado manual
-                if ($byName !== '' && mb_strtolower($byName) !== 'sistema') return;
-                if ($byId > 0) return;
+                if ($actual) {
+                    $byName = trim((string)($actual['estado_updated_by_name'] ?? ''));
+                    $byId   = (int)($actual['estado_updated_by'] ?? 0);
+
+                    // si lo cambió un usuario (no "Sistema"), respetar
+                    if ($byId > 0) return;
+                    if ($byName !== '' && mb_strtolower($byName) !== 'sistema') return;
+                }
             }
 
             $model->setEstadoPedido($orderId, $estado, null, 'Sistema');
@@ -920,6 +914,4 @@ class DashboardController extends Controller
             log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
         }
     }
-
-
 }
