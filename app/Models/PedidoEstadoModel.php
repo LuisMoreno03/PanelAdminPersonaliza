@@ -16,6 +16,23 @@ class PedidosEstadoModel extends Model
         'imagenes_updated_by_name',
     ];
     protected $useTimestamps = false;
+    
+    public function setEstadoPedido(int $orderId, string $estado, ?int $userId, ?string $userName): bool
+{
+    $now = date('Y-m-d H:i:s');
+    $row = $this->where('order_id', $orderId)->first();
+
+    $data = [
+      'estado' => $estado,
+      'estado_updated_at' => $now,
+      'estado_updated_by' => $userId,
+      'estado_updated_by_name' => $userName,
+    ];
+
+    if ($row) return (bool) $this->update($row['id'], $data);
+
+    return (bool) $this->insert(['order_id' => $orderId] + $data);
+}
 
     public function setEstadoImagenes(int $orderId, string $estado, ?int $userId, ?string $userName): bool
     {

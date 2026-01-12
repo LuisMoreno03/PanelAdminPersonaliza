@@ -138,6 +138,7 @@ function normalizeEstado(estado) {
   return estado ? String(estado).trim() : "Por preparar";
 }
 
+
 /* =====================================================
   ESTADO STYLE (DARK ONLY) - limpio + moderno
   ✅ Sin colores neón: solo dark con acentos sutiles
@@ -213,13 +214,14 @@ function renderEstadosModal() {
 
   const estados = [
     "Por preparar",
-    "faltan_archivos",
+    "Faltan archivos",
     "Confirmado",
     "Diseñado",
     "Por producir",
     "Enviado",
     "Repetir"
   ];
+
 
 
   wrap.innerHTML = estados.map(renderEstadoOptionButtonHTML).join("");
