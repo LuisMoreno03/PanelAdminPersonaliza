@@ -7,7 +7,7 @@
 <!-- =========================
    DRAWER CLIENTE (LADO DERECHO)
 ========================= -->
-<div id="verInformacionDelCliente" class="hidden fixed inset-0 z-[10000]">
+<div id="abrirClienteDetalle" class="hidden fixed inset-0 z-[10000]">
   <!-- Backdrop -->
   <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="cerrarClienteDetalle()"></div>
 
