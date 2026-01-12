@@ -50,7 +50,7 @@ $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $ro
     $routes->post('_test_post', static function () {
         return json_encode(['ok' => true, 'time' => date('Y-m-d H:i:s')]);
     });
-
+    
     // estados
     $routes->post('estado/guardar', 'EstadoController::guardar');
     $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
@@ -64,6 +64,7 @@ $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $ro
 
     $routes->get('confirmados', 'Confirmados::filter');
 });
+$routes->post('api/estado/guardar', 'Api\Estado::guardar');
 
 // ====================================================
 // SHOPIFY (PROTEGIDO)

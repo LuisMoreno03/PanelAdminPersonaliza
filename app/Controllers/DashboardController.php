@@ -456,116 +456,41 @@ class DashboardController extends Controller
             }
 
             // -----------------------------------------------------
-            // 4) Estado desde BD (OPTIMIZADO)
-            //    (respeta tabla pedidos_estado con id)
+            // 4) ✅ OVERRIDE ESTADO desde BD (pedidos_estado.order_id)
             // -----------------------------------------------------
             try {
-                $db = \Config\Database::connect();
-                $dbName = $db->getDatabase();
+                $ids = [];
+                foreach ($orders as $o) {
+                    if (!empty($o['id'])) $ids[] = (int)$o['id'];
+                }
+                $ids = array_values(array_unique($ids));
 
-                $tbl = $db->query(
-                    "SELECT 1 FROM information_schema.tables
-                     WHERE table_schema = ? AND table_name = ?
-                     LIMIT 1",
-                    [$dbName, 'pedidos_estado']
-                )->getRowArray();
+                if (!empty($ids)) {
+                    $estadoModel = new \App\Models\PedidosEstadoModel();
+                    $map = $estadoModel->getEstadosForOrderIds($ids); // devuelve por order_id
 
-                if (!empty($tbl) && !empty($orders)) {
+                    foreach ($orders as &$ord) {
+                        $oid = (string)($ord['id'] ?? '');
+                        if ($oid === '' || !isset($map[$oid])) continue;
 
-                    $hasId          = $this->columnExists($db, 'pedidos_estado', 'id');
-                    $hasEstado      = $this->columnExists($db, 'pedidos_estado', 'estado');
-                    $hasUserName    = $this->columnExists($db, 'pedidos_estado', 'user_name');
-                    $hasUserId      = $this->columnExists($db, 'pedidos_estado', 'user_id');
-                    $hasCreatedAt   = $this->columnExists($db, 'pedidos_estado', 'created_at');
-                    $hasActualizado = $this->columnExists($db, 'pedidos_estado', 'actualizado');
+                        $rowEstado = $map[$oid];
 
-                    if ($hasId && $hasEstado) {
-                        $ids = [];
-                        foreach ($orders as $o) {
-                            if (!empty($o['id'])) $ids[] = (string)$o['id'];
+                        if (!empty($rowEstado['estado'])) {
+                            $ord['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
                         }
-                        $ids = array_values(array_unique($ids));
 
-                        if (!empty($ids)) {
-                            $select = ['id', 'estado'];
-                            if ($hasUserName)    $select[] = 'user_name';
-                            if ($hasUserId)      $select[] = 'user_id';
-                            if ($hasActualizado) $select[] = 'actualizado';
-                            if ($hasCreatedAt)   $select[] = 'created_at';
-
-                            $rows = $db->table('pedidos_estado')
-                                ->select(implode(',', $select))
-                                ->whereIn('id', $ids)
-                                ->get()
-                                ->getResultArray();
-
-                            $estadoById = [];
-                            $userIdsNeeded = [];
-
-                            foreach ($rows as $r) {
-                                $rid = (string)($r['id'] ?? '');
-                                if ($rid === '') continue;
-
-                                $estadoById[$rid] = $r;
-
-                                if (!$hasUserName && $hasUserId && !empty($r['user_id'])) {
-                                    $userIdsNeeded[] = (int)$r['user_id'];
-                                }
-                            }
-
-                            $usersById = [];
-                            if (!empty($userIdsNeeded)) {
-                                $userIdsNeeded = array_values(array_unique($userIdsNeeded));
-                                try {
-                                    $uRows = $db->table('users')
-                                        ->select('id, nombre')
-                                        ->whereIn('id', $userIdsNeeded)
-                                        ->get()
-                                        ->getResultArray();
-
-                                    foreach ($uRows as $u) {
-                                        $usersById[(int)$u['id']] = $u['nombre'] ?? null;
-                                    }
-                                } catch (\Throwable $e) {
-                                    // no rompe
-                                }
-                            }
-
-                            foreach ($orders as &$ord) {
-                                $oid = (string)($ord['id'] ?? '');
-                                if ($oid === '') continue;
-
-                                $row = $estadoById[$oid] ?? null;
-                                if (!$row) continue;
-
-                                $ord['estado'] = !empty($row['estado'])
-                                    ? $this->normalizeEstado((string)$row['estado'])
-                                    : 'Por preparar';
-
-                                $changedAt = null;
-                                if ($hasActualizado && !empty($row['actualizado'])) $changedAt = $row['actualizado'];
-                                elseif ($hasCreatedAt && !empty($row['created_at'])) $changedAt = $row['created_at'];
-
-                                $uName = null;
-                                if ($hasUserName && !empty($row['user_name'])) {
-                                    $uName = $row['user_name'];
-                                } elseif ($hasUserId && !empty($row['user_id'])) {
-                                    $uid = (int)$row['user_id'];
-                                    $uName = $usersById[$uid] ?? null;
-                                }
-
-                                $ord['last_status_change'] = [
-                                    'user_name'  => $uName ?: 'Sistema',
-                                    'changed_at' => $changedAt,
-                                ];
-                            }
-                            unset($ord);
-                        }
+                        // last change
+                        $ord['last_status_change'] = [
+                            'user_name'  => $rowEstado['estado_updated_by_name'] ?? 'Sistema',
+                            'changed_at' => $rowEstado['estado_updated_at'] ?? null,
+                        ];
                     }
+                    unset($ord);
                 }
             } catch (\Throwable $e) {
-                log_message('error', 'Bloque pedidos_estado falló: ' . $e->getMessage());
+                log_message('error', 'Override estado pedidos_estado falló: ' . $e->getMessage());
             }
+
 
             // -----------------------------------------------------
             // 5) Respuesta final + debug opcional
@@ -1194,33 +1119,15 @@ class DashboardController extends Controller
     }
 
     private function guardarEstadoSistema(int $orderId, string $estado): void
-    {
-        try {
-            $db = \Config\Database::connect();
+{
+    try {
+        $estado = $this->normalizeEstado($estado);
 
-            $estado = $this->normalizeEstado($estado);
-
-            $insert = [
-                'estado'     => $estado,
-                'created_at' => date('Y-m-d H:i:s'),
-            ];
-
-            if ($this->columnExists($db, 'pedidos_estado', 'order_id')) {
-                $insert['order_id'] = $orderId;
-            } elseif ($this->columnExists($db, 'pedidos_estado', 'pedido_id')) {
-                $insert['pedido_id'] = $orderId;
-            } else {
-                $insert['id'] = $orderId;
-            }
-
-            if ($this->columnExists($db, 'pedidos_estado', 'user_id')) {
-                $insert['user_id'] = null; // sistema
-            }
-
-            $db->table('pedidos_estado')->insert($insert);
-
-        } catch (\Throwable $e) {
-            log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
-        }
+        $model = new \App\Models\PedidosEstadoModel();
+        $model->setEstadoPedido($orderId, $estado, null, 'Sistema');
+    } catch (\Throwable $e) {
+        log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
     }
+}
+
 }
