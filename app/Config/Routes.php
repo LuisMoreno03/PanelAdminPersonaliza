@@ -104,6 +104,7 @@ $routes->group('pedidos', ['filter' => 'auth'], static function (RouteCollection
 // PRODUCCION (PROTEGIDO)
 // ====================================================
 $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollection $routes) {
+    $routes->get('produccion', 'Produccion::index');
     $routes->get('/', 'ProduccionController::index');
     $routes->get('filter', 'ProduccionController::filter');
 
