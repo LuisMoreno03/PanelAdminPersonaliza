@@ -914,4 +914,63 @@ class DashboardController extends Controller
             log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
         }
     }
+    // ============================================================
+    // ✅ ENDPOINT: /dashboard/etiquetas-disponibles
+    // ============================================================
+    public function etiquetasDisponibles()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
+        }
+
+        return $this->response->setJSON([
+            'success' => true,
+            'etiquetas' => $this->getEtiquetasUsuario(),
+        ]);
+    }
+
+    // ============================================================
+    // ✅ ENDPOINT: /dashboard/ping
+    // (si lo usas para presencia/keep-alive)
+    // ============================================================
+    public function ping()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
+        }
+
+        return $this->response->setJSON([
+            'success' => true,
+            'time' => date('Y-m-d H:i:s'),
+            'user' => session('nombre') ?? 'Usuario',
+        ]);
+    }
+
+    // ============================================================
+    // ✅ ENDPOINT: /dashboard/usuarios-estado
+    // (por ahora devuelve vacío para que NO rompa el frontend)
+    // ============================================================
+    public function usuariosEstado()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
+        }
+
+        // Si luego quieres presencia real, aquí lo implementas.
+        return $this->response->setJSON([
+            'success' => true,
+            'online' => [],
+            'offline' => [],
+        ]);
+    }
+
 }
