@@ -18,6 +18,11 @@
           Copiar JSON
         </button>
 
+        <button type="button" onclick="verInformacionDelCliente()"
+          class="px-4 py-2 rounded-2xl bg-slate-100 border border-slate-200 text-slate-900 font-extrabold text-xs uppercase tracking-wide hover:bg-slate-200 transition">
+          Ver Información del Cliente
+        </button>
+
         <button type="button" onclick="cerrarDetallesFull()"
           class="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:border-slate-300 transition font-extrabold text-xl leading-none">
           ×
@@ -64,34 +69,7 @@
 
         </div>
 
-        <!-- Col 3 -->
-        <div class="space-y-4">
-
-          <!-- Cliente -->
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div class="px-5 py-4 border-b border-slate-200">
-              <h3 class="font-extrabold text-slate-900">Cliente</h3>
-            </div>
-            <div id="detCliente" class="p-5 text-sm text-slate-800"></div>
-          </div>
-
-          <!-- Envío -->
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div class="px-5 py-4 border-b border-slate-200">
-              <h3 class="font-extrabold text-slate-900">Envío</h3>
-            </div>
-            <div id="detEnvio" class="p-5 text-sm text-slate-800"></div>
-          </div>
-
-          <!-- Totales -->
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm">
-            <div class="px-5 py-4 border-b border-slate-200">
-              <h3 class="font-extrabold text-slate-900">Totales</h3>
-            </div>
-            <div id="detTotales" class="p-5 text-sm text-slate-800"></div>
-          </div>
-
-        </div>
+        
       </div>
     </div>
 
