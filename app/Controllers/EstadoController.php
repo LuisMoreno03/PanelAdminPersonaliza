@@ -39,7 +39,8 @@ class EstadoController extends BaseController
             'disenado'          => 'Diseñado',
             'por producir'      => 'Por producir',
             'enviado'           => 'Enviado',
-
+            'repetir'           => 'Repetir',
+            
             // ✅ tolerancia extra (tildes / variantes)
             'por produccion'    => 'Por producir',
             'por producción'    => 'Por producir',

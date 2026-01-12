@@ -236,6 +236,7 @@ function normalizeEstado(estado) {
   if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
   if (s.includes("por producir")) return "Por producir";
   if (s.includes("enviado")) return "Enviado";
+  if (s.includes("repetir")) return "Repetir";
 
   return estado ? String(estado).trim() : "Por preparar";
 }
@@ -304,6 +305,15 @@ function estadoStyle(estado) {
       icon: "🚚",
       wrap: `${base} bg-emerald-600 border-emerald-700 text-white`,
       dot: `${dotBase} bg-lime-200`,
+    };
+  }
+
+  if (s.includes("repetir")) {
+    return {
+      label: "Repetir",
+      icon: "🔁",
+      wrap: `${base} bg-slate-800 border-slate-700 text-white`,
+      dot: `${dotBase} bg-slate-300`,
     };
   }
 
@@ -945,9 +955,6 @@ async function guardarEstado(nuevoEstado) {
 // ✅ asegurar funciones globales para onclick=""
 window.guardarEstado = guardarEstado;
 
-/* =====================================================
-  DETALLES
-===================================================== */
 // ===============================
 // DETALLES (FULL SCREEN) - FIX IDs
 // ===============================
