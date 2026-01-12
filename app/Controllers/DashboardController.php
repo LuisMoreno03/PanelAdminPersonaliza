@@ -897,15 +897,22 @@ class DashboardController extends Controller
         }
     }
 
-    private function guardarEstadoSistema(int $orderId, string $estado): void
-    {
+    private function guardarEstadoSistema(int $orderId, string $estado): void{
         try {
             $estado = $this->normalizeEstado($estado);
 
             $model = new PedidosEstadoModel();
+
+            // ✅ Si ya hay estado manual, NO lo pises
+            $actual = $model->getEstadoPedido($orderId); // <-- debes tenerlo o crearlo
+            if ($actual && !empty($actual['estado_updated_by_name']) && $actual['estado_updated_by_name'] !== 'Sistema') {
+                return;
+            }
+
             $model->setEstadoPedido($orderId, $estado, null, 'Sistema');
         } catch (\Throwable $e) {
             log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
         }
     }
+
 }
