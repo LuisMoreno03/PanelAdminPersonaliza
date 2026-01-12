@@ -8,6 +8,7 @@ class PedidosEstadoModel extends Model
 {
     protected $table = 'pedidos_estado';
     protected $primaryKey = 'id';
+
     protected $allowedFields = [
         'order_id',
 
@@ -17,7 +18,7 @@ class PedidosEstadoModel extends Model
         'estado_updated_by',
         'estado_updated_by_name',
 
-        // ✅ estado de imágenes (lo que ya tenías)
+        // ✅ estado de imágenes
         'estado_imagenes',
         'imagenes_updated_at',
         'imagenes_updated_by',
@@ -47,7 +48,7 @@ class PedidosEstadoModel extends Model
         return (bool) $this->insert(['order_id' => $orderId] + $data);
     }
 
-    /** (lo tuyo) Guarda el ESTADO DE IMÁGENES */
+    /** ✅ Guarda el ESTADO DE IMÁGENES */
     public function setEstadoImagenes(int $orderId, string $estado, ?int $userId, ?string $userName): bool
     {
         $now = date('Y-m-d H:i:s');
@@ -68,21 +69,28 @@ class PedidosEstadoModel extends Model
         return (bool) $this->insert(['order_id' => $orderId] + $data);
     }
 
-    /** ✅ Obtiene override de estado para un set de order_ids */
+    /** ✅ Obtiene el ÚLTIMO estado por order_id */
     public function getEstadosForOrderIds(array $orderIds): array
     {
         if (!$orderIds) return [];
 
+        // ✅ Ordena por la fecha más reciente de update
         $rows = $this->select('order_id, estado, estado_updated_at, estado_updated_by, estado_updated_by_name')
             ->whereIn('order_id', $orderIds)
+            ->orderBy('estado_updated_at', 'DESC')
             ->findAll();
 
+        // ✅ Como vienen DESC, nos quedamos con la primera fila de cada order_id
         $map = [];
         foreach ($rows as $r) {
             $oid = (string)($r['order_id'] ?? '');
             if (!$oid) continue;
-            $map[$oid] = $r;
+
+            if (!isset($map[$oid])) {
+                $map[$oid] = $r;
+            }
         }
+
         return $map;
     }
 }
