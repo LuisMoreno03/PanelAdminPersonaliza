@@ -133,6 +133,7 @@ function normalizeEstado(estado) {
   if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
   if (s.includes("por producir")) return "Por producir";
   if (s.includes("enviado")) return "Enviado";
+  if (s.includes("repetir")) return "Repetir";
 
   return estado ? String(estado).trim() : "Por preparar";
 }
@@ -216,7 +217,7 @@ function renderEstadosModal() {
     "Confirmado",
     "Diseñado",
     "Por producir",
-    "Enviado"
+    "Enviado",
     "Repetir"
   ];
 
