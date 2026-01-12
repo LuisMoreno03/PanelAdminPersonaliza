@@ -1037,7 +1037,7 @@ window.verDetalles = async function (orderId) {
   if (!id) return;
 
   // -----------------------------
-  // Helpers DOM (compat)
+  // Helpers DOM
   // -----------------------------
   function $(x) { return document.getElementById(x); }
 
@@ -1053,22 +1053,6 @@ window.verDetalles = async function (orderId) {
     if (!el) return false;
     el.textContent = txt ?? "";
     return true;
-  }
-
-  function setHtmlAny(ids, html) {
-    for (const k of ids) {
-      const el = $(k);
-      if (el) { el.innerHTML = html; return true; }
-    }
-    return false;
-  }
-
-  function setTextAny(ids, txt) {
-    for (const k of ids) {
-      const el = $(k);
-      if (el) { el.textContent = txt ?? ""; return true; }
-    }
-    return false;
   }
 
   function abrirDetallesFull() {
@@ -1102,14 +1086,12 @@ window.verDetalles = async function (orderId) {
     return /^https?:\/\//i.test(String(u || "").trim());
   }
 
-  // acepta querystring
   function esImagenUrl(url) {
     if (!url) return false;
     const u = String(url).trim();
     return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
   }
 
-  // total línea
   function totalLinea(price, qty) {
     const p = Number(price);
     const q = Number(qty);
@@ -1117,41 +1099,53 @@ window.verDetalles = async function (orderId) {
     return (p * q).toFixed(2);
   }
 
-  // ==============================
-  // ✅ DETECCIÓN DE LLAVEROS + REQUIERE IMAGEN
-  // ==============================
-  function isLlaveroItem(item) {
-    const title = String(item?.title || item?.name || "").toLowerCase();
-    const productType = String(item?.product_type || "").toLowerCase();
-    const sku = String(item?.sku || "").toLowerCase();
-    return (
-      title.includes("llavero") ||
-      title.includes("llaver") ||
-      productType.includes("llavero") ||
-      sku.includes("llav")
-    );
+  // pinta tags en formato pills (usa colorEtiqueta si existe)
+  function renderTagsPills(tagsStr) {
+    const clean = String(tagsStr || "").trim();
+    if (!clean) return `<span class="text-xs text-slate-400">—</span>`;
+
+    const list = clean.split(",").map(t => t.trim()).filter(Boolean);
+
+    return list.map(t => {
+      const cls = (typeof window.colorEtiqueta === "function")
+        ? window.colorEtiqueta(t)
+        : "bg-white border-slate-200 text-slate-800";
+
+      return `
+        <span class="px-3 py-1 rounded-full text-xs font-semibold border ${cls}">
+          ${escapeHtml(t)}
+        </span>
+      `;
+    }).join("");
   }
 
-  function requiereImagenModificada(item, propsImg) {
-    const requierePorImagenCliente = (propsImg?.length || 0) > 0;
-    const requierePorLlavero = isLlaveroItem(item);
-    return requierePorImagenCliente || requierePorLlavero;
-  }
+  // ✅ GLOBAL: repintar tags en detalles (lo llama el modal al guardar)
+  window.__pintarTagsEnDetalle = function (tagsStr) {
+    const wrap = document.getElementById("det-tags-view");
+    if (!wrap) return;
+
+    const clean = String(tagsStr || "").trim();
+    wrap.innerHTML = renderTagsPills(clean);
+
+    // actualiza dataset del botón (para reabrir modal con lo último)
+    const btn = document.getElementById("btnEtiquetasDetalle");
+    if (btn) btn.dataset.orderTags = clean;
+  };
 
   // -----------------------------
   // Open modal + placeholders
   // -----------------------------
   abrirDetallesFull();
 
-  setTextAny(["detTitle", "detTitleFull"], "Cargando…");
-  setTextAny(["detSubtitle", "detSubtitleFull"], "—");
-  setTextAny(["detItemsCount", "detItemsCountFull"], "0");
+  setText("detTitle", "Cargando…");
+  setText("detSubtitle", "—");
+  setText("detItemsCount", "0");
 
-  setHtmlAny(["detItems", "detItemsFull"], `<div class="text-slate-500">Cargando productos…</div>`);
-  setHtmlAny(["detResumen", "detResumenFull", "detResumenBox", "detResumenWrap"], `<div class="text-slate-500">Cargando…</div>`);
-  setHtmlAny(["detCliente", "detClienteFull"], `<div class="text-slate-500">Cargando…</div>`);
-  setHtmlAny(["detEnvio", "detEnvioFull"], `<div class="text-slate-500">Cargando…</div>`);
-  setHtmlAny(["detTotales", "detTotalesFull"], `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
+  setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
 
   const pre = $("detJson");
   if (pre) pre.textContent = "";
@@ -1169,10 +1163,7 @@ window.verDetalles = async function (orderId) {
     const d = await r.json().catch(() => null);
 
     if (!r.ok || !d || d.success !== true) {
-      setHtmlAny(
-        ["detItems", "detItemsFull"],
-        `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa endpoint.</div>`
-      );
+      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa endpoint.</div>`);
       if (pre) pre.textContent = JSON.stringify({ http: r.status, payload: d }, null, 2);
       return;
     }
@@ -1188,19 +1179,19 @@ window.verDetalles = async function (orderId) {
     // -----------------------------
     // Header
     // -----------------------------
-    setTextAny(["detTitle", "detTitleFull"], `Pedido ${o.name || ("#" + id)}`);
+    setText("detTitle", `Pedido ${o.name || ("#" + id)}`);
 
     const clienteNombre = o.customer
       ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
       : "";
 
-    setTextAny(["detSubtitle", "detSubtitleFull"], clienteNombre ? clienteNombre : (o.email || "—"));
+    setText("detSubtitle", clienteNombre ? clienteNombre : (o.email || "—"));
 
     // -----------------------------
     // Cliente
     // -----------------------------
-    setHtmlAny(
-      ["detCliente", "detClienteFull"],
+    setHtml(
+      "detCliente",
       `
       <div class="space-y-2">
         <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre || "—")}</div>
@@ -1210,15 +1201,13 @@ window.verDetalles = async function (orderId) {
       </div>
       `
     );
-    window.__pintarClienteDrawer(o);
-    window.__pintarPedidosDelCliente(o.customer?.id, o.email);
 
     // -----------------------------
     // Envío
     // -----------------------------
     const a = o.shipping_address || {};
-    setHtmlAny(
-      ["detEnvio", "detEnvioFull"],
+    setHtml(
+      "detEnvio",
       `
       <div class="space-y-1">
         <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
@@ -1242,8 +1231,8 @@ window.verDetalles = async function (orderId) {
 
     const impuestos = o.total_tax ?? "0";
 
-    setHtmlAny(
-      ["detTotales", "detTotalesFull"],
+    setHtml(
+      "detTotales",
       `
       <div class="space-y-1">
         <div><b>Subtotal:</b> ${escapeHtml(o.subtotal_price || "0")} €</div>
@@ -1254,26 +1243,49 @@ window.verDetalles = async function (orderId) {
       `
     );
 
-    // ==============================
-    // ✅ TAGS ACTUALES (FIX: evita ReferenceError)
-    // ==============================
-    const shopifyTags = String(o.tags || "").trim();
+    // -----------------------------
+    // ✅ TAGS: usar Shopify + BD + cache dashboard
+    // -----------------------------
+    const cacheTags =
+      (typeof window.ordersById?.get === "function"
+        ? (window.ordersById.get(String(o.id || id))?.etiquetas || "")
+        : "") || "";
 
-    const cachedOrder =
-      (window.ordersById && window.ordersById.get && window.ordersById.get(String(id))) ||
-      (window.ordersById && window.ordersById.get && window.ordersById.get(String(o.id))) ||
-      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === String(id)) : null) ||
-      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === String(o.id)) : null) ||
-      null;
+    const tagsActuales = String(
+      o.tags ??
+      o.etiquetas ??
+      cacheTags ??
+      ""
+    ).trim();
 
-    const dbTags = String(cachedOrder?.etiquetas || "").trim();
-    const tagsActuales = (dbTags || shopifyTags || "").trim();
+    // -----------------------------
+    // ✅ Detalles -> abre modal y marca que viene desde Detalles
+    // -----------------------------
+    window.abrirEtiquetasDesdeDetalle = function (btn) {
+      try {
+        const orderId = btn?.dataset?.orderId;
+        const label   = btn?.dataset?.orderLabel || ("#" + orderId);
+        const tagsStr = btn?.dataset?.orderTags || "";
+
+        // 🔥 importante: marcar ORIGEN DETALLES
+        window.__ETQ_DETALLE_ORDER_ID = Number(orderId) || null;
+
+        if (typeof window.abrirModalEtiquetas === "function") {
+          window.abrirModalEtiquetas(orderId, tagsStr, label);
+          return;
+        }
+
+        console.warn("No existe window.abrirModalEtiquetas (modal etiquetas).");
+      } catch (e) {
+        console.error("abrirEtiquetasDesdeDetalle error:", e);
+      }
+    };
 
     // -----------------------------
     // Resumen
     // -----------------------------
-    setHtmlAny(
-      ["detResumen", "detResumenFull", "detResumenBox", "detResumenWrap"],
+    setHtml(
+      "detResumen",
       `
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -1284,8 +1296,8 @@ window.verDetalles = async function (orderId) {
               id="btnEtiquetasDetalle"
               type="button"
               class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
-              data-order-id="${escapeAttr(o.id)}"
-              data-order-label="${escapeAttr(o.name || ("#" + o.id))}"
+              data-order-id="${escapeAttr(o.id || id)}"
+              data-order-label="${escapeAttr(o.name || ('#' + (o.id || id)))}"
               data-order-tags="${escapeAttr(tagsActuales)}"
               onclick="abrirEtiquetasDesdeDetalle(this)"
             >
@@ -1293,7 +1305,9 @@ window.verDetalles = async function (orderId) {
             </button>
           </div>
 
-          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2"></div>
+          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2">
+            ${renderTagsPills(tagsActuales)}
+          </div>
         </div>
 
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -1314,61 +1328,13 @@ window.verDetalles = async function (orderId) {
       `
     );
 
-    // ✅ Pinta tags debajo del botón (sin depender de funciones externas)
-    (() => {
-      const wrap = document.getElementById("det-tags-view");
-      if (!wrap) return;
-
-      const clean = String(tagsActuales || "").trim();
-
-      wrap.innerHTML = clean
-        ? clean
-            .split(",")
-            .map(t => t.trim())
-            .filter(Boolean)
-            .map(tag => {
-              const cls =
-                (typeof window.colorEtiqueta === "function")
-                  ? window.colorEtiqueta(tag)
-                  : "bg-white border-slate-200 text-slate-900";
-              return `<span class="px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wide border ${cls}">${escapeHtml(tag)}</span>`;
-            })
-            .join("")
-        : `<span class="text-xs text-slate-400">—</span>`;
-
-      const btn = document.getElementById("btnEtiquetasDetalle");
-      if (btn) btn.dataset.orderTags = clean;
-    })();
-
-    // ✅ Detalles -> abre el MISMO modal de etiquetas (si existe)
-    window.abrirEtiquetasDesdeDetalle = function (btn) {
-      try {
-        const orderId2 = btn?.dataset?.orderId;
-        const label = btn?.dataset?.orderLabel || ("#" + orderId2);
-        const tagsStr = btn?.dataset?.orderTags || "";
-
-        // marca para repintar en detalles (si tu flujo lo usa)
-        window.__ETQ_DETALLE_ORDER_ID = Number(orderId2) || null;
-
-        if (typeof window.abrirModalEtiquetas === "function") {
-          window.abrirModalEtiquetas(orderId2, tagsStr, label);
-          return;
-        }
-
-        const modal = document.getElementById("modalEtiquetas");
-        if (modal) modal.classList.remove("hidden");
-      } catch (e) {
-        console.error("abrirEtiquetasDesdeDetalle error:", e);
-      }
-    };
-
     // -----------------------------
     // Productos
     // -----------------------------
-    setTextAny(["detItemsCount", "detItemsCountFull"], String(lineItems.length));
+    setText("detItemsCount", String(lineItems.length));
 
     if (!lineItems.length) {
-      setHtmlAny(["detItems", "detItemsFull"], `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
+      setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
       return;
     }
 
@@ -1379,7 +1345,6 @@ window.verDetalles = async function (orderId) {
     const itemsHtml = lineItems
       .map((item, index) => {
         const props = Array.isArray(item.properties) ? item.properties : [];
-
         const propsImg = [];
         const propsTxt = [];
 
@@ -1398,11 +1363,8 @@ window.verDetalles = async function (orderId) {
           else propsTxt.push({ name, value: v });
         }
 
-        // ✅ requiere imagen si trae imagen cliente O si es llavero
-        const requiere = requiereImagenModificada(item, propsImg);
-        const esLlavero = isLlaveroItem(item);
+        const requiere = propsImg.length > 0;
 
-        // imagen producto
         const pid = String(item.product_id || "");
         const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
 
@@ -1419,96 +1381,86 @@ window.verDetalles = async function (orderId) {
             </div>
           `;
 
-        // imagen modificada (local)
         const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
 
         window.imagenesRequeridas[index] = !!requiere;
         window.imagenesCargadas[index] = !!localUrl;
 
         const estadoItem = requiere ? (localUrl ? "LISTO" : "FALTA") : "NO REQUIERE";
-
         const badgeCls =
           estadoItem === "LISTO"
             ? "bg-emerald-50 border-emerald-200 text-emerald-900"
             : estadoItem === "FALTA"
-            ? "bg-rose-50 border-rose-200 text-rose-900"
+            ? "bg-amber-50 border-amber-200 text-amber-900"
             : "bg-slate-50 border-slate-200 text-slate-700";
-
         const badgeText =
-          estadoItem === "LISTO"
-            ? "Listo"
-            : estadoItem === "FALTA"
-            ? (esLlavero ? "Falta imagen (llavero)" : "Falta imagen")
-            : "Sin imagen";
+          estadoItem === "LISTO" ? "Listo" : estadoItem === "FALTA" ? "Falta imagen" : "Sin imagen";
 
-        // props texto
         const propsTxtHtml = propsTxt.length
           ? `
             <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
               <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
               <div class="space-y-1 text-sm">
-                ${propsTxt.map(({ name, value }) => {
-                  const safeV = escapeHtml(value || "—");
-                  const safeName = escapeHtml(name);
+                ${propsTxt
+                  .map(({ name, value }) => {
+                    const safeV = escapeHtml(value || "—");
+                    const safeName = escapeHtml(name);
 
-                  const val =
-                    esUrl(value)
-                      ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
-                      : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
+                    const val =
+                      esUrl(value)
+                        ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                        : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
 
-                  return `
-                    <div class="flex gap-2">
-                      <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
-                      <div class="flex-1">${val}</div>
-                    </div>
-                  `;
-                }).join("")}
+                    return `
+                      <div class="flex gap-2">
+                        <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
+                        <div class="flex-1">${val}</div>
+                      </div>
+                    `;
+                  })
+                  .join("")}
               </div>
             </div>
           `
           : "";
 
-        // imágenes cliente
         const propsImgsHtml = propsImg.length
           ? `
             <div class="mt-3">
               <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
               <div class="flex flex-wrap gap-3">
-                ${propsImg.map(({ name, value }) => `
-                  <a href="${escapeHtml(value)}" target="_blank"
-                    class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                    <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
-                    <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
-                      ${escapeHtml(name)}
-                    </div>
-                  </a>
-                `).join("")}
+                ${propsImg
+                  .map(
+                    ({ name, value }) => `
+                    <a href="${escapeHtml(value)}" target="_blank"
+                      class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                      <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
+                      <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
+                        ${escapeHtml(name)}
+                      </div>
+                    </a>
+                  `
+                  )
+                  .join("")}
               </div>
             </div>
           `
           : "";
 
-        // imagen modificada
-        const modificadaHtml = `
-          <div class="mt-3">
-            <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
-            ${
-              localUrl
-                ? `
-                  <a href="${escapeHtml(localUrl)}" target="_blank"
-                    class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-                    <img src="${escapeHtml(localUrl)}" class="h-44 w-44 object-cover">
-                  </a>
-                `
-                : (requiere
-                    ? `<div class="mt-2 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
-                    : `<div class="mt-2 text-xs text-slate-400">No requiere</div>`
-                  )
-            }
-          </div>
-        `;
+        const modificadaHtml = localUrl
+          ? `
+            <div class="mt-3">
+              <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
+              <a href="${escapeHtml(localUrl)}" target="_blank"
+                class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
+              </a>
+            </div>
+          `
+          : requiere
+          ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+          : "";
 
-        // datos item
         const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
         const sku = item.sku || "";
         const qty = item.quantity ?? 1;
@@ -1524,7 +1476,6 @@ window.verDetalles = async function (orderId) {
           </div>
         `;
 
-        // ✅ Subida obligatoria si requiere
         const uploadHtml = requiere
           ? `
             <div class="mt-4">
@@ -1541,19 +1492,15 @@ window.verDetalles = async function (orderId) {
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
             <div class="flex items-start gap-4">
               ${productImgHtml}
-
               <div class="min-w-0 flex-1">
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
-                    <div class="font-extrabold text-slate-900 truncate">
-                      ${escapeHtml(item.title || item.name || "Producto")}
-                    </div>
+                    <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || item.name || "Producto")}</div>
                     <div class="text-sm text-slate-600 mt-1">
                       Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
                       ${tot ? ` · Total: <b>${escapeHtml(tot)} €</b>` : ""}
                     </div>
                   </div>
-
                   <span class="text-xs font-extrabold px-3 py-1 rounded-full border ${badgeCls}">
                     ${badgeText}
                   </span>
@@ -1571,13 +1518,14 @@ window.verDetalles = async function (orderId) {
       })
       .join("");
 
-    setHtmlAny(["detItems", "detItemsFull"], itemsHtml);
+    setHtml("detItems", itemsHtml);
 
   } catch (e) {
     console.error("verDetalles error:", e);
-    setHtmlAny(["detItems", "detItemsFull"], `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
+    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
   }
 };
+
 
 
 // ===============================
