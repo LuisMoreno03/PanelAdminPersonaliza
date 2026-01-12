@@ -175,7 +175,9 @@ function estadoStyle(estado) {
   if (s.includes("enviado")) {
     return { label, icon: "🚚", wrap: `${base} bg-slate-950 border-emerald-700/60 hover:border-emerald-500/80`, iconWrap, dot: `${dotBase} bg-emerald-300` };
   }
-
+  if (s.includes("repetir")) {
+    return { label, icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, iconWrap, dot: `${dotBase} bg-slate-300` };
+  }
   return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-950 border-slate-700 hover:border-slate-500`, iconWrap, dot: `${dotBase} bg-slate-200` };
 }
 
@@ -215,6 +217,7 @@ function renderEstadosModal() {
     "Diseñado",
     "Por producir",
     "Enviado"
+    "Repetir"
   ];
 
   wrap.innerHTML = estados.map(renderEstadoOptionButtonHTML).join("");
