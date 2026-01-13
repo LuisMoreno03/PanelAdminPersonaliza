@@ -16,10 +16,12 @@ class DashboardController extends Controller
     // ✅ Estados permitidos (los nuevos del modal)
     private array $allowedEstados = [
         'Por preparar',
-        'A medias',
-        'Produccion',
-        'Fabricando',
+        'Faltan archivos',
+        'Confirmado',
+        'Diseñado',
+        'Por producir',
         'Enviado',
+        'Repetir',
     ];
 
     public function __construct()
@@ -178,34 +180,61 @@ class DashboardController extends Controller
 
         $lower = mb_strtolower($s);
 
+        // ✅ Mapa de equivalencias (viejos -> nuevos)
         $map = [
-            'por preparar' => 'Por preparar',
-            'pendiente'    => 'Por preparar',
+            // base
+            'por preparar'     => 'Por preparar',
+            'pendiente'        => 'Por preparar',
 
-            'a medias'     => 'A medias',
-            'amedias'      => 'A medias',
+            // faltan archivos
+            'faltan archivos'  => 'Faltan archivos',
+            'faltan archivo'   => 'Faltan archivos',
+            'archivos faltan'  => 'Faltan archivos',
+            'sin archivos'     => 'Faltan archivos',
 
-            'produccion'   => 'Produccion',
-            'producción'   => 'Produccion',
+            // confirmado
+            'confirmado'       => 'Confirmado',
+            'confirmada'       => 'Confirmado',
 
-            'fabricando'   => 'Fabricando',
-            'preparado'    => 'Fabricando',
+            // diseñado
+            'diseñado'         => 'Diseñado',
+            'diseñado '        => 'Diseñado',
+            'disenado'         => 'Diseñado',   // sin ñ
+            'diseño'           => 'Diseñado',
+            'ddiseño'          => 'Diseñado',
+            'd.diseño'         => 'Diseñado',
 
-            'enviado'      => 'Enviado',
-            'entregado'    => 'Enviado',
+            // por producir
+            'por producir'     => 'Por producir',
+            'produccion'       => 'Por producir',
+            'producción'       => 'Por producir',
+            'p.produccion'     => 'Por producir',
+            'p.producción'     => 'Por producir',
+            'fabricando'       => 'Por producir',
+            'en produccion'    => 'Por producir',
+            'en producción'    => 'Por producir',
 
-            'cancelado'    => 'Por preparar',
-            'devuelto'     => 'Por preparar',
+            // enviado
+            'enviado'          => 'Enviado',
+            'entregado'        => 'Enviado',
+
+            // repetir
+            'repetir'          => 'Repetir',
+            'reimpresion'      => 'Repetir',
+            'reimpresión'      => 'Repetir',
+            'rehacer'          => 'Repetir',
         ];
 
         if (isset($map[$lower])) return $map[$lower];
 
+        // ✅ Si ya viene exactamente como uno permitido, lo aceptamos
         foreach ($this->allowedEstados as $ok) {
             if (mb_strtolower($ok) === $lower) return $ok;
         }
 
         return 'Por preparar';
     }
+
 
     // ============================================================
     // ETIQUETAS/TAGS POR USUARIO
@@ -707,18 +736,21 @@ class DashboardController extends Controller
         $estado = $this->normalizeEstado($estado);
 
         $estilos = [
-            "Por preparar" => "bg-slate-100 text-slate-800 border border-slate-300",
-            "A medias"     => "bg-amber-100 text-amber-900 border border-amber-200",
-            "Produccion"   => "bg-purple-100 text-purple-900 border border-purple-200",
-            "Fabricando"   => "bg-blue-100 text-blue-900 border border-blue-200",
-            "Enviado"      => "bg-emerald-100 text-emerald-900 border border-emerald-200",
+            "Por preparar"    => "bg-slate-900 text-white",
+            "Faltan archivos" => "bg-yellow-400 text-slate-900",
+            "Confirmado"      => "bg-fuchsia-600 text-white",
+            "Diseñado"        => "bg-blue-600 text-white",
+            "Por producir"    => "bg-orange-600 text-white",
+            "Enviado"         => "bg-emerald-600 text-white",
+            "Repetir"         => "bg-slate-800 text-white",
         ];
 
-        $clase = $estilos[$estado] ?? "bg-gray-100 text-gray-800 border border-gray-300";
+        $clase = $estilos[$estado] ?? "bg-gray-200 text-gray-900";
         $estadoEsc = htmlspecialchars($estado, ENT_QUOTES, 'UTF-8');
 
         return '<span class="px-3 py-1 rounded-full text-xs font-extrabold tracking-wide ' . $clase . '">' . $estadoEsc . '</span>';
     }
+
 
     // ============================================================
     // HELPERS IMAGENES (los tuyos)

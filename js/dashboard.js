@@ -12,7 +12,6 @@ let isLoading = false;
 let currentPage = 1;
 let silentFetch = false; // 👈 cuando true, NO muestra loader
 
-
 // ✅ cache local para actualizar estados sin recargar
 let ordersCache = [];
 let ordersById = new Map();
@@ -339,8 +338,6 @@ function renderEstadoPill(estado) {
   `;
 }
 
-
-
 /* =====================================================
   PÍLDORA PÁGINA
 ===================================================== */
@@ -451,7 +448,6 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
         console.error("Error renderizando tabla:", e);
         actualizarTabla([]);
       }
-
 
       const total = document.getElementById("total-pedidos");
       if (total) total.textContent = String(data.total_orders ?? data.count ?? 0);
@@ -593,14 +589,12 @@ function renderEtiquetasCompact(etiquetas, orderId, mobile = false) {
     </div>`;
 }
 
-
 function colorEtiqueta(tag) {
   tag = String(tag).toLowerCase().trim();
   if (tag.startsWith("d.")) return "bg-emerald-50 border-emerald-200 text-emerald-900";
   if (tag.startsWith("p.")) return "bg-amber-50 border-amber-200 text-amber-900";
   return "bg-slate-50 border-slate-200 text-slate-800";
 }
-
 
 /* =====================================================
 // PÍLDORA ESTADO ENVÍO
@@ -718,8 +712,6 @@ function actualizarTabla(pedidos) {
                       ${renderEstadoPill(p.estado ?? "-")}
                     </button>
                   </div>
-
-
 
                 <!-- Último cambio -->
                 <div class="min-w-0">
@@ -907,7 +899,6 @@ async function guardarEstado(nuevoEstado) {
             estado: String(nuevoEstado),
           }),
           
-
         });
 
         if (r.status === 404) continue;
@@ -1035,7 +1026,6 @@ function escapeHtml(str) {
     .replaceAll("'", "&#039;");
 }
 
-
 // =====================================================
 // DETALLES: TAGS visibles + repintado al guardar
 // (reemplaza tu window.verDetalles actual por este)
@@ -1115,7 +1105,6 @@ window.verDetalles = async function (orderId) {
   setText("detTitle", "Cargando…");
   setText("detSubtitle", "—");
   setText("detItemsCount", "0");
-
   setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
   setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
@@ -1497,9 +1486,6 @@ window.verDetalles = async function (orderId) {
   }
 };
 
-
-
-
 // ===============================
 // SUBIR IMAGEN MODIFICADA (ROBUSTO)
 // ===============================
@@ -1609,8 +1595,6 @@ window.subirImagenProducto = async function (orderId, index, input) {
   }
 };
 
-
-
 // =====================================
 // AUTO-ESTADO (2+ imágenes requeridas)
 // - si falta alguna => "Faltan archivos"
@@ -1663,8 +1647,6 @@ window.validarEstadoAuto = async function (orderId) {
     console.error("validarEstadoAuto error:", e);
   }
 };
-
-
 
 /* =====================================================
   USERS STATUS
@@ -1873,12 +1855,12 @@ function renderOpcionesEtiquetas({ selected = [] } = {}) {
     });
   });
 }
+
 /* =====================================================
   ETIQUETAS (ÚNICO) - COMPATIBLE SIMPLE + COMPLETO
   - Soporta modal "simple" (inputs) o modal "completo" (chips)
   - Evita duplicados y sobrescrituras
 ===================================================== */
-
 
 // Etiquetas generales fijas (modal completo)
 const ETQ_GENERALES = [
@@ -2199,7 +2181,6 @@ async function guardarEtiquetas(orderId, tagsStr) {
   }
 }
 
-
 /** =========================
 *  ABRIR/CERRAR MODAL (ÚNICO)
 *  - Si existe modal completo (#modalEtiquetas con secciones etq*) => usa chips
@@ -2344,7 +2325,6 @@ window.guardarEtiquetasModal = async function () {
   }
 };
 
-
 window.abrirModalEtiquetasDesdeDetalles = function (orderId, tagsActuales) {
   window.__ETQ_DETALLE_ORDER_ID = Number(orderId) || null;
 
@@ -2380,6 +2360,7 @@ document.addEventListener("DOMContentLoaded", () => {
     cargarEtiquetasDisponiblesBD();
   }
 });
+
 // =====================================================
 // FIX: MODAL ESTADO - robusto (sin variables inexistentes)
 // =====================================================
@@ -2413,7 +2394,6 @@ window.cerrarModal = function () {
   const modal = findEstadoModal();
   if (modal) modal.classList.add("hidden");
 };
-
 
 // ===============================
 // Export seguro (evita colisiones con IDs del DOM)
