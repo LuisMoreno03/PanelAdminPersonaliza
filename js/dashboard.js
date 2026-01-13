@@ -899,8 +899,15 @@ async function guardarEstado(nuevoEstado) {
         const r = await fetch(url, {
           method: "POST",
           headers: jsonHeaders(),
+          credentials: "same-origin",
           // ✅ manda id numérico (tu backend suele esperar num)
-          body: JSON.stringify({ id: Number(id), estado: nuevoEstado }),
+          body: JSON.stringify({
+            order_id: String(id),   // ✅ clave correcta para tu DB/modelo
+            id: String(id),         // ✅ por si tu controller aún usa "id"
+            estado: String(nuevoEstado),
+          }),
+          
+
         });
 
         if (r.status === 404) continue;
