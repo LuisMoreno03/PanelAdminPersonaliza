@@ -239,6 +239,50 @@ function normalizeEstado(estado) {
 
   return estado ? String(estado).trim() : "Por preparar";
 }
+// =====================================
+// ✅ Persistencia de estado (sobrevive recargas)
+// =====================================
+const LS_ESTADOS_KEY = "dash_estados_v1"; // { [orderId]: { estado, last_status_change } }
+
+function loadEstadosLS() {
+  try {
+    const raw = localStorage.getItem(LS_ESTADOS_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveEstadoLS(orderId, estado, last_status_change) {
+  try {
+    const all = loadEstadosLS();
+    all[String(orderId)] = {
+      estado: String(estado ?? ""),
+      last_status_change: last_status_change ?? null,
+      saved_at: Date.now(),
+    };
+    localStorage.setItem(LS_ESTADOS_KEY, JSON.stringify(all));
+  } catch {}
+}
+
+function applyEstadosLSToIncoming(incoming) {
+  const all = loadEstadosLS();
+  if (!all || typeof all !== "object") return incoming;
+
+  return (incoming || []).map((o) => {
+    const id = String(o.id ?? "");
+    if (!id || !all[id]) return o;
+
+    const saved = all[id];
+    return {
+      ...o,
+      estado: saved.estado || o.estado,
+      last_status_change: saved.last_status_change || o.last_status_change,
+    };
+  });
+}
+
 
 /* =====================================================
   ESTADO PILL (igual a colores del modal)
@@ -419,6 +463,7 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       prevPageInfo = data.prev_page_info ?? null;
 
       let incoming = Array.isArray(data.orders) ? data.orders : [];
+      incoming = applyEstadosLSToIncoming(incoming);
 
       // ✅ 1) MERGE: si backend NO devuelve last_status_change, conservar el del cache
       // (esto evita que al refrescar se borre el "último cambio")
@@ -949,6 +994,8 @@ async function guardarEstado(nuevoEstado) {
     estado: nuevoEstado,
     last_status_change: optimisticLast,
   });
+  saveEstadoLS(id, nuevoEstado, optimisticLast);
+
 
   cerrarModal();
 
@@ -1000,6 +1047,8 @@ async function guardarEstado(nuevoEstado) {
             estado: order.estado,
             last_status_change: order.last_status_change,
           });
+          saveEstadoLS(id, order.estado, order.last_status_change);
+
         }
 
         // refresca si estás en pág 1
