@@ -13,7 +13,7 @@ class DashboardController extends Controller
     private string $token = '';
     private string $apiVersion = '2025-10';
 
-    // ✅ Estados permitidos (los nuevos del modal)
+    // ✅ Estados permitidos (los del modal)
     private array $allowedEstados = [
         'Por preparar',
         'Faltan archivos',
@@ -39,7 +39,7 @@ class DashboardController extends Controller
             $this->loadShopifyFromEnv();
         }
 
-        // Normalizar
+        // Normalizar dominio
         $this->shop = trim($this->shop);
         $this->shop = preg_replace('#^https?://#', '', $this->shop);
         $this->shop = preg_replace('#/.*$#', '', $this->shop);
@@ -180,7 +180,6 @@ class DashboardController extends Controller
 
         $lower = mb_strtolower($s);
 
-        // ✅ Mapa de equivalencias (viejos -> nuevos)
         $map = [
             // base
             'por preparar'     => 'Por preparar',
@@ -198,8 +197,7 @@ class DashboardController extends Controller
 
             // diseñado
             'diseñado'         => 'Diseñado',
-            'diseñado '        => 'Diseñado',
-            'disenado'         => 'Diseñado',   // sin ñ
+            'disenado'         => 'Diseñado',
             'diseño'           => 'Diseñado',
             'ddiseño'          => 'Diseñado',
             'd.diseño'         => 'Diseñado',
@@ -213,6 +211,8 @@ class DashboardController extends Controller
             'fabricando'       => 'Por producir',
             'en produccion'    => 'Por producir',
             'en producción'    => 'Por producir',
+            'a medias'         => 'Por producir',
+            'produccion '      => 'Por producir',
 
             // enviado
             'enviado'          => 'Enviado',
@@ -227,14 +227,12 @@ class DashboardController extends Controller
 
         if (isset($map[$lower])) return $map[$lower];
 
-        // ✅ Si ya viene exactamente como uno permitido, lo aceptamos
         foreach ($this->allowedEstados as $ok) {
             if (mb_strtolower($ok) === $lower) return $ok;
         }
 
         return 'Por preparar';
     }
-
 
     // ============================================================
     // ETIQUETAS/TAGS POR USUARIO
@@ -345,9 +343,7 @@ class DashboardController extends Controller
                 ])->setStatusCode(200);
             }
 
-            // -----------------------------------------------------
             // 1) COUNT total pedidos (cache 5 min)
-            // -----------------------------------------------------
             $cacheKey = 'shopify_orders_count_any';
             $totalOrders = cache($cacheKey);
 
@@ -370,12 +366,11 @@ class DashboardController extends Controller
 
             $totalPages = $totalOrders > 0 ? (int) ceil($totalOrders / $limit) : null;
 
-            // -----------------------------------------------------
             // 2) ORDERS (50 en 50) con page_info
-            // -----------------------------------------------------
             if ($pageInfo !== '') {
                 $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
             } else {
+                // ⚠️ Shopify usa "order=" o "sort_by=" según endpoint; esto te ha funcionado así, lo dejamos
                 $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&status=any&order=created_at%20desc";
             }
 
@@ -428,9 +423,7 @@ class DashboardController extends Controller
             if (is_array($linkHeader)) $linkHeader = end($linkHeader);
             [$nextPageInfo, $prevPageInfo] = $this->parseLinkHeaderForPageInfo(is_string($linkHeader) ? $linkHeader : null);
 
-            // -----------------------------------------------------
             // 3) Mapear formato dashboard (DEFAULT)
-            // -----------------------------------------------------
             $orders = [];
             foreach ($ordersRaw as $o) {
                 $orderId = $o['id'] ?? null;
@@ -457,7 +450,7 @@ class DashboardController extends Controller
                     'cliente'      => $cliente,
                     'total'        => $total,
 
-                    // 👇 default, luego se sobreescribe desde BD
+                    // default, luego se sobreescribe desde BD
                     'estado'       => 'Por preparar',
 
                     'etiquetas'    => $o['tags'] ?? '',
@@ -468,10 +461,7 @@ class DashboardController extends Controller
                 ];
             }
 
-            // -----------------------------------------------------
-            // 4) ✅ OVERRIDE ESTADO desde BD (pedidos_estado.order_id)
-            //    -> Esto garantiza que al recargar se vea el estado manual
-            // -----------------------------------------------------
+            // 4) OVERRIDE ESTADO desde BD (pedidos_estado.order_id)
             try {
                 $ids = [];
                 foreach ($orders as $ord) {
@@ -481,7 +471,7 @@ class DashboardController extends Controller
 
                 if (!empty($ids)) {
                     $estadoModel = new PedidosEstadoModel();
-                    $map = $estadoModel->getEstadosForOrderIds($ids); // key = order_id (string)
+                    $map = $estadoModel->getEstadosForOrderIds($ids);
 
                     foreach ($orders as &$ord2) {
                         $oid = (string)($ord2['id'] ?? '');
@@ -504,9 +494,7 @@ class DashboardController extends Controller
                 log_message('error', 'Override estado pedidos_estado falló: ' . $e->getMessage());
             }
 
-            // -----------------------------------------------------
             // 5) Respuesta final + debug opcional
-            // -----------------------------------------------------
             $payload = [
                 'success'        => true,
                 'orders'         => $orders,
@@ -545,7 +533,7 @@ class DashboardController extends Controller
     }
 
     // ============================================================
-    // ✅ GUARDAR ESTADO (endpoint para el modal)
+    // GUARDAR ESTADO (endpoint para el modal)
     // ============================================================
 
     public function guardarEstadoPedido()
@@ -570,7 +558,6 @@ class DashboardController extends Controller
             ])->setStatusCode(200);
         }
 
-        // validar permitido
         if (!in_array($estado, $this->allowedEstados, true)) {
             return $this->response->setJSON([
                 'success' => false,
@@ -586,10 +573,10 @@ class DashboardController extends Controller
             $ok = $model->setEstadoPedido($orderId, $estado, $userId ? (int)$userId : null, (string)$userName);
 
             return $this->response->setJSON([
-                'success' => (bool)$ok,
-                'message' => $ok ? 'Estado guardado' : 'No se pudo guardar',
+                'success'  => (bool)$ok,
+                'message'  => $ok ? 'Estado guardado' : 'No se pudo guardar',
                 'order_id' => $orderId,
-                'estado' => $estado,
+                'estado'   => $estado,
             ])->setStatusCode(200);
 
         } catch (\Throwable $e) {
@@ -751,9 +738,8 @@ class DashboardController extends Controller
         return '<span class="px-3 py-1 rounded-full text-xs font-extrabold tracking-wide ' . $clase . '">' . $estadoEsc . '</span>';
     }
 
-
     // ============================================================
-    // HELPERS IMAGENES (los tuyos)
+    // HELPERS IMAGENES
     // ============================================================
 
     private function extractImageUrlsFromLineItem(array $item): array
@@ -814,6 +800,12 @@ class DashboardController extends Controller
         }
     }
 
+    /**
+     * ✅ Procesa imágenes y calcula estado automático.
+     * IMPORTANTE: con tus estados nuevos:
+     * - si faltan imágenes => "Faltan archivos"
+     * - si están todas listas => "Por producir"
+     */
     private function procesarImagenesYEstado(array &$order): void
     {
         $orderId = (int)($order['id'] ?? 0);
@@ -899,9 +891,10 @@ class DashboardController extends Controller
         }
         unset($item);
 
+        // ✅ Estados auto según tu modal
         $estadoAuto = null;
         if ($totalRequeridas > 0) {
-            $estadoAuto = ($totalListas >= $totalRequeridas) ? 'Produccion' : 'A medias';
+            $estadoAuto = ($totalListas >= $totalRequeridas) ? 'Por producir' : 'Faltan archivos';
         }
 
         $order['imagenes_locales'] = $imagenesLocales;
@@ -909,7 +902,7 @@ class DashboardController extends Controller
         $order['auto_images_required'] = $totalRequeridas;
         $order['auto_images_ready'] = $totalListas;
 
-        // ✅ IMPORTANTE: el auto-estado NO debe pisar el estado manual
+        // ✅ IMPORTANTE: el auto-estado NO debe pisar el manual
         if ($estadoAuto) {
             $this->guardarEstadoSistema($orderId, $estadoAuto);
         }
@@ -927,7 +920,6 @@ class DashboardController extends Controller
             $model = new PedidosEstadoModel();
 
             // ✅ Si ya hay estado manual, no sobrescribir
-            // (Necesitas este método en el model: getEstadoPedido)
             if (method_exists($model, 'getEstadoPedido')) {
                 $actual = $model->getEstadoPedido($orderId);
 
@@ -946,9 +938,11 @@ class DashboardController extends Controller
             log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
         }
     }
+
     // ============================================================
-    // ✅ ENDPOINT: /dashboard/etiquetas-disponibles
+    // ENDPOINT: /dashboard/etiquetas-disponibles
     // ============================================================
+
     public function etiquetasDisponibles()
     {
         if (!session()->get('logged_in')) {
@@ -965,9 +959,9 @@ class DashboardController extends Controller
     }
 
     // ============================================================
-    // ✅ ENDPOINT: /dashboard/ping
-    // (si lo usas para presencia/keep-alive)
+    // ENDPOINT: /dashboard/ping
     // ============================================================
+
     public function ping()
     {
         if (!session()->get('logged_in')) {
@@ -985,9 +979,9 @@ class DashboardController extends Controller
     }
 
     // ============================================================
-    // ✅ ENDPOINT: /dashboard/usuarios-estado
-    // (por ahora devuelve vacío para que NO rompa el frontend)
+    // ENDPOINT: /dashboard/usuarios-estado
     // ============================================================
+
     public function usuariosEstado()
     {
         if (!session()->get('logged_in')) {
@@ -997,12 +991,10 @@ class DashboardController extends Controller
             ]);
         }
 
-        // Si luego quieres presencia real, aquí lo implementas.
         return $this->response->setJSON([
             'success' => true,
             'online' => [],
             'offline' => [],
         ]);
     }
-
 }
