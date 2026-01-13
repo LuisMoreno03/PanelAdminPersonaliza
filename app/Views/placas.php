@@ -217,6 +217,7 @@ function addCsrf(fd) {
   descargarPngLote: <?= json_encode(site_url('placas/archivos/descargar-png-lote')) ?>,
   descargarJpg: <?= json_encode(site_url('placas/archivos/descargar-jpg')) ?>,
   descargarPng: <?= json_encode(site_url('placas/archivos/descargar-png')) ?>,
+descargarJpgLote: <?= json_encode(site_url('placas/archivos/descargar-jpg-lote')) ?>,
 
 };
 
@@ -441,7 +442,6 @@ async function cargarVistaAgrupada() {
 
   const term = normalizeText(searchTerm);
 
-}
 
   // filtra por buscador (fecha / lote / archivos)
   const diasFiltrados = data.dias
@@ -476,14 +476,15 @@ async function cargarVistaAgrupada() {
         </div>
       </div>
       <div class="mt-3 space-y-3"></div>
-    `};
+    `;
 
     const lotesCont = diaBox.querySelector(".space-y-3");
     cont.appendChild(diaBox);
 
     for (const lote of (dia.lotes || [])) {
       const lid = String(lote.lote_id ?? "");
-      const lnombre = lote.lote_nombre || lid;
+      const lnombre = lote.lote_nombre || `Lote ${lid}`;
+      const total = (lote.items || []).length;
 
       // ✅ mantener índices para el modal
       loteIndex[lid] = lote.items || [];
@@ -492,55 +493,54 @@ async function cargarVistaAgrupada() {
         placasMap[it.id] = it;
       });
 
-      const loteBox = document.createElement("div");
-      loteBox.className = "border rounded-xl p-3 bg-gray-50";
 
       const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
-const lid = String(lote.lote_id ?? "");
-const lnombre = lote.lote_nombre || `Lote ${lid}`;
-const total = (lote.items || []).length};
+      const thumb = principal?.thumb_url || (principal?.url && (principal.mime || "").startsWith("image/") ? principal.url : null);
 
-// Miniatura (thumb_url si existe)
-const thumb = principal?.thumb_url || (principal?.url && (principal.mime || "").startsWith("image/") ? principal.url : null);
+      const loteBox = document.createElement("div");
+      loteBox.className = "flex items-center justify-between gap-3 border rounded-xl p-3 bg-white hover:bg-gray-50";
 
-loteBox.className = "flex items-center justify-between gap-3 border rounded-xl p-3 bg-white hover:bg-gray-50";
+      loteBox.innerHTML = `
+        <div class="flex items-center gap-3 min-w-0 cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
+          <div class="w-14 h-14 rounded-xl border bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
+            ${thumb
+              ? `<img src="${thumb}" class="w-full h-full object-cover">`
+              : `<div class="text-gray-400 text-xs">Carpeta</div>`
+            }
+          </div>
 
-loteBox.innerHTML = `
-  <div class="flex items-center gap-3 min-w-0">
-    <div class="w-14 h-14 rounded-xl border bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
-      ${thumb
-        ? `<img src="${thumb}" class="w-full h-full object-cover">`
-        : `<div class="text-gray-400 text-xs">Carpeta</div>`
-      }
-    </div>
+          <div class="min-w-0">
+            <div class="font-extrabold truncate">📦 ${escapeHtml(lnombre)}</div>
+            <div class="text-xs text-gray-500">
+              ${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}
+            </div>
+          </div>
+        </div>
 
-    <div class="min-w-0">
-      <div class="font-extrabold truncate">📦 ${escapeHtml(lnombre)}</div>
-      <div class="text-xs text-gray-500">
-        ${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}
-      </div>
-    </div>
-  </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button class="btn-blue" style="background:#111827; padding:8px 12px;"
+                  onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
+            Ver
+          </button>
 
-  <div class="flex items-center gap-2 shrink-0">
-    <button class="btn-blue" style="background:#111827; padding:8px 12px;"
-            onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
-      Ver
-    </button>
+          <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
+             href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
+             onclick="event.stopPropagation()">
+            Descargar PNG
+          </a>
 
-    <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
-       href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
-       onclick="event.stopPropagation()">
-      Descargar PNG
-    </a>
+          <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
+             href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
+             onclick="event.stopPropagation()">
+            Descargar JPG
+          </a>
+        </div>
+      `;
 
-    <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
-       href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
-       onclick="event.stopPropagation()">
-      Descargar JPG
-    </a>
-  </div>
-`;
+      lotesCont.appendChild(loteBox);
+    }
+  }
+}
 
 
 

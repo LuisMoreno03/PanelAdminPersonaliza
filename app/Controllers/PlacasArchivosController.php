@@ -413,71 +413,30 @@ class PlacasArchivosController extends BaseController
         ]);
     }
 
-    // Devuelve estructura agrupada por fecha > lote > archivos
+    
     public function listarPorDia()
 {
     helper('url');
     $db = \Config\Database::connect();
 
-    // Detectar columnas disponibles (para no romper si tu tabla varía)
-    $fields = $db->getFieldNames('placas_archivos');
-
-    $hasNombre       = in_array('nombre', $fields, true);
-    $hasOriginal      = in_array('original', $fields, true);
-    $hasOriginalName  = in_array('original_name', $fields, true);
-    $hasFilename      = in_array('filename', $fields, true);
-    $hasSize          = in_array('size', $fields, true);
-    $hasSizeKb        = in_array('size_kb', $fields, true);
-    $hasCreatedAt     = in_array('created_at', $fields, true);
-
-    // Arma SELECT dinámico con fallback para original y size
-    $select = [
-        'id',
-        'lote_id',
-        'lote_nombre',
-        'ruta',
-        'mime',
-    ];
-
-    if ($hasCreatedAt) $select[] = 'created_at';
-
-    // original fallback: original > original_name > filename
-    if ($hasOriginal || $hasOriginalName || $hasFilename) {
-        $origParts = [];
-        if ($hasOriginal)     $origParts[] = 'NULLIF(original, \'\')';
-        if ($hasOriginalName) $origParts[] = 'NULLIF(original_name, \'\')';
-        if ($hasFilename)     $origParts[] = 'NULLIF(filename, \'\')';
-
-        $select[] = 'COALESCE(' . implode(',', $origParts) . ') AS original';
-    } else {
-        $select[] = 'NULL AS original';
-    }
-
-    // nombre (si existe)
-    if ($hasNombre) {
-        $select[] = 'nombre';
-    } else {
-        $select[] = 'NULL AS nombre';
-    }
-
-    // size fallback: size (bytes) > size_kb*1024
-    if ($hasSize || $hasSizeKb) {
-        $sizeParts = [];
-        if ($hasSize)   $sizeParts[] = 'NULLIF(size, 0)';
-        if ($hasSizeKb) $sizeParts[] = '(NULLIF(size_kb, 0) * 1024)';
-
-        $select[] = 'COALESCE(' . implode(',', $sizeParts) . ', 0) AS size';
-    } else {
-        $select[] = '0 AS size';
-    }
-
-    $sql = "
-        SELECT " . implode(', ', $select) . "
+    // ✅ SELECT fijo y estable (sin armar SQL dinámico)
+    $rows = $db->query("
+        SELECT
+            id,
+            lote_id,
+            lote_nombre,
+            ruta,
+            mime,
+            created_at,
+            -- ✅ original fallback seguro
+            COALESCE(NULLIF(`original`, ''), NULLIF(original_name, ''), NULLIF(filename, '')) AS original,
+            -- ✅ nombre (si existe; si no existe en tu tabla, quita esta línea)
+            `nombre`,
+            -- ✅ size fallback: size bytes o size_kb*1024
+            COALESCE(NULLIF(`size`, 0), (NULLIF(size_kb, 0) * 1024), 0) AS size
         FROM placas_archivos
-        ORDER BY " . ($hasCreatedAt ? "created_at DESC," : "") . " lote_id DESC, id DESC
-    ";
-
-    $rows = $db->query($sql)->getResultArray();
+        ORDER BY created_at DESC, lote_id DESC, id DESC
+    ")->getResultArray();
 
     $out = [];
 
@@ -520,7 +479,7 @@ class PlacasArchivosController extends BaseController
         $out[$fecha]['total_archivos']++;
     }
 
-    // convertir lotes a array
+    
     $final = [];
     foreach ($out as $block) {
         $block['lotes'] = array_values($block['lotes']);
@@ -543,6 +502,7 @@ class PlacasArchivosController extends BaseController
         'dias' => $final
     ]);
 }
+
 
 
 
