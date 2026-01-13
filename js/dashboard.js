@@ -420,7 +420,26 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
       let incoming = Array.isArray(data.orders) ? data.orders : [];
 
-      // ✅ aplicar "dirty protection"
+      // ✅ 1) MERGE: si backend NO devuelve last_status_change, conservar el del cache
+      // (esto evita que al refrescar se borre el "último cambio")
+      incoming = incoming.map((o) => {
+        const id = String(o.id ?? "");
+        if (!id) return o;
+
+        const prev = ordersById.get(id);
+
+        const hasNew = o.last_status_change && o.last_status_change.changed_at;
+        const hasPrev = prev?.last_status_change && prev.last_status_change.changed_at;
+
+        return {
+          ...o,
+          last_status_change: hasNew
+            ? o.last_status_change
+            : (hasPrev ? prev.last_status_change : o.last_status_change),
+        };
+      });
+
+      // ✅ 2) aplicar "dirty protection"
       const now = Date.now();
       incoming = incoming.map((o) => {
         const id = String(o.id ?? "");
@@ -473,8 +492,8 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       silentFetch = false; // 👈 vuelve a normal
       hideLoader();
     });
-
 }
+
 // ✅ Exponer para llamadas que usan window.cargarPedidos(...)
 window.cargarPedidos = cargarPedidos;
 
