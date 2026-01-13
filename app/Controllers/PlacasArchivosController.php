@@ -416,91 +416,134 @@ class PlacasArchivosController extends BaseController
     
     public function listarPorDia()
 {
-    helper('url');
-    $db = \Config\Database::connect();
+    try {
+        helper('url');
+        $db = \Config\Database::connect();
 
-    // ✅ SELECT fijo y estable (sin armar SQL dinámico)
-    $rows = $db->query("
-        SELECT
-            id,
-            lote_id,
-            lote_nombre,
-            ruta,
-            mime,
-            created_at,
-            -- ✅ original fallback seguro
-            COALESCE(NULLIF(`original`, ''), NULLIF(original_name, ''), NULLIF(filename, '')) AS original,
-            -- ✅ nombre (si existe; si no existe en tu tabla, quita esta línea)
-            `nombre`,
-            -- ✅ size fallback: size bytes o size_kb*1024
-            COALESCE(NULLIF(`size`, 0), (NULLIF(size_kb, 0) * 1024), 0) AS size
-        FROM placas_archivos
-        ORDER BY created_at DESC, lote_id DESC, id DESC
-    ")->getResultArray();
+        // Detectar columnas disponibles
+        $fields = $db->getFieldNames('placas_archivos');
 
-    $out = [];
+        $hasNombre      = in_array('nombre', $fields, true);
+        $hasOriginal     = in_array('original', $fields, true);
+        $hasOriginalName = in_array('original_name', $fields, true);
+        $hasFilename     = in_array('filename', $fields, true);
+        $hasSize         = in_array('size', $fields, true);
+        $hasSizeKb       = in_array('size_kb', $fields, true);
+        $hasCreatedAt    = in_array('created_at', $fields, true);
 
-    foreach ($rows as $r) {
-        $created = $r['created_at'] ?? null;
-        $fecha = $created ? date('Y-m-d', strtotime($created)) : 'sin-fecha';
-
-        $loteId = (string)($r['lote_id'] ?? 'sin-lote');
-        $loteNombre = (string)($r['lote_nombre'] ?? $loteId);
-
-        if (!isset($out[$fecha])) {
-            $out[$fecha] = [
-                'fecha' => $fecha,
-                'total_archivos' => 0,
-                'lotes' => []
-            ];
-        }
-
-        if (!isset($out[$fecha]['lotes'][$loteId])) {
-            $out[$fecha]['lotes'][$loteId] = [
-                'lote_id' => $loteId,
-                'lote_nombre' => $loteNombre,
-                'created_at' => $created,
-                'uploaded_by_name' => null,
-                'items' => []
-            ];
-        }
-
-        $out[$fecha]['lotes'][$loteId]['items'][] = [
-            'id' => (int)$r['id'],
-            'nombre' => $r['nombre'] ?? null,
-            'original' => $r['original'] ?? null,
-            'mime' => $r['mime'] ?? null,
-            'size' => (int)($r['size'] ?? 0),
-            'created_at' => $created,
-            'ruta' => $r['ruta'] ?? null,
-            'url'  => base_url('placas/archivos/descargar/' . $r['id']),
+        $select = [
+            '`id`',
+            '`lote_id`',
+            '`lote_nombre`',
+            '`ruta`',
+            '`mime`',
         ];
 
-        $out[$fecha]['total_archivos']++;
-    }
+        if ($hasCreatedAt) $select[] = '`created_at`';
 
-    
-    $final = [];
-    foreach ($out as $block) {
-        $block['lotes'] = array_values($block['lotes']);
-        $final[] = $block;
-    }
-
-    $today = date('Y-m-d');
-    $hoyCount = 0;
-    foreach ($final as $b) {
-        if ($b['fecha'] === $today) {
-            $hoyCount = (int)$b['total_archivos'];
-            break;
+        // ✅ ORIGINAL fallback con backticks
+        if ($hasOriginal || $hasOriginalName || $hasFilename) {
+            $origParts = [];
+            if ($hasOriginal)     $origParts[] = "NULLIF(`original`, '')";
+            if ($hasOriginalName) $origParts[] = "NULLIF(`original_name`, '')";
+            if ($hasFilename)     $origParts[] = "NULLIF(`filename`, '')";
+            $select[] = "COALESCE(" . implode(',', $origParts) . ") AS `original`";
+        } else {
+            $select[] = "NULL AS `original`";
         }
-    }
 
-    return $this->response->setJSON([
-        'success' => true,
-        'hoy' => $today,
-        'placas_hoy' => $hoyCount,
-        'dias' => $final
-    ]);
+        // ✅ nombre si existe
+        if ($hasNombre) {
+            $select[] = "`nombre`";
+        } else {
+            $select[] = "NULL AS `nombre`";
+        }
+
+        // ✅ size fallback con backticks
+        if ($hasSize || $hasSizeKb) {
+            $sizeParts = [];
+            if ($hasSize)   $sizeParts[] = "NULLIF(`size`, 0)";
+            if ($hasSizeKb) $sizeParts[] = "(NULLIF(`size_kb`, 0) * 1024)";
+            $select[] = "COALESCE(" . implode(',', $sizeParts) . ", 0) AS `size`";
+        } else {
+            $select[] = "0 AS `size`";
+        }
+
+        $sql = "
+            SELECT " . implode(', ', $select) . "
+            FROM `placas_archivos`
+            ORDER BY " . ($hasCreatedAt ? "`created_at` DESC," : "") . " `lote_id` DESC, `id` DESC
+        ";
+
+        $rows = $db->query($sql)->getResultArray();
+
+        $out = [];
+        foreach ($rows as $r) {
+            $created = $r['created_at'] ?? null;
+            $fecha = $created ? date('Y-m-d', strtotime($created)) : 'sin-fecha';
+
+            $loteId = (string)($r['lote_id'] ?? 'sin-lote');
+            $loteNombre = (string)($r['lote_nombre'] ?? $loteId);
+
+            if (!isset($out[$fecha])) {
+                $out[$fecha] = [
+                    'fecha' => $fecha,
+                    'total_archivos' => 0,
+                    'lotes' => []
+                ];
+            }
+
+            if (!isset($out[$fecha]['lotes'][$loteId])) {
+                $out[$fecha]['lotes'][$loteId] = [
+                    'lote_id' => $loteId,
+                    'lote_nombre' => $loteNombre,
+                    'created_at' => $created,
+                    'uploaded_by_name' => null,
+                    'items' => []
+                ];
+            }
+
+            $out[$fecha]['lotes'][$loteId]['items'][] = [
+                'id' => (int)$r['id'],
+                'nombre' => $r['nombre'] ?? null,
+                'original' => $r['original'] ?? null,
+                'mime' => $r['mime'] ?? null,
+                'size' => (int)($r['size'] ?? 0),
+                'created_at' => $created,
+                'ruta' => $r['ruta'] ?? null,
+                'url'  => base_url('placas/archivos/descargar/' . $r['id']),
+            ];
+
+            $out[$fecha]['total_archivos']++;
+        }
+
+        $final = [];
+        foreach ($out as $block) {
+            $block['lotes'] = array_values($block['lotes']);
+            $final[] = $block;
+        }
+
+        $today = date('Y-m-d');
+        $hoyCount = 0;
+        foreach ($final as $b) {
+            if ($b['fecha'] === $today) { $hoyCount = (int)$b['total_archivos']; break; }
+        }
+
+        return $this->response->setJSON([
+            'success' => true,
+            'hoy' => $today,
+            'placas_hoy' => $hoyCount,
+            'dias' => $final
+        ]);
+
+    } catch (\Throwable $e) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+    }
 }
 
 
