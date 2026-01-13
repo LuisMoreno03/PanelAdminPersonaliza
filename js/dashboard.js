@@ -515,20 +515,80 @@ function paginaAnterior() {
 /* =====================================================
   ÚLTIMO CAMBIO
 ===================================================== */
+function parseDateSafe(dtStr) {
+  if (!dtStr) return null;
+
+  // Si viene como objeto date-like
+  if (dtStr instanceof Date) return isNaN(dtStr) ? null : dtStr;
+
+  let s = String(dtStr).trim();
+  if (!s) return null;
+
+  // Si viene como número (timestamp)
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    if (!isNaN(n)) {
+      // 10 dígitos => segundos, 13 => ms
+      const ms = s.length <= 10 ? n * 1000 : n;
+      const d = new Date(ms);
+      return isNaN(d) ? null : d;
+    }
+  }
+
+  // Si es formato MySQL: "YYYY-MM-DD HH:MM:SS"
+  // En algunos navegadores, new Date("YYYY-MM-DD HH:MM:SS") falla => lo convertimos a "YYYY-MM-DDTHH:MM:SS"
+  if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?/.test(s)) {
+    s = s.replace(" ", "T");
+  }
+
+  // Si viene sin zona horaria, lo tratamos como hora local (sin Z)
+  // new Date("YYYY-MM-DDTHH:MM:SS") => local en la mayoría de navegadores
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
 function formatDateTime(dtStr) {
-  if (!dtStr) return "—";
-  const safe = String(dtStr).includes("T") ? String(dtStr) : String(dtStr).replace(" ", "T");
-  const d = new Date(safe);
-  if (isNaN(d)) return "—";
+  const d = parseDateSafe(dtStr);
+  if (!d) return "—";
+
   const pad = (n) => String(n).padStart(2, "0");
+
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function normalizeLastStatusChange(raw) {
+  if (!raw) return null;
+
+  // Si llega como JSON en string: '{"user_name":"...","changed_at":"..."}'
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (t.startsWith("{") && t.endsWith("}")) {
+      try { return JSON.parse(t); } catch { return null; }
+    }
+    // Si llega directo como string fecha
+    return { user_name: null, changed_at: raw };
+  }
+
+  // Si llega como objeto ya listo
+  if (typeof raw === "object") {
+    // soporta claves alternativas
+    return {
+      user_name: raw.user_name ?? raw.user ?? raw.nombre ?? raw.name ?? null,
+      changed_at: raw.changed_at ?? raw.date ?? raw.datetime ?? raw.updated_at ?? null,
+    };
+  }
+
+  return null;
+}
+
 function renderLastChangeCompact(p) {
-  const info = p?.last_status_change;
-  if (!info || !info.changed_at) return "—";
-  const user = info.user_name ? escapeHtml(info.user_name) : "—";
+  const info = normalizeLastStatusChange(p?.last_status_change);
+  if (!info?.changed_at) return "—";
+
   const exact = formatDateTime(info.changed_at);
+  if (exact === "—") return "—";
+
+  const user = info.user_name ? escapeHtml(info.user_name) : "—";
 
   return `
     <div class="leading-tight min-w-0 pointer-events-none select-none">
@@ -537,6 +597,7 @@ function renderLastChangeCompact(p) {
     </div>
   `;
 }
+
 
 /* =====================================================
   ETIQUETAS
