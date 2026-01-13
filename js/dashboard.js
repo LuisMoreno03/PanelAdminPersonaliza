@@ -1461,7 +1461,8 @@ window.verDetalles = async function (orderId) {
         else propsTxt.push({ name, value: v });
       }
 
-      const requiere = propsImg.length > 0;
+      const requiere = requiereImagenModificada(item);
+
 
       const pid = String(item.product_id || "");
       const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
@@ -1743,7 +1744,7 @@ window.validarEstadoAuto = async function (orderId) {
     const requiredCount = requiredIdx.length;
 
     // Solo aplica regla automática si requiere 2 o más imágenes
-    if (requiredCount < 2) return;
+    if (requiredCount < 1) return;
 
     const uploadedCount = requiredIdx.filter(i => ok[i] === true).length;
     const faltaAlguna = uploadedCount < requiredCount;
