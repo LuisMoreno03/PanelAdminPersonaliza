@@ -419,12 +419,65 @@ class PlacasArchivosController extends BaseController
     helper('url');
     $db = \Config\Database::connect();
 
-    // Solo usamos placas_archivos (SIN placas_lotes)
-    $rows = $db->query("
-        SELECT id, lote_id, lote_nombre, ruta, original, mime, size, created_at
+    // Detectar columnas disponibles (para no romper si tu tabla varía)
+    $fields = $db->getFieldNames('placas_archivos');
+
+    $hasNombre       = in_array('nombre', $fields, true);
+    $hasOriginal      = in_array('original', $fields, true);
+    $hasOriginalName  = in_array('original_name', $fields, true);
+    $hasFilename      = in_array('filename', $fields, true);
+    $hasSize          = in_array('size', $fields, true);
+    $hasSizeKb        = in_array('size_kb', $fields, true);
+    $hasCreatedAt     = in_array('created_at', $fields, true);
+
+    // Arma SELECT dinámico con fallback para original y size
+    $select = [
+        'id',
+        'lote_id',
+        'lote_nombre',
+        'ruta',
+        'mime',
+    ];
+
+    if ($hasCreatedAt) $select[] = 'created_at';
+
+    // original fallback: original > original_name > filename
+    if ($hasOriginal || $hasOriginalName || $hasFilename) {
+        $origParts = [];
+        if ($hasOriginal)     $origParts[] = 'NULLIF(original, \'\')';
+        if ($hasOriginalName) $origParts[] = 'NULLIF(original_name, \'\')';
+        if ($hasFilename)     $origParts[] = 'NULLIF(filename, \'\')';
+
+        $select[] = 'COALESCE(' . implode(',', $origParts) . ') AS original';
+    } else {
+        $select[] = 'NULL AS original';
+    }
+
+    // nombre (si existe)
+    if ($hasNombre) {
+        $select[] = 'nombre';
+    } else {
+        $select[] = 'NULL AS nombre';
+    }
+
+    // size fallback: size (bytes) > size_kb*1024
+    if ($hasSize || $hasSizeKb) {
+        $sizeParts = [];
+        if ($hasSize)   $sizeParts[] = 'NULLIF(size, 0)';
+        if ($hasSizeKb) $sizeParts[] = '(NULLIF(size_kb, 0) * 1024)';
+
+        $select[] = 'COALESCE(' . implode(',', $sizeParts) . ', 0) AS size';
+    } else {
+        $select[] = '0 AS size';
+    }
+
+    $sql = "
+        SELECT " . implode(', ', $select) . "
         FROM placas_archivos
-        ORDER BY created_at DESC, lote_id DESC, id DESC
-    ")->getResultArray();
+        ORDER BY " . ($hasCreatedAt ? "created_at DESC," : "") . " lote_id DESC, id DESC
+    ";
+
+    $rows = $db->query($sql)->getResultArray();
 
     $out = [];
 
@@ -448,7 +501,7 @@ class PlacasArchivosController extends BaseController
                 'lote_id' => $loteId,
                 'lote_nombre' => $loteNombre,
                 'created_at' => $created,
-                'uploaded_by_name' => null, // si luego lo agregas a tu tabla, aquí lo pones
+                'uploaded_by_name' => null,
                 'items' => []
             ];
         }
@@ -461,7 +514,7 @@ class PlacasArchivosController extends BaseController
             'size' => (int)($r['size'] ?? 0),
             'created_at' => $created,
             'ruta' => $r['ruta'] ?? null,
-            'url'  => base_url('placas/archivos/descargar/' . $r['id']), // ✅ tu forma correcta
+            'url'  => base_url('placas/archivos/descargar/' . $r['id']),
         ];
 
         $out[$fecha]['total_archivos']++;
@@ -490,5 +543,117 @@ class PlacasArchivosController extends BaseController
         'dias' => $final
     ]);
 }
+
+
+
+// DESCARGAR FOTOS Y ARCHIVOS JPG/PNG (FOTOS) //
+
+public function descargarPng($archivoId)
+{
+    return $this->descargarConvertido($archivoId, 'png');
+}
+
+public function descargarJpg($archivoId)
+{
+    return $this->descargarConvertido($archivoId, 'jpg');
+}
+
+private function descargarConvertido($archivoId, $format = 'png')
+{
+    $format = strtolower($format) === 'jpg' ? 'jpg' : 'png';
+
+    $m = new PlacaArchivoModel();
+    $r = $m->find($archivoId);
+
+    if (!$r) return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
+
+    $ruta = $r['ruta'] ?? '';
+    if ($ruta === '') return $this->response->setStatusCode(422)->setBody('Registro incompleto: falta ruta');
+
+    $fullPath = ROOTPATH . ltrim($ruta, '/');
+    if (!is_file($fullPath)) return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
+
+    // nombre de descarga (usa nombre editable)
+    $baseName = trim((string)($r['nombre'] ?? 'archivo_' . $archivoId));
+    $baseName = preg_replace('/[^a-zA-Z0-9\-_ ]/', '_', $baseName);
+    $downloadName = $baseName . '.' . $format;
+
+    // si ya es del mismo formato, devuelve directo
+    $mime = (string)($r['mime'] ?? '');
+    $ext  = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+
+    $isSame =
+        ($format === 'png' && ($ext === 'png' || str_contains($mime, 'png'))) ||
+        ($format === 'jpg' && (in_array($ext, ['jpg','jpeg'], true) || str_contains($mime, 'jpeg')));
+
+    if ($isSame) {
+        return $this->response->download($fullPath, null)->setFileName($downloadName);
+    }
+
+    // Convertir (preferir Imagick)
+    try {
+        if (class_exists(\Imagick::class)) {
+            $im = new \Imagick();
+            $im->readImage($fullPath);
+
+            // Si es PDF y tiene páginas, toma la primera
+            if ($im->getNumberImages() > 1) {
+                $im->setIteratorIndex(0);
+            }
+
+            $im->setImageColorspace(\Imagick::COLORSPACE_RGB);
+
+            if ($format === 'jpg') {
+                $im->setImageFormat('jpeg');
+                $im->setImageCompression(\Imagick::COMPRESSION_JPEG);
+                $im->setImageCompressionQuality(92);
+                $blob = $im->getImageBlob();
+                $contentType = 'image/jpeg';
+            } else {
+                $im->setImageFormat('png');
+                $blob = $im->getImageBlob();
+                $contentType = 'image/png';
+            }
+
+            $im->clear();
+            $im->destroy();
+
+            return $this->response
+                ->setHeader('Content-Type', $contentType)
+                ->setHeader('Content-Disposition', 'attachment; filename="' . $downloadName . '"')
+                ->setBody($blob);
+        }
+
+        // Fallback GD (solo soporta jpg/png; webp depende del server)
+        if ($format === 'png') {
+            $img = @imagecreatefromstring(file_get_contents($fullPath));
+            if (!$img) return $this->response->setStatusCode(415)->setBody('No se pudo convertir (requiere Imagick)');
+            ob_start();
+            imagepng($img);
+            $blob = ob_get_clean();
+            imagedestroy($img);
+
+            return $this->response
+                ->setHeader('Content-Type', 'image/png')
+                ->setHeader('Content-Disposition', 'attachment; filename="' . $downloadName . '"')
+                ->setBody($blob);
+        } else {
+            $img = @imagecreatefromstring(file_get_contents($fullPath));
+            if (!$img) return $this->response->setStatusCode(415)->setBody('No se pudo convertir (requiere Imagick)');
+            ob_start();
+            imagejpeg($img, null, 92);
+            $blob = ob_get_clean();
+            imagedestroy($img);
+
+            return $this->response
+                ->setHeader('Content-Type', 'image/jpeg')
+                ->setHeader('Content-Disposition', 'attachment; filename="' . $downloadName . '"')
+                ->setBody($blob);
+        }
+    } catch (\Throwable $e) {
+        return $this->response->setStatusCode(500)->setBody('Error convirtiendo: ' . $e->getMessage());
+    }
+}
+
 
 }

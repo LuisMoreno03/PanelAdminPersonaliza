@@ -215,6 +215,9 @@ function addCsrf(fd) {
   eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
   descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
   descargarPngLote: <?= json_encode(site_url('placas/archivos/descargar-png-lote')) ?>,
+  descargarJpg: <?= json_encode(site_url('placas/archivos/descargar-jpg')) ?>,
+  descargarPng: <?= json_encode(site_url('placas/archivos/descargar-png')) ?>,
+
 };
 
 
@@ -438,6 +441,8 @@ async function cargarVistaAgrupada() {
 
   const term = normalizeText(searchTerm);
 
+}
+
   // filtra por buscador (fecha / lote / archivos)
   const diasFiltrados = data.dias
     .map(dia => {
@@ -471,7 +476,7 @@ async function cargarVistaAgrupada() {
         </div>
       </div>
       <div class="mt-3 space-y-3"></div>
-    `;
+    `};
 
     const lotesCont = diaBox.querySelector(".space-y-3");
     cont.appendChild(diaBox);
@@ -490,72 +495,53 @@ async function cargarVistaAgrupada() {
       const loteBox = document.createElement("div");
       loteBox.className = "border rounded-xl p-3 bg-gray-50";
 
-      loteBox.innerHTML = `
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <div class="font-bold">📦 ${escapeHtml(lnombre)}</div>
-          <div class="text-xs text-gray-500">${escapeHtml(lote.created_at ?? "")}</div>
-        </div>
+      const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
+const lid = String(lote.lote_id ?? "");
+const lnombre = lote.lote_nombre || `Lote ${lid}`;
+const total = (lote.items || []).length};
 
+// Miniatura (thumb_url si existe)
+const thumb = principal?.thumb_url || (principal?.url && (principal.mime || "").startsWith("image/") ? principal.url : null);
 
-        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          ${(lote.items || []).map(it => `
-            <div class="bg-white border rounded-xl p-2 cursor-pointer" onclick="openModal(${it.id})">
-              ${(it.url && (it.mime || "").startsWith("image/"))
-                ? `<img src="${it.url}" class="w-full h-32 object-cover rounded-lg">`
-                : `<div class="h-32 flex items-center justify-center text-gray-400">Archivo</div>`
-              }
-              <div class="mt-2 text-sm font-semibold break-all">${escapeHtml(it.original || "")}</div>
-              <div class="text-xs text-gray-500">${Math.round((it.size || 0) / 1024)} KB</div>
-              <div class="text-xs text-gray-500">${escapeHtml(it.created_at || "")}</div>
-            </div>
-          `).join("")}
-        </div>
-      `;
-const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
+loteBox.className = "flex items-center justify-between gap-3 border rounded-xl p-3 bg-white hover:bg-gray-50";
 
 loteBox.innerHTML = `
-  <div class="flex items-center justify-between flex-wrap gap-2">
-    <div class="font-bold">📦 ${escapeHtml(lnombre)}</div>
-    <div class="text-xs text-gray-500">${escapeHtml(lote.created_at ?? "")}</div>
+  <div class="flex items-center gap-3 min-w-0">
+    <div class="w-14 h-14 rounded-xl border bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
+      ${thumb
+        ? `<img src="${thumb}" class="w-full h-full object-cover">`
+        : `<div class="text-gray-400 text-xs">Carpeta</div>`
+      }
+    </div>
+
+    <div class="min-w-0">
+      <div class="font-extrabold truncate">📦 ${escapeHtml(lnombre)}</div>
+      <div class="text-xs text-gray-500">
+        ${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}
+      </div>
+    </div>
   </div>
 
-  <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-    ${
-      principal
-      ? `
-        <div class="bg-white border rounded-xl p-2 cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
-          ${
-            principal.thumb_url
-              ? `<img src="${principal.thumb_url}" class="w-full h-32 object-cover rounded-lg">`
-              : (principal.url && (principal.mime || "").startsWith("image/"))
-                ? `<img src="${principal.url}" class="w-full h-32 object-cover rounded-lg">`
-                : `<div class="h-32 flex items-center justify-center text-gray-400">Carpeta</div>`
-          }
-          <div class="mt-2 text-sm font-semibold">Lote ${escapeHtml(lid)}</div>
-          <div class="text-xs text-gray-500">${(lote.items || []).length} archivo(s)</div>
+  <div class="flex items-center gap-2 shrink-0">
+    <button class="btn-blue" style="background:#111827; padding:8px 12px;"
+            onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
+      Ver
+    </button>
 
-          <div class="mt-2 flex gap-2">
-            <a class="btn-blue" style="background:#10b981; padding:8px 12px; border-radius:12px;"
-               href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
-               onclick="event.stopPropagation()">
-              Descargar PNG
-            </a>
+    <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
+       href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
+       onclick="event.stopPropagation()">
+      Descargar PNG
+    </a>
 
-            <button class="btn-blue" style="background:#111827; padding:8px 12px; border-radius:12px;"
-                    onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
-              Ver
-            </button>
-          </div>
-        </div>
-      `
-      : `<div class="muted">Sin archivos</div>`
-    }
+    <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
+       href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
+       onclick="event.stopPropagation()">
+      Descargar JPG
+    </a>
   </div>
 `;
-      lotesCont.appendChild(loteBox);
-    }
-  }
-}
+
 
 
 
@@ -575,32 +561,49 @@ function renderModalArchivos(list, activeId) {
     const kb = Math.round((it.size || 0) / 1024);
 
     return `
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border:1px solid #e5e7eb; border-radius:12px; background:#fff;">
-        <div style="min-width:0;">
-          <div style="font-weight:800; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            ${escapeHtml(it.original || it.nombre || ('Archivo #' + it.id))}
-            ${isActive ? `<span style="margin-left:8px; font-size:11px; padding:2px 8px; border-radius:999px; background:#dbeafe; color:#1d4ed8; font-weight:800;">Actual</span>` : ''}
+      <div class="bg-white border rounded-xl p-3 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 min-w-0">
+            <input
+              data-file-name="${it.id}"
+              class="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm font-semibold truncate"
+              value="${escapeHtml(it.nombre || it.original || ('Archivo #' + it.id))}"
+              onkeydown="if(event.key==='Enter'){ window.guardarNombreArchivo(${it.id}); }"
+            />
+            ${isActive ? `<span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-extrabold shrink-0">Actual</span>` : ''}
           </div>
-          <div class="muted" style="margin-top:2px;">
+
+          <div class="text-xs text-gray-500 mt-1">
             ${escapeHtml(it.mime || '')} • ${kb} KB
           </div>
         </div>
 
-        <div style="display:flex; gap:8px; flex-shrink:0;">
-          <a class="btn-blue" style="background:#10b981; padding:8px 12px; border-radius:12px;"
-             href="${API.descargarBase}/${it.id}">
-            Descargar
+        <div class="flex gap-2 shrink-0">
+          <button class="btn-blue" style="background:#2563eb; padding:8px 10px;"
+                  onclick="window.guardarNombreArchivo(${it.id})">
+            Guardar
+          </button>
+
+          <a class="btn-blue" style="background:#10b981; padding:8px 10px;"
+             href="${API.descargarPng}/${it.id}" target="_blank">
+            PNG
           </a>
 
-          <button class="btn-blue" style="background:#111827; padding:8px 12px; border-radius:12px;"
-                  onclick="openModal(${it.id})">
-            Ver
+          <a class="btn-blue" style="background:#0ea5e9; padding:8px 10px;"
+             href="${API.descargarJpg}/${it.id}" target="_blank">
+            JPG
+          </a>
+
+          <button class="btn-blue" style="background:#ef4444; padding:8px 10px;"
+                  onclick="window.eliminarArchivo(${it.id})">
+            Eliminar
           </button>
         </div>
       </div>
     `;
   }).join('');
 }
+
 
 function getLoteItemsFor(item) {
   const lid = item?.lote_id ?? '';
@@ -617,6 +620,55 @@ window.openLote = function(loteId){
   openModal(principal.id);
 };
 
+window.guardarNombreArchivo = async function(fileId){
+  const input = document.querySelector(`[data-file-name="${fileId}"]`);
+  const nuevo = (input?.value || '').trim();
+  if (!nuevo) { q('modalMsg').textContent = 'El nombre no puede estar vacío.'; return; }
+
+  const fd = addCsrf(new FormData());
+  fd.append('id', fileId);
+  fd.append('nombre', nuevo);
+
+  const res = await fetch(API.renombrar, { method:'POST', body: fd, credentials:'same-origin' });
+  const data = await res.json().catch(()=>null);
+
+  if (!data?.success){
+    q('modalMsg').textContent = data?.message || 'Error renombrando';
+    return;
+  }
+
+  q('modalMsg').textContent = '✅ Nombre actualizado';
+  await cargarLista();         // refresca mapa e índices
+  if (modalItem) openModal(modalItem.id); // reabre el modal manteniendo el contexto
+};
+
+
+window.eliminarArchivo = async function(fileId){
+  if (!confirm('¿Eliminar este archivo?')) return;
+
+  const fd = addCsrf(new FormData());
+  fd.append('id', fileId);
+
+  const res = await fetch(API.eliminar, { method:'POST', body: fd, credentials:'same-origin' });
+  const data = await res.json().catch(()=>null);
+
+  if (!data?.success){
+    q('modalMsg').textContent = data?.message || 'Error eliminando';
+    return;
+  }
+
+  q('modalMsg').textContent = '✅ Eliminado';
+  await cargarLista();
+
+  // Si borraste el actual, intenta abrir otro del lote:
+  if (modalItem && Number(modalItem.id) === Number(fileId)) {
+    const list = getLoteItemsFor(modalItem).filter(x => Number(x.id) !== Number(fileId));
+    if (list.length) openModal(list[0].id);
+    else closeModal();
+  } else {
+    if (modalItem) openModal(modalItem.id);
+  }
+};
 
 
 
@@ -906,3 +958,5 @@ refresco = setInterval(refrescarTodo, 600000);
 
 </body>
 </html>
+
+

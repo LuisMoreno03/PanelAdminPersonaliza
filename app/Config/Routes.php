@@ -163,7 +163,17 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
         $routes->post('lote/eliminar',  'PlacasArchivosController::eliminarLote');
 
         $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
-    });
+
+        // DESCARGAR JPG/PNG
+        $routes->get('placas/archivos/descargar-png/(:num)', 'PlacasArchivosController::descargarPng/$1');
+        $routes->get('placas/archivos/descargar-jpg/(:num)', 'PlacasArchivosController::descargarJpg/$1');
+
+        $routes->get('placas/archivos/descargar-png-lote/(:any)', 'PlacasArchivosController::descargarPngLote/$1');
+        $routes->get('placas/archivos/descargar-jpg-lote/(:any)', 'PlacasArchivosController::descargarJpgLote/$1');
+
+    
+       });
+
 });
 
 /*
