@@ -178,16 +178,35 @@ function isLlaveroItem(item) {
  * - o es llavero (aunque no traiga imagen)
  */
 function requiereImagenModificada(item) {
-  // tu regla actual (ejemplo): si hay imagen original o props de personalización
-  const tienePersonalizacion =
-    !!item?.properties?.length ||
-    !!item?.properties?.Personalizacion ||
-    !!item?.custom_properties ||
-    !!item?.image_original ||
-    !!item?.image_url;
+  const props = Array.isArray(item?.properties) ? item.properties : [];
 
-  return tienePersonalizacion || isLlaveroItem(item);
+  // ✅ Si hay alguna property que sea URL de imagen => requiere
+  const tieneImagenEnProps = props.some((p) => {
+    const v = p?.value;
+    const s =
+      v === null || v === undefined
+        ? ""
+        : typeof v === "object"
+        ? JSON.stringify(v)
+        : String(v);
+
+    return esImagenUrl(s); // usa tu helper que acepta querystring
+  });
+
+  // ✅ Si el backend ya trae campos típicos de imagen
+  const tieneCamposImagen =
+    esImagenUrl(item?.image_original) ||
+    esImagenUrl(item?.image_url) ||
+    esImagenUrl(item?.imagen_original) ||
+    esImagenUrl(item?.imagen_url);
+
+  // ✅ Llavero siempre requiere (aunque no haya imagen)
+  if (isLlaveroItem(item)) return true;
+
+  // ✅ Solo requiere si hay imagen real del cliente
+  return tieneImagenEnProps || tieneCamposImagen;
 }
+
 
 /* =====================================================
   HELPERS
@@ -1461,7 +1480,8 @@ window.verDetalles = async function (orderId) {
         else propsTxt.push({ name, value: v });
       }
 
-      const requiere = propsImg.length > 0;
+      const requiere = requiereImagenModificada(item);
+
 
       const pid = String(item.product_id || "");
       const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
@@ -1743,7 +1763,7 @@ window.validarEstadoAuto = async function (orderId) {
     const requiredCount = requiredIdx.length;
 
     // Solo aplica regla automática si requiere 2 o más imágenes
-    if (requiredCount < 2) return;
+    if (requiredCount < 1) return;
 
     const uploadedCount = requiredIdx.filter(i => ok[i] === true).length;
     const faltaAlguna = uploadedCount < requiredCount;
