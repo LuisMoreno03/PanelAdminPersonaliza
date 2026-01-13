@@ -463,10 +463,11 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       prevPageInfo = data.prev_page_info ?? null;
 
       let incoming = Array.isArray(data.orders) ? data.orders : [];
+
+      // ✅ 0) aplica estados persistidos (al recargar)
       incoming = applyEstadosLSToIncoming(incoming);
 
-      // ✅ 1) MERGE: si backend NO devuelve last_status_change, conservar el del cache
-      // (esto evita que al refrescar se borre el "último cambio")
+      // ✅ 1) MERGE last_status_change: si backend viene null, conserva el del cache
       incoming = incoming.map((o) => {
         const id = String(o.id ?? "");
         if (!id) return o;
@@ -483,6 +484,7 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
             : (hasPrev ? prev.last_status_change : o.last_status_change),
         };
       });
+
 
       // ✅ 2) aplicar "dirty protection"
       const now = Date.now();
@@ -1053,7 +1055,7 @@ async function guardarEstado(nuevoEstado) {
 
         // refresca si estás en pág 1
         if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
-
+        
         resumeLiveIfOnFirstPage();
         return;
       } catch (e) {
