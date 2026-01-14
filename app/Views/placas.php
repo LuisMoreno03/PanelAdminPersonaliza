@@ -650,68 +650,62 @@ const lotesCont = diaBox.querySelector(".lotes-grid");
 
     cont.appendChild(diaBox);
 
-    for (const lote of (dia.lotes || [])) {
-      const lid = String(lote.lote_id ?? "");
-      const loteNombre = (item.lote_nombre || '').trim();
-          
-        q('modalLoteInfo').textContent = loteNombre ? `Lote: ${loteNombre}` : '';
+   for (const lote of (dia.lotes || [])) {
+  const lid = String(lote.lote_id ?? "");
+  const lnombre = (lote.lote_nombre || '').trim() || 'Sin nombre';
+  const total = (lote.items || []).length;
 
-      const total = (lote.items || []).length;
+  // ✅ mantener índices para el modal
+  loteIndex[lid] = lote.items || [];
+  (lote.items || []).forEach(it => {
+    it.lote_id = it.lote_id ?? lid;
+    it.lote_nombre = it.lote_nombre ?? lnombre; // ✅ por si no viene en items
+    placasMap[it.id] = it;
+  });
 
-      // ✅ mantener índices para el modal
-      loteIndex[lid] = lote.items || [];
-      (lote.items || []).forEach(it => {
-        it.lote_id = it.lote_id ?? lid;
-        placasMap[it.id] = it;
-      });
+  const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
+  const thumb = principal?.thumb_url || (principal?.url && (principal.mime || "").startsWith("image/") ? principal.url : null);
 
+  const loteBox = document.createElement("div");
+  loteBox.className = "lote-card";
 
-      const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
-      const thumb = principal?.thumb_url || (principal?.url && (principal.mime || "").startsWith("image/") ? principal.url : null);
+  loteBox.innerHTML = `
+    <div class="lote-left cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
+      <div class="lote-thumb">
+        ${thumb
+          ? `<img src="${thumb}">`
+          : `<div class="text-gray-400 text-xs">Carpeta</div>`
+        }
+      </div>
 
-      const loteBox = document.createElement("div");
-      loteBox.className = "lote-card";
-
-      loteBox.innerHTML = `
-  <div class="lote-left cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
-    <div class="lote-thumb">
-      ${thumb
-        ? `<img src="${thumb}">`
-        : `<div class="text-gray-400 text-xs">Carpeta</div>`
-      }
+      <div class="min-w-0">
+        <div class="lote-title">📦 ${escapeHtml(lnombre)}</div>
+        <div class="lote-meta">${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}</div>
+      </div>
     </div>
 
-    <div class="min-w-0">
-      <div class="lote-title">📦 ${escapeHtml(lote.lote_nombre)}</div>
-      <div class="lote-meta">${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}</div>
+    <div class="lote-actions">
+      <button class="btn-blue" style="background:#111827; padding:8px 12px;"
+              onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
+        Ver
+      </button>
+
+      <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
+         href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
+         onclick="event.stopPropagation()">
+        Descargar PNG
+      </a>
+
+      <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
+         href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
+         onclick="event.stopPropagation()">
+        Descargar JPG
+      </a>
     </div>
-  </div>
+  `;
 
-  <!-- ✅ BOTONES ABAJO -->
-  <div class="lote-actions">
-    <button class="btn-blue" style="background:#111827; padding:8px 12px;"
-            onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
-      Ver
-    </button>
-
-    <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
-       href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
-       onclick="event.stopPropagation()">
-      Descargar PNG
-    </a>
-
-    <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
-       href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
-       onclick="event.stopPropagation()">
-      Descargar JPG
-    </a>
-  </div>
-`;
-
-
-loteBox.onclick = () => openLote(lid);
-
-      lotesCont.appendChild(loteBox);
+  loteBox.onclick = () => openLote(lid);
+  lotesCont.appendChild(loteBox);
     }
   }
 }
