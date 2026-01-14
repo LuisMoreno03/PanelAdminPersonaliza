@@ -11,7 +11,7 @@ class ProduccionController extends BaseController
     private string $estadoEntrada = 'Confirmado';
 
     // Estado al que pasan cuando quedan asignados al usuario de Producción
-    private string $estadoProduccion = 'Asignado';
+    private string $estadoProduccion = 'Producción';
 
     /**
      * GET /produccion
@@ -40,18 +40,25 @@ class ProduccionController extends BaseController
 
     $db = Database::connect();
 
-    $query = $db->table('pedidos p')
-        ->select('p.*, pe.estado, pe.actualizado AS estado_actualizado')
-        ->join('pedidos_estado pe', 'pe.id = p.id', 'inner', false)
+    $builder = $db->table('pedidos p')
+        ->select('p.id')
+        // ✅ LEFT JOIN para no perder pedidos sin fila en pedidos_estado
+        ->join('pedidos_estado pe', 'pe.id = p.id', 'left', false)
+
+        // ✅ estado de entrada
+        ->where('pe.estado', $this->estadoEntrada)
+
+        // ✅ "sin asignar" (en muchas BD viene como NULL o 0)
         ->groupStart()
             ->where('p.assigned_to_user_id', null)
             ->orWhere('p.assigned_to_user_id', 0)
+            ->orWhere('p.assigned_to_user_id', '')
         ->groupEnd()
-    
-        ->where('pe.estado', $this->estadoProduccion)
-        // ✅ más viejos a más nuevos según última modificación de estado
-        ->orderBy('pe.actualizado', 'ASC')
-        ->get();
+
+        // ✅ más viejos primero (usa assigned_at/created_at si existe, si no, por id)
+        ->orderBy('p.id', 'ASC')
+        ->limit($count);
+
 
     if ($query === false) {
         $dbError = $db->error();
