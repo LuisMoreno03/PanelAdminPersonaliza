@@ -43,7 +43,11 @@ class ProduccionController extends BaseController
     $query = $db->table('pedidos p')
         ->select('p.*, pe.estado, pe.actualizado AS estado_actualizado')
         ->join('pedidos_estado pe', 'pe.id = p.id', 'inner', false)
-        ->where('p.assigned_to_user_id', $userId)
+        ->groupStart()
+            ->where('p.assigned_to_user_id', null)
+            ->orWhere('p.assigned_to_user_id', 0)
+        ->groupEnd()
+    
         ->where('pe.estado', $this->estadoProduccion)
         // ✅ más viejos a más nuevos según última modificación de estado
         ->orderBy('pe.actualizado', 'ASC')
