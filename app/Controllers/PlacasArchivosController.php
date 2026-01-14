@@ -115,7 +115,10 @@ class PlacasArchivosController extends BaseController
     $numeroPlaca = trim((string) $this->request->getPost('numero_placa'));
 
     $loteId = 'L' . date('Ymd_His') . '_' . bin2hex(random_bytes(4));
-    $loteNombre = $numeroPlaca ? ('Placa ' . $numeroPlaca) : ('Lote ' . date('d/m/Y H:i'));
+    $loteNombrePost = trim((string)$this->request->getPost('lote_nombre'));
+$loteNombre = $loteNombrePost !== ''
+  ? $loteNombrePost
+  : ($numeroPlaca ? ('Placa ' . $numeroPlaca) : ('Lote ' . date('d/m/Y H:i')));
 
     $lista = $this->request->getFileMultiple('archivos');
     if (empty($lista)) {

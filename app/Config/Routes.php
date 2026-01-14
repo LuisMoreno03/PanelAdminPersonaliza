@@ -171,7 +171,7 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
         $routes->get('placas/archivos/descargar-png-lote/(:any)', 'PlacasArchivosController::descargarPngLote/$1');
         $routes->get('placas/archivos/descargar-jpg-lote/(:any)', 'PlacasArchivosController::descargarJpgLote/$1');
 
-    
+        
        });
 
 });

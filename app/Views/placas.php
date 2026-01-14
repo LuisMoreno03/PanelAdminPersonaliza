@@ -132,7 +132,19 @@
   margin-top:2px;
 }
 
-  
+/* ✅ Botonera debajo */
+.lote-actions{
+  margin-top:12px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.lote-actions .btn-blue,
+.lote-actions a.btn-blue{
+  width:100%;
+  justify-content:center;
+}
+
   </style>
 </head>
 
@@ -376,6 +388,21 @@ function itemMatches(it, term) {
   return hay.includes(term);
 }
 
+function loteTieneMatch(lote, term){
+  if (!term) return true;
+  if (normalizeText([lote.lote_id, lote.lote_nombre, lote.created_at].join(" ")).includes(term)) return true;
+  return (lote.items || []).some(it => itemMatches(it, term));
+}
+
+function marcarMatch(text, term){
+  if(!term) return escapeHtml(text);
+  const t = normalizeText(text);
+  const qn = normalizeText(term);
+  if(!qn || !t.includes(qn)) return escapeHtml(text);
+  return `<span style="background:#FEF08A;border-radius:6px;padding:0 4px;">${escapeHtml(text)}</span>`;
+}
+
+
 function groupMatches(g, term) {
   if (!term) return true;
   const hay = normalizeText([
@@ -579,41 +606,41 @@ const lotesCont = diaBox.querySelector(".lotes-grid");
       loteBox.className = "lote-card";
 
       loteBox.innerHTML = `
-  <div class="lote-head">
-    <div class="lote-left cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
-      <div class="lote-thumb">
-        ${thumb
-          ? `<img src="${thumb}">`
-          : `<div class="text-gray-400 text-xs">Carpeta</div>`
-        }
-      </div>
-
-      <div class="min-w-0">
-        <div class="lote-title">📦 ${escapeHtml(lnombre)}</div>
-        <div class="lote-meta">${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}</div>
-      </div>
+  <div class="lote-left cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
+    <div class="lote-thumb">
+      ${thumb
+        ? `<img src="${thumb}">`
+        : `<div class="text-gray-400 text-xs">Carpeta</div>`
+      }
     </div>
 
-    <div class="flex items-center gap-2 shrink-0">
-      <button class="btn-blue" style="background:#111827; padding:8px 12px;"
-              onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
-        Ver
-      </button>
-
-      <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
-         href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
-         onclick="event.stopPropagation()">
-        Descargar PNG
-      </a>
-
-      <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
-         href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
-         onclick="event.stopPropagation()">
-        Descargar JPG
-      </a>
+    <div class="min-w-0">
+      <div class="lote-title">📦 ${escapeHtml(lnombre)}</div>
+      <div class="lote-meta">${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}</div>
     </div>
   </div>
+
+  <!-- ✅ BOTONES ABAJO -->
+  <div class="lote-actions">
+    <button class="btn-blue" style="background:#111827; padding:8px 12px;"
+            onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
+      Ver
+    </button>
+
+    <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
+       href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
+       onclick="event.stopPropagation()">
+      Descargar PNG
+    </a>
+
+    <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
+       href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
+       onclick="event.stopPropagation()">
+      Descargar JPG
+    </a>
+  </div>
 `;
+
 
 loteBox.onclick = () => openLote(lid);
 
