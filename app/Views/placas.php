@@ -239,49 +239,67 @@
 </div>
 
 <!-- MODAL CARGA (MULTI) -->
-<div id="modalCargaBackdrop" class="fixed inset-0 bg-black/50 hidden z-[10000] flex items-center justify-center">
-  <div class="bg-white rounded-xl w-[440px] p-6">
-    <h2 class="text-xl font-black mb-4">Cargar placa</h2>
+<div id="modalCargaBackdrop"
+     class="fixed inset-0 bg-black/50 hidden z-[10000] flex items-center justify-center p-4">
 
-    <input id="cargaLoteNombre" type="text" placeholder="Nombre del lote (opcional)"
-       class="w-full border rounded-xl px-3 py-2">
+  <!-- Caja modal -->
+  <div class="bg-white rounded-2xl w-full max-w-[520px] shadow-xl overflow-hidden flex flex-col">
 
-      <input id="cargaProducto" type="text" placeholder="Producto" class="w-full border rounded-xl px-3 py-2">
-    <input id="cargaNumero" type="text" placeholder="Número de placa" class="w-full border rounded-xl px-3 py-2">
-
-      <!-- ✅ Acepta cualquier archivo -->
-      <input id="cargaArchivo" type="file" multiple class="w-full" accept="*/*">
-
-      <div id="cargaPreview" class="h-40 border rounded-xl flex items-center justify-center text-gray-400">
-        Vista previa
-      </div>
+    <!-- Header -->
+    <div class="px-6 py-4 border-b">
+      <h2 class="text-xl font-black">Cargar placa</h2>
+      <div class="text-xs text-gray-500 mt-1">Completa los datos y sube uno o más archivos.</div>
     </div>
 
-    <div class="flex justify-end gap-2 mt-5">
+    <!-- Body -->
+    <div class="p-6 space-y-3">
+      <!-- ✅ Producto -->
+      <input id="cargaProducto" type="text" placeholder="Producto"
+             class="w-full border rounded-xl px-3 py-2">
+
+      <!-- ✅ Nombre del lote (visible) -->
+      <input id="cargaLoteNombre" type="text" placeholder="Nombre del lote (ej: Pedido #9095 - Lámparas)"
+             class="w-full border rounded-xl px-3 py-2">
+
+      <!-- ✅ Número de placa (si lo quieres mantener opcional) -->
+      <input id="cargaNumero" type="text" placeholder="Número de placa (opcional)"
+             class="w-full border rounded-xl px-3 py-2">
+
+      <!-- Archivos -->
+      <input id="cargaArchivo" type="file" multiple class="w-full" accept="*/*">
+
+      <!-- Preview -->
+      <div id="cargaPreview"
+           class="h-44 border rounded-xl flex items-center justify-center text-gray-400">
+        Vista previa
+      </div>
+
+      <!-- ✅ Barra de progreso (DENTRO del modal) -->
+      <div id="uploadProgressWrap" class="hidden">
+        <div class="w-full bg-gray-100 border border-gray-200 rounded-full h-3 overflow-hidden">
+          <div id="uploadProgressBar"
+               class="bg-blue-600 h-3 rounded-full transition-[width] duration-150"
+               style="width:0%">
+          </div>
+        </div>
+        <div class="text-xs text-gray-500 mt-2 flex items-center justify-between">
+          <span id="uploadProgressLabel">Subiendo…</span>
+          <span id="uploadProgressText" class="font-black">0%</span>
+        </div>
+      </div>
+
+      <div id="cargaMsg" class="text-sm text-gray-500"></div>
+    </div>
+
+    <!-- Footer (botones dentro del cuadro) -->
+    <div class="px-6 py-4 border-t flex justify-end gap-2">
       <button id="btnCerrarCarga" class="btn-blue" style="background:#9ca3af;">Cancelar</button>
       <button id="btnGuardarCarga" class="btn-blue">Guardar</button>
     </div>
 
-<!-- ✅ Barra de progreso DENTRO del modal -->
-    <div id="uploadProgressWrap" class="mt-4 hidden">
-      <div class="w-full bg-gray-100 border border-gray-200 rounded-full h-3 overflow-hidden">
-        <div id="uploadProgressBar"
-             class="bg-blue-600 h-3 rounded-full transition-[width] duration-150"
-             style="width:0%">
-        </div>
-      </div>
-      <div class="muted mt-1 flex items-center justify-between">
-        <span id="uploadProgressLabel">Subiendo…</span>
-        <span id="uploadProgressText" class="font-black">0%</span>
-      </div>
-    </div>
-
-    <div id="cargaMsg" class="muted mt-2"></div>
-
-    
   </div>
-
 </div>
+
 
 
 
@@ -505,6 +523,8 @@ function renderFromData(data) {
       const titulo = g.lote_nombre || g.lote_id || 'Lote';
       const fecha = g.created_at ? formatFecha(g.created_at) : '';
       const cards = (g.items || []).map(renderCard).join('');
+      const lnombre = lote.lote_nombre || `Lote ${lid}`;
+
 
       return `
         <div style="grid-column: 1 / -1; background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:12px;">
@@ -918,7 +938,7 @@ window.eliminarArchivo = async function(fileId){
     }
   });
 
-  
+
 q('btnDescargarPngSel').addEventListener('click', () => {
   const sel = getSelectedItem();
   if (!sel?.id) return;
@@ -995,12 +1015,13 @@ q('btnDescargarJpgSel').addEventListener('click', () => {
   };
 
  q('btnGuardarCarga').addEventListener('click', () => {
-  const producto = q('cargaProducto').value.trim();
+ const loteNombreManual = q('cargaLoteNombre')?.value.trim();
+ const producto = q('cargaProducto').value.trim();
  const numero   = q('cargaNumero').value.trim();
  const loteNombre = q('cargaLoteNombre')?.value.trim();
 
 
-  if (!numero) { q('cargaMsg').textContent = 'Número de placa es obligatorio.'; return; }
+  if (!loteNombreManual) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
   if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
 
   const wrap = q('uploadProgressWrap');
@@ -1016,9 +1037,11 @@ q('btnDescargarJpgSel').addEventListener('click', () => {
 
   const fd = addCsrf(new FormData());
 fd.append('producto', producto);
-fd.append('numero_placa', numero);
+fd.append('numero_placa', numero); // opcional si lo quieres guardar
+fd.append('lote_nombre', loteNombreManual); // ✅ nuevo
 
-    if (loteNombre) fd.append('lote_nombre', loteNombre);
+  if (loteNombre) fd.append('lote_nombre', loteNombre);
+  if (!loteNombreManual) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
 
 filesSeleccionados.forEach(file => fd.append('archivos[]', file));
 
