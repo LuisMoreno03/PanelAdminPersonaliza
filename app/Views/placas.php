@@ -205,10 +205,20 @@
 
       <!-- ✅ Archivos del conjunto -->
 <div style="margin-top:14px; border:1px solid #e5e7eb; border-radius:14px; padding:12px; background:#f9fafb;">
-  <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-    <div style="font-weight:900;">Archivos del conjunto</div>
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+  <div style="font-weight:900;">Archivos del conjunto</div>
+
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
     <div class="muted" id="modalLoteInfo"></div>
+
+    <button id="btnRenombrarLote" type="button"
+      class="btn-blue"
+      style="background:#f59e0b;">
+      Cambiar nombre del lote
+    </button>
   </div>
+</div>
+
 
   <div id="modalArchivos" style="margin-top:10px; max-height:220px; overflow:auto; display:grid; gap:10px;"></div>
 </div>
@@ -899,6 +909,50 @@ if (q('modalLoteInfo')) q('modalLoteInfo').textContent = loteNombre ? `Lote: ${l
   q('modalBackdrop').style.display = 'block';
 }
 
+async function renombrarLoteDesdeModal() {
+  const sel = getSelectedItem();
+  if (!sel) return;
+
+  const loteId = sel.lote_id;
+  if (!loteId) {
+    q('modalMsg').textContent = 'Este archivo no tiene lote.';
+    return;
+  }
+
+  const actual = (sel.lote_nombre || '').trim();
+  const nuevo = prompt('Nuevo nombre del lote:', actual);
+
+  if (nuevo === null) return; // canceló
+  const nombre = nuevo.trim();
+  if (!nombre) {
+    q('modalMsg').textContent = 'El nombre del lote no puede estar vacío.';
+    return;
+  }
+
+  const fd = addCsrf(new FormData());
+  fd.append('lote_id', String(loteId));
+  fd.append('lote_nombre', nombre);
+
+  const res = await fetch(API.renombrarLote, {
+    method: 'POST',
+    body: fd,
+    credentials: 'same-origin'
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!data?.success) {
+    q('modalMsg').textContent = data?.message || 'Error renombrando el lote';
+    return;
+  }
+
+  q('modalMsg').textContent = '✅ Lote renombrado';
+
+  // refrescar y reabrir modal
+  const keepId = sel.id;
+  await cargarLista();
+  openModal(keepId);
+}
 
 
   function closeModal(){
@@ -919,6 +973,9 @@ if (q('modalLoteInfo')) q('modalLoteInfo').textContent = loteNombre ? `Lote: ${l
     q('modalMsg').textContent = 'El nombre no puede estar vacío.';
     return;
   }
+
+  q('btnRenombrarLote').addEventListener('click', renombrarLoteDesdeModal);
+
 
   const fd = addCsrf(new FormData());
  const sel = getSelectedItem();
