@@ -169,7 +169,7 @@ function renderTabla(rows) {
     const fecha = p.fecha ?? p.created_at ?? p.order_date ?? "";
     const cliente = p.cliente ?? p.customer_name ?? "";
     const total = p.total ?? p.total_price ?? "";
-    const estado = p.estado ?? p.status ?? "produccion";
+    const estado = p.estado_bd ?? p.estado ?? "Producción";
     const etiquetas = normalizeTags(p.etiquetas ?? p.tags);
 
     const articulos = p.articulos ?? p.items_count ?? p.items ?? "";
