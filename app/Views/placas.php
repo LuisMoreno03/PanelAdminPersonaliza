@@ -523,6 +523,8 @@ function renderFromData(data) {
       const titulo = g.lote_nombre || g.lote_id || 'Lote';
       const fecha = g.created_at ? formatFecha(g.created_at) : '';
       const cards = (g.items || []).map(renderCard).join('');
+      const lnombre = lote.lote_nombre || `Lote ${lid}`;
+
 
       return `
         <div style="grid-column: 1 / -1; background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:12px;">
