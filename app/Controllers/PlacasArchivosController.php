@@ -658,5 +658,84 @@ private function descargarConvertido($archivoId, $format = 'png')
     }
 }
 
+public function descargarPngLote($loteId)
+{
+    return $this->descargarZipLote($loteId, 'png');
+}
+
+public function descargarJpgLote($loteId)
+{
+    return $this->descargarZipLote($loteId, 'jpg');
+}
+
+private function descargarZipLote($loteId, $format = 'png')
+{
+    $format = strtolower($format) === 'jpg' ? 'jpg' : 'png';
+
+    $m = new PlacaArchivoModel();
+    $rows = $m->where('lote_id', $loteId)->findAll();
+
+    if (!$rows) return $this->response->setStatusCode(404)->setBody('Lote no encontrado');
+
+    $zip = new \ZipArchive();
+    $tmp = tempnam(sys_get_temp_dir(), 'lote_') . '.zip';
+
+    if ($zip->open($tmp, \ZipArchive::CREATE) !== true) {
+        return $this->response->setStatusCode(500)->setBody('No se pudo crear ZIP');
+    }
+
+    foreach ($rows as $r) {
+        $ruta = $r['ruta'] ?? '';
+        if (!$ruta) continue;
+
+        $fullPath = ROOTPATH . ltrim($ruta, '/');
+        if (!is_file($fullPath)) continue;
+
+        // nombre base (usa "nombre" editable si existe)
+        $baseName = trim((string)($r['nombre'] ?? pathinfo(($r['original'] ?? 'archivo'), PATHINFO_FILENAME)));
+        $baseName = preg_replace('/[^a-zA-Z0-9\-_ ]/', '_', $baseName);
+
+        // si es imagen ya del formato => mete directo
+        $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+        $mime = (string)($r['mime'] ?? '');
+
+        $isSame =
+            ($format === 'png' && ($ext === 'png' || str_contains($mime, 'png'))) ||
+            ($format === 'jpg' && (in_array($ext, ['jpg','jpeg'], true) || str_contains($mime, 'jpeg')));
+
+        if ($isSame) {
+            $zip->addFile($fullPath, $baseName . '.' . $format);
+            continue;
+        }
+
+        // convertir usando tu misma lógica: reutiliza descargarConvertido (blob)
+        // aquí hacemos conversion rápida con Imagick si existe
+        if (class_exists(\Imagick::class)) {
+            $im = new \Imagick();
+            $im->readImage($fullPath);
+            if ($im->getNumberImages() > 1) $im->setIteratorIndex(0);
+            $im->setImageColorspace(\Imagick::COLORSPACE_RGB);
+
+            if ($format === 'jpg') {
+                $im->setImageFormat('jpeg');
+                $im->setImageCompression(\Imagick::COMPRESSION_JPEG);
+                $im->setImageCompressionQuality(92);
+            } else {
+                $im->setImageFormat('png');
+            }
+
+            $blob = $im->getImageBlob();
+            $im->clear();
+            $im->destroy();
+
+            $zip->addFromString($baseName . '.' . $format, $blob);
+        }
+    }
+
+    $zip->close();
+
+    return $this->response->download($tmp, null)
+        ->setFileName("lote_{$loteId}_{$format}.zip");
+}
 
 }

@@ -19,7 +19,7 @@ class PlacaArchivoModel extends Model
         'original',
         'ruta',
         'mime',
-        'size_kb',
+        'size_kb', 
 
         // agrupación
         'fecha',

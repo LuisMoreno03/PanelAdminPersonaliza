@@ -63,6 +63,76 @@
     }
     .preview img{ width:100%; height:100%; object-fit:cover; }
     .preview iframe{ width:100%; height:100%; border:0; }
+  
+  /* ✅ GRID DE LOTES (CARPETAS) */
+.lotes-grid{
+  display:grid;
+  gap:14px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  margin-top:12px;
+}
+
+.lote-card{
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:16px;
+  padding:14px;
+  transition:.15s;
+}
+
+.lote-card:hover{
+  box-shadow:0 10px 30px rgba(0,0,0,.06);
+  transform: translateY(-1px);
+}
+
+.lote-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.lote-left{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  min-width:0;
+}
+
+.lote-thumb{
+  width:64px;
+  height:64px;
+  border-radius:14px;
+  border:1px solid #eee;
+  background:#f9fafb;
+  overflow:hidden;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 auto;
+}
+
+.lote-thumb img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+
+.lote-title{
+  font-weight:900;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width: 220px;
+}
+
+.lote-meta{
+  color:#6b7280;
+  font-size:12px;
+  margin-top:2px;
+}
+
+  
   </style>
 </head>
 
@@ -144,6 +214,7 @@
       <button id="btnEliminarArchivo" type="button" class="btn-blue" style="background:#ef4444;">Eliminar</button>
 
       </div>
+      
 
       <div id="modalMsg" class="text-sm text-gray-500 mt-2"></div>
     </div>
@@ -155,7 +226,9 @@
   <div class="bg-white rounded-xl w-[440px] p-6">
     <h2 class="text-xl font-black mb-4">Cargar placa</h2>
 
-    <div class="space-y-3">
+    <input id="cargaLoteNombre" type="text" placeholder="Nombre del lote (opcional)"
+       class="w-full border rounded-xl px-3 py-2">
+
       <input id="cargaProducto" type="text" placeholder="Producto" class="w-full border rounded-xl px-3 py-2">
     <input id="cargaNumero" type="text" placeholder="Número de placa" class="w-full border rounded-xl px-3 py-2">
 
@@ -187,7 +260,10 @@
     </div>
 
     <div id="cargaMsg" class="muted mt-2"></div>
+
+    
   </div>
+
 </div>
 
 
@@ -469,16 +545,18 @@ async function cargarVistaAgrupada() {
     diaBox.className = "card";
 
     diaBox.innerHTML = `
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="text-lg font-extrabold">${escapeHtml(dia.fecha)}</div>
-          <div class="text-sm text-gray-500">Total: ${dia.total_archivos}</div>
-        </div>
-      </div>
-      <div class="mt-3 space-y-3"></div>
-    `;
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-lg font-extrabold">${escapeHtml(dia.fecha)}</div>
+      <div class="text-sm text-gray-500">Total: ${dia.total_archivos}</div>
+    </div>
+  </div>
+  <div class="mt-3 lotes-grid"></div>
+`;
 
-    const lotesCont = diaBox.querySelector(".space-y-3");
+const lotesCont = diaBox.querySelector(".lotes-grid");
+
+
     cont.appendChild(diaBox);
 
     for (const lote of (dia.lotes || [])) {
@@ -498,44 +576,46 @@ async function cargarVistaAgrupada() {
       const thumb = principal?.thumb_url || (principal?.url && (principal.mime || "").startsWith("image/") ? principal.url : null);
 
       const loteBox = document.createElement("div");
-      loteBox.className = "flex items-center justify-between gap-3 border rounded-xl p-3 bg-white hover:bg-gray-50";
+      loteBox.className = "lote-card";
 
       loteBox.innerHTML = `
-        <div class="flex items-center gap-3 min-w-0 cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
-          <div class="w-14 h-14 rounded-xl border bg-gray-100 overflow-hidden flex items-center justify-center shrink-0">
-            ${thumb
-              ? `<img src="${thumb}" class="w-full h-full object-cover">`
-              : `<div class="text-gray-400 text-xs">Carpeta</div>`
-            }
-          </div>
+  <div class="lote-head">
+    <div class="lote-left cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
+      <div class="lote-thumb">
+        ${thumb
+          ? `<img src="${thumb}">`
+          : `<div class="text-gray-400 text-xs">Carpeta</div>`
+        }
+      </div>
 
-          <div class="min-w-0">
-            <div class="font-extrabold truncate">📦 ${escapeHtml(lnombre)}</div>
-            <div class="text-xs text-gray-500">
-              ${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}
-            </div>
-          </div>
-        </div>
+      <div class="min-w-0">
+        <div class="lote-title">📦 ${escapeHtml(lnombre)}</div>
+        <div class="lote-meta">${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}</div>
+      </div>
+    </div>
 
-        <div class="flex items-center gap-2 shrink-0">
-          <button class="btn-blue" style="background:#111827; padding:8px 12px;"
-                  onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
-            Ver
-          </button>
+    <div class="flex items-center gap-2 shrink-0">
+      <button class="btn-blue" style="background:#111827; padding:8px 12px;"
+              onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
+        Ver
+      </button>
 
-          <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
-             href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
-             onclick="event.stopPropagation()">
-            Descargar PNG
-          </a>
+      <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
+         href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
+         onclick="event.stopPropagation()">
+        Descargar PNG
+      </a>
 
-          <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
-             href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
-             onclick="event.stopPropagation()">
-            Descargar JPG
-          </a>
-        </div>
-      `;
+      <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
+         href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
+         onclick="event.stopPropagation()">
+        Descargar JPG
+      </a>
+    </div>
+  </div>
+`;
+
+loteBox.onclick = () => openLote(lid);
 
       lotesCont.appendChild(loteBox);
     }
@@ -837,6 +917,8 @@ window.eliminarArchivo = async function(fileId){
  q('btnGuardarCarga').addEventListener('click', () => {
   const producto = q('cargaProducto').value.trim();
  const numero   = q('cargaNumero').value.trim();
+ const loteNombre = q('cargaLoteNombre')?.value.trim();
+
 
   if (!numero) { q('cargaMsg').textContent = 'Número de placa es obligatorio.'; return; }
   if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
@@ -855,6 +937,9 @@ window.eliminarArchivo = async function(fileId){
   const fd = addCsrf(new FormData());
 fd.append('producto', producto);
 fd.append('numero_placa', numero);
+
+    if (loteNombre) fd.append('lote_nombre', loteNombre);
+
 filesSeleccionados.forEach(file => fd.append('archivos[]', file));
 
 
