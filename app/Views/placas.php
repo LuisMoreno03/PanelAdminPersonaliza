@@ -520,10 +520,10 @@ function renderFromData(data) {
     }
 
     q('grid').innerHTML = grupos.map(g => {
-      const titulo = g.lote_nombre || g.lote_id || 'Lote';
+      const titulo = (g.lote_nombre || '').trim() || 'Sin nombre';
       const fecha = g.created_at ? formatFecha(g.created_at) : '';
       const cards = (g.items || []).map(renderCard).join('');
-      const lnombre = lote.lote_nombre || `Lote ${lid}`;
+    
 
 
       return `
@@ -652,7 +652,10 @@ const lotesCont = diaBox.querySelector(".lotes-grid");
 
     for (const lote of (dia.lotes || [])) {
       const lid = String(lote.lote_id ?? "");
-      const lnombre = lote.lote_nombre || `Lote ${lid}`;
+      const loteNombre = (item.lote_nombre || '').trim();
+          
+        q('modalLoteInfo').textContent = loteNombre ? `Lote: ${loteNombre}` : '';
+
       const total = (lote.items || []).length;
 
       // ✅ mantener índices para el modal
@@ -679,7 +682,7 @@ const lotesCont = diaBox.querySelector(".lotes-grid");
     </div>
 
     <div class="min-w-0">
-      <div class="lote-title">📦 ${escapeHtml(lnombre)}</div>
+      <div class="lote-title">📦 ${escapeHtml(lote.lote_nombre)}</div>
       <div class="lote-meta">${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}</div>
     </div>
   </div>
@@ -858,9 +861,9 @@ window.eliminarArchivo = async function(fileId){
                     renderModalArchivos(list, item.id);
                     setSelectedItem(item.id); // ✅ fuerza preview grande + input nombre
 
-  const lid = item.lote_id ?? '';
-  if (q('modalLoteInfo')) q('modalLoteInfo').textContent = lid ? `Lote: ${lid}` : '';
-  renderModalArchivos(list, item.id);
+  const loteNombre = (item.lote_nombre || '').trim();
+if (q('modalLoteInfo')) q('modalLoteInfo').textContent = loteNombre ? `Lote: ${loteNombre}` : '';
+
 
   q('modalBackdrop').style.display = 'block';
 }
@@ -1015,11 +1018,9 @@ q('btnDescargarJpgSel').addEventListener('click', () => {
   };
 
  q('btnGuardarCarga').addEventListener('click', () => {
- const loteNombreManual = q('cargaLoteNombre')?.value.trim();
- const producto = q('cargaProducto').value.trim();
- const numero   = q('cargaNumero').value.trim();
- const loteNombre = q('cargaLoteNombre')?.value.trim();
-
+  const producto = q('cargaProducto').value.trim();
+  const numero   = q('cargaNumero').value.trim();
+  const loteNombreManual = q('cargaLoteNombre')?.value.trim();
 
   if (!loteNombreManual) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
   if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
@@ -1036,15 +1037,10 @@ q('btnDescargarJpgSel').addEventListener('click', () => {
   q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
 
   const fd = addCsrf(new FormData());
-fd.append('producto', producto);
-fd.append('numero_placa', numero); // opcional si lo quieres guardar
-fd.append('lote_nombre', loteNombreManual); // ✅ nuevo
-
-  if (loteNombre) fd.append('lote_nombre', loteNombre);
-  if (!loteNombreManual) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
-
-filesSeleccionados.forEach(file => fd.append('archivos[]', file));
-
+  fd.append('producto', producto);
+  fd.append('numero_placa', numero);
+  fd.append('lote_nombre', loteNombreManual); // ✅ SOLO UNA VEZ
+  filesSeleccionados.forEach(file => fd.append('archivos[]', file));
 
   const xhr = new XMLHttpRequest();
   xhr.open('POST', API.subir, true);

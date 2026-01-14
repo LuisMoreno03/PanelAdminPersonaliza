@@ -325,6 +325,15 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
             ]);
         }
 
+        // ✅ nombre manual obligatorio
+    $loteNombre = trim((string) $this->request->getPost('lote_nombre'));
+    if ($loteNombre === '') {
+        return $this->response->setStatusCode(422)->setJSON([
+            'success' => false,
+            'message' => 'El nombre del lote es obligatorio.',
+        ]);
+    }
+
         $files = $this->request->getFiles();
         $arr = $files['archivos'] ?? null;
 
@@ -338,86 +347,85 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
         // Normaliza a array
         $uploaded = is_array($arr) ? $arr : [$arr];
 
-        // Fecha de hoy (para agrupar “por día”)
-        $fecha = date('Y-m-d');
-        $now   = date('Y-m-d H:i:s');
+    $fecha = date('Y-m-d');
+    $now   = date('Y-m-d H:i:s');
 
-        $userId   = session()->get('user_id') ?? null;
-        $userName = session()->get('user_name') ?? session()->get('nombre') ?? null;
+    $userId   = session()->get('user_id') ?? null;
+    $userName = session()->get('user_name') ?? session()->get('nombre') ?? null;
 
-        // 1) Crear el lote
-        $lotes = new PlacaLoteModel();
-        $loteId = $lotes->insert([
+    // 1) Crear el lote (guardando nombre manual)
+    $lotes = new PlacaLoteModel();
+    $loteId = $lotes->insert([
+        'fecha'            => $fecha,
+        'nombre'           => $loteNombre, // ✅ NUEVO en placas_lotes
+        'uploaded_by'      => $userId,
+        'uploaded_by_name' => $userName,
+        'created_at'       => $now,
+    ], true);
+
+    if (!$loteId) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => 'No se pudo crear el lote',
+        ]);
+    }
+
+    // 2) Guardar físicamente
+    $publicBase = FCPATH . 'uploads/placas/' . $fecha . '/lote_' . $loteId . '/';
+    if (!is_dir($publicBase)) {
+        @mkdir($publicBase, 0775, true);
+    }
+
+    $archivosModel = new PlacaArchivoModel();
+    $guardados = [];
+
+    foreach ($uploaded as $file) {
+        if (!$file || !$file->isValid()) continue;
+
+        $original = $file->getClientName();
+        $mime     = $file->getClientMimeType();
+        $sizeKb   = (int) ceil($file->getSize() / 1024);
+
+        $safeName  = preg_replace('/[^a-zA-Z0-9\._-]/', '_', $original);
+        $finalName = time() . '_' . bin2hex(random_bytes(3)) . '_' . $safeName;
+
+        $file->move($publicBase, $finalName);
+
+        $relative = 'uploads/placas/' . $fecha . '/lote_' . $loteId . '/' . $finalName;
+
+        $id = $archivosModel->insert([
+            'lote_id'          => $loteId,
+            'lote_nombre'      => $loteNombre, // ✅ GUARDA TAMBIÉN EN ARCHIVOS (para listar fácil)
+            'ruta'             => $relative,
+            'original_name'    => $original,
+            'size_kb'          => $sizeKb,
+            'mime'             => $mime,
             'fecha'            => $fecha,
             'uploaded_by'      => $userId,
             'uploaded_by_name' => $userName,
             'created_at'       => $now,
         ], true);
 
-        if (!$loteId) {
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => 'No se pudo crear el lote',
-            ]);
-        }
-
-        // 2) Guardar físicamente en carpeta por fecha + lote
-        //    IMPORTANTE: esta ruta debe existir o la creamos
-        $publicBase = FCPATH . 'uploads/placas/' . $fecha . '/lote_' . $loteId . '/';
-        if (!is_dir($publicBase)) {
-            @mkdir($publicBase, 0775, true);
-        }
-
-        $archivosModel = new PlacaArchivoModel();
-        $guardados = [];
-
-        foreach ($uploaded as $file) {
-            if (!$file || !$file->isValid()) continue;
-
-            $original = $file->getClientName();
-            $mime     = $file->getClientMimeType();
-            $sizeKb   = (int) ceil($file->getSize() / 1024);
-
-            // nombre seguro y único
-            $safeName = preg_replace('/[^a-zA-Z0-9\._-]/', '_', $original);
-            $finalName = time() . '_' . bin2hex(random_bytes(3)) . '_' . $safeName;
-
-            // mover a public/uploads...
-            $file->move($publicBase, $finalName);
-
-            $relative = 'uploads/placas/' . $fecha . '/lote_' . $loteId . '/' . $finalName;
-
-            $id = $archivosModel->insert([
-                'lote_id'          => $loteId,
-                'ruta'             => $relative,
-                'original_name'    => $original,
-                'size_kb'          => $sizeKb,
-                'mime'             => $mime,
-                'fecha'            => $fecha,
-                'uploaded_by'      => $userId,
-                'uploaded_by_name' => $userName,
-                'created_at'       => $now,
-            ], true);
-
-            $guardados[] = [
-                'id' => $id,
-                'lote_id' => $loteId,
-                'ruta' => $relative,
-                'url'  => base_url($relative),
-                'original_name' => $original,
-                'size_kb' => $sizeKb,
-            ];
-        }
-
-        return $this->response->setJSON([
-            'success' => true,
-            'message' => 'Lote creado y archivos subidos',
+        $guardados[] = [
+            'id' => $id,
             'lote_id' => $loteId,
-            'fecha' => $fecha,
-            'items' => $guardados
-        ]);
+            'lote_nombre' => $loteNombre,
+            'ruta' => $relative,
+            'url'  => base_url('placas/archivos/descargar/' . $id),
+            'original_name' => $original,
+            'size_kb' => $sizeKb,
+        ];
     }
 
+    return $this->response->setJSON([
+        'success' => true,
+        'message' => 'Lote creado y archivos subidos',
+        'lote_id' => $loteId,
+        'lote_nombre' => $loteNombre,
+        'fecha' => $fecha,
+        'items' => $guardados
+    ]);
+}
     
     public function listarPorDia()
 {
@@ -487,8 +495,12 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
             $created = $r['created_at'] ?? null;
             $fecha = $created ? date('Y-m-d', strtotime($created)) : 'sin-fecha';
 
-            $loteId = (string)($r['lote_id'] ?? 'sin-lote');
-            $loteNombre = (string)($r['lote_nombre'] ?? $loteId);
+           $loteId = (string)($r['lote_id'] ?? 'sin-lote');
+
+            $loteNombre = trim((string)($r['lote_nombre'] ?? ''));
+        if ($loteNombre === '') {
+            $loteNombre = 'Sin nombre'; // ✅ sin fallback al número
+}
 
             if (!isset($out[$fecha])) {
                 $out[$fecha] = [
