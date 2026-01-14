@@ -1040,7 +1040,8 @@ fd.append('producto', producto);
 fd.append('numero_placa', numero); // opcional si lo quieres guardar
 fd.append('lote_nombre', loteNombreManual); // ✅ nuevo
 
-    if (loteNombre) fd.append('lote_nombre', loteNombre);
+  if (loteNombre) fd.append('lote_nombre', loteNombre);
+  if (!loteNombreManual) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
 
 filesSeleccionados.forEach(file => fd.append('archivos[]', file));
 
