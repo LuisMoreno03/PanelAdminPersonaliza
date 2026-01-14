@@ -28,40 +28,41 @@ class ProduccionController extends BaseController
      * Devuelve SOLO los pedidos asignados al usuario y en estado Produccion
      */
     public function myQueue()
-    {
-        $userId = session()->get('user_id');
+{
+    $userId = session()->get('user_id');
 
-        if (!$userId) {
-            return $this->response->setJSON([
-                'ok' => true,
-                'data' => []
-            ]);
-        }
-
-        $db = Database::connect();
-
-        $query = $db->table('pedidos p')
-            ->select('p.*, pe.estado')
-            // En tu BD: pedidos_estado.id = pedidos.id
-            ->join('pedidos_estado pe', 'pe.id = p.id', 'inner', false)
-            ->where('p.assigned_to_user_id', $userId)
-            ->where('pe.estado', $this->estadoProduccion)
-            ->orderBy('p.assigned_at', 'DESC')
-            ->get();
-
-        if ($query === false) {
-            $dbError = $db->error();
-            return $this->response->setStatusCode(500)->setJSON([
-                'ok' => false,
-                'error' => 'DB error: ' . ($dbError['message'] ?? 'unknown')
-            ]);
-        }
-
+    if (!$userId) {
         return $this->response->setJSON([
             'ok' => true,
-            'data' => $query->getResultArray()
+            'data' => []
         ]);
     }
+
+    $db = Database::connect();
+
+    $query = $db->table('pedidos p')
+        ->select('p.*, pe.estado, pe.actualizado AS estado_actualizado')
+        ->join('pedidos_estado pe', 'pe.id = p.id', 'inner', false)
+        ->where('p.assigned_to_user_id', $userId)
+        ->where('pe.estado', $this->estadoProduccion)
+        // ✅ más viejos a más nuevos según última modificación de estado
+        ->orderBy('pe.actualizado', 'ASC')
+        ->get();
+
+    if ($query === false) {
+        $dbError = $db->error();
+        return $this->response->setStatusCode(500)->setJSON([
+            'ok' => false,
+            'error' => 'DB error: ' . ($dbError['message'] ?? 'unknown')
+        ]);
+    }
+
+    return $this->response->setJSON([
+        'ok' => true,
+        'data' => $query->getResultArray()
+    ]);
+}
+
 
     /**
      * POST /produccion/pull
@@ -72,82 +73,102 @@ class ProduccionController extends BaseController
      * 3) Cambia su estado a Produccion en pedidos_estado
      */
     public function pull()
-    {
-        $userId = session()->get('user_id');
-        $payload = $this->request->getJSON(true);
-        $count = (int) ($payload['count'] ?? 0);
+{
+    $userId = session()->get('user_id');
+    $payload = $this->request->getJSON(true);
+    $count = (int) ($payload['count'] ?? 0);
 
-        if (!$userId || !in_array($count, [5, 10], true)) {
-            return $this->response->setStatusCode(400)->setJSON([
-                'ok' => false,
-                'error' => 'Datos inválidos'
+    if (!$userId || !in_array($count, [5, 10], true)) {
+        return $this->response->setStatusCode(400)->setJSON([
+            'ok' => false,
+            'error' => 'Datos inválidos'
+        ]);
+    }
+
+    $db = Database::connect();
+
+    $now = date('Y-m-d H:i:s');
+
+    $db->transBegin();
+
+    try {
+        /**
+         * ✅ CLAIM atómico:
+         * 1) Asigna al usuario SOLO pedidos libres y en estado Confirmado
+         * 2) Respeta orden: más viejos -> más nuevos según pe.actualizado
+         *
+         * Nota: usamos UPDATE con JOIN + ORDER + LIMIT para evitar carrera.
+         */
+        $sqlClaim = "
+            UPDATE pedidos p
+            INNER JOIN pedidos_estado pe ON pe.id = p.id
+            SET p.assigned_to_user_id = ?,
+                p.assigned_at = ?
+            WHERE pe.estado = ?
+              AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
+            ORDER BY pe.actualizado ASC
+            LIMIT {$count}
+        ";
+
+        $db->query($sqlClaim, [$userId, $now, $this->estadoEntrada]);
+
+        // ✅ ¿cuántos se asignaron?
+        $assigned = (int) ($db->affectedRows() ?? 0);
+
+        if ($assigned <= 0) {
+            $db->transCommit();
+            return $this->response->setJSON([
+                'ok' => true,
+                'assigned' => 0
             ]);
         }
 
-        $db = Database::connect();
-        $db->transBegin();
+        /**
+         * 2) Obtener los IDs recién asignados (los más recientes por assigned_at)
+         * y ponerlos en estado "Asignado" (tu estadoProduccion)
+         */
+        $idsQuery = $db->table('pedidos')
+            ->select('id')
+            ->where('assigned_to_user_id', $userId)
+            ->where('assigned_at', $now)
+            ->get();
 
-        try {
-            // 1) Buscar pedidos disponibles en estado Confirmado y sin asignar
-            $builder = $db->table('pedidos p')
-                ->select('p.id')
-                ->join('pedidos_estado pe', 'pe.id = p.id', 'inner', false)
-                ->where('pe.estado', $this->estadoEntrada)   // <-- Confirmado
-                ->where('p.assigned_to_user_id', null)
-                ->orderBy('p.id', 'ASC')                     // Cambia a p.created_at si existe
-                ->limit($count);
+        if ($idsQuery === false) {
+            $dbError = $db->error();
+            throw new \RuntimeException('DB error: ' . ($dbError['message'] ?? 'unknown'));
+        }
 
-            $query = $builder->get();
+        $rows = $idsQuery->getResultArray();
+        $ids = array_column($rows, 'id');
 
-            if ($query === false) {
-                $dbError = $db->error();
-                throw new \RuntimeException('DB error: ' . ($dbError['message'] ?? 'unknown'));
-            }
-
-            $available = $query->getResultArray();
-
-            if (!$available) {
-                $db->transCommit();
-                return $this->response->setJSON([
-                    'ok' => true,
-                    'assigned' => 0
-                ]);
-            }
-
-            $ids = array_column($available, 'id');
-
-            // 2) Asignar los pedidos al usuario
-            $db->table('pedidos')
-                ->whereIn('id', $ids)
-                ->update([
-                    'assigned_to_user_id' => $userId,
-                    'assigned_at' => date('Y-m-d H:i:s')
-                ]);
-
-            // 3) Cambiar estado a Produccion (en tu BD pedidos_estado.id = pedido.id)
+        if (!empty($ids)) {
+            // ✅ Cambiar estado en pedidos_estado
             $db->table('pedidos_estado')
                 ->whereIn('id', $ids)
                 ->update([
                     'estado' => $this->estadoProduccion,
-                    'actualizado' => date('Y-m-d H:i:s'),
+                    'actualizado' => $now,
                     'user_id' => $userId
                 ]);
-
-            $db->transCommit();
-
-            return $this->response->setJSON([
-                'ok' => true,
-                'assigned' => count($ids)
-            ]);
-
-        } catch (\Throwable $e) {
-            $db->transRollback();
-            return $this->response->setStatusCode(500)->setJSON([
-                'ok' => false,
-                'error' => $e->getMessage()
-            ]);
         }
+
+        $db->transCommit();
+
+        return $this->response->setJSON([
+            'ok' => true,
+            'assigned' => count($ids),
+            'ids' => $ids
+        ]);
+
+    } catch (\Throwable $e) {
+        $db->transRollback();
+        return $this->response->setStatusCode(500)->setJSON([
+            'ok' => false,
+            'error' => $e->getMessage()
+        ]);
     }
+}
+
 
     /**
      * POST /produccion/return-all
