@@ -145,7 +145,9 @@
   justify-content:center;
 }
 
+
   </style>
+
 </head>
 
 <body class="flex">
@@ -223,6 +225,9 @@
 
       <div style="display:flex; gap:10px; margin-top:14px; justify-content:flex-end;">
       <button id="btnGuardarNombre" type="button" class="btn-blue">Guardar</button>
+      <button id="btnDescargarPngSel" type="button" class="btn-blue" style="background:#10b981;">PNG</button>
+      <button id="btnDescargarJpgSel" type="button" class="btn-blue" style="background:#0ea5e9;">JPG</button>
+
       <button id="btnEliminarArchivo" type="button" class="btn-blue" style="background:#ef4444;">Eliminar</button>
 
       </div>
@@ -321,6 +326,45 @@ let searchTerm = '';
 let loteIndex = {};
 
 
+// ✅ estado del archivo seleccionado en el modal
+let modalSelectedId = null;
+
+function getSelectedItem() {
+  if (!modalSelectedId) return modalItem;
+  return placasMap[modalSelectedId] || modalItem;
+}
+
+function setSelectedItem(id) {
+  modalSelectedId = Number(id);
+
+  const it = placasMap[modalSelectedId];
+  if (!it) return;
+
+  // preview grande
+  const mime = it.mime || '';
+  const isImg = mime.startsWith('image/');
+  const isPdf = mime.includes('pdf');
+
+  q('modalPreview').innerHTML = isImg
+    ? `<img src="${it.url}" style="width:100%;height:100%;object-fit:contain;">`
+    : isPdf
+      ? `<iframe src="${it.url}" style="width:100%;height:100%;border:0;"></iframe>`
+      : `<div style="height:100%;display:flex;align-items:center;justify-content:center;">
+           <div class="muted" style="padding:10px;text-align:center;">${escapeHtml(it.original || 'Archivo')}</div>
+         </div>`;
+
+  // input nombre principal (uno solo)
+  q('modalNombre').value = it.nombre || (it.original ? String(it.original).replace(/\.[^.]+$/, '') : '');
+
+  // fecha
+  q('modalFecha').textContent = formatFecha(it.created_at);
+
+  // marcar activo en lista
+  document.querySelectorAll('[data-modal-file]').forEach(el => {
+    el.classList.toggle('ring-2', Number(el.dataset.modalFile) === modalSelectedId);
+    el.classList.toggle('ring-blue-300', Number(el.dataset.modalFile) === modalSelectedId);
+  });
+}
 
   function escapeHtml(str) {
     return (str || '').replace(/[&<>"']/g, s => ({
@@ -663,50 +707,33 @@ function renderModalArchivos(list, activeId) {
     return;
   }
 
+  // si no hay seleccionado aún, usa el activeId
+  if (!modalSelectedId) modalSelectedId = Number(activeId);
+
   box.innerHTML = list.map(it => {
-    const isActive = Number(it.id) === Number(activeId);
+
     const kb = Math.round((it.size || 0) / 1024);
+    const isActive = Number(it.id) === Number(modalSelectedId);
+
+    const title = it.nombre || it.original || ('Archivo #' + it.id);
 
     return `
-      <div class="bg-white border rounded-xl p-3 flex items-center justify-between gap-3">
+      <button type="button"
+        data-modal-file="${it.id}"
+        onclick="setSelectedItem(${it.id})"
+        class="w-full text-left bg-white border rounded-xl p-3 flex items-center justify-between gap-3 hover:bg-gray-50 ${isActive ? 'ring-2 ring-blue-300' : ''}">
+        
         <div class="min-w-0">
-          <div class="flex items-center gap-2 min-w-0">
-            <input
-              data-file-name="${it.id}"
-              class="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm font-semibold truncate"
-              value="${escapeHtml(it.nombre || it.original || ('Archivo #' + it.id))}"
-              onkeydown="if(event.key==='Enter'){ window.guardarNombreArchivo(${it.id}); }"
-            />
-            ${isActive ? `<span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-extrabold shrink-0">Actual</span>` : ''}
-          </div>
-
+          <div class="font-extrabold truncate">${escapeHtml(title)}</div>
           <div class="text-xs text-gray-500 mt-1">
             ${escapeHtml(it.mime || '')} • ${kb} KB
           </div>
         </div>
 
-        <div class="flex gap-2 shrink-0">
-          <button class="btn-blue" style="background:#2563eb; padding:8px 10px;"
-                  onclick="window.guardarNombreArchivo(${it.id})">
-            Guardar
-          </button>
-
-          <a class="btn-blue" style="background:#10b981; padding:8px 10px;"
-             href="${API.descargarPng}/${it.id}" target="_blank">
-            PNG
-          </a>
-
-          <a class="btn-blue" style="background:#0ea5e9; padding:8px 10px;"
-             href="${API.descargarJpg}/${it.id}" target="_blank">
-            JPG
-          </a>
-
-          <button class="btn-blue" style="background:#ef4444; padding:8px 10px;"
-                  onclick="window.eliminarArchivo(${it.id})">
-            Eliminar
-          </button>
+        <div class="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600 shrink-0">
+          #${it.id}
         </div>
-      </div>
+      </button>
     `;
   }).join('');
 }
@@ -807,6 +834,10 @@ window.eliminarArchivo = async function(fileId){
 
   // ✅ Archivos del conjunto (mismo lote)
   const list = getLoteItemsFor(item);
+  modalSelectedId = Number(item.id); // ✅ el actual queda seleccionado
+                    renderModalArchivos(list, item.id);
+                    setSelectedItem(item.id); // ✅ fuerza preview grande + input nombre
+
   const lid = item.lote_id ?? '';
   if (q('modalLoteInfo')) q('modalLoteInfo').textContent = lid ? `Lote: ${lid}` : '';
   renderModalArchivos(list, item.id);
@@ -836,7 +867,9 @@ window.eliminarArchivo = async function(fileId){
   }
 
   const fd = addCsrf(new FormData());
-  fd.append('id', modalItem.id);
+ const sel = getSelectedItem();
+  fd.append('id', sel.id);
+
   fd.append('nombre', nuevo);
 
   const res = await fetch(API.renombrar, {
@@ -861,9 +894,16 @@ window.eliminarArchivo = async function(fileId){
   q('btnEliminarArchivo').addEventListener('click', async () => {
     if (!modalItem) return;
     if (!confirm('¿Eliminar esta placa?')) return;
+    
+    
 
     const fd = addCsrf(new FormData());
-    fd.append('id', modalItem.id);
+    const sel = getSelectedItem();
+    fd.append('id', sel.id);
+
+    
+    if (!confirm(`¿Eliminar el archivo #${sel.id}?`)) return;
+
 
     const res = await fetch(API.eliminar, { method:'POST', body: fd, credentials:'same-origin' });
 
@@ -877,6 +917,19 @@ window.eliminarArchivo = async function(fileId){
       q('modalMsg').textContent = data.message || 'Error';
     }
   });
+
+  
+q('btnDescargarPngSel').addEventListener('click', () => {
+  const sel = getSelectedItem();
+  if (!sel?.id) return;
+  window.open(`${API.descargarPng}/${sel.id}`, '_blank');
+});
+
+q('btnDescargarJpgSel').addEventListener('click', () => {
+  const sel = getSelectedItem();
+  if (!sel?.id) return;
+  window.open(`${API.descargarJpg}/${sel.id}`, '_blank');
+});
 
   // ===== MODAL CARGA MULTI (UNA SOLA REQUEST => QUEDAN AGRUPADOS) =====
   const modalCarga = q('modalCargaBackdrop');
