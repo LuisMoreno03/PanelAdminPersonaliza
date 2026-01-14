@@ -328,7 +328,8 @@ function addCsrf(fd) {
   descargarPngLote: <?= json_encode(site_url('placas/archivos/descargar-png-lote')) ?>,
   descargarJpg: <?= json_encode(site_url('placas/archivos/descargar-jpg')) ?>,
   descargarPng: <?= json_encode(site_url('placas/archivos/descargar-png')) ?>,
-descargarJpgLote: <?= json_encode(site_url('placas/archivos/descargar-jpg-lote')) ?>,
+  descargarJpgLote: <?= json_encode(site_url('placas/archivos/descargar-jpg-lote')) ?>,
+  renombrarLote: <?= json_encode(site_url('placas/archivos/renombrar-lote')) ?>,
 
 };
 
@@ -685,23 +686,29 @@ const lotesCont = diaBox.querySelector(".lotes-grid");
     </div>
 
     <div class="lote-actions">
-      <button class="btn-blue" style="background:#111827; padding:8px 12px;"
-              onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
-        Ver
-      </button>
+  <button class="btn-blue" style="background:#111827; padding:8px 12px;"
+          onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
+    Ver
+  </button>
 
-      <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
-         href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
-         onclick="event.stopPropagation()">
-        Descargar PNG
-      </a>
+  <button class="btn-blue" style="background:#f59e0b; padding:8px 12px;"
+          onclick="event.stopPropagation(); renombrarLoteUI('${escapeHtml(lid)}', '${escapeHtml(lnombre)}')">
+    Cambiar nombre
+  </button>
 
-      <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
-         href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
-         onclick="event.stopPropagation()">
-        Descargar JPG
-      </a>
-    </div>
+  <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
+     href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
+     onclick="event.stopPropagation()">
+    Descargar PNG
+  </a>
+
+  <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
+     href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
+     onclick="event.stopPropagation()">
+    Descargar JPG
+  </a>
+</div>
+
   `;
 
   loteBox.onclick = () => openLote(lid);
@@ -770,6 +777,36 @@ window.openLote = function(loteId){
   const principal = list.find(x => Number(x.is_primary) === 1) || list[0];
   openModal(principal.id);
 };
+
+
+window.renombrarLoteUI = async function(loteId, nombreActual = '') {
+  const nuevo = prompt("Nuevo nombre del lote:", nombreActual || "");
+  if (nuevo === null) return; // canceló
+  const nombre = nuevo.trim();
+  if (!nombre) { alert("El nombre no puede estar vacío."); return; }
+
+  const fd = addCsrf(new FormData());
+  fd.append('lote_id', String(loteId));
+  fd.append('lote_nombre', nombre);
+
+  const res = await fetch(API.renombrarLote, {
+    method: 'POST',
+    body: fd,
+    credentials: 'same-origin'
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!data?.success) {
+    alert(data?.message || "Error renombrando el lote");
+    return;
+  }
+
+  // ✅ refresca vista
+  await cargarLista();
+  await cargarStats();
+};
+
 
 window.guardarNombreArchivo = async function(fileId){
   const input = document.querySelector(`[data-file-name="${fileId}"]`);
