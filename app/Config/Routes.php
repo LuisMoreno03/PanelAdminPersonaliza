@@ -181,6 +181,23 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 
 /*
 |--------------------------------------------------------------------------
+| PEDIDOS A REPETIR (PROTEGIDO)
+|--------------------------------------------------------------------------
+*/
+
+$routes->group('repetir', ['filter' => 'auth'], static function (RouteCollection $routes) {
+
+$routes->get('/', 'RepetirController::index');
+    
+
+    $routes->group('archivos', static function (RouteCollection $routes) {
+
+    });
+
+});
+
+/*
+|--------------------------------------------------------------------------
 | USUARIOS (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
