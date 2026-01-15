@@ -341,6 +341,7 @@ function addCsrf(fd) {
   descargarJpgLote: <?= json_encode(site_url('placas/archivos/descargar-jpg-lote')) ?>,
   renombrarLote: <?= json_encode(site_url('placas/archivos/renombrar-lote')) ?>,
 
+
 };
 
 
@@ -712,7 +713,7 @@ const lotesCont = diaBox.querySelector(".lotes-grid");
      onclick="event.stopPropagation()">
     Descargar JPG
   </a>
- /div>
+ </div>
 
   `;
 
@@ -958,8 +959,12 @@ async function renombrarLoteDesdeModal() {
   q('modalClose').addEventListener('click', closeModal);
   q('modalBackdrop').addEventListener('click', (e) => {
     if (e.target.id === 'modalBackdrop') closeModal();
+
+
+    q('btnRenombrarLote').addEventListener('click', renombrarLoteDesdeModal);
   });
 
+  
   q('btnGuardarNombre').addEventListener('click', async () => {
   if (!modalItem) return;
 
@@ -969,7 +974,6 @@ async function renombrarLoteDesdeModal() {
     return;
   }
 
-  q('btnRenombrarLote').addEventListener('click', renombrarLoteDesdeModal);
 
 
   const fd = addCsrf(new FormData());
