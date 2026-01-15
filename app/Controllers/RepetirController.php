@@ -317,25 +317,6 @@ class RepetirController extends Controller
 
     private function pedidosPaginados(): ResponseInterface
     {
-        
-    private function hasRepetirTag(?string $tags): bool
-{
-    $t = trim((string)$tags);
-    if ($t === '') return false;
-
-    // Shopify tags viene como string tipo: "Urgente, Repetir, ..."
-    // Buscamos "Repetir" como tag exacto (no parte de otra palabra)
-    $parts = array_map('trim', explode(',', $t));
-    foreach ($parts as $p) {
-        if (mb_strtolower($p) === 'repetir') return true;
-    }
-    return false;
-}
-
-    
-
-$ordersRaw = $json['orders'] ?? [];
-
 
     if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
@@ -558,6 +539,29 @@ $ordersRaw = $json['orders'] ?? [];
             ])->setStatusCode(200);
         }
     }
+
+    private function hasRepetirTag(?string $tags): bool
+{
+    $t = trim((string)$tags);
+    if ($t === '') return false;
+
+    // Shopify tags viene como string tipo: "Urgente, Repetir, ..."
+    // Buscamos "Repetir" como tag exacto (no parte de otra palabra)
+    $parts = array_map('trim', explode(',', $t));
+    foreach ($parts as $p) {
+        if (mb_strtolower($p) === 'repetir') return true;
+    }
+    return false;
+}
+
+    
+
+$ordersRaw = $json['orders'] ?? [];
+
+// ✅ SOLO pedidos con tag "Repetir"
+$ordersRaw = array_values(array_filter($ordersRaw, function ($o) {
+    return $this->hasRepetirTag($o['tags'] ?? '');
+}));
 
     // ============================================================
     // GUARDAR ESTADO (endpoint para el modal)
