@@ -701,11 +701,6 @@ const lotesCont = diaBox.querySelector(".lotes-grid");
     Ver
   </button>
 
-  <button class="btn-blue" style="background:#f59e0b; padding:8px 12px;"
-          onclick="event.stopPropagation(); renombrarLoteUI('${escapeHtml(lid)}', '${escapeHtml(lnombre)}')">
-    Cambiar nombre
-  </button>
-
   <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
      href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
      onclick="event.stopPropagation()">
@@ -717,7 +712,7 @@ const lotesCont = diaBox.querySelector(".lotes-grid");
      onclick="event.stopPropagation()">
     Descargar JPG
   </a>
-</div>
+ /div>
 
   `;
 
