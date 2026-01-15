@@ -554,14 +554,6 @@ class RepetirController extends Controller
     return false;
 }
 
-    
-
-$ordersRaw = $json['orders'] ?? [];
-
-// ✅ SOLO pedidos con tag "Repetir"
-$ordersRaw = array_values(array_filter($ordersRaw, function ($o) {
-    return $this->hasRepetirTag($o['tags'] ?? '');
-}));
 
     // ============================================================
     // GUARDAR ESTADO (endpoint para el modal)
