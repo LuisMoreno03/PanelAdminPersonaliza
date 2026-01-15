@@ -342,6 +342,7 @@ function addCsrf(fd) {
   renombrarLote: <?= json_encode(site_url('placas/archivos/renombrar-lote')) ?>,
 
 
+
 };
 
 

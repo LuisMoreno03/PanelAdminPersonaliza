@@ -149,7 +149,8 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 
     $routes->group('archivos', static function (RouteCollection $routes) {
 
-        $routes->post('placas/archivos/renombrar-lote', 'PlacasArchivosController::renombrarLote');
+        $routes->post('archivos/renombrar-lote', 'PlacasArchivosController::renombrarLote');
+
 
         $routes->get('listar', 'PlacasArchivosController::listar');
         $routes->get('stats',  'PlacasArchivosController::stats');
