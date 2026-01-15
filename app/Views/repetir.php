@@ -352,14 +352,15 @@
 
   // ✅ Endpoints correctos (sin concatenaciones peligrosas)
   window.API = {
-    pedidos: "<?= site_url('dashboard/pedidos') ?>",
-    filter: "<?= site_url('dashboard/filter') ?>",
-    etiquetas: "<?= site_url('dashboard/etiquetas-disponibles') ?>",
-    ping: "<?= site_url('dashboard/ping') ?>",
-    usuariosEstado: "<?= site_url('dashboard/usuarios-estado') ?>",
-    guardarEstado: "<?= site_url('dashboard/guardar-estado') ?>",
-    guardarEtiquetas: "<?= site_url('api/estado/etiquetas/guardar') ?>",
-  };
+  pedidos: "<?= site_url('repetir/pedidos') ?>",
+  filter: "<?= site_url('repetir/filter') ?>",
+  etiquetas: "<?= site_url('repetir/etiquetas-disponibles') ?>",
+  ping: "<?= site_url('repetir/ping') ?>",
+  usuariosEstado: "<?= site_url('repetir/usuarios-estado') ?>",
+  guardarEstado: "<?= site_url('repetir/guardar-estado') ?>",
+  guardarEtiquetas: "<?= site_url('api/estado/etiquetas/guardar') ?>",
+};
+
 </script>
 
 
