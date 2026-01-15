@@ -149,7 +149,7 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 
     $routes->group('archivos', static function (RouteCollection $routes) {
 
-        $routes->post('archivos/renombrar-lote', 'PlacasArchivosController::renombrarLote');
+
 
 
         $routes->get('listar', 'PlacasArchivosController::listar');
@@ -168,11 +168,11 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
         $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
 
         // DESCARGAR JPG/PNG
-        $routes->get('placas/archivos/descargar-png/(:num)', 'PlacasArchivosController::descargarPng/$1');
-        $routes->get('placas/archivos/descargar-jpg/(:num)', 'PlacasArchivosController::descargarJpg/$1');
+       $routes->get('descargar-png/(:num)', 'PlacasArchivosController::descargarPng/$1');
+        $routes->get('descargar-jpg/(:num)', 'PlacasArchivosController::descargarJpg/$1');
 
-        $routes->get('placas/archivos/descargar-png-lote/(:any)', 'PlacasArchivosController::descargarPngLote/$1');
-        $routes->get('placas/archivos/descargar-jpg-lote/(:any)', 'PlacasArchivosController::descargarJpgLote/$1');
+        $routes->get('descargar-png-lote/(:any)', 'PlacasArchivosController::descargarPngLote/$1');
+        $routes->get('descargar-jpg-lote/(:any)', 'PlacasArchivosController::descargarJpgLote/$1');
 
         
        });
