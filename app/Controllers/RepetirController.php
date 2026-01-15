@@ -63,7 +63,7 @@ class RepetirController extends Controller
             $this->token      = (string) ($cfg->token ?? $cfg->TOKEN ?? $this->token);
             $this->apiVersion = (string) ($cfg->apiVersion ?? $cfg->version ?? $cfg->API_VERSION ?? $this->apiVersion);
         } catch (\Throwable $e) {
-            log_message('error', 'DashboardController loadShopifyFromConfig ERROR: ' . $e->getMessage());
+            log_message('error', 'DRepetirController loadShopifyFromConfig ERROR: ' . $e->getMessage());
         }
     }
 
@@ -78,7 +78,7 @@ class RepetirController extends Controller
             if (!empty(trim($token))) $this->token = $token;
             if (!empty(trim($ver)))   $this->apiVersion = $ver;
         } catch (\Throwable $e) {
-            log_message('error', 'DashboardController loadShopifyFromEnv ERROR: ' . $e->getMessage());
+            log_message('error', 'RepetirController loadShopifyFromEnv ERROR: ' . $e->getMessage());
         }
     }
 
@@ -95,7 +95,7 @@ class RepetirController extends Controller
             $this->token      = (string) ($cfg['token'] ?? $this->token);
             $this->apiVersion = (string) ($cfg['apiVersion'] ?? $cfg['version'] ?? $this->apiVersion);
         } catch (\Throwable $e) {
-            log_message('error', 'DashboardController loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
+            log_message('error', 'RepetirController loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
         }
     }
 
@@ -296,7 +296,7 @@ class RepetirController extends Controller
             return redirect()->to('/');
         }
 
-        return view('dashboard', [
+        return view('repetir', [
             'etiquetasPredeterminadas' => $this->getEtiquetasUsuario(),
         ]);
     }
