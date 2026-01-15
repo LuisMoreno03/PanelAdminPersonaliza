@@ -119,7 +119,7 @@
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex items-start justify-between gap-4">
             <div>
               <h1 class="text-3xl font-extrabold text-slate-900">Repeticiones</h1>
-              <p class="text-slate-500 mt-1">Estados, etiquetas, últimos cambios y detalles</p>
+              <p class="text-slate-500 mt-1">Pedidos para repetir</p>
             </div>
           </div>
         </section>
@@ -195,8 +195,8 @@
               Página 1
             </span>
             <span id="pillPaginaTotal" class="px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm">
-              Página 1
-            </span>
+              Página 1 
+            </span> 
           </div>
 
           <button id="btnSiguiente"
