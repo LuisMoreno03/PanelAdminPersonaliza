@@ -248,45 +248,60 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
     }
 
     public function renombrarLote()
-    {
-        $loteId = trim((string) $this->request->getPost('lote_id'));
-        $nombre = trim((string) $this->request->getPost('lote_nombre'));
+{
+    try {
+        // aceptar form-data o JSON
+        $loteId = trim((string) ($this->request->getPost('lote_id') ?? ''));
+        $nombre = trim((string) ($this->request->getPost('lote_nombre') ?? ''));
 
         if ($loteId === '' || $nombre === '') {
-            return $this->response->setJSON(['success'=>false,'message'=>'Datos inválidos'])->setStatusCode(422);
+            return $this->response->setStatusCode(422)->setJSON([
+                'success' => false,
+                'message' => 'Faltan datos: lote_id / lote_nombre',
+                'received' => [
+                    'lote_id' => $loteId,
+                    'lote_nombre' => $nombre,
+                ],
+            ]);
         }
 
-        $model = new PlacaArchivoModel();
-        $model->where('lote_id', $loteId)->set(['lote_nombre' => $nombre])->update();
+        $model = new \App\Models\PlacaArchivoModel();
 
-        return $this->response->setJSON(['success'=>true,'message'=>'Lote actualizado ✅']);
+        // Actualiza TODOS los archivos del lote
+        $updated = $model->where('lote_id', $loteId)
+                         ->set(['lote_nombre' => $nombre])
+                         ->update();
+
+        // CI a veces devuelve true aunque no cambie nada.
+        // Si NO hay filas afectadas, revisamos si existía el lote.
+        if ($updated === false) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => 'Error actualizando lote',
+                'errors' => $model->errors(),
+            ]);
+        }
+
+        // Conteo para feedback
+        $count = $model->where('lote_id', $loteId)->countAllResults();
+
+        return $this->response->setJSON([
+            'success' => true,
+            'message' => "✅ Lote actualizado: {$count} archivo(s)",
+            'data' => [
+                'lote_id' => $loteId,
+                'lote_nombre' => $nombre,
+                'archivos' => $count,
+            ],
+        ]);
+
+    } catch (\Throwable $e) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => 'Excepción: ' . $e->getMessage(),
+        ]);
     }
-
-    public function eliminarLote()
-    {
-        $loteId = trim((string) $this->request->getPost('lote_id'));
-
-        if ($loteId === '') {
-            return $this->response->setJSON(['success'=>false,'message'=>'Lote inválido'])->setStatusCode(422);
-        }
-
-        $model = new PlacaArchivoModel();
-        $rows = $model->where('lote_id', $loteId)->findAll();
-
-        if (!$rows) {
-            return $this->response->setJSON(['success'=>false,'message'=>'Lote no encontrado'])->setStatusCode(404);
-        }
-
-        foreach ($rows as $row) {
-            $fullPath = ROOTPATH . ($row['ruta'] ?? '');
-
-            if (is_file($fullPath)) @unlink($fullPath);
-        }
-
-        $model->where('lote_id', $loteId)->delete();
-
-        return $this->response->setJSON(['success'=>true,'message'=>'Lote eliminado ✅']);
-    }
+}
 
 
    public function descargar($archivoId)
