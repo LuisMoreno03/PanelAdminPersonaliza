@@ -7,7 +7,7 @@ use CodeIgniter\HTTP\ResponseInterface;
 use App\Models\PedidoImagenModel;
 use App\Models\PedidosEstadoModel;
 
-class DashboardController extends Controller
+class RepetirController extends Controller
 {
     private string $shop = '';
     private string $token = '';
@@ -100,7 +100,7 @@ class DashboardController extends Controller
     }
 
     // =====================================================
-    // HELPERS
+    // HELPERS    
     // =====================================================
 
     private function parseLinkHeaderForPageInfo(?string $linkHeader): array
