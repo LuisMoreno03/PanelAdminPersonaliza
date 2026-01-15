@@ -23,7 +23,7 @@ class DashboardController extends Controller
         'Enviado',
         'Repetir',
     ];
-
+    
     public function __construct()
     {
         // 1) Config/Shopify.php

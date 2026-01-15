@@ -2,208 +2,237 @@
 
 namespace App\Controllers;
 
-use App\Controllers\BaseController;
-use Config\Database;
+use CodeIgniter\Controller;
 
-class ProduccionController extends BaseController
+class ProduccionController extends Controller
 {
-    private string $estadoEntrada   = 'Confirmado';
-    private string $estadoProduccion = 'Producción';
-
-    public function index()
-    {
-        return view('produccion');
-    }
-
     /**
-     * GET /produccion/my-queue
-     * Devuelve pedidos asignados al usuario y en estado "Producción"
+     * Config: estados que Producción puede "traer"
+     * En tu caso quieres Confirmado
      */
+    private array $pullEstados = ['Confirmado'];
+
+    // =========================
+    // GET /produccion/my-queue
+    // =========================
     public function myQueue()
     {
-        $userId = session()->get('user_id');
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'ok' => false,
+                'error' => 'No autenticado',
+            ]);
+        }
 
+        $userId = (int) (session('user_id') ?? 0);
         if (!$userId) {
-            return $this->response->setJSON(['ok' => true, 'data' => []]);
-        }
-
-        $db = Database::connect();
-
-        $query = $db->table('pedidos p')
-            ->select('p.id, p.numero, p.cliente, p.total, p.estado_envio, p.forma_envio, p.etiquetas, p.articulos, p.created_at, p.assigned_at, pe.estado, pe.actualizado')
-            ->join('pedidos_estado pe', 'pe.order_id = p.id', 'inner', false)
-            ->where('p.assigned_to_user_id', $userId)
-            ->where('TRIM(pe.estado)', $this->estadoProduccion)
-            ->orderBy('p.assigned_at', 'DESC')
-            ->get();
-
-        if ($query === false) {
-            $dbError = $db->error();
-            return $this->response->setStatusCode(500)->setJSON([
+            return $this->response->setJSON([
                 'ok' => false,
-                'error' => 'DB error: ' . ($dbError['message'] ?? 'unknown')
+                'error' => 'Sin user_id en sesión',
             ]);
         }
-
-        return $this->response->setJSON([
-            'ok' => true,
-            'data' => $query->getResultArray()
-        ]);
-    }
-
-    /**
-     * POST /produccion/pull
-     * Body JSON: { "count": 5 } o { "count": 10 }
-     */
-    public function pull()
-    {
-        $userId = session()->get('user_id');
-        $payload = $this->request->getJSON(true);
-        $count = (int) ($payload['count'] ?? 0);
-
-        if (!$userId || !in_array($count, [5, 10], true)) {
-            return $this->response->setStatusCode(400)->setJSON([
-                'ok' => false,
-                'error' => 'Datos inválidos'
-            ]);
-        }
-
-        $db = Database::connect();
-        $now = date('Y-m-d H:i:s');
-
-        $db->transBegin();
 
         try {
-            /**
-             * 1) Claim atómico: asigna SOLO confirmados libres
-             *    JOIN correcto: pe.order_id = p.id
-             */
-            $sqlClaim = "
-                UPDATE pedidos p
-                INNER JOIN pedidos_estado pe ON pe.order_id = p.id
-                SET p.assigned_to_user_id = ?,
-                    p.assigned_at = ?
-                WHERE TRIM(pe.estado) = ?
+            $db = \Config\Database::connect();
+
+            // Cola = pedidos asignados al usuario + estado "produccion" (o el que definas)
+            // Aquí lo alineamos con lo que tú quieres: que Producción trabaje con Confirmado (o Por producir)
+            // Ajusta el WHERE según tu flujo.
+            $rows = $db->query("
+                SELECT
+                    p.id,
+                    p.numero,
+                    p.cliente,
+                    p.total,
+                    p.estado_envio,
+                    p.forma_envio,
+                    p.etiquetas,
+                    p.articulos,
+                    p.created_at,
+                    p.shopify_order_id,
+                    p.assigned_to_user_id,
+                    p.assigned_at,
+                    pe.estado AS estado_bd,
+                    pe.actualizado AS estado_actualizado
+                FROM pedidos p
+                JOIN pedidos_estado pe
+                  ON pe.order_id = CAST(p.shopify_order_id AS UNSIGNED)
+                WHERE p.assigned_to_user_id = ?
+                  AND LOWER(TRIM(pe.estado)) IN ('confirmado','por producir','produccion','por producir ')
+                ORDER BY pe.actualizado ASC
+            ", [$userId])->getResultArray();
+
+            return $this->response->setJSON([
+                'ok' => true,
+                'data' => $rows ?: [],
+            ]);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'ProduccionController myQueue ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno cargando cola',
+            ]);
+        }
+    }
+
+    // =========================
+    // POST /produccion/pull
+    // body: {count: 5|10}
+    // =========================
+    public function pull()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'ok' => false,
+                'error' => 'No autenticado',
+            ]);
+        }
+
+        $userId = (int) (session('user_id') ?? 0);
+        $userName = (string) (session('nombre') ?? session('user_name') ?? 'Usuario');
+
+        if (!$userId) {
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Sin user_id en sesión',
+            ]);
+        }
+
+        $data = $this->request->getJSON(true);
+        if (!is_array($data)) $data = [];
+
+        $count = (int) ($data['count'] ?? 5);
+        if (!in_array($count, [5, 10], true)) $count = 5;
+
+        try {
+            $db = \Config\Database::connect();
+
+            // Traer pedidos disponibles:
+            // - estado Confirmado (en pedidos_estado)
+            // - y NO asignados (assigned_to_user_id null o 0)
+            //
+            // Nota: esto depende de que pedidos esté poblada con shopify_order_id.
+            $estadoListSql = "'" . implode("','", array_map(fn($s)=>strtolower($s), $this->pullEstados)) . "'";
+
+            $candidatos = $db->query("
+                SELECT
+                    p.id,
+                    p.shopify_order_id
+                FROM pedidos p
+                JOIN pedidos_estado pe
+                  ON pe.order_id = CAST(p.shopify_order_id AS UNSIGNED)
+                WHERE LOWER(TRIM(pe.estado)) IN ($estadoListSql)
                   AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
                 ORDER BY pe.actualizado ASC
                 LIMIT {$count}
-            ";
+            ")->getResultArray();
 
-            $db->query($sqlClaim, [$userId, $now, $this->estadoEntrada]);
-            $assigned = (int) ($db->affectedRows() ?? 0);
-
-            if ($assigned <= 0) {
-                $db->transCommit();
+            if (!$candidatos) {
                 return $this->response->setJSON([
                     'ok' => true,
+                    'message' => 'No hay pedidos disponibles para asignar',
                     'assigned' => 0,
-                    'ids' => []
                 ]);
             }
 
-            /**
-             * 2) Tomar los ids recién asignados
-             */
-            $idsQuery = $db->table('pedidos')
-                ->select('id')
-                ->where('assigned_to_user_id', $userId)
-                ->where('assigned_at', $now)
-                ->get();
+            $db->transStart();
 
-            if ($idsQuery === false) {
-                $dbError = $db->error();
-                throw new \RuntimeException('DB error: ' . ($dbError['message'] ?? 'unknown'));
+            $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
+            $now = date('Y-m-d H:i:s');
+
+            // Asignar en pedidos
+            $db->table('pedidos')
+                ->whereIn('id', $ids)
+                ->where("(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)", null, false)
+                ->update([
+                    'assigned_to_user_id' => $userId,
+                    'assigned_at'         => $now,
+                ]);
+
+            // Opcional: guardar historial (si quieres)
+            // Aquí puedes insertar en pedidos_estado_historial o order_status_history.
+            // Lo dejo comentado para no romperte nada.
+            /*
+            foreach ($candidatos as $c) {
+                $db->table('order_status_history')->insert([
+                    'order_id'     => (string)$c['shopify_order_id'],
+                    'prev_estado'  => 'Confirmado',
+                    'nuevo_estado' => 'Produccion',
+                    'user_id'      => $userId,
+                    'user_name'    => $userName,
+                    'ip'           => $this->request->getIPAddress(),
+                    'user_agent'   => substr((string)$this->request->getUserAgent(), 0, 250),
+                    'created_at'   => $now,
+                ]);
             }
+            */
 
-            $rows = $idsQuery->getResultArray();
-            $ids = array_map('intval', array_column($rows, 'id'));
+            $db->transComplete();
 
-            /**
-             * 3) Cambiar estado en pedidos_estado para esos pedidos
-             */
-            if (!empty($ids)) {
-                $db->table('pedidos_estado')
-                    ->whereIn('order_id', $ids)
-                    ->update([
-                        'estado' => $this->estadoProduccion,
-                        'actualizado' => $now,
-                        'user_id' => $userId
-                    ]);
+            if ($db->transStatus() === false) {
+                return $this->response->setJSON([
+                    'ok' => false,
+                    'error' => 'No se pudo asignar (transacción falló)',
+                ]);
             }
-
-            $db->transCommit();
 
             return $this->response->setJSON([
                 'ok' => true,
                 'assigned' => count($ids),
-                'ids' => $ids
+                'ids' => $ids,
             ]);
 
         } catch (\Throwable $e) {
-            $db->transRollback();
-            return $this->response->setStatusCode(500)->setJSON([
+            log_message('error', 'ProduccionController pull ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
                 'ok' => false,
-                'error' => $e->getMessage()
+                'error' => 'Error interno asignando pedidos',
             ]);
         }
     }
 
-    /**
-     * POST /produccion/return-all
-     * Desasigna todos los pedidos del usuario.
-     * (Opcional) si quieres también regresarlos a Confirmado, te dejo el bloque comentado.
-     */
+    // =========================
+    // POST /produccion/return-all
+    // =========================
     public function returnAll()
     {
-        $userId = session()->get('user_id');
-
-        if (!$userId) {
-            return $this->response->setJSON(['ok' => true, 'returned' => 0]);
-        }
-
-        $db = Database::connect();
-        $now = date('Y-m-d H:i:s');
-
-        // IDs asignados al usuario
-        $q = $db->table('pedidos')
-            ->select('id')
-            ->where('assigned_to_user_id', $userId)
-            ->get();
-
-        if ($q === false) {
-            $dbError = $db->error();
-            return $this->response->setStatusCode(500)->setJSON([
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
                 'ok' => false,
-                'error' => 'DB error: ' . ($dbError['message'] ?? 'unknown')
+                'error' => 'No autenticado',
             ]);
         }
 
-        $ids = array_map('intval', array_column($q->getResultArray(), 'id'));
-
-        // Quitar asignación
-        $db->table('pedidos')
-            ->where('assigned_to_user_id', $userId)
-            ->update([
-                'assigned_to_user_id' => null,
-                'assigned_at' => null
+        $userId = (int) (session('user_id') ?? 0);
+        if (!$userId) {
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Sin user_id en sesión',
             ]);
+        }
 
-        // Si quieres que vuelvan a Confirmado al devolver:
-        /*
-        if (!empty($ids)) {
-            $db->table('pedidos_estado')
-                ->whereIn('order_id', $ids)
+        try {
+            $db = \Config\Database::connect();
+
+            $db->table('pedidos')
+                ->where('assigned_to_user_id', $userId)
                 ->update([
-                    'estado' => $this->estadoEntrada,
-                    'actualizado' => $now,
-                    'user_id' => null
+                    'assigned_to_user_id' => null,
+                    'assigned_at'         => null,
                 ]);
-        }
-        */
 
-        return $this->response->setJSON([
-            'ok' => true,
-            'returned' => count($ids)
-        ]);
+            return $this->response->setJSON([
+                'ok' => true,
+                'message' => 'Pedidos devueltos',
+            ]);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'ProduccionController returnAll ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno devolviendo pedidos',
+            ]);
+        }
     }
 }

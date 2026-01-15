@@ -801,6 +801,7 @@ window.renderEntregaPill = renderEntregaPill;
 /* =====================================================
   TABLA / GRID + CARDS
 ===================================================== */
+
 function actualizarTabla(pedidos) {
   const cont = document.getElementById("tablaPedidos");
   const cards = document.getElementById("cardsPedidos");
