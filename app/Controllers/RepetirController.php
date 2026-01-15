@@ -317,7 +317,27 @@ class RepetirController extends Controller
 
     private function pedidosPaginados(): ResponseInterface
     {
-        if (!session()->get('logged_in')) {
+        
+    private function hasRepetirTag(?string $tags): bool
+{
+    $t = trim((string)$tags);
+    if ($t === '') return false;
+
+    // Shopify tags viene como string tipo: "Urgente, Repetir, ..."
+    // Buscamos "Repetir" como tag exacto (no parte de otra palabra)
+    $parts = array_map('trim', explode(',', $t));
+    foreach ($parts as $p) {
+        if (mb_strtolower($p) === 'repetir') return true;
+    }
+    return false;
+}
+
+    
+
+$ordersRaw = $json['orders'] ?? [];
+
+
+    if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
                 'success' => false,
                 'message' => 'No autenticado',
@@ -417,6 +437,13 @@ class RepetirController extends Controller
             }
 
             $ordersRaw = $json['orders'] ?? [];
+
+            // ✅ SOLO pedidos con tag "Repetir"
+         $ordersRaw = array_values(array_filter($ordersRaw, function ($o) {
+         $tags = $o['tags'] ?? '';
+         return $this->hasRepetirTag($tags);
+        }));
+
 
             // Link header para page_info
             $linkHeader = $resp['headers']['link'] ?? null;

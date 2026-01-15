@@ -211,7 +211,7 @@
 
   <!-- =========================
      MODAL ETIQUETAS BONITO (ÚNICO)
-  ========================= -->
+  ========================= --> 
   <div id="modalEtiquetas" class="hidden fixed inset-0 z-[10050] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="w-full max-w-3xl rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-fadeIn">
 

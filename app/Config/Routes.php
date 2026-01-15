@@ -187,13 +187,20 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 
 $routes->group('repetir', ['filter' => 'auth'], static function (RouteCollection $routes) {
 
-$routes->get('/', 'RepetirController::index');
-    
+    $routes->get('/', 'RepetirController::index');
 
-    $routes->group('archivos', static function (RouteCollection $routes) {
+    // ✅ endpoints para cargar pedidos en la tabla
+    $routes->get('pedidos', 'RepetirController::pedidos');
+    $routes->get('filter',  'RepetirController::filter');
 
-    });
+    // ✅ detalles (si tu tabla abre detalles)
+    $routes->get('detalles/(:num)', 'RepetirController::detalles/$1');
 
+    // (opcional) si tu dashboard.js los usa:
+    $routes->get('etiquetas-disponibles', 'RepetirController::etiquetasDisponibles');
+    $routes->post('guardar-estado', 'RepetirController::guardarEstadoPedido');
+    $routes->get('ping', 'RepetirController::ping');
+    $routes->get('usuarios-estado', 'RepetirController::usuariosEstado');
 });
 
 /*
