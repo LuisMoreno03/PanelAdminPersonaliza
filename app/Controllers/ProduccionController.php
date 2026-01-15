@@ -2,10 +2,19 @@
 
 namespace App\Controllers;
 
+use App\Controllers\BaseController;
+use Config\Database;
 use CodeIgniter\Controller;
 
-class ProduccionController extends Controller
+class ProduccionController extends BaseController
 {
+    private string $estadoEntrada   = 'Confirmado';
+    private string $estadoProduccion = 'Producción';
+
+    public function index()
+    {
+        return view('produccion');
+    }
     /**
      * Config: estados que Producción puede "traer"
      * En tu caso quieres Confirmado
