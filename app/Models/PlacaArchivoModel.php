@@ -23,7 +23,9 @@ class PlacaArchivoModel extends Model
 
         // agrupación
         'fecha',
+        'lote_nombre',
         'lote_id',
+
 
         // usuario
         'uploaded_by',
