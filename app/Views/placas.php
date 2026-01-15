@@ -339,7 +339,7 @@ function addCsrf(fd) {
   descargarJpg: <?= json_encode(site_url('placas/archivos/descargar-jpg')) ?>,
   descargarPng: <?= json_encode(site_url('placas/archivos/descargar-png')) ?>,
   descargarJpgLote: <?= json_encode(site_url('placas/archivos/descargar-jpg-lote')) ?>,
-  renombrarLote: <?= json_encode(site_url('placas/archivos/lote/renombrar')) ?>,
+ renombrarLote: <?= json_encode(site_url('placas/archivos/lote/renombrar')) ?>,
 
 
 

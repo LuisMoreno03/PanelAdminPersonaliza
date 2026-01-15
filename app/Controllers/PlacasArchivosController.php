@@ -250,55 +250,45 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
     public function renombrarLote()
 {
     try {
-        // aceptar form-data o JSON
-        $loteId = trim((string) ($this->request->getPost('lote_id') ?? ''));
-        $nombre = trim((string) ($this->request->getPost('lote_nombre') ?? ''));
+        $loteId = trim((string) $this->request->getPost('lote_id'));
+        $nombre = trim((string) $this->request->getPost('lote_nombre'));
 
         if ($loteId === '' || $nombre === '') {
             return $this->response->setStatusCode(422)->setJSON([
                 'success' => false,
                 'message' => 'Faltan datos: lote_id / lote_nombre',
-                'received' => [
-                    'lote_id' => $loteId,
-                    'lote_nombre' => $nombre,
-                ],
+                'received' => ['lote_id' => $loteId, 'lote_nombre' => $nombre],
             ]);
         }
 
         $model = new \App\Models\PlacaArchivoModel();
 
-        // Actualiza TODOS los archivos del lote
-        $updated = $model->where('lote_id', $loteId)
-                         ->set(['lote_nombre' => $nombre])
-                         ->update();
+        // ✅ update por lote
+        $ok = $model->where('lote_id', $loteId)
+                    ->set(['lote_nombre' => $nombre])
+                    ->update();
 
-        // CI a veces devuelve true aunque no cambie nada.
-        // Si NO hay filas afectadas, revisamos si existía el lote.
-        if ($updated === false) {
+        if ($ok === false) {
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
-                'message' => 'Error actualizando lote',
-                'errors' => $model->errors(),
+                'message' => 'Error al actualizar lote',
+                'errors'  => $model->errors(),
             ]);
         }
 
-        // Conteo para feedback
-        $count = $model->where('lote_id', $loteId)->countAllResults();
-
+        
         return $this->response->setJSON([
             'success' => true,
-            'message' => "✅ Lote actualizado: {$count} archivo(s)",
-            'data' => [
-                'lote_id' => $loteId,
-                'lote_nombre' => $nombre,
-                'archivos' => $count,
-            ],
+            'message' => '✅ Lote renombrado',
+            'data'    => ['lote_id' => $loteId, 'lote_nombre' => $nombre],
         ]);
 
     } catch (\Throwable $e) {
         return $this->response->setStatusCode(500)->setJSON([
             'success' => false,
             'message' => 'Excepción: ' . $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
         ]);
     }
 }
