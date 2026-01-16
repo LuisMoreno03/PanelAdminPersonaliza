@@ -667,37 +667,42 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
         $data = $this->request->getJSON(true);
         if (!is_array($data)) $data = [];
 
-        $orderId = (string)($data['order_id'] ?? ($data['id'] ?? ''));
-        $orderId = trim($orderId);
+        // ✅ Acepta varias keys posibles (según cómo lo envíe el front)
+        $orderId = trim((string)(
+            $data['order_id'] ??
+            $data['shopify_order_id'] ??
+            $data['id'] ??
+            ''
+        ));
 
-        if ($orderId === '') {
+        // ✅ Normalizar y bloquear el "0" (esto era tu bug)
+        if ($orderId === '' || $orderId === '0') {
             return $this->response->setJSON([
                 'success' => false,
-                'message' => 'order_id inválido',
+                'message' => 'order_id inválido (vacío o 0). Revisa el frontend / payload.',
+                'debug_received' => $data, // 👈 te muestra exactamente qué llegó
             ])->setStatusCode(200);
         }
 
-        $estado  = $this->normalizeEstado((string)($data['estado'] ?? ''));
-
-        if (!$orderId) {
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => 'order_id inválido',
-            ])->setStatusCode(200);
-        }
+        // ✅ Estado
+        $estado = $this->normalizeEstado((string)($data['estado'] ?? ''));
 
         if (!in_array($estado, $this->allowedEstados, true)) {
             return $this->response->setJSON([
                 'success' => false,
                 'message' => 'Estado no permitido',
+                'debug_estado_recibido' => $data['estado'] ?? null,
+                'debug_estado_normalizado' => $estado,
             ])->setStatusCode(200);
         }
 
         try {
-            $userId = session('user_id');
+            $userId   = session('user_id');
             $userName = session('nombre') ?? session('user_name') ?? session('name') ?? 'Usuario';
 
             $model = new PedidosEstadoModel();
+
+            // ✅ Guardar usando Shopify ID como STRING
             $ok = $model->setEstadoPedido($orderId, $estado, $userId ? (int)$userId : null, (string)$userName);
 
             return $this->response->setJSON([
@@ -715,6 +720,7 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
             ])->setStatusCode(200);
         }
     }
+
 
     // ============================================================
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
