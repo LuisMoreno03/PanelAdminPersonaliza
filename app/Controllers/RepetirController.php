@@ -419,13 +419,12 @@ class RepetirController extends Controller
 
             $ordersRaw = $json['orders'] ?? [];
 
-            // ✅ SOLO pedidos con tag "Repetir"
-         $ordersRaw = array_values(array_filter($ordersRaw, function ($o) {
-         $tags = $o['tags'] ?? '';
-         return $this->hasRepetirTag($tags);
-        }));
+            // ✅ SOLO pedidos cuyo ESTADO sea "Repetir"
+            $orders = array_values(array_filter($orders, function ($o) {
+            return ($o['estado'] ?? '') === 'Repetir';
+    }));
 
-
+         
             // Link header para page_info
             $linkHeader = $resp['headers']['link'] ?? null;
             if (is_array($linkHeader)) $linkHeader = end($linkHeader);
