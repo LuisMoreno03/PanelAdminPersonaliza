@@ -141,7 +141,7 @@ function setBtnSiguiente(pageInfo) {
 }
 
 function actualizarTabla(pedidos) {
-  const wrap = document.getElementById("tablaPedidos");
+  const wrap = document.getElementById("tablaRepetir");
   if (!wrap) {
     console.error("❌ No existe #tablaPedidos");
     return;
