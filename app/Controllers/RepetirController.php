@@ -453,7 +453,7 @@ class RepetirController extends Controller
                     'total'        => $total,
 
                     // default, luego se sobreescribe desde BD
-                    'estado'       => 'Repetir',
+                    'estado'       => 'Por preparar',
 
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
@@ -831,7 +831,7 @@ class RepetirController extends Controller
      */
     private function procesarImagenesYEstado(array &$order): void
     {
-        $orderId = (int)($order['id'] ?? 0);
+        $orderId = (string)($order['id'] ?? 0);
         if (!$orderId) return;
 
         $db = \Config\Database::connect();
@@ -1002,7 +1002,7 @@ class RepetirController extends Controller
     }
 
     // ============================================================
-    // ENDPOINT: /dashboard/usuarios-estado
+    // ENDPOINT: /dashboard/usuarios-estado  id
     // ============================================================
 
     public function usuariosEstado()
