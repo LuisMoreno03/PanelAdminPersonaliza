@@ -63,85 +63,37 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
       return data;
     })
     .then((data) => {
-      if (!data || !data.success) {
-        actualizarTabla([]);
-        setTotal(0);
-        setBtnSiguiente(null);
-        return;
-      }
-
-      nextPageInfo = data.next_page_info ?? null;
-
-      // ✅ Filtro robusto: estado o tags/etiquetas
-      const pedidos = data.orders || [];
-        const estado = (p.estado || p.status || p.fulfillment_status || "")
-          .toString()
-          .trim()
-          .toLowerCase();
-
-        const tags = (p.etiquetas || p.tags || "")
-          .toString()
-          .trim()
-          .toLowerCase();
-
-        return (
-          estado === "repetir" ||
-          estado === "repetir" ||
-          tags.includes("repetir")
-        );
-      });
-
-      const hash = JSON.stringify(preparados.map(p => ({
-        id: p.id,
-        estado: p.estado ?? p.status,
-        etiquetas: p.etiquetas,
-        total: p.total,
-        fecha: p.fecha
-        })));
-
-        if (hash === lastRenderedHash) {
-        // nada cambió, no re-render
-        setBtnSiguiente(nextPageInfo);
-        return;
-        }
-        lastRenderedHash = hash;
-
-      actualizarTabla(pedidos);
-      setTotal(pedidos.length);
-      setBtnSiguiente(nextPageInfo);
-    })
-    .catch((err) => {
-      console.error("ERROR:", err.message);
-      actualizarTabla([]);
-      setTotal(0);
-      setBtnSiguiente(null);
-    })
-    .finally(() => {
-      if (!silent) hideLoader();
-
-      isLoading = false;
-    });
-}
-
-function paginaSiguiente() {
-  if (nextPageInfo) cargarPedidosPreparados(nextPageInfo);
-}
-
-function setTotal(n) {
-  const total = document.getElementById("total-repetir");
-  if (total) total.textContent = String(n);
-}
-function setBtnSiguiente(pageInfo) {
-  const btnSig = document.getElementById("btnSiguiente");
-  if (btnSig) btnSig.disabled = !pageInfo;
-}
-
-function actualizarTabla(pedidos) {
-  const wrap = document.getElementById("tablaPedidos");
-  if (!wrap) {
-    console.error("❌ No existe #tablaPedidos");
+  if (!data || !data.success) {
+    actualizarTabla([]);
+    setTotal(0);
+    setBtnSiguiente(null);
     return;
   }
+
+  nextPageInfo = data.next_page_info ?? null;
+
+  const pedidos = data.orders || [];
+
+  const hash = JSON.stringify(
+    pedidos.map((p) => ({
+      id: p.id,
+      estado: p.estado ?? p.status,
+      etiquetas: p.etiquetas,
+      total: p.total,
+      fecha: p.fecha,
+    }))
+  );
+
+  if (hash === lastRenderedHash) {
+    setBtnSiguiente(nextPageInfo);
+    return;
+  }
+  lastRenderedHash = hash;
+
+  actualizarTabla(pedidos);
+  setTotal(pedidos.length);
+  setBtnSiguiente(nextPageInfo);
+})
 
   wrap.innerHTML = "";
 
