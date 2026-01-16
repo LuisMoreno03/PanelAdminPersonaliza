@@ -365,7 +365,7 @@
 
 
   <!-- ✅ romper caché -->
-  <script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>
+  <script src="<?= base_url('js/repetir.js?v=' . time()) ?>"></script>
 
   <!-- ✅ aplicar colapso si está guardado -->
   <script>

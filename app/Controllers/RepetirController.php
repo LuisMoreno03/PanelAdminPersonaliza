@@ -50,7 +50,7 @@ class RepetirController extends Controller
     }
 
     // =====================================================
-    // CONFIG LOADERS
+    // CONFIG LOADERS  dashboard
     // =====================================================
 
     private function loadShopifyFromConfig(): void
@@ -453,7 +453,7 @@ class RepetirController extends Controller
                     'total'        => $total,
 
                     // default, luego se sobreescribe desde BD
-                    'estado'       => 'Por preparar',
+                    'estado'       => 'Repetir',
 
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
