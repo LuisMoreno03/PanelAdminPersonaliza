@@ -3,23 +3,23 @@
 namespace App\Controllers;
 
 use App\Controllers\BaseController;
-use Config\Database;
-use CodeIgniter\Controller;
 
 class ProduccionController extends BaseController
 {
-    private string $estadoEntrada   = 'Confirmado';
-    private string $estadoProduccion = 'Producción';
+    /**
+     * Estado que Producción "toma" como entrada (debe existir en pedidos_estado.estado)
+     */
+    private string $estadoEntrada = 'Confirmado';
+
+    /**
+     * Estado al que pasa cuando Producción lo asigna (tu modal usa "Por producir")
+     */
+    private string $estadoProduccion = 'Por producir';
 
     public function index()
     {
         return view('produccion');
     }
-    /**
-     * Config: estados que Producción puede "traer"
-     * En tu caso quieres Confirmado
-     */
-    private array $pullEstados = ['Confirmado'];
 
     // =========================
     // GET /produccion/my-queue
@@ -44,9 +44,9 @@ class ProduccionController extends BaseController
         try {
             $db = \Config\Database::connect();
 
-            // Cola = pedidos asignados al usuario + estado "produccion" (o el que definas)
-            // Aquí lo alineamos con lo que tú quieres: que Producción trabaje con Confirmado (o Por producir)
-            // Ajusta el WHERE según tu flujo.
+            // ✅ IMPORTANTÍSIMO:
+            // JOIN por texto: pe.order_id = p.shopify_order_id
+            // y usar pe.estado_updated_at (no "actualizado")
             $rows = $db->query("
                 SELECT
                     p.id,
@@ -62,12 +62,13 @@ class ProduccionController extends BaseController
                     p.assigned_to_user_id,
                     p.assigned_at,
                     pe.estado AS estado_bd,
-                    pe.actualizado AS estado_actualizado
+                    pe.estado_updated_at AS estado_actualizado,
+                    pe.estado_updated_by_name AS estado_por
                 FROM pedidos p
-                JOIN pedidos_estado pe
-                  ON pe.order_id = CAST(p.shopify_order_id AS UNSIGNED)
+                LEFT JOIN pedidos_estado pe
+                     ON pe.order_id = p.shopify_order_id
                 WHERE p.assigned_to_user_id = ?
-                  AND LOWER(TRIM(pe.estado)) IN ('confirmado','por producir','produccion','por producir ')
+                  AND LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por producir','producción','produccion','confirmado')
                 ORDER BY pe.actualizado ASC
             ", [$userId])->getResultArray();
 
@@ -116,26 +117,24 @@ class ProduccionController extends BaseController
 
         try {
             $db = \Config\Database::connect();
+            $now = date('Y-m-d H:i:s');
 
-            // Traer pedidos disponibles:
-            // - estado Confirmado (en pedidos_estado)
-            // - y NO asignados (assigned_to_user_id null o 0)
-            //
-            // Nota: esto depende de que pedidos esté poblada con shopify_order_id.
-            $estadoListSql = "'" . implode("','", array_map(fn($s)=>strtolower($s), $this->pullEstados)) . "'";
-
+            // ✅ Traer candidatos:
+            // - pedidos no asignados
+            // - estado = Confirmado (en pedidos_estado)
+            // JOIN texto: pe.order_id = p.shopify_order_id
             $candidatos = $db->query("
                 SELECT
                     p.id,
                     p.shopify_order_id
                 FROM pedidos p
                 JOIN pedidos_estado pe
-                  ON pe.order_id = CAST(p.shopify_order_id AS UNSIGNED)
-                WHERE LOWER(TRIM(pe.estado)) IN ($estadoListSql)
+                  ON pe.order_id = p.shopify_order_id
+                WHERE LOWER(TRIM(pe.estado)) = ?
                   AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-                ORDER BY pe.actualizado ASC
+                ORDER BY pe.estado_updated_at ASC
                 LIMIT {$count}
-            ")->getResultArray();
+            ", [mb_strtolower($this->estadoEntrada)])->getResultArray();
 
             if (!$candidatos) {
                 return $this->response->setJSON([
@@ -148,9 +147,8 @@ class ProduccionController extends BaseController
             $db->transStart();
 
             $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
-            $now = date('Y-m-d H:i:s');
 
-            // Asignar en pedidos
+            // 1) Asignar en pedidos
             $db->table('pedidos')
                 ->whereIn('id', $ids)
                 ->where("(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)", null, false)
@@ -159,23 +157,21 @@ class ProduccionController extends BaseController
                     'assigned_at'         => $now,
                 ]);
 
-            // Opcional: guardar historial (si quieres)
-            // Aquí puedes insertar en pedidos_estado_historial o order_status_history.
-            // Lo dejo comentado para no romperte nada.
-            /*
+            // 2) ✅ Mover estado a "Por producir" (para que Producción los vea ya en su flujo)
+            // Esto hace que ya no sigan quedando en "Confirmado" eternamente.
             foreach ($candidatos as $c) {
-                $db->table('order_status_history')->insert([
-                    'order_id'     => (string)$c['shopify_order_id'],
-                    'prev_estado'  => 'Confirmado',
-                    'nuevo_estado' => 'Produccion',
-                    'user_id'      => $userId,
-                    'user_name'    => $userName,
-                    'ip'           => $this->request->getIPAddress(),
-                    'user_agent'   => substr((string)$this->request->getUserAgent(), 0, 250),
-                    'created_at'   => $now,
-                ]);
+                $oid = (string)($c['shopify_order_id'] ?? '');
+                if ($oid === '') continue;
+
+                $db->table('pedidos_estado')
+                    ->where('order_id', $oid)
+                    ->update([
+                        'estado'                 => $this->estadoProduccion,
+                        'estado_updated_at'      => $now,
+                        'estado_updated_by'      => $userId,
+                        'estado_updated_by_name' => $userName,
+                    ]);
             }
-            */
 
             $db->transComplete();
 

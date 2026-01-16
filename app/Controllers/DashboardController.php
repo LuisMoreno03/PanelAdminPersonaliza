@@ -248,70 +248,103 @@ class DashboardController extends Controller
      * ✅ Guarda/actualiza pedidos de Shopify en tabla "pedidos"
      * Requiere que existan las columnas vistas en tu screenshot.
      */
-    private function syncPedidosToDb(array $ordersRaw): void
-    {
-        if (empty($ordersRaw)) return;
+    private function isoToMysql(?string $iso): ?string
+{
+    if (!$iso) return null;
 
-        try {
-            $db = \Config\Database::connect();
-            $builder = $db->table('pedidos');
+    // Shopify: 2026-01-15T23:50:57+00:00 / ...Z
+    $ts = strtotime($iso);
+    if (!$ts) return null;
 
-            $now = date('Y-m-d H:i:s');
+    return date('Y-m-d H:i:s', $ts);
+}
 
-            foreach ($ordersRaw as $o) {
-                $shopifyId = (string)($o['id'] ?? '');
-                if ($shopifyId === '') continue;
+/**
+ * ✅ Guarda/actualiza pedidos de Shopify en tabla "pedidos"
+ * Usa UPSERT por shopify_order_id (no toca "id" nunca).
+ */
+private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): void
+{
+    if (empty($ordersRaw)) return;
 
-                $numero = (string)($o['name'] ?? '');
-                $cliente = '-';
-                if (!empty($o['customer'])) {
-                    $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
-                    if ($cliente === '') $cliente = '-';
-                }
+    $syncDebug = $syncDebug ?? [
+        'shopify_orders_returned' => count($ordersRaw),
+        'inserted' => 0,
+        'updated' => 0,
+        'last_db_error' => null,
+    ];
 
-                $totalDec = $this->moneyToDecimal($o['total_price'] ?? null);
-                $tags = (string)($o['tags'] ?? '');
-                $articulos = isset($o['line_items']) && is_array($o['line_items']) ? count($o['line_items']) : 0;
+    try {
+        $db  = \Config\Database::connect();
+        $now = date('Y-m-d H:i:s');
 
-                $estadoEnvio = (string)($o['fulfillment_status'] ?? '');
-                $formaEnvio  = (!empty($o['shipping_lines'][0]['title'])) ? (string)$o['shipping_lines'][0]['title'] : '';
+        $sql = "
+            INSERT INTO pedidos
+                (shopify_order_id, numero, cliente, total, etiquetas, articulos, estado_envio, forma_envio, created_at, synced_at)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                numero      = VALUES(numero),
+                cliente     = VALUES(cliente),
+                total       = VALUES(total),
+                etiquetas   = VALUES(etiquetas),
+                articulos   = VALUES(articulos),
+                estado_envio= VALUES(estado_envio),
+                forma_envio = VALUES(forma_envio),
+                synced_at   = VALUES(synced_at)
+        ";
 
-                $createdAt = isset($o['created_at']) ? date('Y-m-d H:i:s', strtotime($o['created_at'])) : null;
+        foreach ($ordersRaw as $o) {
+            $shopifyId = (string)($o['id'] ?? '');
+            if ($shopifyId === '') continue;
 
-                // ¿Existe ya?
-                $existing = $builder
-                    ->select('id')
-                    ->where('shopify_order_id', $shopifyId)
-                    ->get()
-                    ->getRowArray();
+            $numero = (string)($o['name'] ?? '');
 
-                $data = [
-                    'numero'           => $numero,
-                    'cliente'          => $cliente,
-                    'total'            => $totalDec,
-                    'estado_envio'     => $estadoEnvio !== '' ? $estadoEnvio : null,
-                    'forma_envio'      => $formaEnvio !== '' ? $formaEnvio : null,
-                    'etiquetas'        => $tags,
-                    'articulos'        => (int)$articulos,
-                    'synced_at'        => $now,
-                    'shopify_order_id' => $shopifyId,
-                ];
-
-                // Solo setear created_at si viene y si el registro es nuevo
-                if (!$existing && $createdAt) {
-                    $data['created_at'] = $createdAt;
-                }
-
-                if ($existing) {
-                    $builder->where('id', (int)$existing['id'])->update($data);
-                } else {
-                    $builder->insert($data);
-                }
+            $cliente = '-';
+            if (!empty($o['customer'])) {
+                $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
+                if ($cliente === '') $cliente = '-';
             }
-        } catch (\Throwable $e) {
-            log_message('error', 'syncPedidosToDb ERROR: ' . $e->getMessage());
+
+            $totalDec   = $this->moneyToDecimal($o['total_price'] ?? null);
+            $tags       = (string)($o['tags'] ?? '');
+            $articulos  = (isset($o['line_items']) && is_array($o['line_items'])) ? count($o['line_items']) : 0;
+            $estadoEnv  = (string)($o['fulfillment_status'] ?? '');
+            $formaEnvio = (!empty($o['shipping_lines'][0]['title'])) ? (string)$o['shipping_lines'][0]['title'] : '';
+
+            $createdAt = $this->isoToMysql($o['created_at'] ?? null);
+
+            // Detectar si existe ANTES para debug (opcional)
+            $exists = $db->query("SELECT id FROM pedidos WHERE shopify_order_id = ? LIMIT 1", [$shopifyId])->getRowArray();
+
+            $ok = $db->query($sql, [
+                $shopifyId,
+                $numero,
+                $cliente,
+                $totalDec,
+                $tags,
+                (int)$articulos,
+                $estadoEnv !== '' ? $estadoEnv : null,
+                $formaEnvio !== '' ? $formaEnvio : null,
+                $createdAt,
+                $now,
+            ]);
+
+            if (!$ok) {
+                $err = $db->error();
+                $syncDebug['last_db_error'] = $err['message'] ?? 'Unknown DB error';
+            } else {
+                if ($exists) $syncDebug['updated']++;
+                else $syncDebug['inserted']++;
+            }
         }
+
+    } catch (\Throwable $e) {
+        $syncDebug['last_db_error'] = $e->getMessage();
+        log_message('error', 'syncPedidosToDb ERROR: ' . $e->getMessage());
     }
+}
+
 
     // ============================================================
     // ETIQUETAS/TAGS POR USUARIO
@@ -497,7 +530,9 @@ class DashboardController extends Controller
 
             $ordersRaw = $json['orders'] ?? [];
             // ✅ Guardar/actualizar pedidos en BD (IMPORTANTE: usa shopify_order_id como string)
-            $this->syncPedidosToDb($ordersRaw);
+            $dbSyncDebug = null;
+            $this->syncPedidosToDb($ordersRaw, $dbSyncDebug);
+
 
             // Link header para page_info
             $linkHeader = $resp['headers']['link'] ?? null;
@@ -597,7 +632,10 @@ class DashboardController extends Controller
                     'link' => $linkHeader,
                     'orders_returned' => count($ordersRaw),
                 ];
+
+                $payload['db_sync_debug'] = $dbSyncDebug; // <-- esto viene de syncPedidosToDb()
             }
+
 
             return $this->response->setJSON($payload);
 
@@ -629,37 +667,42 @@ class DashboardController extends Controller
         $data = $this->request->getJSON(true);
         if (!is_array($data)) $data = [];
 
-        $orderId = (string)($data['order_id'] ?? ($data['id'] ?? ''));
-        $orderId = trim($orderId);
+        // ✅ Acepta varias keys posibles (según cómo lo envíe el front)
+        $orderId = trim((string)(
+            $data['order_id'] ??
+            $data['shopify_order_id'] ??
+            $data['id'] ??
+            ''
+        ));
 
-        if ($orderId === '') {
+        // ✅ Normalizar y bloquear el "0" (esto era tu bug)
+        if ($orderId === '' || $orderId === '0') {
             return $this->response->setJSON([
                 'success' => false,
-                'message' => 'order_id inválido',
+                'message' => 'order_id inválido (vacío o 0). Revisa el frontend / payload.',
+                'debug_received' => $data, // 👈 te muestra exactamente qué llegó
             ])->setStatusCode(200);
         }
 
-        $estado  = $this->normalizeEstado((string)($data['estado'] ?? ''));
-
-        if (!$orderId) {
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => 'order_id inválido',
-            ])->setStatusCode(200);
-        }
+        // ✅ Estado
+        $estado = $this->normalizeEstado((string)($data['estado'] ?? ''));
 
         if (!in_array($estado, $this->allowedEstados, true)) {
             return $this->response->setJSON([
                 'success' => false,
                 'message' => 'Estado no permitido',
+                'debug_estado_recibido' => $data['estado'] ?? null,
+                'debug_estado_normalizado' => $estado,
             ])->setStatusCode(200);
         }
 
         try {
-            $userId = session('user_id');
+            $userId   = session('user_id');
             $userName = session('nombre') ?? session('user_name') ?? session('name') ?? 'Usuario';
 
             $model = new PedidosEstadoModel();
+
+            // ✅ Guardar usando Shopify ID como STRING
             $ok = $model->setEstadoPedido($orderId, $estado, $userId ? (int)$userId : null, (string)$userName);
 
             return $this->response->setJSON([
@@ -677,6 +720,7 @@ class DashboardController extends Controller
             ])->setStatusCode(200);
         }
     }
+
 
     // ============================================================
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
