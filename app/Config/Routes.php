@@ -130,12 +130,11 @@ $routes->group('pedidos', ['filter' => 'auth'], static function (RouteCollection
 | PRODUCCIÓN (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->group('', ['filter' => 'auth'], function($routes) {
-    $routes->get('produccion', 'ProduccionController::index'); // si tienes vista
-    $routes->get('produccion/my-queue', 'ProduccionController::myQueue');
-    $routes->post('produccion/pull', 'ProduccionController::pull');
-    $routes->post('produccion/return-all', 'ProduccionController::returnAll');
-});
+$routes->get('produccion', 'ProduccionController::index');
+$routes->get('produccion/my-queue', 'ProduccionController::myQueue');
+$routes->post('produccion/pull', 'ProduccionController::pull');
+$routes->post('produccion/return-all', 'ProduccionController::returnAll');
+
 
 
 /*
