@@ -1,5 +1,5 @@
 // =====================================================
-// CONFIRMADOS.JS  -> Muestra pedidos preparados
+// REPETIR.JS  -> Muestra pedidos para repetir
 // =====================================================
 
 let nextPageInfo = null;
@@ -32,7 +32,7 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
 
 
   const base = window.BASE_URL || ""; // si no existe, usa root
-  let url = `${base}/confirmados/filter`;
+  let url = `${base}/repetir/filter`;
   if (pageInfo) url += `?page_info=${encodeURIComponent(pageInfo)}`;
 
   fetch(url, {
@@ -85,9 +85,9 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
           .toLowerCase();
 
         return (
-          estado === "preparado" ||
-          estado === "preparados" ||
-          tags.includes("preparado")
+          estado === "repetir" ||
+          estado === "repetir" ||
+          tags.includes("repetir")
         );
       });
 
@@ -137,7 +137,7 @@ function setBtnSiguiente(pageInfo) {
 }
 
 function actualizarTabla(pedidos) {
-  const tbody = document.getElementById("tablaPedidos");
+  const tbody = document.getElementById("tablaRepetir");
   if (!tbody) return;
 
   tbody.innerHTML = "";
@@ -145,7 +145,7 @@ function actualizarTabla(pedidos) {
   if (!pedidos || !pedidos.length) {
     tbody.innerHTML = `
       <tr><td colspan="10" class="py-4 text-center text-gray-500">
-        No se encontraron pedidos preparados
+        No se encontraron pedidos para repetir
       </td></tr>`;
     return;
   }
