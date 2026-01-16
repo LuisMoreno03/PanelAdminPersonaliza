@@ -497,9 +497,12 @@ class RepetirController extends Controller
             }
 
             // ✅ SOLO pedidos cuyo ESTADO final sea "Repetir" (después del override)
-        $orders = array_values(array_filter($orders, function ($o) {
-        return ($o['estado'] ?? '') === 'Repetir';
-    }));
+       $orders = array_values(array_filter($orders, function ($o) {
+    $estado = $o['estado'] ?? '';
+    $tags   = $o['etiquetas'] ?? '';
+    return ($estado === 'Repetir') || $this->hasRepetirTag($tags);
+}));
+
 
 
             // 5) Respuesta final + debug opcional
@@ -831,7 +834,7 @@ class RepetirController extends Controller
      */
     private function procesarImagenesYEstado(array &$order): void
     {
-        $orderId = (string)($order['id'] ?? 0);
+        $orderId = (int)($order['id'] ?? 0);
         if (!$orderId) return;
 
         $db = \Config\Database::connect();
@@ -1002,7 +1005,7 @@ class RepetirController extends Controller
     }
 
     // ============================================================
-    // ENDPOINT: /dashboard/usuarios-estado  id
+    // ENDPOINT: /dashboard/usuarios-estado  estado
     // ============================================================
 
     public function usuariosEstado()
