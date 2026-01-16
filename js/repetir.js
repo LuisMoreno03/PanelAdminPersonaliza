@@ -128,7 +128,7 @@ function paginaSiguiente() {
 }
 
 function setTotal(n) {
-  const total = document.getElementById("total-pedidos");
+  const total = document.getElementById("total-repetir");
   if (total) total.textContent = String(n);
 }
 function setBtnSiguiente(pageInfo) {
