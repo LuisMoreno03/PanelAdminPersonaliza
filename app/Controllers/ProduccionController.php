@@ -66,7 +66,7 @@ class ProduccionController extends BaseController
                     pe.estado_updated_by_name AS estado_por
                 FROM pedidos p
                 LEFT JOIN pedidos_estado pe
-                  ON pe.order_id = p.shopify_order_id
+                     ON pe.order_id = p.shopify_order_id
                 WHERE p.assigned_to_user_id = ?
                   AND LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por producir','producción','produccion','confirmado')
                 ORDER BY pe.estado_updated_at ASC
