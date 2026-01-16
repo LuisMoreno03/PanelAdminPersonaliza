@@ -50,7 +50,7 @@ class RepetirController extends Controller
     }
 
     // =====================================================
-    // CONFIG LOADERS
+    // CONFIG LOADERS  dashboard
     // =====================================================
 
     private function loadShopifyFromConfig(): void
@@ -419,13 +419,7 @@ class RepetirController extends Controller
 
             $ordersRaw = $json['orders'] ?? [];
 
-            // ✅ SOLO pedidos con tag "Repetir"
-         $ordersRaw = array_values(array_filter($ordersRaw, function ($o) {
-         $tags = $o['tags'] ?? '';
-         return $this->hasRepetirTag($tags);
-        }));
-
-
+                 
             // Link header para page_info
             $linkHeader = $resp['headers']['link'] ?? null;
             if (is_array($linkHeader)) $linkHeader = end($linkHeader);
@@ -459,7 +453,7 @@ class RepetirController extends Controller
                     'total'        => $total,
 
                     // default, luego se sobreescribe desde BD
-                    'estado'       => 'Por preparar',
+                    'estado'       => 'Repetir',
 
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
@@ -501,6 +495,12 @@ class RepetirController extends Controller
             } catch (\Throwable $e) {
                 log_message('error', 'Override estado pedidos_estado falló: ' . $e->getMessage());
             }
+
+            // ✅ SOLO pedidos cuyo ESTADO final sea "Repetir" (después del override)
+        $orders = array_values(array_filter($orders, function ($o) {
+        return ($o['estado'] ?? '') === 'Repetir';
+    }));
+
 
             // 5) Respuesta final + debug opcional
             $payload = [

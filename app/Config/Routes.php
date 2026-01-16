@@ -185,24 +185,27 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
 | PEDIDOS A REPETIR (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-
-$routes->group('repetir', ['filter' => 'auth'], static function (RouteCollection $routes) {
+$routes->group('repetir', [
+    'filter'    => 'auth',
+    'namespace' => 'App\Controllers',
+], static function (RouteCollection $routes) {
 
     $routes->get('/', 'RepetirController::index');
 
-    // ✅ endpoints para cargar pedidos en la tabla
+    // ✅ listado/paginado
     $routes->get('pedidos', 'RepetirController::pedidos');
     $routes->get('filter',  'RepetirController::filter');
 
-    // ✅ detalles (si tu tabla abre detalles)
-    $routes->get('detalles/(:num)', 'RepetirController::detalles/$1');
+    // ✅ detalles (num o string)
+    $routes->get('detalles/(:segment)', 'RepetirController::detalles/$1');
 
-    // (opcional) si tu dashboard.js los usa:
+    // ✅ si dashboard.js los usa
     $routes->get('etiquetas-disponibles', 'RepetirController::etiquetasDisponibles');
-    $routes->post('guardar-estado', 'RepetirController::guardarEstadoPedido');
-    $routes->get('ping', 'RepetirController::ping');
-    $routes->get('usuarios-estado', 'RepetirController::usuariosEstado');
+    $routes->post('guardar-estado',       'RepetirController::guardarEstadoPedido');
+    $routes->get('ping',                  'RepetirController::ping');
+    $routes->get('usuarios-estado',       'RepetirController::usuariosEstado');
 });
+
 
 /*
 |--------------------------------------------------------------------------
