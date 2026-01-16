@@ -69,7 +69,7 @@ class ProduccionController extends BaseController
                      ON pe.order_id = p.shopify_order_id
                 WHERE p.assigned_to_user_id = ?
                   AND LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por producir','producción','produccion','confirmado')
-                ORDER BY pe.estado_updated_at ASC
+                ORDER BY pe.actualizado ASC
             ", [$userId])->getResultArray();
 
             return $this->response->setJSON([
