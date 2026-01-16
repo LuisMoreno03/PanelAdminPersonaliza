@@ -87,7 +87,7 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
         return (
           estado === "repetir" ||
           estado === "repetir" ||
-          tags.includes("repetir")
+          tags.includes("Repetir")
         );
       });
 
