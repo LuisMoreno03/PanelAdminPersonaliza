@@ -62,6 +62,8 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
 
       return data;
     })
+
+
     .then((data) => {
   if (!data || !data.success) {
     actualizarTabla([]);
@@ -70,6 +72,7 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
     return;
   }
 
+  
   nextPageInfo = data.next_page_info ?? null;
 
   const pedidos = data.orders || [];
@@ -77,7 +80,7 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
   const hash = JSON.stringify(
     pedidos.map((p) => ({
       id: p.id,
-      estado: p.estado ?? p.status,
+      estado: p.estado,
       etiquetas: p.etiquetas,
       total: p.total,
       fecha: p.fecha,
@@ -97,6 +100,16 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
 
   wrap.innerHTML = "";
 
+
+  function actualizarTabla(pedidos) {
+  const wrap = document.getElementById("tablaPedidos");
+  if (!wrap) {
+    console.error("❌ No existe #tablaPedidos");
+    return;
+  }
+
+  wrap.innerHTML = "";
+
   if (!pedidos || !pedidos.length) {
     wrap.innerHTML = `
       <div class="px-4 py-6 text-center text-slate-500">
@@ -106,24 +119,24 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
   }
 
   pedidos.forEach((p) => {
-    const id = p.id ?? p.order_id ?? "";
+    const id = p.id ?? "";
 
     const row = document.createElement("div");
     row.className = "orders-grid cols px-4 py-3 text-sm hover:bg-slate-50 transition";
 
     row.innerHTML = `
-      <div class="font-extrabold">${p.numero ?? p.name ?? "-"}</div>
-      <div class="text-slate-500">${p.fecha ?? p.created_at ?? "-"}</div>
-      <div class="truncate">${p.cliente ?? p.customer ?? "-"}</div>
-      <div class="font-bold">${p.total ?? p.total_price ?? "-"}</div>
+      <div class="font-extrabold">${p.numero ?? "-"}</div>
+      <div class="text-slate-500">${p.fecha ?? "-"}</div>
+      <div class="truncate">${p.cliente ?? "-"}</div>
+      <div class="font-bold">${p.total ?? "-"}</div>
 
-      <div class="font-extrabold">${p.estado ?? p.status ?? p.fulfillment_status ?? "-"}</div>
+      <div class="font-extrabold">${p.estado ?? "-"}</div>
 
       <div class="text-slate-500">—</div>
 
-      <div class="truncate">${formatearEtiquetas(p.etiquetas ?? p.tags, id)}</div>
+      <div class="truncate">${formatearEtiquetas(p.etiquetas ?? "", id)}</div>
 
-      <div class="text-center">${p.articulos ?? p.line_items_count ?? "-"}</div>
+      <div class="text-center">${p.articulos ?? "-"}</div>
       <div>${p.estado_envio ?? "-"}</div>
       <div class="metodo-entrega">${p.forma_envio ?? "-"}</div>
 
@@ -138,6 +151,7 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
     wrap.appendChild(row);
   });
 }
+
 
 
 // =====================================================
@@ -201,4 +215,5 @@ function stopAutoRefresh() {
     clearInterval(autoRefreshTimer);
     autoRefreshTimer = null;
   }
+}
 }
