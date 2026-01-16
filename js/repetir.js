@@ -50,8 +50,9 @@ function cargarPedidosRepetir(pageInfo = null, { silent = false } = {}) {
 
       // ✅ FILTRO REAL
       const pedidos = (data.orders || []).filter(p =>
-        (p.estado || "").toLowerCase() === "repetir"
-      );
+  String(p.estado || "").trim().toLowerCase() === "repetir"
+);
+
 
       const hash = JSON.stringify(pedidos.map(p => p.id));
       if (hash === lastRenderedHash) return;

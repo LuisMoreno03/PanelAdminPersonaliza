@@ -497,11 +497,12 @@ class RepetirController extends Controller
             }
 
             // ✅ SOLO pedidos cuyo ESTADO final sea "Repetir" (después del override)
-       $orders = array_values(array_filter($orders, function ($o) {
-    $estado = $o['estado'] ?? '';
-    $tags   = $o['etiquetas'] ?? '';
-    return ($estado === 'Repetir') || $this->hasRepetirTag($tags);
+      $orders = array_values(array_filter($orders, function ($o) {
+    $estado = (string)($o['estado'] ?? '');
+    $estado = preg_replace('/\s+/u', ' ', trim($estado)); // limpia espacios raros
+    return mb_strtolower($estado) === 'repetir';
 }));
+
 
 
 
