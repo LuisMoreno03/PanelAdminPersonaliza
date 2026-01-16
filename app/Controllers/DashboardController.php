@@ -234,6 +234,85 @@ class DashboardController extends Controller
         return 'Por preparar';
     }
 
+      private function moneyToDecimal($v): ?float
+    {
+        if ($v === null || $v === '') return null;
+        // Shopify suele venir "123.45"
+        $s = trim((string)$v);
+        $s = str_replace(',', '.', $s);
+        if (!is_numeric($s)) return null;
+        return (float)$s;
+    }
+
+    /**
+     * ✅ Guarda/actualiza pedidos de Shopify en tabla "pedidos"
+     * Requiere que existan las columnas vistas en tu screenshot.
+     */
+    private function syncPedidosToDb(array $ordersRaw): void
+    {
+        if (empty($ordersRaw)) return;
+
+        try {
+            $db = \Config\Database::connect();
+            $builder = $db->table('pedidos');
+
+            $now = date('Y-m-d H:i:s');
+
+            foreach ($ordersRaw as $o) {
+                $shopifyId = (string)($o['id'] ?? '');
+                if ($shopifyId === '') continue;
+
+                $numero = (string)($o['name'] ?? '');
+                $cliente = '-';
+                if (!empty($o['customer'])) {
+                    $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
+                    if ($cliente === '') $cliente = '-';
+                }
+
+                $totalDec = $this->moneyToDecimal($o['total_price'] ?? null);
+                $tags = (string)($o['tags'] ?? '');
+                $articulos = isset($o['line_items']) && is_array($o['line_items']) ? count($o['line_items']) : 0;
+
+                $estadoEnvio = (string)($o['fulfillment_status'] ?? '');
+                $formaEnvio  = (!empty($o['shipping_lines'][0]['title'])) ? (string)$o['shipping_lines'][0]['title'] : '';
+
+                $createdAt = isset($o['created_at']) ? date('Y-m-d H:i:s', strtotime($o['created_at'])) : null;
+
+                // ¿Existe ya?
+                $existing = $builder
+                    ->select('id')
+                    ->where('shopify_order_id', $shopifyId)
+                    ->get()
+                    ->getRowArray();
+
+                $data = [
+                    'numero'           => $numero,
+                    'cliente'          => $cliente,
+                    'total'            => $totalDec,
+                    'estado_envio'     => $estadoEnvio !== '' ? $estadoEnvio : null,
+                    'forma_envio'      => $formaEnvio !== '' ? $formaEnvio : null,
+                    'etiquetas'        => $tags,
+                    'articulos'        => (int)$articulos,
+                    'synced_at'        => $now,
+                    'shopify_order_id' => $shopifyId,
+                ];
+
+                // Solo setear created_at si viene y si el registro es nuevo
+                if (!$existing && $createdAt) {
+                    $data['created_at'] = $createdAt;
+                }
+
+                if ($existing) {
+                    $builder->where('id', (int)$existing['id'])->update($data);
+                } else {
+                    $builder->insert($data);
+                }
+            }
+        } catch (\Throwable $e) {
+            log_message('error', 'syncPedidosToDb ERROR: ' . $e->getMessage());
+        }
+    }
+
     // ============================================================
     // ETIQUETAS/TAGS POR USUARIO
     // ============================================================
@@ -417,6 +496,8 @@ class DashboardController extends Controller
             }
 
             $ordersRaw = $json['orders'] ?? [];
+            // ✅ Guardar/actualizar pedidos en BD (IMPORTANTE: usa shopify_order_id como string)
+            $this->syncPedidosToDb($ordersRaw);
 
             // Link header para page_info
             $linkHeader = $resp['headers']['link'] ?? null;
@@ -465,7 +546,7 @@ class DashboardController extends Controller
             try {
                 $ids = [];
                 foreach ($orders as $ord) {
-                    if (!empty($ord['id'])) $ids[] = (int)$ord['id'];
+                    if (!empty($ord['id'])) $ids[] = (string)$ord['id'];
                 }
                 $ids = array_values(array_unique($ids));
 
@@ -548,7 +629,16 @@ class DashboardController extends Controller
         $data = $this->request->getJSON(true);
         if (!is_array($data)) $data = [];
 
-        $orderId = (int)($data['order_id'] ?? ($data['id'] ?? 0));
+        $orderId = (string)($data['order_id'] ?? ($data['id'] ?? ''));
+        $orderId = trim($orderId);
+
+        if ($orderId === '') {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'order_id inválido',
+            ])->setStatusCode(200);
+        }
+
         $estado  = $this->normalizeEstado((string)($data['estado'] ?? ''));
 
         if (!$orderId) {
@@ -639,7 +729,7 @@ class DashboardController extends Controller
                     'message' => 'Pedido no encontrado',
                 ])->setStatusCode(200);
             }
-
+             
             // 2) IMÁGENES DE PRODUCTOS (SHOPIFY)
             $lineItems = $order['line_items'] ?? [];
             $productIds = [];
@@ -682,7 +772,7 @@ class DashboardController extends Controller
 
                 $rows = $db->table('pedido_imagenes')
                     ->select('line_index, local_url')
-                    ->where('order_id', (int)$orderId)
+                    ->where('order_id', (string)$orderId)
                     ->get()
                     ->getResultArray();
 
@@ -808,8 +898,10 @@ class DashboardController extends Controller
      */
     private function procesarImagenesYEstado(array &$order): void
     {
-        $orderId = (int)($order['id'] ?? 0);
-        if (!$orderId) return;
+        $orderId = (string)($order['id'] ?? '');
+        $orderId = trim($orderId);
+        if ($orderId === '') return;
+
 
         $db = \Config\Database::connect();
 
@@ -823,7 +915,7 @@ class DashboardController extends Controller
         if (!is_dir($baseDir)) @mkdir($baseDir, 0775, true);
 
         $modelImg = new PedidoImagenModel();
-        $imagenesLocales = $modelImg->getByOrder((int)$orderId);
+        $imagenesLocales = $modelImg->getByOrder((string)$orderId);
         if (!is_array($imagenesLocales)) $imagenesLocales = [];
 
         foreach ($lineItems as $idx => &$item) {
@@ -912,7 +1004,7 @@ class DashboardController extends Controller
      * ✅ Auto-estado del sistema SIN PISAR el manual.
      * Requiere que PedidosEstadoModel tenga getEstadoPedido($orderId).
      */
-    private function guardarEstadoSistema(int $orderId, string $estado): void
+    private function guardarEstadoSistema(string $orderId, string $estado): void
     {
         try {
             $estado = $this->normalizeEstado($estado);
