@@ -137,48 +137,56 @@ function setBtnSiguiente(pageInfo) {
 }
 
 function actualizarTabla(pedidos) {
-  const tbody = document.getElementById("tablaRepetir");
-  if (!tbody) return;
+  const wrap = document.getElementById("tablaPedidos");
+  if (!wrap) {
+    console.error("❌ No existe #tablaPedidos");
+    return;
+  }
 
-  tbody.innerHTML = "";
+  wrap.innerHTML = "";
 
   if (!pedidos || !pedidos.length) {
-    tbody.innerHTML = `
-      <tr><td colspan="10" class="py-4 text-center text-gray-500">
+    wrap.innerHTML = `
+      <div class="px-4 py-6 text-center text-slate-500">
         No se encontraron pedidos para repetir
-      </td></tr>`;
+      </div>`;
     return;
   }
 
   pedidos.forEach((p) => {
     const id = p.id ?? p.order_id ?? "";
-    tbody.innerHTML += `
-      <tr class="border-b hover:bg-gray-50 transition">
-        <td class="py-2 px-4">${p.numero ?? p.name ?? "-"}</td>
-        <td class="py-2 px-4">${p.fecha ?? p.created_at ?? "-"}</td>
-        <td class="py-2 px-4">${p.cliente ?? p.customer ?? "-"}</td>
-        <td class="py-2 px-4">${p.total ?? p.total_price ?? "-"}</td>
 
-        <td class="py-2 px-2">
-          <span class="font-semibold">
-            ${(p.estado ?? p.status ?? p.fulfillment_status ?? "-")}
-          </span>
-        </td>
+    const row = document.createElement("div");
+    row.className = "orders-grid cols px-4 py-3 text-sm hover:bg-slate-50 transition";
 
-        <td class="py-2 px-4">${formatearEtiquetas(p.etiquetas ?? p.tags, id)}</td>
-        <td class="py-2 px-4">${p.articulos ?? p.line_items_count ?? "-"}</td>
-        <td class="py-2 px-4">${p.estado_envio ?? "-"}</td>
-        <td class="py-2 px-4">${p.forma_envio ?? "-"}</td>
+    row.innerHTML = `
+      <div class="font-extrabold">${p.numero ?? p.name ?? "-"}</div>
+      <div class="text-slate-500">${p.fecha ?? p.created_at ?? "-"}</div>
+      <div class="truncate">${p.cliente ?? p.customer ?? "-"}</div>
+      <div class="font-bold">${p.total ?? p.total_price ?? "-"}</div>
 
-        <td class="py-2 px-4">
-          <button onclick="verDetalles && verDetalles('${id}')" class="text-blue-600 underline">
-            Ver detalles
-          </button>
-        </td>
-      </tr>
+      <div class="font-extrabold">${p.estado ?? p.status ?? p.fulfillment_status ?? "-"}</div>
+
+      <div class="text-slate-500">—</div>
+
+      <div class="truncate">${formatearEtiquetas(p.etiquetas ?? p.tags, id)}</div>
+
+      <div class="text-center">${p.articulos ?? p.line_items_count ?? "-"}</div>
+      <div>${p.estado_envio ?? "-"}</div>
+      <div class="metodo-entrega">${p.forma_envio ?? "-"}</div>
+
+      <div class="text-right">
+        <button onclick="verDetalles && verDetalles('${id}')"
+                class="text-blue-600 font-bold underline">
+          Ver detalles
+        </button>
+      </div>
     `;
+
+    wrap.appendChild(row);
   });
 }
+
 
 // =====================================================
 // Etiquetas
