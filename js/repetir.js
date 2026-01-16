@@ -5,8 +5,7 @@
 let nextPageInfo = null;
 let isLoading = false;
 let lastRenderedHash = "";
-
-let currentPageInfo = null; // ✅ declararla ARRIBA para evitar "before initialization"
+let currentPageInfo = null;
 
 function showLoader() {
   const el = document.getElementById("globalLoader");
@@ -17,23 +16,45 @@ function hideLoader() {
   if (el) el.classList.add("hidden");
 }
 
+// -------------------------------
+// Utils: detectar "Repetir"
+// -------------------------------
+function isRepetirPedido(p) {
+  const estado = (p.estado || p.status || "")
+    .toString()
+    .trim()
+    .toLowerCase();
+
+  // tags vienen como "Urgente, Repetir, ..."
+  const tagsRaw = (p.etiquetas || p.tags || "").toString();
+  const tags = tagsRaw
+    .split(",")
+    .map(t => t.trim().toLowerCase())
+    .filter(Boolean);
+
+  return estado === "repetir" || tags.includes("repetir");
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  // botones (por si no los tenías enganchados)
+  const btnSig = document.getElementById("btnSiguiente");
+  if (btnSig) btnSig.addEventListener("click", () => paginaSiguiente());
+
   currentPageInfo = null;
-  cargarPedidosPreparados(currentPageInfo);
+  cargarPedidosRepetir(currentPageInfo);
   startAutoRefresh();
 });
 
-
-function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
+function cargarPedidosRepetir(pageInfo = null, { silent = false } = {}) {
   currentPageInfo = pageInfo;
   if (isLoading) return;
   isLoading = true;
 
   if (!silent) showLoader();
 
-  const base = window.BASE_URL || "";
-  let url = `${base}/repetir/filter`;
-  if (pageInfo) url += `?page_info=${encodeURIComponent(pageInfo)}`;
+  // usa el endpoint definido en la vista
+  let url = (window.API && window.API.filter) ? window.API.filter : "/repetir/filter";
+  if (pageInfo) url += (url.includes("?") ? "&" : "?") + `page_info=${encodeURIComponent(pageInfo)}`;
 
   fetch(url, {
     headers: {
@@ -53,16 +74,12 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
         throw new Error("El endpoint devolvió HTML (no JSON). Revisa sesión/ruta/controlador.");
       }
 
-      
       try {
         return JSON.parse(text);
       } catch {
         throw new Error("Respuesta inválida: no se pudo parsear JSON.");
       }
-
     })
-
-
     .then((data) => {
       if (!data || !data.success) {
         actualizarTabla([]);
@@ -73,12 +90,12 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
 
       nextPageInfo = data.next_page_info ?? null;
 
-      // ✅ IMPORTANTE:
-      // aquí YA viene filtrado del backend (solo Repetir), así que NO vuelvas a filtrar en JS
-      const pedidos = data.orders || [];
+      // ✅ filtra correctamente aquí
+      const pedidosRepetir = (data.orders || []).filter(isRepetirPedido);
 
+      // hash para no re-render si no cambia
       const hash = JSON.stringify(
-        pedidos.map((p) => ({
+        pedidosRepetir.map((p) => ({
           id: p.id,
           estado: p.estado,
           etiquetas: p.etiquetas,
@@ -93,8 +110,8 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
       }
       lastRenderedHash = hash;
 
-      actualizarTabla(pedidos);
-      setTotal(pedidos.length);
+      actualizarTabla(pedidosRepetir);
+      setTotal(pedidosRepetir.length);
       setBtnSiguiente(nextPageInfo);
     })
     .catch((err) => {
@@ -110,7 +127,7 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
 }
 
 function paginaSiguiente() {
-  if (nextPageInfo) cargarPedidosPreparados(nextPageInfo);
+  if (nextPageInfo) cargarPedidosRepetir(nextPageInfo);
 }
 
 function setTotal(n) {
@@ -139,7 +156,6 @@ function actualizarTabla(pedidos) {
       </div>`;
     return;
   }
-
 
   pedidos.forEach((p) => {
     const id = p.id ?? "";
@@ -174,7 +190,6 @@ function actualizarTabla(pedidos) {
     wrap.appendChild(row);
   });
 }
-
 
 // =====================================================
 // Etiquetas
@@ -219,7 +234,6 @@ function colorEtiqueta(tag) {
 // =====================================================
 // TIEMPO REAL (POLLING)
 // =====================================================
-
 let autoRefreshTimer = null;
 let autoRefreshEveryMs = 7000;
 
@@ -227,10 +241,9 @@ function startAutoRefresh() {
   stopAutoRefresh();
   autoRefreshTimer = setInterval(() => {
     if (isLoading) return;
-    cargarPedidosPreparados(currentPageInfo, { silent: true });
+    cargarPedidosRepetir(currentPageInfo, { silent: true });
   }, autoRefreshEveryMs);
 }
-
 
 function stopAutoRefresh() {
   if (autoRefreshTimer) {
