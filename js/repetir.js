@@ -6,6 +6,7 @@ let nextPageInfo = null;
 let isLoading = false;
 let lastRenderedHash = "";
 
+let currentPageInfo = null; // ✅ declararla ARRIBA para evitar "before initialization"
 
 function showLoader() {
   const el = document.getElementById("globalLoader");
@@ -19,19 +20,18 @@ function hideLoader() {
 document.addEventListener("DOMContentLoaded", () => {
   currentPageInfo = null;
   cargarPedidosPreparados(currentPageInfo);
-  startAutoRefresh(); // 👈 tiempo real
+  startAutoRefresh();
 });
 
 
 function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
-  currentPageInfo = pageInfo; // 👈 guarda la página actual
+  currentPageInfo = pageInfo;
   if (isLoading) return;
   isLoading = true;
 
   if (!silent) showLoader();
 
-
-  const base = window.BASE_URL || ""; // si no existe, usa root
+  const base = window.BASE_URL || "";
   let url = `${base}/repetir/filter`;
   if (pageInfo) url += `?page_info=${encodeURIComponent(pageInfo)}`;
 
@@ -53,55 +53,77 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
         throw new Error("El endpoint devolvió HTML (no JSON). Revisa sesión/ruta/controlador.");
       }
 
-      let data;
+      
       try {
-        data = JSON.parse(text);
+        return JSON.parse(text);
       } catch {
         throw new Error("Respuesta inválida: no se pudo parsear JSON.");
       }
 
-      return data;
     })
 
 
     .then((data) => {
-  if (!data || !data.success) {
-    actualizarTabla([]);
-    setTotal(0);
-    setBtnSiguiente(null);
-    return;
-  }
+      if (!data || !data.success) {
+        actualizarTabla([]);
+        setTotal(0);
+        setBtnSiguiente(null);
+        return;
+      }
 
-  
-  nextPageInfo = data.next_page_info ?? null;
+      nextPageInfo = data.next_page_info ?? null;
 
-  const pedidos = data.orders || [];
+      // ✅ IMPORTANTE:
+      // aquí YA viene filtrado del backend (solo Repetir), así que NO vuelvas a filtrar en JS
+      const pedidos = data.orders || [];
 
-  const hash = JSON.stringify(
-    pedidos.map((p) => ({
-      id: p.id,
-      estado: p.estado,
-      etiquetas: p.etiquetas,
-      total: p.total,
-      fecha: p.fecha,
-    }))
-  );
+      const hash = JSON.stringify(
+        pedidos.map((p) => ({
+          id: p.id,
+          estado: p.estado,
+          etiquetas: p.etiquetas,
+          total: p.total,
+          fecha: p.fecha,
+        }))
+      );
 
-  if (hash === lastRenderedHash) {
-    setBtnSiguiente(nextPageInfo);
-    return;
-  }
-  lastRenderedHash = hash;
+      if (hash === lastRenderedHash) {
+        setBtnSiguiente(nextPageInfo);
+        return;
+      }
+      lastRenderedHash = hash;
 
-  actualizarTabla(pedidos);
-  setTotal(pedidos.length);
-  setBtnSiguiente(nextPageInfo);
-})
+      actualizarTabla(pedidos);
+      setTotal(pedidos.length);
+      setBtnSiguiente(nextPageInfo);
+    })
+    .catch((err) => {
+      console.error("ERROR:", err.message);
+      actualizarTabla([]);
+      setTotal(0);
+      setBtnSiguiente(null);
+    })
+    .finally(() => {
+      if (!silent) hideLoader();
+      isLoading = false;
+    });
+}
 
-  wrap.innerHTML = "";
+function paginaSiguiente() {
+  if (nextPageInfo) cargarPedidosPreparados(nextPageInfo);
+}
 
+function setTotal(n) {
+  const total = document.getElementById("total-repetir");
+  if (total) total.textContent = String(n);
+}
 
-  function actualizarTabla(pedidos) {
+function setBtnSiguiente(pageInfo) {
+  const btnSig = document.getElementById("btnSiguiente");
+  if (btnSig) btnSig.disabled = !pageInfo;
+}
+
+function actualizarTabla(pedidos) {
   const wrap = document.getElementById("tablaPedidos");
   if (!wrap) {
     console.error("❌ No existe #tablaPedidos");
@@ -117,6 +139,7 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
       </div>`;
     return;
   }
+
 
   pedidos.forEach((p) => {
     const id = p.id ?? "";
@@ -151,7 +174,6 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
     wrap.appendChild(row);
   });
 }
-
 
 
 // =====================================================
@@ -197,9 +219,9 @@ function colorEtiqueta(tag) {
 // =====================================================
 // TIEMPO REAL (POLLING)
 // =====================================================
+
 let autoRefreshTimer = null;
-let autoRefreshEveryMs = 7000; // 7s (puedes bajar a 3-5s si quieres)
-let currentPageInfo = null;    // guardamos la página actual
+let autoRefreshEveryMs = 7000;
 
 function startAutoRefresh() {
   stopAutoRefresh();
@@ -215,5 +237,4 @@ function stopAutoRefresh() {
     clearInterval(autoRefreshTimer);
     autoRefreshTimer = null;
   }
-}
 }
