@@ -73,7 +73,7 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
       nextPageInfo = data.next_page_info ?? null;
 
       // ✅ Filtro robusto: estado o tags/etiquetas
-      const preparados = (data.orders || []).filter((p) => {
+      const pedidos = data.orders || [];
         const estado = (p.estado || p.status || p.fulfillment_status || "")
           .toString()
           .trim()
@@ -87,7 +87,7 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
         return (
           estado === "repetir" ||
           estado === "repetir" ||
-          tags.includes("Repetir")
+          tags.includes("repetir")
         );
       });
 
@@ -106,8 +106,8 @@ function cargarPedidosPreparados(pageInfo = null, { silent = false } = {}) {
         }
         lastRenderedHash = hash;
 
-      actualizarTabla(preparados);
-      setTotal(preparados.length);
+      actualizarTabla(pedidos);
+      setTotal(pedidos.length);
       setBtnSiguiente(nextPageInfo);
     })
     .catch((err) => {
