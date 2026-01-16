@@ -116,11 +116,16 @@ function actualizarTabla(pedidos) {
 
 // ---------------- HELPERS ----------------
 function setTotal(n) {
-  document.getElementById("total-repetir")?.textContent = n;
+  const el = document.getElementById("total-repetir");
+  if (el) el.textContent = String(n);
 }
+
+
 function setBtnSiguiente(v) {
-  document.getElementById("btnSiguiente")?.toggleAttribute("disabled", !v);
+  const btn = document.getElementById("btnSiguiente");
+  if (btn) btn.disabled = !v;
 }
+
 
 // ---------------- POLLING ----------------
 let autoRefreshTimer = null;
