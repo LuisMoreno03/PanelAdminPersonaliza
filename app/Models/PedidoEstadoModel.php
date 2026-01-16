@@ -27,9 +27,12 @@ class PedidosEstadoModel extends Model
 
     protected $useTimestamps = false;
 
-    /** ✅ Guarda el ESTADO GENERAL del pedido */
-    public function setEstadoPedido(int $orderId, string $estado, ?int $userId, ?string $userName): bool
+    /** ✅ Guarda el ESTADO GENERAL del pedido (orderId = string) */
+    public function setEstadoPedido(string $orderId, string $estado, ?int $userId, ?string $userName): bool
     {
+        $orderId = trim((string)$orderId);
+        if ($orderId === '') return false;
+
         $now = date('Y-m-d H:i:s');
 
         $row = $this->where('order_id', $orderId)->first();
@@ -48,9 +51,12 @@ class PedidosEstadoModel extends Model
         return (bool) $this->insert(['order_id' => $orderId] + $data);
     }
 
-    /** ✅ Guarda el ESTADO DE IMÁGENES */
-    public function setEstadoImagenes(int $orderId, string $estado, ?int $userId, ?string $userName): bool
+    /** ✅ Guarda el ESTADO DE IMÁGENES (orderId = string) */
+    public function setEstadoImagenes(string $orderId, string $estado, ?int $userId, ?string $userName): bool
     {
+        $orderId = trim((string)$orderId);
+        if ($orderId === '') return false;
+
         $now = date('Y-m-d H:i:s');
 
         $row = $this->where('order_id', $orderId)->first();
@@ -69,14 +75,23 @@ class PedidosEstadoModel extends Model
         return (bool) $this->insert(['order_id' => $orderId] + $data);
     }
 
-    /** ✅ Obtiene el ÚLTIMO estado por order_id */
+    /** ✅ Obtiene el ÚLTIMO estado por order_id (ids = string[]) */
     public function getEstadosForOrderIds(array $orderIds): array
     {
         if (!$orderIds) return [];
 
+        // normalizar strings y eliminar vacíos
+        $ids = [];
+        foreach ($orderIds as $id) {
+            $id = trim((string)$id);
+            if ($id !== '') $ids[] = $id;
+        }
+        $ids = array_values(array_unique($ids));
+        if (!$ids) return [];
+
         // ✅ Ordena por la fecha más reciente de update
         $rows = $this->select('order_id, estado, estado_updated_at, estado_updated_by, estado_updated_by_name')
-            ->whereIn('order_id', $orderIds)
+            ->whereIn('order_id', $ids)
             ->orderBy('estado_updated_at', 'DESC')
             ->findAll();
 
@@ -84,7 +99,7 @@ class PedidosEstadoModel extends Model
         $map = [];
         foreach ($rows as $r) {
             $oid = (string)($r['order_id'] ?? '');
-            if (!$oid) continue;
+            if ($oid === '') continue;
 
             if (!isset($map[$oid])) {
                 $map[$oid] = $r;
@@ -92,5 +107,14 @@ class PedidosEstadoModel extends Model
         }
 
         return $map;
+    }
+
+    /** ✅ (Opcional pero recomendado) Trae un estado por order_id */
+    public function getEstadoPedido(string $orderId): ?array
+    {
+        $orderId = trim((string)$orderId);
+        if ($orderId === '') return null;
+
+        return $this->where('order_id', $orderId)->first();
     }
 }
