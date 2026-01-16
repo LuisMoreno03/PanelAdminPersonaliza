@@ -23,7 +23,7 @@ class DashboardController extends Controller
         'Enviado',
         'Repetir',
     ];
-    
+
     public function __construct()
     {
         // 1) Config/Shopify.php
@@ -234,10 +234,13 @@ class DashboardController extends Controller
         return 'Por preparar';
     }
 
-      private function moneyToDecimal($v): ?float
+    // ============================================================
+    // ✅ NUEVO: guardar pedidos Shopify en tabla "pedidos"
+    // ============================================================
+
+    private function moneyToDecimal($v): ?float
     {
         if ($v === null || $v === '') return null;
-        // Shopify suele venir "123.45"
         $s = trim((string)$v);
         $s = str_replace(',', '.', $s);
         if (!is_numeric($s)) return null;
@@ -245,17 +248,20 @@ class DashboardController extends Controller
     }
 
     /**
-     * ✅ Guarda/actualiza pedidos de Shopify en tabla "pedidos"
-     * Requiere que existan las columnas vistas en tu screenshot.
+     * Devuelve: [inserted, updated, lastErrorArr|null, lastSql|null]
      */
-    private function syncPedidosToDb(array $ordersRaw): void
+    private function syncPedidosToDb(array $ordersRaw): array
     {
-        if (empty($ordersRaw)) return;
+        $inserted = 0;
+        $updated  = 0;
+        $lastErr  = null;
+        $lastSql  = null;
+
+        if (empty($ordersRaw)) return [$inserted, $updated, $lastErr, $lastSql];
 
         try {
             $db = \Config\Database::connect();
             $builder = $db->table('pedidos');
-
             $now = date('Y-m-d H:i:s');
 
             foreach ($ordersRaw as $o) {
@@ -278,7 +284,7 @@ class DashboardController extends Controller
 
                 $createdAt = isset($o['created_at']) ? substr((string)$o['created_at'], 0, 19) : null;
 
-                // ¿Existe ya?
+                // Buscar si ya existe por shopify_order_id
                 $existing = $builder
                     ->select('id')
                     ->where('shopify_order_id', $shopifyId)
@@ -297,20 +303,36 @@ class DashboardController extends Controller
                     'shopify_order_id' => $shopifyId,
                 ];
 
-                // Solo setear created_at si viene y si el registro es nuevo
                 if (!$existing && $createdAt) {
                     $data['created_at'] = $createdAt;
                 }
 
                 if ($existing) {
-                    $builder->where('id', (int)$existing['id'])->update($data);
+                    $ok = $builder->where('id', (int)$existing['id'])->update($data);
+                    if ($ok) {
+                        $updated++;
+                    } else {
+                        $lastErr = $db->error();
+                        $lastSql = (string)$db->getLastQuery();
+                        log_message('error', 'syncPedidosToDb UPDATE ERROR: ' . json_encode($lastErr) . ' SQL: ' . $lastSql);
+                    }
                 } else {
-                    $builder->insert($data);
+                    $ok = $builder->insert($data);
+                    if ($ok) {
+                        $inserted++;
+                    } else {
+                        $lastErr = $db->error();
+                        $lastSql = (string)$db->getLastQuery();
+                        log_message('error', 'syncPedidosToDb INSERT ERROR: ' . json_encode($lastErr) . ' SQL: ' . $lastSql);
+                    }
                 }
             }
         } catch (\Throwable $e) {
-            log_message('error', 'syncPedidosToDb ERROR: ' . $e->getMessage());
+            log_message('error', 'syncPedidosToDb FATAL: ' . $e->getMessage());
+            $lastErr = ['message' => $e->getMessage()];
         }
+
+        return [$inserted, $updated, $lastErr, $lastSql];
     }
 
     // ============================================================
@@ -449,7 +471,6 @@ class DashboardController extends Controller
             if ($pageInfo !== '') {
                 $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
             } else {
-                // ⚠️ Shopify usa "order=" o "sort_by=" según endpoint; esto te ha funcionado así, lo dejamos
                 $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&status=any&order=created_at%20desc";
             }
 
@@ -497,6 +518,12 @@ class DashboardController extends Controller
 
             $ordersRaw = $json['orders'] ?? [];
 
+            // ✅ AQUÍ: Sync a BD (y captura debug)
+            $db = \Config\Database::connect();
+            $dbName = $db->getDatabase();
+
+            [$inserted, $updated, $lastErr, $lastSql] = $this->syncPedidosToDb($ordersRaw);
+
             // Link header para page_info
             $linkHeader = $resp['headers']['link'] ?? null;
             if (is_array($linkHeader)) $linkHeader = end($linkHeader);
@@ -528,10 +555,7 @@ class DashboardController extends Controller
                     'fecha'        => $fecha,
                     'cliente'      => $cliente,
                     'total'        => $total,
-
-                    // default, luego se sobreescribe desde BD
                     'estado'       => 'Por preparar',
-
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
                     'estado_envio' => $estado_envio ?: '-',
@@ -587,6 +611,15 @@ class DashboardController extends Controller
             ];
 
             if ($debugEnabled) {
+                $payload['db_sync_debug'] = [
+                    'db_name' => $dbName,
+                    'shopify_orders_returned' => count($ordersRaw),
+                    'inserted' => $inserted,
+                    'updated'  => $updated,
+                    'last_db_error' => $lastErr,
+                    'last_sql' => $lastSql,
+                ];
+
                 $payload['shopify_debug'] = [
                     'shop' => $this->shop,
                     'api_version' => $this->apiVersion,
@@ -790,231 +823,6 @@ class DashboardController extends Controller
                 'success' => false,
                 'message' => 'Error interno cargando detalles',
             ])->setStatusCode(200);
-        }
-    }
-
-    // ============================================================
-    // BADGE ESTADO
-    // ============================================================
-
-    private function badgeEstado(string $estado): string
-    {
-        $estado = $this->normalizeEstado($estado);
-
-        $estilos = [
-            "Por preparar"    => "bg-slate-900 text-white",
-            "Faltan archivos" => "bg-yellow-400 text-slate-900",
-            "Confirmado"      => "bg-fuchsia-600 text-white",
-            "Diseñado"        => "bg-blue-600 text-white",
-            "Por producir"    => "bg-orange-600 text-white",
-            "Enviado"         => "bg-emerald-600 text-white",
-            "Repetir"         => "bg-slate-800 text-white",
-        ];
-
-        $clase = $estilos[$estado] ?? "bg-gray-200 text-gray-900";
-        $estadoEsc = htmlspecialchars($estado, ENT_QUOTES, 'UTF-8');
-
-        return '<span class="px-3 py-1 rounded-full text-xs font-extrabold tracking-wide ' . $clase . '">' . $estadoEsc . '</span>';
-    }
-
-    // ============================================================
-    // HELPERS IMAGENES
-    // ============================================================
-
-    private function extractImageUrlsFromLineItem(array $item): array
-    {
-        $urls = [];
-
-        $props = $item['properties'] ?? [];
-        if (is_array($props)) {
-            foreach ($props as $p) {
-                $val = (string)($p['value'] ?? '');
-                if ($val === '') continue;
-
-                if (preg_match('#^https?://#i', $val) && preg_match('#\.(png|jpe?g|webp|gif|svg)(\?.*)?$#i', $val)) {
-                    $urls[] = $val;
-                }
-
-                if (str_starts_with($val, 'data:image/')) {
-                    $urls[] = $val;
-                }
-            }
-        }
-
-        return array_values(array_unique($urls));
-    }
-
-    private function buildModifiedImage(string $src, string $destAbsPath): bool
-    {
-        try {
-            $bytes = null;
-
-            if (str_starts_with($src, 'data:image/')) {
-                $parts = explode(',', $src, 2);
-                $bytes = base64_decode($parts[1] ?? '', true);
-            } else {
-                $client = \Config\Services::curlrequest(['timeout' => 30, 'http_errors' => false]);
-                $r = $client->get($src);
-                if ($r->getStatusCode() >= 400) return false;
-                $bytes = $r->getBody();
-            }
-
-            if (!$bytes) return false;
-
-            $tmp = WRITEPATH . 'cache/img_' . uniqid() . '.bin';
-            file_put_contents($tmp, $bytes);
-
-            $image = \Config\Services::image();
-            $image->withFile($tmp)
-                ->resize(1200, 1200, true, 'width')
-                ->convert(IMAGETYPE_WEBP)
-                ->save($destAbsPath, 85);
-
-            @unlink($tmp);
-            return true;
-
-        } catch (\Throwable $e) {
-            log_message('error', 'buildModifiedImage: ' . $e->getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * ✅ Procesa imágenes y calcula estado automático.
-     * IMPORTANTE: con tus estados nuevos:
-     * - si faltan imágenes => "Faltan archivos"
-     * - si están todas listas => "Por producir"
-     */
-    private function procesarImagenesYEstado(array &$order): void
-    {
-        $orderId = (int)($order['id'] ?? 0);
-        if (!$orderId) return;
-
-        $db = \Config\Database::connect();
-
-        $lineItems = $order['line_items'] ?? [];
-        if (!is_array($lineItems)) $lineItems = [];
-
-        $totalRequeridas = 0;
-        $totalListas = 0;
-
-        $baseDir = FCPATH . 'uploads/pedidos/' . $orderId . '/';
-        if (!is_dir($baseDir)) @mkdir($baseDir, 0775, true);
-
-        $modelImg = new PedidoImagenModel();
-        $imagenesLocales = $modelImg->getByOrder((int)$orderId);
-        if (!is_array($imagenesLocales)) $imagenesLocales = [];
-
-        foreach ($lineItems as $idx => &$item) {
-            $idx = (int)$idx;
-
-            $urls = $this->extractImageUrlsFromLineItem($item);
-            if (!$urls) continue;
-
-            $totalRequeridas++;
-            $original = $urls[0];
-
-            $row = $db->table('pedido_imagenes')
-                ->where('order_id', $orderId)
-                ->where('line_index', $idx)
-                ->get()->getRowArray();
-
-            $localUrl = $row['local_url'] ?? null;
-            $status   = $row['status'] ?? 'missing';
-
-            if ($localUrl && $status === 'ready') {
-                $totalListas++;
-                $imagenesLocales[$idx] = $localUrl;
-                $item['local_image_url'] = $localUrl;
-                continue;
-            }
-
-            $db->table('pedido_imagenes')->replace([
-                'order_id'     => $orderId,
-                'line_index'   => $idx,
-                'original_url' => $original,
-                'local_url'    => $localUrl,
-                'status'       => 'processing',
-                'updated_at'   => date('Y-m-d H:i:s'),
-            ]);
-
-            $fileName = "item_{$idx}.webp";
-            $destAbs = $baseDir . $fileName;
-            $destUrl = base_url("uploads/pedidos/{$orderId}/{$fileName}");
-
-            $ok = $this->buildModifiedImage($original, $destAbs);
-
-            if ($ok) {
-                $totalListas++;
-                $imagenesLocales[$idx] = $destUrl;
-                $item['local_image_url'] = $destUrl;
-
-                $db->table('pedido_imagenes')->replace([
-                    'order_id'     => $orderId,
-                    'line_index'   => $idx,
-                    'original_url' => $original,
-                    'local_url'    => $destUrl,
-                    'status'       => 'ready',
-                    'updated_at'   => date('Y-m-d H:i:s'),
-                ]);
-            } else {
-                $db->table('pedido_imagenes')->replace([
-                    'order_id'     => $orderId,
-                    'line_index'   => $idx,
-                    'original_url' => $original,
-                    'local_url'    => null,
-                    'status'       => 'error',
-                    'updated_at'   => date('Y-m-d H:i:s'),
-                ]);
-            }
-        }
-        unset($item);
-
-        // ✅ Estados auto según tu modal
-        $estadoAuto = null;
-        if ($totalRequeridas > 0) {
-            $estadoAuto = ($totalListas >= $totalRequeridas) ? 'Por producir' : 'Faltan archivos';
-        }
-
-        $order['imagenes_locales'] = $imagenesLocales;
-        $order['auto_estado'] = $estadoAuto;
-        $order['auto_images_required'] = $totalRequeridas;
-        $order['auto_images_ready'] = $totalListas;
-
-        // ✅ IMPORTANTE: el auto-estado NO debe pisar el manual
-        if ($estadoAuto) {
-            $this->guardarEstadoSistema($orderId, $estadoAuto);
-        }
-    }
-
-    /**
-     * ✅ Auto-estado del sistema SIN PISAR el manual.
-     * Requiere que PedidosEstadoModel tenga getEstadoPedido($orderId).
-     */
-    private function guardarEstadoSistema(int $orderId, string $estado): void
-    {
-        try {
-            $estado = $this->normalizeEstado($estado);
-
-            $model = new PedidosEstadoModel();
-
-            // ✅ Si ya hay estado manual, no sobrescribir
-            if (method_exists($model, 'getEstadoPedido')) {
-                $actual = $model->getEstadoPedido($orderId);
-
-                if ($actual) {
-                    $byName = trim((string)($actual['estado_updated_by_name'] ?? ''));
-                    $byId   = (int)($actual['estado_updated_by'] ?? 0);
-
-                    // si lo cambió un usuario (no "Sistema"), respetar
-                    if ($byId > 0) return;
-                    if ($byName !== '' && mb_strtolower($byName) !== 'sistema') return;
-                }
-            }
-
-            $model->setEstadoPedido($orderId, $estado, null, 'Sistema');
-        } catch (\Throwable $e) {
-            log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
         }
     }
 
