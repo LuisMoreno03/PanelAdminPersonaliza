@@ -162,7 +162,7 @@ class ProduccionController extends BaseController
             // Opcional: guardar historial (si quieres)
             // Aquí puedes insertar en pedidos_estado_historial o order_status_history.
             // Lo dejo comentado para no romperte nada.
-            /*
+            
             foreach ($candidatos as $c) {
                 $db->table('order_status_history')->insert([
                     'order_id'     => (string)$c['shopify_order_id'],
@@ -175,7 +175,7 @@ class ProduccionController extends BaseController
                     'created_at'   => $now,
                 ]);
             }
-            */
+            
 
             $db->transComplete();
 
