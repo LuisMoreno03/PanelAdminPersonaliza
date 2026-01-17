@@ -1075,7 +1075,24 @@ async function guardarEstado(nuevoEstado) {
 
         // refresca si estás en pág 1
         if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
-        
+        // ✅ NOTIFICAR a otras pestañas (Repetir Pedidos) en tiempo real
+
+        try {
+  const msg = { type: "estado_changed", order_id: String(id), estado: String(nuevoEstado), ts: Date.now() };
+
+  // BroadcastChannel (Chrome/Edge/Firefox)
+  if ("BroadcastChannel" in window) {
+    const bc = new BroadcastChannel("panel_pedidos");
+    bc.postMessage(msg);
+    bc.close();
+  }
+
+  // Fallback: dispara evento cross-tab
+  localStorage.setItem("pedido_estado_changed", JSON.stringify(msg));
+} catch (e) {
+  console.warn("No se pudo notificar a otras pestañas:", e);
+}
+
         resumeLiveIfOnFirstPage();
         return;
       } catch (e) {
