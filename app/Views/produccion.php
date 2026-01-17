@@ -15,32 +15,21 @@
   <script src="https://unpkg.com/alpinejs" defer></script>
 
   <style>
-  /* ✅ Grid columnas (más compacto para que quepa TODO en desktop) */
-  .orders-grid.cols{
-    display:grid;
-    grid-template-columns:
-      130px 135px minmax(150px,1fr) 95px
-      185px 145px 150px 80px
-      150px 150px 130px;
-    gap:12px;
-    align-items:center;
-  }
+    .soft-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+    .soft-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    .soft-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
 
-  /* ✅ ETIQUETAS más compacto + NO rompe layout */
-  .col-etiquetas { max-width: 100px; width: 120px; overflow: hidden; }
-  .tags-wrap-mini { display:flex; gap:6px; flex-wrap:nowrap; overflow:hidden; }
-  .tag-mini{
-    display:inline-flex; align-items:center;
-    height:18px; padding:0 6px; border-radius:999px;
-    font-size:10px; font-weight:800; line-height:18px;
-    border:1px solid #e2e8f0; background:#f8fafc; color:#0f172a;
-    white-space:nowrap;
-  }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px) scale(0.99); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .animate-fadeIn { animation: fadeIn .18s ease-out; }
 
-  /* ✅ Método/cliente no rompen */
-  .cell-truncate{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-</style>
-
+    /* ✅ Layout con menú (igual dashboard) */
+    .layout { transition: padding-left .2s ease; padding-left: 16rem; }
+    .layout.menu-collapsed { padding-left: 5.25rem; }
+    @media (max-width: 768px) { .layout, .layout.menu-collapsed { padding-left: 0 !important; } }
+  </style>
 </head>
 
 <body class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 overflow-x-hidden">
@@ -83,8 +72,6 @@
 
             <!-- Toolbar -->
             <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-
-              <!-- Buscador -->
               <div class="relative">
                 <input
                   id="inputBuscar"
@@ -127,36 +114,41 @@
             </div>
           </div>
 
-          <!-- ✅ LISTADO estilo DASHBOARD (RESPONSIVE REAL) -->
+          <!-- =========================
+               ✅ LISTADO RESPONSIVE REAL
+          ========================= -->
           <div class="w-full">
 
-            <!-- Header grid (solo pantallas 2xl+) -->
-           <div class="hidden 2xl:block bg-slate-50 border-b border-slate-200">
-            <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
-              <div>Pedido</div>
-              <div>Fecha</div>
-              <div>Cliente</div>
-              <div>Total</div>
-              <div>Estado</div>
-              <div>Último cambio</div>
-              <div>Etiquetas</div>
-              <div class="text-center">Artículos</div>
-              <div>Entrega</div>
-              <div>Método</div>
-              <div class="text-right">Detalles</div>
+            <!-- ✅ GRID (2XL+) con Tailwind + scroll si falta -->
+            <div class="hidden 2xl:block w-full overflow-x-auto soft-scroll">
+              <!-- header -->
+              <div class="bg-slate-50 border-b border-slate-200 min-w-[1500px]">
+                <div class="
+                  grid items-center gap-3 px-4 py-3
+                  text-[11px] uppercase tracking-wider text-slate-600 font-extrabold
+                  [grid-template-columns:130px_135px_minmax(150px,1fr)_95px_185px_145px_150px_80px_150px_150px_130px]
+                ">
+                  <div>Pedido</div>
+                  <div>Fecha</div>
+                  <div>Cliente</div>
+                  <div>Total</div>
+                  <div>Estado</div>
+                  <div>Último cambio</div>
+                  <div>Etiquetas</div>
+                  <div class="text-center">Artículos</div>
+                  <div>Entrega</div>
+                  <div>Método</div>
+                  <div class="text-right">Detalles</div>
+                </div>
+              </div>
+
+              <!-- rows: tu JS debe renderizar DIVs con el MISMO grid-template-columns -->
+              <div id="tablaPedidos" class="min-w-[1500px]"></div>
             </div>
-          </div>
 
-
-            <!-- ✅ GRID grande (2xl+) -->
-            <!-- OJO: tu JS debe renderizar aquí DIVs tipo grid.
-                 Para etiquetas: usa <div class="col-etiquetas"><div class="tags-wrap-mini">...</div></div>
-            -->
-            <div id="tablaPedidos" class="hidden 2xl:block"></div>
-
-            <!-- ✅ TABLA con scroll para pantallas intermedias (xl y 2xl-) -->
+            <!-- ✅ TABLA con scroll (XL a <2XL) -->
             <div class="hidden xl:block 2xl:hidden w-full overflow-x-auto soft-scroll">
-              <table class="min-w-[1400px] w-full text-sm">
+              <table class="min-w-[1500px] w-full text-sm">
                 <thead class="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
                   <tr class="text-left text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
                     <th class="px-5 py-4">Pedido</th>
@@ -165,10 +157,7 @@
                     <th class="px-5 py-4">Total</th>
                     <th class="px-5 py-4">Estado</th>
                     <th class="px-5 py-4">Último cambio</th>
-
-                    <!-- ✅ ETIQUETAS compact -->
-                    <th class="px-5 py-4 col-etiquetas">Etiquetas</th>
-
+                    <th class="px-5 py-4">Etiquetas</th>
                     <th class="px-5 py-4 text-center">Artículos</th>
                     <th class="px-5 py-4">Entrega</th>
                     <th class="px-5 py-4">Método</th>
@@ -176,12 +165,11 @@
                   </tr>
                 </thead>
 
-                <!-- ✅ aquí renderizas filas TR cuando estás en "modo tabla" -->
                 <tbody id="tablaPedidosTable" class="divide-y divide-slate-100 text-slate-800"></tbody>
               </table>
             </div>
 
-            <!-- ✅ CARDS móvil/mediano (<xl) -->
+            <!-- ✅ CARDS (mobile/medio <XL) -->
             <div id="cardsPedidos" class="block xl:hidden p-3"></div>
 
           </div>
@@ -189,7 +177,7 @@
           <!-- Footer -->
           <div class="px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="text-xs text-slate-500">
-              Consejo: en desktop verás el grid; en móvil verás tarjetas.
+              Consejo: en desktop verás grid/tabla; en móvil verás tarjetas.
             </div>
 
             <div class="flex items-center gap-2">
@@ -206,13 +194,12 @@
   </main>
 
   <!-- =========================
-       ✅ MODAL DETALLES FULL (estilo dashboard)
+       ✅ MODAL DETALLES FULL (igual dashboard)
   ========================= -->
   <div id="modalDetallesFull" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50">
     <div class="absolute inset-0 p-4 sm:p-6">
       <div class="mx-auto h-full max-w-[1400px] rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-fadeIn">
 
-        <!-- Header -->
         <div class="p-5 border-b border-slate-200 flex items-start justify-between gap-4">
           <div class="min-w-0">
             <div id="detTitle" class="text-2xl sm:text-3xl font-extrabold text-slate-900 truncate">Detalles</div>
@@ -235,11 +222,8 @@
           </div>
         </div>
 
-        <!-- Body -->
         <div class="flex-1 overflow-hidden">
           <div class="h-full grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-0">
-
-            <!-- Left: items -->
             <div class="h-full overflow-auto soft-scroll p-5">
               <div class="flex items-center justify-between mb-4">
                 <div class="text-sm font-extrabold text-slate-900">
@@ -248,13 +232,10 @@
               </div>
 
               <div id="detItems" class="space-y-3"></div>
-
               <pre id="detJson" class="hidden mt-6 p-4 rounded-2xl bg-slate-950 text-slate-100 text-xs overflow-auto soft-scroll"></pre>
             </div>
 
-            <!-- Right: panels -->
             <div class="h-full overflow-auto soft-scroll p-5 border-l border-slate-200 bg-slate-50">
-
               <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Cliente</div>
                 <div id="detCliente" class="mt-2 text-sm text-slate-700"></div>
@@ -274,8 +255,8 @@
                 <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Totales</div>
                 <div id="detTotales" class="mt-2 text-sm text-slate-700"></div>
               </div>
-
             </div>
+
           </div>
         </div>
 
@@ -294,17 +275,15 @@
   <!-- ✅ Variables globales -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
-
     window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
     window.currentUserRole = <?= json_encode(session()->get('role') ?? '') ?>;
-
     window.API_BASE = "<?= rtrim(site_url(), '/') ?>";
   </script>
 
   <!-- JS principal -->
   <script src="<?= base_url('js/produccion.js?v=' . time()) ?>" defer></script>
 
-  <!-- ✅ aplicar colapso menú (igual dashboard) -->
+  <!-- ✅ aplicar colapso menú -->
   <script>
     (function () {
       const main = document.getElementById('mainLayout');
