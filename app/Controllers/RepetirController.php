@@ -332,6 +332,29 @@ class RepetirController extends Controller
             $page = (int) ($this->request->getGet('page') ?? 1);
             if ($page < 1) $page = 1;
 
+            // ✅ IDs desde BD (SOLO repetir)
+$totalOrders = $estadoModel->countByEstado('Repetir');
+$idsPage = $estadoModel->getOrderIdsByEstado('Repetir', $limit, $offset);
+
+if (!$idsPage) {
+    return $this->response->setJSON([
+        'success' => true,
+        'orders' => [],
+        'count' => 0,
+        'limit' => $limit,
+        'page' => $page,
+        'total_orders' => $totalOrders,
+        'total_pages' => (int)ceil($totalOrders / $limit),
+        'next_page_info' => null,
+        'prev_page_info' => null,
+    ]);
+}
+
+// ✅ Pedir a Shopify solo esos IDs
+$idsStr = implode(',', $idsPage);
+$url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?status=any&ids={$idsStr}";
+$resp = $this->curlShopify($url, 'GET');
+
             $debug = (string) ($this->request->getGet('debug') ?? '');
             $debugEnabled = ($debug === '1' || $debug === 'true');
 
@@ -497,11 +520,12 @@ class RepetirController extends Controller
             }
 
             // ✅ SOLO pedidos cuyo ESTADO final sea "Repetir" (después del override)
-      $orders = array_values(array_filter($orders, function ($o) {
+     $orders = array_values(array_filter($orders, function ($o) {
     $estado = (string)($o['estado'] ?? '');
     $estado = preg_replace('/\s+/u', ' ', trim($estado)); // limpia espacios raros
     return mb_strtolower($estado) === 'repetir';
 }));
+
 
 
 

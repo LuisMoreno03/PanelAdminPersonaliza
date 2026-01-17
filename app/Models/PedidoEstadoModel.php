@@ -27,6 +27,22 @@ class PedidosEstadoModel extends Model
 
     protected $useTimestamps = false;
 
+    public function getOrderIdsByEstado(string $estado, int $limit, int $offset): array
+{
+    $rows = $this->select('order_id')
+        ->where('estado', $estado)
+        ->orderBy('estado_updated_at', 'DESC')
+        ->findAll($limit, $offset);
+
+    return array_map(fn($r) => (int)$r['order_id'], $rows);
+}
+
+public function countByEstado(string $estado): int
+{
+    return (int)$this->where('estado', $estado)->countAllResults();
+}
+
+
     /** ✅ Guarda el ESTADO GENERAL del pedido */
     public function setEstadoPedido(string $orderId, string $estado, ?int $userId, ?string $userName): bool
     {
