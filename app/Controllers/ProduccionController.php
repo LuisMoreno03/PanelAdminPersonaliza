@@ -126,7 +126,7 @@ class ProduccionController extends BaseController
             $disponibles = $db->query("
                 SELECT COUNT(*) c
                 FROM pedidos_estado pe
-                JOIN pedidos_estado pe ON pe.order_id = p.shopify_order_id
+                JOIN pedidos p ON p.shopify_order_id = pe.order_id
                 WHERE LOWER(TRIM(pe.estado))='confirmado'
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
             ")->getRowArray()['c'] ?? 0;
@@ -135,10 +135,10 @@ class ProduccionController extends BaseController
            $candidatos = $db->query("
                 SELECT p.id, p.shopify_order_id
                 FROM pedidos p
-                LEFT JOIN pedidos_estado pe ON pe.order_id = p.shopify_order_id
+                JOIN pedidos_estado pe ON pe.order_id = p.shopify_order_id
                 WHERE LOWER(TRIM(pe.estado))='confirmado'
-                    AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-                ORDER BY COALESCE(pe.actualizado, p.created_at) ASC
+                AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
+                ORDER BY COALESCE(pe.estado_updated_at, pe.actualizado) ASC
                 LIMIT {$count}
                 ")->getResultArray();
 

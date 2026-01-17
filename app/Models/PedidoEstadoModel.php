@@ -1,11 +1,9 @@
 <?php
-
 namespace App\Models;
 
 use CodeIgniter\Model;
 
-class PedidosEstadoModel extends Model
-{
+class PedidosEstadoModel extends Model{
     protected $table = 'pedidos_estado';
     protected $primaryKey = 'id';
     protected $allowedFields = [
