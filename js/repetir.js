@@ -95,6 +95,17 @@ function cargarPedidosRepetir(page = 1, { silent = false } = {}) {
 
       const pedidos = data.orders || [];
 
+// ✅ Si entró un pedido nuevo en "Repetir" y no estás en página 1,
+// vuelve automáticamente a la página 1 para mostrarlo
+if (
+  currentPage !== 1 &&
+  Number(data.page) === 1 &&
+  pedidos.length > 0
+) {
+  cargarPedidosRepetir(1);
+  return;
+}
+
 
       const hash = JSON.stringify(pedidos.map((p) => p.id));
       if (hash === lastRenderedHash && Number(data.page) === currentPage) return;

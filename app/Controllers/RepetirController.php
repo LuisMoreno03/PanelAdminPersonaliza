@@ -362,7 +362,7 @@ class RepetirController extends Controller
         }
 
         // ✅ 2) Pedir a Shopify solo esos IDs
-        $idsStr = implode(',', array_map('intval', $idsPage));
+        $idsStr = implode(',', array_map('strval', $idsPage));
         $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?status=any&ids={$idsStr}";
         $resp = $this->curlShopify($url, 'GET');
 
@@ -379,14 +379,14 @@ class RepetirController extends Controller
                 'count'   => 0,
                 'status'  => $status,
 
-                $ordersRaw = $json['orders'] ?? [];
-
             ])->setStatusCode(200);
 
         }
 
-
-        // ✅ 3) Mapear al formato del panel
+   // ✅ 3) Mapear al formato del panel
+        
+   $ordersRaw = $json['orders'] ?? [];
+        
         $orders = [];
         foreach ($ordersRaw as $o) {
             $orderId = $o['id'] ?? null;
@@ -399,6 +399,14 @@ class RepetirController extends Controller
                 $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
                 if ($cliente === '') $cliente = '-';
             }
+            // ✅ Reordenar lo que devuelve Shopify según idsPage (paginación estable)  implode
+        $pos = array_flip(array_map('strval', $idsPage));
+
+        usort($ordersRaw, function($a, $b) use ($pos) {
+        $ia = $pos[(string)($a['id'] ?? '')] ?? PHP_INT_MAX;
+        $ib = $pos[(string)($b['id'] ?? '')] ?? PHP_INT_MAX;
+        return $ia <=> $ib;
+}); 
 
             $total = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
             $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
@@ -932,3 +940,4 @@ class RepetirController extends Controller
         ]);
     }
 
+}

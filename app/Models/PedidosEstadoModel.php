@@ -18,18 +18,30 @@ class PedidosEstadoModel extends Model{
 
     public function getOrderIdsByEstado(string $estado, int $limit, int $offset): array
 {
-    $rows = $this->select('order_id')
-        ->where('estado', $estado)
-        ->orderBy('estado_updated_at', 'DESC')
-        ->findAll($limit, $offset);
+    $estado = trim($estado);
 
-    return array_map(fn($r) => (int)$r['order_id'], $rows);
+    $rows = $this->db->table('pedidos_estado')
+        ->select('order_id')
+        ->where('LOWER(TRIM(estado))', mb_strtolower($estado))
+        // 🔥 esto hace que lo nuevo salga primero
+        ->orderBy('estado_updated_at', 'DESC')
+        ->limit($limit, $offset)
+        ->get()
+        ->getResultArray();
+
+    return array_values(array_filter(array_map(fn($r) => $r['order_id'] ?? null, $rows)));
 }
+
 
 public function countByEstado(string $estado): int
 {
-    return (int)$this->where('estado', $estado)->countAllResults();
+    $estado = trim($estado);
+
+    return (int)$this->db->table('pedidos_estado')
+        ->where('LOWER(TRIM(estado))', mb_strtolower($estado))
+        ->countAllResults();
 }
+
 
     /** ✅ Leer estado actual (para NO pisar manual con "Sistema") */
    public function getEstadoPedido(string $orderId): ?array
@@ -49,15 +61,13 @@ public function countByEstado(string $estado): int
         $now = date('Y-m-d H:i:s');
 
         $data = [
-            'order_id' => $orderId,
-            'estado' => $estado,
-            // 👇 estos 2 SIEMPRE
-            'actualizado' => $now,
-            'estado_updated_at' => $now,
-            // 👇 tracking
-            'estado_updated_by' => $userId,
-            'estado_updated_by_name' => $userName,
-        ];
+        'order_id' => $orderId,
+        'estado'   => trim($estado),
+        'estado_updated_by' => $userId,
+        'estado_updated_by_name' => $userName,
+        'estado_updated_at' => date('Y-m-d H:i:s'),
+];
+
 
         $row = $this->select('id')->where('order_id', $orderId)->first();
 
