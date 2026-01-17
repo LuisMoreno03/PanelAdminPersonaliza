@@ -18,6 +18,32 @@ function hideLoader() {
 
 // ---------------- INIT ----------------
 document.addEventListener("DOMContentLoaded", () => {
+  
+    // ✅ Escuchar cambios desde otras pestañas (Dashboard)
+  // 1) BroadcastChannel
+  if ("BroadcastChannel" in window) {
+    const bc = new BroadcastChannel("panel_pedidos");
+    bc.onmessage = (ev) => {
+      const msg = ev?.data;
+      if (!msg || msg.type !== "estado_changed") return;
+
+      // Si un pedido pasa a "Repetir" o sale de "Repetir", recarga lista
+      if (msg.estado === "Repetir" || msg.estado) {
+        cargarPedidosRepetir(1);
+      }
+    };
+  }
+
+  // 2) Fallback localStorage (cross-tab)
+  window.addEventListener("storage", (ev) => {
+    if (ev.key !== "pedido_estado_changed" || !ev.newValue) return;
+    try {
+      const msg = JSON.parse(ev.newValue);
+      if (msg?.type !== "estado_changed") return;
+      cargarPedidosRepetir(1);
+    } catch {}
+  });
+
   wirePagination();
   cargarPedidosRepetir(1);
   startAutoRefresh();
