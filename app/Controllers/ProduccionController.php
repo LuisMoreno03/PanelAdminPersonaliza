@@ -37,7 +37,7 @@ class ProduccionController extends BaseController
         try {
             $db = \Config\Database::connect();
 
-            $rows = $db->query("
+              $rows = $db->query("
                 SELECT
                     p.id,
                     p.numero,
@@ -52,14 +52,13 @@ class ProduccionController extends BaseController
                     p.assigned_to_user_id,
                     p.assigned_at,
                     pe.estado AS estado_bd,
-                    pe.actualizado AS actualizado,
-                    pe.estado_updated_at AS estado_updated_at,
+                    COALESCE(pe.estado_updated_at, pe.actualizado) AS estado_actualizado,
                     pe.estado_updated_by_name AS estado_por
                 FROM pedidos p
                 LEFT JOIN pedidos_estado pe
                      ON pe.order_id = p.shopify_order_id
                 WHERE p.assigned_to_user_id = ?
-                  AND LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por producir','producción','produccion')
+                  AND LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por producir','confirmado')
                 ORDER BY COALESCE(pe.estado_updated_at, pe.actualizado) ASC
             ", [$userId])->getResultArray();
 
@@ -84,33 +83,26 @@ class ProduccionController extends BaseController
     public function pull()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'ok' => false,
-                'error' => 'No autenticado',
-            ]);
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
         }
 
-        $userId = (int) (session('user_id') ?? 0);
-        $userName = (string) (session('nombre') ?? session('user_name') ?? 'Usuario');
+        $userId = (int)(session('user_id') ?? 0);
+        $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
 
         if (!$userId) {
-            return $this->response->setJSON([
-                'ok' => false,
-                'error' => 'Sin user_id en sesión',
-            ]);
+            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
         }
 
         $data = $this->request->getJSON(true);
         if (!is_array($data)) $data = [];
 
-        $count = (int) ($data['count'] ?? 5);
+        $count = (int)($data['count'] ?? 5);
         if (!in_array($count, [5, 10], true)) $count = 5;
 
         try {
             $db = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // ✅ candidatos: Confirmado + no asignados
             $candidatos = $db->query("
                 SELECT
                     p.id,
@@ -134,41 +126,31 @@ class ProduccionController extends BaseController
 
             $db->transStart();
 
+            // 1) Asignar en pedidos
             $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
 
-            // 1) Asignar en pedidos
             $db->table('pedidos')
                 ->whereIn('id', $ids)
                 ->where("(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)", null, false)
                 ->update([
                     'assigned_to_user_id' => $userId,
-                    'assigned_at'         => $now,
+                    'assigned_at' => $now,
                 ]);
 
-            // 2) mover estado a "Por producir"
+            // 2) Cambiar estado usando el MODEL (para que guarde actualizado + estado_updated_*)
+            $estadoModel = new PedidosEstadoModel();
+
             foreach ($candidatos as $c) {
-                $oid = (string)($c['shopify_order_id'] ?? '');
-                $oid = trim($oid);
+                $oid = trim((string)($c['shopify_order_id'] ?? ''));
                 if ($oid === '' || $oid === '0') continue;
 
-                $db->table('pedidos_estado')
-                    ->where('order_id', $oid)
-                    ->update([
-                        'estado'                 => $this->estadoProduccion,
-                        'actualizado'            => $now,   // ✅ CLAVE en tu tabla
-                        'estado_updated_at'      => $now,
-                        'estado_updated_by'      => $userId,
-                        'estado_updated_by_name' => $userName,
-                    ]);
+                $estadoModel->setEstadoPedido($oid, $this->estadoProduccion, $userId, $userName);
             }
 
             $db->transComplete();
 
             if ($db->transStatus() === false) {
-                return $this->response->setJSON([
-                    'ok' => false,
-                    'error' => 'No se pudo asignar (transacción falló)',
-                ]);
+                return $this->response->setJSON(['ok' => false, 'error' => 'No se pudo asignar (transacción falló)']);
             }
 
             return $this->response->setJSON([
@@ -179,10 +161,7 @@ class ProduccionController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'ProduccionController pull ERROR: ' . $e->getMessage());
-            return $this->response->setJSON([
-                'ok' => false,
-                'error' => 'Error interno asignando pedidos',
-            ]);
+            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno asignando pedidos']);
         }
     }
 
@@ -192,18 +171,12 @@ class ProduccionController extends BaseController
     public function returnAll()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'ok' => false,
-                'error' => 'No autenticado',
-            ]);
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
         }
 
-        $userId = (int) (session('user_id') ?? 0);
+        $userId = (int)(session('user_id') ?? 0);
         if (!$userId) {
-            return $this->response->setJSON([
-                'ok' => false,
-                'error' => 'Sin user_id en sesión',
-            ]);
+            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
         }
 
         try {
@@ -213,20 +186,14 @@ class ProduccionController extends BaseController
                 ->where('assigned_to_user_id', $userId)
                 ->update([
                     'assigned_to_user_id' => null,
-                    'assigned_at'         => null,
+                    'assigned_at' => null,
                 ]);
 
-            return $this->response->setJSON([
-                'ok' => true,
-                'message' => 'Pedidos devueltos',
-            ]);
+            return $this->response->setJSON(['ok' => true, 'message' => 'Pedidos devueltos']);
 
         } catch (\Throwable $e) {
             log_message('error', 'ProduccionController returnAll ERROR: ' . $e->getMessage());
-            return $this->response->setJSON([
-                'ok' => false,
-                'error' => 'Error interno devolviendo pedidos',
-            ]);
+            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno devolviendo pedidos']);
         }
     }
 }
