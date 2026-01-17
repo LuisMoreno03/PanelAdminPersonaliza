@@ -15,91 +15,32 @@
   <script src="https://unpkg.com/alpinejs" defer></script>
 
   <style>
-    body { background: #f3f4f6; }
+  /* ✅ Grid columnas (más compacto para que quepa TODO en desktop) */
+  .orders-grid.cols{
+    display:grid;
+    grid-template-columns:
+      130px 135px minmax(190px,1fr) 95px
+      185px 145px 170px 80px
+      150px 170px 130px;
+    gap:12px;
+    align-items:center;
+  }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(6px) scale(0.99); }
-      to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .animate-fadeIn { animation: fadeIn .18s ease-out; }
+  /* ✅ ETIQUETAS más compacto + NO rompe layout */
+  .col-etiquetas { max-width: 120px; width: 120px; overflow: hidden; }
+  .tags-wrap-mini { display:flex; gap:6px; flex-wrap:nowrap; overflow:hidden; }
+  .tag-mini{
+    display:inline-flex; align-items:center;
+    height:18px; padding:0 6px; border-radius:999px;
+    font-size:10px; font-weight:800; line-height:18px;
+    border:1px solid #e2e8f0; background:#f8fafc; color:#0f172a;
+    white-space:nowrap;
+  }
 
-    .soft-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
-    .soft-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
-    .soft-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
+  /* ✅ Método/cliente no rompen */
+  .cell-truncate{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
 
-    /* ✅ Layout con menú (igual dashboard) */
-    .layout { transition: padding-left .2s ease; padding-left: 16rem; }
-    .layout.menu-collapsed { padding-left: 5.25rem; }
-    @media (max-width: 768px) { .layout, .layout.menu-collapsed { padding-left: 0 !important; } }
-
-    /* ✅ Grid columnas (igual dashboard) */
-    .orders-grid.cols{
-      display:grid;
-      grid-template-columns:
-        150px 140px minmax(220px,1fr) 110px
-        210px 180px minmax(280px,1fr) 90px
-        170px minmax(220px,1fr) 150px;
-      gap:14px;
-      align-items:center;
-    }
-
-    /* ✅ Ajuste responsive: en 2xl el grid reduce columnas problemáticas */
-    @media (max-width: 1535px) {
-      .orders-grid.cols{
-        grid-template-columns:
-          140px 130px minmax(200px,1fr) 100px
-          200px 170px minmax(220px,1fr) 80px
-          160px minmax(180px,1fr) 140px;
-        gap:12px;
-      }
-    }
-
-    /* ===========================
-       ✅ ETIQUETAS COMPACTAS
-       - reduce ancho col
-       - chips mini
-       - no rompe layout
-    ============================ */
-    .col-etiquetas {
-      width: 140px;
-      max-width: 140px;
-      overflow: hidden;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-    }
-
-    .tags-wrap-mini {
-      display:flex;
-      flex-wrap:nowrap;
-      gap:6px;
-      overflow:hidden;
-      max-width: 140px;
-    }
-
-    .tag-mini {
-      display:inline-flex;
-      align-items:center;
-      height: 18px;
-      padding: 0 6px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-weight: 800;
-      line-height: 18px;
-      letter-spacing: .02em;
-      text-transform: uppercase;
-      border: 1px solid #e2e8f0;
-      background: #f8fafc;
-      color: #0f172a;
-      flex: 0 0 auto;
-    }
-
-    /* ✅ si quieres ultra compacto aún más: descomenta
-    .col-etiquetas { width:110px; max-width:110px; }
-    .tags-wrap-mini { max-width:110px; }
-    .tag-mini { font-size:9px; height:16px; line-height:16px; padding:0 5px; }
-    */
-
-  </style>
 </head>
 
 <body class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 overflow-x-hidden">
@@ -190,24 +131,22 @@
           <div class="w-full">
 
             <!-- Header grid (solo pantallas 2xl+) -->
-            <div class="hidden 2xl:block bg-slate-50 border-b border-slate-200">
-              <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
-                <div>Pedido</div>
-                <div>Fecha</div>
-                <div>Cliente</div>
-                <div>Total</div>
-                <div>Estado</div>
-                <div>Último cambio</div>
-
-                <!-- ✅ ETIQUETAS compact -->
-                <div class="col-etiquetas">Etiquetas</div>
-
-                <div class="text-center">Artículos</div>
-                <div>Entrega</div>
-                <div>Método</div>
-                <div class="text-right">Detalles</div>
-              </div>
+           <div class="hidden 2xl:block bg-slate-50 border-b border-slate-200">
+            <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
+              <div>Pedido</div>
+              <div>Fecha</div>
+              <div>Cliente</div>
+              <div>Total</div>
+              <div>Estado</div>
+              <div>Último cambio</div>
+              <div>Etiquetas</div>
+              <div class="text-center">Artículos</div>
+              <div>Entrega</div>
+              <div>Método</div>
+              <div class="text-right">Detalles</div>
             </div>
+          </div>
+
 
             <!-- ✅ GRID grande (2xl+) -->
             <!-- OJO: tu JS debe renderizar aquí DIVs tipo grid.
