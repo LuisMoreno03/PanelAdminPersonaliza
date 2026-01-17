@@ -38,7 +38,6 @@ class ProduccionController extends BaseController
         try {
             $db = \Config\Database::connect();
 
-            // ✅ JOIN consistente: pedidos_estado.order_id = pedidos.shopify_order_id
             $rows = $db->query("
                 SELECT
                     p.id,
@@ -53,15 +52,28 @@ class ProduccionController extends BaseController
                     p.shopify_order_id,
                     p.assigned_to_user_id,
                     p.assigned_at,
-                    pe.estado AS estado_bd,
-                    pe.actualizado AS estado_actualizado,
-                    pe.estado_updated_by_name AS estado_por
+
+                    h.estado AS estado_bd,
+                    h.actualizado AS estado_actualizado,
+                    h.user_name AS estado_por,
+                    h.user_id AS estado_user_id
+
                 FROM pedidos p
-                LEFT JOIN pedidos_estado pe
-                    ON pe.order_id = p.shopify_order_id
+
+                LEFT JOIN (
+                    SELECT x.*
+                    FROM pedidos_estado_historial x
+                    INNER JOIN (
+                        SELECT order_id, MAX(id) AS max_id
+                        FROM pedidos_estado_historial
+                        GROUP BY order_id
+                    ) last ON last.order_id = x.order_id AND last.max_id = x.id
+                ) h ON h.order_id = p.id
+
                 WHERE p.assigned_to_user_id = ?
-                AND LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por producir','confirmado')
-                ORDER BY COALESCE(pe.actualizado, p.created_at) ASC
+                AND LOWER(TRIM(COALESCE(h.estado,''))) = 'confirmado'
+
+                ORDER BY COALESCE(h.actualizado, p.created_at) ASC
             ", [$userId])->getResultArray();
 
             return $this->response->setJSON([
@@ -79,139 +91,93 @@ class ProduccionController extends BaseController
     }
 
 
+
     // =========================
     // POST /produccion/pull
     // body: {count: 5|10}
     // =========================
     public function pull()
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
-    }
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
+        }
 
-    $userId   = (int)(session('user_id') ?? 0);
-    $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
+        $userId = (int)(session('user_id') ?? 0);
+        if (!$userId) {
+            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
+        }
 
-    if (!$userId) {
-        return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
-    }
+        $data = $this->request->getJSON(true);
+        if (!is_array($data)) $data = [];
 
-    $data = $this->request->getJSON(true);
-    if (!is_array($data)) $data = [];
+        $count = (int)($data['count'] ?? 5);
+        if (!in_array($count, [5, 10], true)) $count = 5;
 
-    $count = (int)($data['count'] ?? 5);
-    if (!in_array($count, [5, 10], true)) $count = 5;
+        try {
+            $db = \Config\Database::connect();
+            $now = date('Y-m-d H:i:s');
 
-    // ✅ DEBUG garantizado del Model
-    $modelPath = APPPATH . 'Models/PedidosEstadoModel.php';
+            $candidatos = $db->query("
+                SELECT
+                    p.id,
+                    p.shopify_order_id
+                FROM pedidos p
+                JOIN (
+                    SELECT x.*
+                    FROM pedidos_estado_historial x
+                    INNER JOIN (
+                        SELECT order_id, MAX(id) AS max_id
+                        FROM pedidos_estado_historial
+                        GROUP BY order_id
+                    ) last ON last.order_id = x.order_id AND last.max_id = x.id
+                ) h ON h.order_id = p.id
 
-    if (!is_file($modelPath)) {
-        return $this->response->setJSON([
-            'ok' => false,
-            'error' => 'Model no carga',
-            'debug' => [
-                'reason' => 'file_not_found',
-                'expected_path' => $modelPath,
-                'APPPATH' => APPPATH,
-            ],
-        ]);
-    }
+                WHERE LOWER(TRIM(COALESCE(h.estado,''))) = 'confirmado'
+                AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
 
-    require_once $modelPath;
+                ORDER BY COALESCE(h.actualizado, p.created_at) ASC
+                LIMIT {$count}
+            ")->getResultArray();
 
-    if (!class_exists(\App\Models\PedidosEstadoModel::class)) {
-        return $this->response->setJSON([
-            'ok' => false,
-            'error' => 'Model no carga',
-            'debug' => [
-                'reason' => 'class_not_found',
-                'expected_class' => \App\Models\PedidosEstadoModel::class,
-                'file_loaded' => $modelPath,
-                'hint' => 'Revisar namespace App\\Models y el nombre del archivo/clase (Linux es case-sensitive).',
-            ],
-        ]);
-    }
+            if (!$candidatos) {
+                return $this->response->setJSON([
+                    'ok' => true,
+                    'message' => 'No hay pedidos disponibles en estado Confirmado',
+                    'assigned' => 0,
+                ]);
+            }
 
-    $estadoModel = new \App\Models\PedidosEstadoModel();
+            $db->transStart();
 
-    try {
-        $db  = \Config\Database::connect();
-        $now = date('Y-m-d H:i:s');
+            $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
 
-        // ✅ Candidatos: estado confirmado + no asignados
-        // OJO: tu DB mostró que lo correcto es: pedidos.shopify_order_id = pedidos_estado.order_id
-        $candidatos = $db->query("
-            SELECT p.id, p.shopify_order_id
-            FROM pedidos p
-            JOIN pedidos_estado pe ON pe.order_id = p.shopify_order_id
-            WHERE LOWER(TRIM(pe.estado))='confirmado'
-              AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-            ORDER BY COALESCE(pe.estado_updated_at, pe.actualizado, p.created_at) ASC
-            LIMIT {$count}
-        ")->getResultArray();
+            $db->table('pedidos')
+                ->whereIn('id', $ids)
+                ->where("(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)", null, false)
+                ->update([
+                    'assigned_to_user_id' => $userId,
+                    'assigned_at' => $now,
+                ]);
 
-        if (!$candidatos) {
+            $affected = (int)$db->affectedRows();
+
+            $db->transComplete();
+
+            if ($db->transStatus() === false) {
+                return $this->response->setJSON(['ok' => false, 'error' => 'No se pudo asignar (transacción falló)']);
+            }
+
             return $this->response->setJSON([
                 'ok' => true,
-                'message' => 'No hay pedidos disponibles para asignar',
-                'assigned' => 0,
-            ]);
-        }
-
-        $db->transStart();
-
-        $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
-
-        $db->table('pedidos')
-            ->whereIn('id', $ids)
-            ->where("(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)", null, false)
-            ->update([
-                'assigned_to_user_id' => $userId,
-                'assigned_at' => $now,
+                'assigned' => $affected,
+                'ids' => $ids,
             ]);
 
-        $affected = (int)$db->affectedRows();
-
-        if ($affected <= 0) {
-            $db->transComplete();
-            return $this->response->setJSON([
-                'ok' => false,
-                'error' => 'No se asignó nada (affectedRows=0).',
-                'debug' => [
-                    'ids_candidatos' => $ids,
-                    'user_id' => $userId,
-                ],
-            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'ProduccionController pull ERROR: ' . $e->getMessage());
+            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno asignando pedidos']);
         }
-
-        // ✅ Cambia estado a "Por producir" usando el model
-        foreach ($candidatos as $c) {
-            $oid = trim((string)($c['shopify_order_id'] ?? ''));
-            if ($oid === '' || $oid === '0') continue;
-            $estadoModel->setEstadoPedido($oid, 'Por producir', $userId, $userName);
-        }
-
-        $db->transComplete();
-
-        return $this->response->setJSON([
-            'ok' => true,
-            'assigned' => $affected,
-            'ids' => $ids,
-        ]);
-    } catch (\Throwable $e) {
-        log_message('error', 'ProduccionController pull ERROR: ' . $e->getMessage());
-
-        return $this->response->setJSON([
-            'ok' => false,
-            'error' => 'Error interno asignando pedidos',
-            'debug' => [
-                'exception' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ],
-        ]);
     }
-}
 
     // =========================
     // POST /produccion/return-all
