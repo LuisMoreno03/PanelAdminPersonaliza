@@ -41,23 +41,48 @@
         170px minmax(220px,1fr) 150px;
       gap:14px;
       align-items:center;
-    } 
-    /* --- ETIQUETAS: más compacto --- */
+    }
+
+    /* ✅ Ajuste responsive: en 2xl el grid reduce columnas problemáticas */
+    @media (max-width: 1535px) {
+      .orders-grid.cols{
+        grid-template-columns:
+          140px 130px minmax(200px,1fr) 100px
+          200px 170px minmax(220px,1fr) 80px
+          160px minmax(180px,1fr) 140px;
+        gap:12px;
+      }
+    }
+
+    /* ===========================
+       ✅ ETIQUETAS COMPACTAS
+       - reduce ancho col
+       - chips mini
+       - no rompe layout
+    ============================ */
     .col-etiquetas {
-      max-width: 140px;          /* 👈 reduce ancho */
       width: 140px;
+      max-width: 140px;
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
     }
 
+    .tags-wrap-mini {
+      display:flex;
+      flex-wrap:nowrap;
+      gap:6px;
+      overflow:hidden;
+      max-width: 140px;
+    }
+
     .tag-mini {
-      display: inline-flex;
-      align-items: center;
-      height: 18px;              /* 👈 más bajo */
-      padding: 0 6px;            /* 👈 más estrecho */
+      display:inline-flex;
+      align-items:center;
+      height: 18px;
+      padding: 0 6px;
       border-radius: 999px;
-      font-size: 10px;           /* 👈 más pequeño */
+      font-size: 10px;
       font-weight: 800;
       line-height: 18px;
       letter-spacing: .02em;
@@ -65,15 +90,14 @@
       border: 1px solid #e2e8f0;
       background: #f8fafc;
       color: #0f172a;
+      flex: 0 0 auto;
     }
 
-    .tags-wrap-mini {
-      display: flex;
-      flex-wrap: nowrap;         /* 👈 NO envuelve */
-      gap: 6px;
-      overflow: hidden;
-    }
-
+    /* ✅ si quieres ultra compacto aún más: descomenta
+    .col-etiquetas { width:110px; max-width:110px; }
+    .tags-wrap-mini { max-width:110px; }
+    .tag-mini { font-size:9px; height:16px; line-height:16px; padding:0 5px; }
+    */
 
   </style>
 </head>
@@ -162,11 +186,10 @@
             </div>
           </div>
 
-          <!-- ✅ LISTADO estilo DASHBOARD -->
           <!-- ✅ LISTADO estilo DASHBOARD (RESPONSIVE REAL) -->
           <div class="w-full">
 
-            <!-- Header grid (solo pantallas grandes) -->
+            <!-- Header grid (solo pantallas 2xl+) -->
             <div class="hidden 2xl:block bg-slate-50 border-b border-slate-200">
               <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
                 <div>Pedido</div>
@@ -175,7 +198,10 @@
                 <div>Total</div>
                 <div>Estado</div>
                 <div>Último cambio</div>
-                <div>Etiquetas</div>
+
+                <!-- ✅ ETIQUETAS compact -->
+                <div class="col-etiquetas">Etiquetas</div>
+
                 <div class="text-center">Artículos</div>
                 <div>Entrega</div>
                 <div>Método</div>
@@ -184,6 +210,9 @@
             </div>
 
             <!-- ✅ GRID grande (2xl+) -->
+            <!-- OJO: tu JS debe renderizar aquí DIVs tipo grid.
+                 Para etiquetas: usa <div class="col-etiquetas"><div class="tags-wrap-mini">...</div></div>
+            -->
             <div id="tablaPedidos" class="hidden 2xl:block"></div>
 
             <!-- ✅ TABLA con scroll para pantallas intermedias (xl y 2xl-) -->
@@ -197,7 +226,10 @@
                     <th class="px-5 py-4">Total</th>
                     <th class="px-5 py-4">Estado</th>
                     <th class="px-5 py-4">Último cambio</th>
-                    <th class="px-5 py-4">Etiquetas</th>
+
+                    <!-- ✅ ETIQUETAS compact -->
+                    <th class="px-5 py-4 col-etiquetas">Etiquetas</th>
+
                     <th class="px-5 py-4 text-center">Artículos</th>
                     <th class="px-5 py-4">Entrega</th>
                     <th class="px-5 py-4">Método</th>
@@ -214,7 +246,6 @@
             <div id="cardsPedidos" class="block xl:hidden p-3"></div>
 
           </div>
-
 
           <!-- Footer -->
           <div class="px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
