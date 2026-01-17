@@ -26,7 +26,7 @@ class RepetirController extends Controller
 
     public function __construct()
     {
-        // 1) Config/Shopify.php
+        // 1) Config/Shopify.php $estadoModel
         $this->loadShopifyFromConfig();
 
         // 2) archivo fuera del repo
@@ -231,7 +231,7 @@ class RepetirController extends Controller
             if (mb_strtolower($ok) === $lower) return $ok;
         }
 
-        return 'Por preparar';
+        return 'Repetir';
     }
 
     // ============================================================
@@ -287,7 +287,7 @@ class RepetirController extends Controller
     }
 
     // ============================================================
-    // VISTA PRINCIPAL
+    // VISTA PRINCIPAL 
     // ============================================================
 
     public function index()
@@ -381,7 +381,7 @@ class RepetirController extends Controller
             ])->setStatusCode(200);
         }
 
-        $ordersRaw = $json['orders'] ?? [];
+       
 
         // ✅ 3) Mapear al formato del panel
         $orders = [];
@@ -463,17 +463,16 @@ class RepetirController extends Controller
             'orders'  => [],
             'count'   => 0,
         ])->setStatusCode(200);
+
+        log_message('error', 'REPETIR totalOrders=' . $totalOrders . ' idsPage=' . json_encode($idsPage));
+
     }
 }
 
 
-            $ordersRaw = $json['orders'] ?? [];
+           
 
-                 
-            // Link header para page_info
-            $linkHeader = $resp['headers']['link'] ?? null;
-            if (is_array($linkHeader)) $linkHeader = end($linkHeader);
-            [$nextPageInfo, $prevPageInfo] = $this->parseLinkHeaderForPageInfo(is_string($linkHeader) ? $linkHeader : null);
+            
 
             // 3) Mapear formato dashboard (DEFAULT)
             $orders = [];
