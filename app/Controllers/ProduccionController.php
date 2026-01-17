@@ -84,7 +84,37 @@ class ProduccionController extends BaseController
     // body: {count: 5|10}
     // =========================
     public function pull()
-    {
+    {   
+        // ✅ FIX DEFINITIVO: cargar model sin depender del autoload
+        $modelPath = APPPATH . 'Models/PedidosEstadoModel.php';
+
+        if (!is_file($modelPath)) {
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Model no carga',
+                'debug' => [
+                    'reason' => 'file_not_found',
+                    'expected_path' => $modelPath,
+                ],
+            ]);
+        }
+
+        require_once $modelPath;
+
+        if (!class_exists(\App\Models\PedidosEstadoModel::class)) {
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Model no carga',
+                'debug' => [
+                    'reason' => 'class_not_found',
+                    'expected_class' => \App\Models\PedidosEstadoModel::class,
+                    'hint' => 'Revisar namespace App\\Models y nombre de clase/archivo (case-sensitive).',
+                ],
+            ]);
+        }
+
+        $estadoModel = new \App\Models\PedidosEstadoModel();
+
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
         }
