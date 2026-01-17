@@ -9,22 +9,15 @@
  * ✅ Botón "Ver detalles →" (OPCION A) en grid/tabla/cards
  * ✅ Etiquetas ULTRA compactas (usa .col-etiquetas + .tags-wrap-mini + .tag-mini del view)
  * ✅ Detalles FULL usando modal #modalDetallesFull (del view)
- * ✅ Muestra: cliente, envío, resumen, totales, items, properties, imágenes, etc.
+ * ✅ FIX CLAVE: Detalles usa shopify_id (no el id interno) para /dashboard/detalles/{id}
  *
  * ✅ Upload de archivos Illustrator (AI/EPS/PDF/SVG/ZIP) en el modal:
  *   - input multiple
  *   - preview de nombres
  *   - botón subir
- *   - usa endpoint configurable:
- *       window.UPLOAD_ENDPOINT o por defecto: /produccion/upload-archivos/{orderId}
- *   - envía FormData con files[] y order_id
- *
- * Endpoints:
- * - GET  /produccion/my-queue
- * - POST /produccion/pull        {count: 5|10}
- * - POST /produccion/return-all  {}
- * - GET  /dashboard/detalles/{id}  (detalle pedido)
- * - POST /produccion/upload-archivos/{id} (subida archivos)  <-- debes crearlo en backend
+ *   - endpoint configurable:
+ *       window.UPLOAD_ENDPOINT (opcional) o por defecto: /produccion/upload-archivos/{internalId}
+ *   - envía FormData: files[], order_id (interno), shopify_order_id
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -367,21 +360,14 @@ function actualizarListado(pedidos) {
             ${escapeHtml(String(cliente || "—"))}
           </div>
           <div class="font-extrabold text-slate-900 whitespace-nowrap">${moneyFormat(total)}</div>
-
           <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
-
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
           <div class="col-etiquetas">${renderEtiquetasMini(etiquetas)}</div>
-
           <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
-
           <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
-
           <div class="min-w-0 text-xs text-slate-700 truncate" title="${escapeHtml(String(formaEnvio || "—"))}">
             ${escapeHtml(String(formaEnvio || "—"))}
           </div>
-
           <div class="text-right whitespace-nowrap">${detallesBtn}</div>
         </div>
       `;
@@ -536,7 +522,7 @@ function aplicarFiltroBusqueda() {
 
   pedidosFiltrados = pedidosCache.filter((p) => {
     const haystack = [
-      p.id, p.numero,
+      p.id, p.shopify_id, p.numero,
       p.cliente,
       p.estado, p.estado_bd,
       p.etiquetas, p.tags,
@@ -581,22 +567,35 @@ async function cargarMiCola() {
       return;
     }
 
-    const incoming = extracted.orders.map((r) => ({
-      id: r.id ?? r.pedido_id ?? r.shopify_order_id ?? "",
-      numero: r.numero ?? r.name ?? (r.id ? ("#" + r.id) : ""),
-      fecha: r.fecha ?? r.created_at ?? r.order_date ?? null,
-      cliente: r.cliente ?? r.customer_name ?? r.customer ?? null,
-      total: r.total ?? r.total_price ?? null,
-      estado: r.estado ?? r.estado_bd ?? "Por producir",
-      etiquetas: r.etiquetas ?? r.tags ?? "",
-      articulos: r.articulos ?? r.items_count ?? r.items ?? "",
-      estado_envio: r.estado_envio ?? r.estado_entrega ?? r.fulfillment_status ?? "",
-      forma_envio: r.forma_envio ?? r.forma_entrega ?? r.shipping_method ?? r.metodo_entrega ?? "",
-      last_status_change: r.last_status_change ?? {
-        user_name: r.estado_por ?? r.estado_changed_by ?? null,
-        changed_at: r.estado_actualizado ?? r.estado_changed_at ?? null,
-      },
-    }));
+    // ✅ FIX: guardamos id interno y shopify_id (para detalles)
+    const incoming = extracted.orders.map((r) => {
+      const internalId = r.id ?? r.pedido_id ?? r.queue_id ?? "";
+      const shopifyId =
+        r.shopify_order_id ??
+        r.shopify_id ??
+        r.order_id ??
+        r.shopifyId ??
+        r.shopifyOrderId ??
+        internalId;
+
+      return {
+        id: internalId,                 // para acciones producción
+        shopify_id: shopifyId,          // para detalles Shopify
+        numero: r.numero ?? r.name ?? (internalId ? ("#" + internalId) : ""),
+        fecha: r.fecha ?? r.created_at ?? r.order_date ?? null,
+        cliente: r.cliente ?? r.customer_name ?? r.customer ?? null,
+        total: r.total ?? r.total_price ?? null,
+        estado: r.estado ?? r.estado_bd ?? "Por producir",
+        etiquetas: r.etiquetas ?? r.tags ?? "",
+        articulos: r.articulos ?? r.items_count ?? r.items ?? "",
+        estado_envio: r.estado_envio ?? r.estado_entrega ?? r.fulfillment_status ?? "",
+        forma_envio: r.forma_envio ?? r.forma_entrega ?? r.shipping_method ?? r.metodo_entrega ?? "",
+        last_status_change: r.last_status_change ?? {
+          user_name: r.estado_por ?? r.estado_changed_by ?? null,
+          changed_at: r.estado_actualizado ?? r.estado_changed_at ?? null,
+        },
+      };
+    });
 
     pedidosCache = incoming;
     pedidosFiltrados = [...pedidosCache];
@@ -673,8 +672,7 @@ async function devolverPedidosRestantes() {
 }
 
 // =========================
-// DETALLES FULL (modalDetallesFull)
-// + Upload archivos Illustrator
+// DETALLES FULL + UPLOAD
 // =========================
 function setText(id, v) { const el = $(id); if (el) el.textContent = v ?? ""; }
 function setHtml(id, v) { const el = $(id); if (el) el.innerHTML = v ?? ""; }
@@ -718,16 +716,23 @@ window.copiarDetallesJson = async function () {
   }
 };
 
-function buildDetallesUrl(orderId) {
-  const id = encodeURIComponent(String(orderId || ""));
-  return `${API_BASE}/dashboard/detalles/${id}`;
+// ✅ endpoints robustos para detalles
+function buildDetallesEndpoints(shopifyId) {
+  const id = encodeURIComponent(String(shopifyId || ""));
+  return [
+    `${API_BASE}/dashboard/detalles/${id}`,
+    `/dashboard/detalles/${id}`,
+    `/index.php/dashboard/detalles/${id}`,
+    `/index.php/index.php/dashboard/detalles/${id}`,
+    `${API_BASE}/produccion/detalles/${id}`, // por si existe
+    `/produccion/detalles/${id}`,
+    `/index.php/produccion/detalles/${id}`,
+  ];
 }
 
-function buildUploadUrl(orderId) {
-  const id = encodeURIComponent(String(orderId || ""));
-  if (window.UPLOAD_ENDPOINT) {
-    return String(window.UPLOAD_ENDPOINT).replace("{id}", id);
-  }
+function buildUploadUrl(internalId) {
+  const id = encodeURIComponent(String(internalId || ""));
+  if (window.UPLOAD_ENDPOINT) return String(window.UPLOAD_ENDPOINT).replace("{id}", id);
   return `${API_BASE}/produccion/upload-archivos/${id}`;
 }
 
@@ -744,12 +749,32 @@ function fmtMoney(v) {
   return n.toFixed(2);
 }
 
-// ---- UI Upload (se inserta al final del modal, debajo de items)
-let currentDetailOrderId = null;
+let currentDetailInternalId = null;
+let currentDetailShopifyId = null;
 let selectedFiles = [];
 
+function hideUploadMsgs() {
+  $("uploadErrorGeneral")?.classList.add("hidden");
+  $("uploadOkGeneral")?.classList.add("hidden");
+  if ($("uploadErrorGeneral")) $("uploadErrorGeneral").textContent = "";
+  if ($("uploadOkGeneral")) $("uploadOkGeneral").textContent = "";
+}
+
+function showUploadError(msg) {
+  const el = $("uploadErrorGeneral");
+  if (!el) return;
+  el.textContent = msg || "Error subiendo archivos.";
+  el.classList.remove("hidden");
+}
+
+function showUploadOk(msg) {
+  const el = $("uploadOkGeneral");
+  if (!el) return;
+  el.textContent = msg || "Archivos subidos.";
+  el.classList.remove("hidden");
+}
+
 function renderUploadBox() {
-  // inyecta un bloque de upload dentro de #detItems al final (o en sidebar si quieres)
   const boxId = "uploadBoxGeneral";
   const existing = document.getElementById(boxId);
   if (existing) return;
@@ -823,32 +848,13 @@ function renderUploadBox() {
   }
 }
 
-function hideUploadMsgs() {
-  $("uploadErrorGeneral")?.classList.add("hidden");
-  $("uploadOkGeneral")?.classList.add("hidden");
-  if ($("uploadErrorGeneral")) $("uploadErrorGeneral").textContent = "";
-  if ($("uploadOkGeneral")) $("uploadOkGeneral").textContent = "";
-}
-
-function showUploadError(msg) {
-  const el = $("uploadErrorGeneral");
-  if (!el) return;
-  el.textContent = msg || "Error subiendo archivos.";
-  el.classList.remove("hidden");
-}
-
-function showUploadOk(msg) {
-  const el = $("uploadOkGeneral");
-  if (!el) return;
-  el.textContent = msg || "Archivos subidos.";
-  el.classList.remove("hidden");
-}
-
 async function subirArchivosGeneral() {
   hideUploadMsgs();
 
-  const orderId = currentDetailOrderId;
-  if (!orderId) {
+  const internalId = currentDetailInternalId;
+  const shopifyId = currentDetailShopifyId;
+
+  if (!internalId) {
     showUploadError("No hay pedido activo.");
     return;
   }
@@ -860,7 +866,6 @@ async function subirArchivosGeneral() {
     return;
   }
 
-  // Validación rápida
   const allowedExt = [".ai", ".eps", ".pdf", ".svg", ".zip"];
   const invalid = files.find(f => {
     const n = String(f.name || "").toLowerCase();
@@ -871,12 +876,12 @@ async function subirArchivosGeneral() {
     return;
   }
 
-  const url = buildUploadUrl(orderId);
+  const url = buildUploadUrl(internalId);
   const fd = new FormData();
-  fd.append("order_id", String(orderId));
+  fd.append("order_id", String(internalId));
+  fd.append("shopify_order_id", String(shopifyId || ""));
   files.forEach((f) => fd.append("files[]", f));
 
-  // CSRF para multipart (CI4)
   const csrfHeaders = getCsrfHeaders();
 
   try {
@@ -890,7 +895,6 @@ async function subirArchivosGeneral() {
       credentials: "same-origin",
     });
 
-    // intenta JSON
     const txt = await r.text();
     let data = null;
     try { data = JSON.parse(txt); } catch { data = null; }
@@ -908,14 +912,11 @@ async function subirArchivosGeneral() {
     }
 
     showUploadOk(data?.message || "Archivos subidos correctamente.");
-    // reset
+
     selectedFiles = [];
     if ($("inputUploadGeneral")) $("inputUploadGeneral").value = "";
     if ($("uploadListGeneral")) $("uploadListGeneral").innerHTML = "";
     if ($("uploadStatusGeneral")) $("uploadStatusGeneral").textContent = "Sin archivos";
-
-    // si quieres, refrescar detalles:
-    // await abrirDetallesPedido(orderId);
 
   } catch (e) {
     console.error("UPLOAD error", e);
@@ -926,21 +927,25 @@ async function subirArchivosGeneral() {
   }
 }
 
-async function abrirDetallesPedido(orderId) {
-  const id = String(orderId || "");
-  if (!id) return;
+async function abrirDetallesPedido(internalId) {
+  const iid = String(internalId || "");
+  if (!iid) return;
 
-  // Si el dashboard ya tiene su verDetalles, úsalo
+  // Si el dashboard ya tiene su verDetalles, úsalo (si estás compartiendo JS)
   if (typeof window.verDetalles === "function" && window.verDetalles !== window.verDetallesPedido) {
-    window.verDetalles(id);
+    window.verDetalles(iid);
     return;
   }
 
-  currentDetailOrderId = id;
+  // ✅ FIX: buscar shopify_id desde cache por id interno
+  const row = window.ordersById?.get(iid) || null;
+  const shopifyId = row?.shopify_id || row?.shopify_order_id || row?.shopifyId || iid;
+
+  currentDetailInternalId = iid;
+  currentDetailShopifyId = shopifyId;
 
   abrirDetallesFull();
 
-  // placeholders
   setText("detTitle", "Cargando...");
   setText("detSubtitle", "—");
   setText("detItemsCount", "0");
@@ -949,35 +954,57 @@ async function abrirDetallesPedido(orderId) {
   setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detJson", "");
+  if ($("detJson")) $("detJson").textContent = "";
 
   let payload = null;
-  try {
-    const url = buildDetallesUrl(id);
-    const r = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" });
-    const d = await r.json().catch(() => null);
-    if (!r.ok || !d || d.success !== true) throw new Error(d?.message || `HTTP ${r.status}`);
-    payload = d;
-  } catch (e) {
-    console.error("Detalle error:", e);
+  let lastText = "";
+  let lastStatus = 0;
+
+  // ✅ Robust fetch: prueba varias rutas
+  for (const url of buildDetallesEndpoints(shopifyId)) {
+    try {
+      const r = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+      lastStatus = r.status;
+      const txt = await r.text();
+      lastText = txt;
+
+      if (r.status === 404) continue;
+
+      let d = null;
+      try { d = JSON.parse(txt); } catch { d = null; }
+
+      if (!r.ok || !d || d.success !== true) {
+        // si viene JSON con error del backend (como tu screenshot)
+        const msg = d?.message || d?.error || `HTTP ${r.status}`;
+        throw new Error(msg);
+      }
+
+      payload = d;
+      break;
+    } catch (e) {
+      // continúa al siguiente endpoint
+    }
+  }
+
+  if (!payload) {
+    console.error("Detalle error:", { internalId: iid, shopifyId, lastStatus, lastText });
     setText("detTitle", "Error");
     setText("detSubtitle", "No se pudo cargar el detalle.");
     setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalle del pedido.</div>`);
+    // deja upload igual por si quieres adjuntar aunque Shopify falle
+    renderUploadBox();
     return;
   }
 
   const o = payload.order || {};
   const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
 
-  const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
+  const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || shopifyId)));
   const sub = `${o.customer_name || o.cliente || "—"} · ${o.created_at ? formatDateTime(o.created_at) : "—"}`;
   setText("detTitle", `Detalles ${name}`);
   setText("detSubtitle", sub);
 
-  // JSON
-  try {
-    $("detJson").textContent = JSON.stringify(payload, null, 2);
-  } catch {}
+  try { if ($("detJson")) $("detJson").textContent = JSON.stringify(payload, null, 2); } catch {}
 
   // Cliente
   const customer = o.customer || {};
@@ -990,7 +1017,8 @@ async function abrirDetallesPedido(orderId) {
       <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre)}</div>
       <div><span class="text-slate-500 font-bold">Email:</span> ${escapeHtml(o.email || "—")}</div>
       <div><span class="text-slate-500 font-bold">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
-      <div><span class="text-slate-500 font-bold">ID Pedido:</span> ${escapeHtml(o.id || id)}</div>
+      <div><span class="text-slate-500 font-bold">Shopify ID:</span> ${escapeHtml(o.id || shopifyId)}</div>
+      <div><span class="text-slate-500 font-bold">Interno:</span> ${escapeHtml(iid)}</div>
     </div>
   `);
 
@@ -1012,7 +1040,7 @@ async function abrirDetallesPedido(orderId) {
   const estado = o.estado ?? o.status ?? "—";
   const tags = String(o.tags ?? o.etiquetas ?? "").trim();
   const lastInfo = normalizeLastStatusChange(o.last_status_change || payload.last_status_change);
-  const lastText = lastInfo?.changed_at
+  const lastChangeText = lastInfo?.changed_at
     ? `${escapeHtml(lastInfo.user_name || "—")} · ${escapeHtml(formatDateTime(lastInfo.changed_at))}`
     : "—";
 
@@ -1020,14 +1048,13 @@ async function abrirDetallesPedido(orderId) {
     <div class="space-y-2 text-sm">
       <div><span class="text-slate-500 font-bold">Estado:</span> ${renderEstadoPill(estado)}</div>
       <div><span class="text-slate-500 font-bold">Etiquetas:</span> ${tags ? escapeHtml(tags) : "—"}</div>
-      <div><span class="text-slate-500 font-bold">Último cambio:</span> ${lastText}</div>
+      <div><span class="text-slate-500 font-bold">Último cambio:</span> ${lastChangeText}</div>
       <div><span class="text-slate-500 font-bold">Pago:</span> ${escapeHtml(o.financial_status || "—")}</div>
       <div><span class="text-slate-500 font-bold">Entrega:</span> ${escapeHtml(o.fulfillment_status || "—")}</div>
-      <div><span class="text-slate-500 font-bold">Gateway:</span> ${escapeHtml(o.gateway || "—")}</div>
     </div>
   `);
 
-  // Totales (fallbacks)
+  // Totales
   const subtotal = o.subtotal_price ?? "0";
   const envio =
     o.total_shipping_price_set?.shop_money?.amount ??
@@ -1150,7 +1177,7 @@ async function abrirDetallesPedido(orderId) {
 
   setHtml("detItems", itemsHtml);
 
-  // ✅ agrega bloque upload al final
+  // ✅ upload al final
   renderUploadBox();
 }
 
