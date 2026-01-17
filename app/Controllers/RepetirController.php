@@ -379,14 +379,14 @@ class RepetirController extends Controller
                 'count'   => 0,
                 'status'  => $status,
 
-                $ordersRaw = $json['orders'] ?? [];
-
             ])->setStatusCode(200);
 
         }
 
-
-        // ✅ 3) Mapear al formato del panel
+   // ✅ 3) Mapear al formato del panel
+        
+   $ordersRaw = $json['orders'] ?? [];
+        
         $orders = [];
         foreach ($ordersRaw as $o) {
             $orderId = $o['id'] ?? null;
