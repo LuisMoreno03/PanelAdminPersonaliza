@@ -743,7 +743,7 @@ function colorEtiqueta(tag) {
 }
 
 /* =====================================================
-// PÍLDORA ESTADO ENVÍO TEST
+// PÍLDORA ESTADO ENVÍO 
 ===================================================== */
 
 function renderEntregaPill(estadoEnvio) {
