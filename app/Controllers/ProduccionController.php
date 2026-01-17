@@ -120,6 +120,7 @@ class ProduccionController extends BaseController
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
             ")->getRowArray()['c'] ?? 0;
 
+
             $candidatos = $db->query("
                 SELECT p.id, p.shopify_order_id
                 FROM pedidos p
@@ -186,8 +187,13 @@ class ProduccionController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'ProduccionController pull ERROR: ' . $e->getMessage());
-            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno asignando pedidos']);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno asignando pedidos',
+                'debug' => $e->getMessage(),   // 👈 TEMPORAL
+            ]);
         }
+
     }
 
 
