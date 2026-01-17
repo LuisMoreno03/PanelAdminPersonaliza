@@ -93,9 +93,8 @@ function cargarPedidosRepetir(page = 1, { silent = false } = {}) {
         return;
       }
 
-      const pedidos = (data.orders || []).filter(
-        (p) => String(p.estado || "").trim().toLowerCase() === "repetir"
-      );
+      const pedidos = data.orders || [];
+
 
       const hash = JSON.stringify(pedidos.map((p) => p.id));
       if (hash === lastRenderedHash && Number(data.page) === currentPage) return;

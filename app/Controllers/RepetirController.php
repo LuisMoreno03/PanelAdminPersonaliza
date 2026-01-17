@@ -315,130 +315,157 @@ class RepetirController extends Controller
         return $this->pedidosPaginados();
     }
 
-    private function pedidosPaginados(): ResponseInterface
-    {
-
+ private function pedidosPaginados(): ResponseInterface
+{
     if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
+        return $this->response->setStatusCode(401)->setJSON([
+            'success' => false,
+            'message' => 'No autenticado',
+        ]);
+    }
+
+    try {
+        if (!$this->shop || !$this->token) {
+            return $this->response->setJSON([
                 'success' => false,
-                'message' => 'No autenticado',
-            ]);
+                'message' => 'Faltan credenciales Shopify',
+                'orders'  => [],
+                'count'   => 0,
+            ])->setStatusCode(200);
         }
 
+        $limit = 50;
+
+        $page = (int)($this->request->getGet('page') ?? 1);
+        if ($page < 1) $page = 1;
+
+        $offset = ($page - 1) * $limit;
+
+        // ✅ 1) IDs desde BD SOLO estado Repetir
+        $estadoModel = new PedidosEstadoModel();
+
+        $totalOrders = (int)$estadoModel->countByEstado('Repetir');
+        $idsPage     = $estadoModel->getOrderIdsByEstado('Repetir', $limit, $offset);
+
+        if (!$idsPage) {
+            return $this->response->setJSON([
+                'success' => true,
+                'orders'  => [],
+                'count'   => 0,
+                'limit'   => $limit,
+                'page'    => $page,
+                'total_orders' => $totalOrders,
+                'total_pages'  => (int)ceil($totalOrders / $limit),
+                'next_page_info' => null,
+                'prev_page_info' => null,
+            ])->setStatusCode(200);
+        }
+
+        // ✅ 2) Pedir a Shopify solo esos IDs
+        $idsStr = implode(',', array_map('intval', $idsPage));
+        $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?status=any&ids={$idsStr}";
+        $resp = $this->curlShopify($url, 'GET');
+
+        $status = $resp['status'];
+        $raw    = $resp['body'];
+        $json   = json_decode($raw, true) ?: [];
+
+        if ($status === 0 || !empty($resp['error']) || $status >= 400) {
+            log_message('error', 'SHOPIFY repetir ids HTTP ' . $status . ': ' . substr($raw ?? '', 0, 500));
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error consultando Shopify (ids)',
+                'orders'  => [],
+                'count'   => 0,
+                'status'  => $status,
+            ])->setStatusCode(200);
+        }
+
+        $ordersRaw = $json['orders'] ?? [];
+
+        // ✅ 3) Mapear al formato del panel
+        $orders = [];
+        foreach ($ordersRaw as $o) {
+            $orderId = $o['id'] ?? null;
+
+            $numero = $o['name'] ?? ('#' . ($o['order_number'] ?? $orderId));
+            $fecha  = isset($o['created_at']) ? substr((string)$o['created_at'], 0, 10) : '-';
+
+            $cliente = '-';
+            if (!empty($o['customer'])) {
+                $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
+                if ($cliente === '') $cliente = '-';
+            }
+
+            $total = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
+            $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
+
+            $estado_envio = $o['fulfillment_status'] ?? '-';
+            $forma_envio  = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
+
+            $orders[] = [
+                'id'           => $orderId,
+                'numero'       => $numero,
+                'fecha'        => $fecha,
+                'cliente'      => $cliente,
+                'total'        => $total,
+
+                // ✅ aquí ya sabemos que son repetir
+                'estado'       => 'Repetir',
+
+                'etiquetas'    => $o['tags'] ?? '',
+                'articulos'    => $articulos,
+                'estado_envio' => $estado_envio ?: '-',
+                'forma_envio'  => $forma_envio ?: '-',
+                'last_status_change' => null,
+            ];
+        }
+
+        // ✅ 4) Añadir info de último cambio desde BD (si quieres mostrarlo)
         try {
-            $pageInfo = (string) ($this->request->getGet('page_info') ?? '');
-            $limit    = 50;
+            $ids = array_values(array_unique(array_filter(array_map(fn($x) => (string)($x['id'] ?? ''), $orders))));
+            if ($ids) {
+                $map = $estadoModel->getEstadosForOrderIds($ids);
+                foreach ($orders as &$ord) {
+                    $oid = (string)($ord['id'] ?? '');
+                    if ($oid && isset($map[$oid])) {
+                        $row = $map[$oid];
+                        $ord['last_status_change'] = [
+                            'user_name'  => $row['estado_updated_by_name'] ?? 'Sistema',
+                            'changed_at' => $row['estado_updated_at'] ?? null,
+                        ];
+                    }
+                }
+                unset($ord);
+            }
+        } catch (\Throwable $e) {
+            log_message('error', 'last_status_change repetir: ' . $e->getMessage());
+        }
 
-            $page = (int) ($this->request->getGet('page') ?? 1);
-            if ($page < 1) $page = 1;
+        // ✅ 5) Respuesta final paginada por "page"
+        return $this->response->setJSON([
+            'success' => true,
+            'orders'  => $orders,
+            'count'   => count($orders),
+            'limit'   => $limit,
+            'page'    => $page,
+            'total_orders' => $totalOrders,
+            'total_pages'  => (int)ceil($totalOrders / $limit),
+            'next_page_info' => null,
+            'prev_page_info' => null,
+        ])->setStatusCode(200);
 
-            // ✅ IDs desde BD (SOLO repetir)
-$totalOrders = $estadoModel->countByEstado('Repetir');
-$idsPage = $estadoModel->getOrderIdsByEstado('Repetir', $limit, $offset);
-
-if (!$idsPage) {
-    return $this->response->setJSON([
-        'success' => true,
-        'orders' => [],
-        'count' => 0,
-        'limit' => $limit,
-        'page' => $page,
-        'total_orders' => $totalOrders,
-        'total_pages' => (int)ceil($totalOrders / $limit),
-        'next_page_info' => null,
-        'prev_page_info' => null,
-    ]);
+    } catch (\Throwable $e) {
+        log_message('error', 'REPETIR PEDIDOS ERROR: ' . $e->getMessage());
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'Error interno consultando pedidos',
+            'orders'  => [],
+            'count'   => 0,
+        ])->setStatusCode(200);
+    }
 }
 
-// ✅ Pedir a Shopify solo esos IDs
-$idsStr = implode(',', $idsPage);
-$url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?status=any&ids={$idsStr}";
-$resp = $this->curlShopify($url, 'GET');
-
-            $debug = (string) ($this->request->getGet('debug') ?? '');
-            $debugEnabled = ($debug === '1' || $debug === 'true');
-
-            if (!$this->shop || !$this->token) {
-                return $this->response->setJSON([
-                    'success' => false,
-                    'message' => 'Faltan credenciales Shopify',
-                    'orders'  => [],
-                    'count'   => 0,
-                ])->setStatusCode(200);
-            }
-
-            // 1) COUNT total pedidos (cache 5 min)
-            $cacheKey = 'shopify_orders_count_any';
-            $totalOrders = cache($cacheKey);
-
-            if ($totalOrders === null) {
-                $countUrl = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/count.json?status=any";
-                $countResp = $this->curlShopify($countUrl, 'GET');
-
-                $countStatus = $countResp['status'];
-                $countRaw = $countResp['body'];
-                $countJson = json_decode($countRaw, true) ?: [];
-
-                if ($countStatus >= 200 && $countStatus < 300) {
-                    $totalOrders = (int) ($countJson['count'] ?? 0);
-                    cache()->save($cacheKey, $totalOrders, 300);
-                } else {
-                    $totalOrders = 0;
-                    log_message('error', 'SHOPIFY COUNT HTTP ' . $countStatus . ': ' . substr($countRaw ?? '', 0, 500));
-                }
-            }
-
-            $totalPages = $totalOrders > 0 ? (int) ceil($totalOrders / $limit) : null;
-
-            // 2) ORDERS (50 en 50) con page_info
-            if ($pageInfo !== '') {
-                $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
-            } else {
-                // ⚠️ Shopify usa "order=" o "sort_by=" según endpoint; esto te ha funcionado así, lo dejamos
-                $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&status=any&order=created_at%20desc";
-            }
-
-            $resp = $this->curlShopify($url, 'GET');
-            $status = $resp['status'];
-            $raw    = $resp['body'];
-            $json   = json_decode($raw, true) ?: [];
-
-            if ($status === 0 || !empty($resp['error'])) {
-                log_message('error', 'SHOPIFY CURL ERROR: ' . ($resp['error'] ?? 'unknown'));
-                return $this->response->setJSON([
-                    'success' => false,
-                    'message' => 'Error conectando con Shopify (cURL)',
-                    'orders'  => [],
-                    'count'   => 0,
-                    'status'  => $status,
-                    'curl_error' => $resp['error'],
-                    'shopify_body' => $debugEnabled ? $raw : null,
-                ])->setStatusCode(200);
-            }
-
-            if ($status >= 400) {
-                log_message('error', 'SHOPIFY ORDERS HTTP ' . $status . ': ' . substr($raw ?? '', 0, 500));
-                return $this->response->setJSON([
-                    'success' => false,
-                    'message' => 'Error consultando Shopify',
-                    'orders'  => [],
-                    'count'   => 0,
-                    'status'  => $status,
-                    'shopify_body' => $debugEnabled ? $raw : null,
-                ])->setStatusCode(200);
-            }
-
-            if (!empty($json['errors'])) {
-                return $this->response->setJSON([
-                    'success' => false,
-                    'message' => 'Shopify devolvió errors',
-                    'orders'  => [],
-                    'count'   => 0,
-                    'status'  => $status,
-                    'shopify_errors' => $json['errors'],
-                    'shopify_body' => $debugEnabled ? $raw : null,
-                ])->setStatusCode(200);
-            }
 
             $ordersRaw = $json['orders'] ?? [];
 
@@ -566,7 +593,7 @@ $resp = $this->curlShopify($url, 'GET');
                 'count'   => 0,
             ])->setStatusCode(200);
         }
-    }
+    
 
     private function hasRepetirTag(?string $tags): bool
 {
@@ -1048,4 +1075,4 @@ $resp = $this->curlShopify($url, 'GET');
             'offline' => [],
         ]);
     }
-}
+
