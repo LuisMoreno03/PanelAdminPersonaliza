@@ -23,7 +23,7 @@ class RepetirController extends Controller
         'Enviado',
         'Repetir',
     ];
-}
+
 
     public function __construct()
     {
@@ -232,7 +232,7 @@ class RepetirController extends Controller
             if (mb_strtolower($ok) === $lower) return $ok;
         }
 
-        return 'pedidos';
+        return 'Por preparar';
     }
 
     // ============================================================
@@ -281,7 +281,7 @@ class RepetirController extends Controller
 
         return !empty($etiquetas) ? $etiquetas : $defaults;
 
-    } catch (\Throwable $e) {
+    }   catch (\Throwable $e) {
         log_message('error', 'getEtiquetasUsuario ERROR: ' . $e->getMessage());
         return $defaults;
     }
