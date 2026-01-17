@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <!-- (Opcional) si ya usas CSRF como en dashboard -->
+  <!-- (Opcional) CSRF -->
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
   <meta name="csrf-header" content="<?= csrf_header() ?>">
 
@@ -15,7 +15,9 @@
   <script src="https://unpkg.com/alpinejs" defer></script>
 
   <style>
-    body { background: #f3f4f6; }
+    .soft-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+    .soft-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    .soft-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
 
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(6px) scale(0.99); }
@@ -23,21 +25,10 @@
     }
     .animate-fadeIn { animation: fadeIn .18s ease-out; }
 
-    .soft-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
-    .soft-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
-    .soft-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
-
     /* ✅ Layout con menú (igual dashboard) */
-    .layout {
-      transition: padding-left .2s ease;
-      padding-left: 16rem; /* 256px (md:w-64) */
-    }
-    .layout.menu-collapsed {
-      padding-left: 5.25rem; /* 84px colapsado */
-    }
-    @media (max-width: 768px) {
-      .layout, .layout.menu-collapsed { padding-left: 0 !important; }
-    }
+    .layout { transition: padding-left .2s ease; padding-left: 16rem; }
+    .layout.menu-collapsed { padding-left: 5.25rem; }
+    @media (max-width: 768px) { .layout, .layout.menu-collapsed { padding-left: 0 !important; } }
   </style>
 </head>
 
@@ -46,7 +37,7 @@
   <!-- MENU -->
   <?= view('layouts/menu') ?>
 
-  <!-- CONTENIDO (igual dashboard) -->
+  <!-- CONTENIDO -->
   <main id="mainLayout" class="layout">
     <div class="p-4 sm:p-6 lg:p-8">
       <div class="mx-auto w-full max-w-[1600px]">
@@ -70,7 +61,7 @@
         <!-- LISTADO -->
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
 
-          <!-- Topbar como dashboard -->
+          <!-- Topbar -->
           <div class="px-4 py-3 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div class="flex items-center justify-between gap-3">
               <div class="font-semibold text-slate-900">Listado de pedidos</div>
@@ -79,10 +70,8 @@
               </div>
             </div>
 
-            <!-- Toolbar: buscador + acciones -->
+            <!-- Toolbar -->
             <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-
-              <!-- Buscador -->
               <div class="relative">
                 <input
                   id="inputBuscar"
@@ -100,10 +89,8 @@
                 Limpiar
               </button>
 
-              <!-- Separador -->
               <div class="hidden sm:block w-px h-11 bg-slate-200 mx-1"></div>
 
-              <!-- ✅ Botones pedidos (orden exacto) -->
               <button
                 id="btnTraer5"
                 class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition"
@@ -127,142 +114,153 @@
             </div>
           </div>
 
-          <!-- Tabla (manteniendo tu estructura actual, con look dashboard) -->
-          <div class="w-full overflow-x-auto soft-scroll">
-            <table class="min-w-[1400px] w-full text-sm">
-              <thead class="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
-                <tr class="text-left text-[11px] uppercase tracking-wider text-slate-600">
-                  <th class="px-5 py-4">Pedido</th>
-                  <th class="px-5 py-4">Fecha</th>
-                  <th class="px-5 py-4">Cliente</th>
-                  <th class="px-5 py-4">Total</th>
-                  <th class="px-5 py-4">Estado</th>
-                  <th class="px-5 py-4">Etiquetas</th>
-                  <th class="px-5 py-4">Artículos</th>
-                  <th class="px-5 py-4">Estado entrega</th>
-                  <th class="px-5 py-4">Forma entrega</th>
-                  <th class="px-5 py-4 text-right">Detalles</th>
-                </tr>
-              </thead>
+          <!-- =========================
+               ✅ LISTADO RESPONSIVE REAL
+          ========================= -->
+          <div class="w-full">
 
-              <tbody id="tablaPedidos" class="divide-y divide-slate-100 text-slate-800"></tbody>
-            </table>
+            <!-- ✅ GRID (2XL+) con Tailwind + scroll si falta -->
+            <div class="hidden 2xl:block w-full overflow-x-auto soft-scroll">
+              <!-- header -->
+              <div class="bg-slate-50 border-b border-slate-200 min-w-[1500px]">
+                <div class="
+                  grid items-center gap-3 px-4 py-3
+                  text-[11px] uppercase tracking-wider text-slate-600 font-extrabold
+                  [grid-template-columns:130px_135px_minmax(150px,1fr)_95px_185px_145px_150px_80px_150px_150px_130px]
+                ">
+                  <div>Pedido</div>
+                  <div>Fecha</div>
+                  <div>Cliente</div>
+                  <div>Total</div>
+                  <div>Estado</div>
+                  <div>Último cambio</div>
+                  <div>Etiquetas</div>
+                  <div class="text-center">Artículos</div>
+                  <div>Entrega</div>
+                  <div>Método</div>
+                  <div class="text-right">Detalles</div>
+                </div>
+              </div>
+
+              <!-- rows: tu JS debe renderizar DIVs con el MISMO grid-template-columns -->
+              <div id="tablaPedidos" class="min-w-[1500px]"></div>
+            </div>
+
+            <!-- ✅ TABLA con scroll (XL a <2XL) -->
+            <div class="hidden xl:block 2xl:hidden w-full overflow-x-auto soft-scroll">
+              <table class="min-w-[1500px] w-full text-sm">
+                <thead class="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
+                  <tr class="text-left text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
+                    <th class="px-5 py-4">Pedido</th>
+                    <th class="px-5 py-4">Fecha</th>
+                    <th class="px-5 py-4">Cliente</th>
+                    <th class="px-5 py-4">Total</th>
+                    <th class="px-5 py-4">Estado</th>
+                    <th class="px-5 py-4">Último cambio</th>
+                    <th class="px-5 py-4">Etiquetas</th>
+                    <th class="px-5 py-4 text-center">Artículos</th>
+                    <th class="px-5 py-4">Entrega</th>
+                    <th class="px-5 py-4">Método</th>
+                    <th class="px-5 py-4 text-right">Detalles</th>
+                  </tr>
+                </thead>
+
+                <tbody id="tablaPedidosTable" class="divide-y divide-slate-100 text-slate-800"></tbody>
+              </table>
+            </div>
+
+            <!-- ✅ CARDS (mobile/medio <XL) -->
+            <div id="cardsPedidos" class="block xl:hidden p-3"></div>
+
           </div>
 
-          <!-- Footer (paginación abajo, estilo dashboard) -->
+          <!-- Footer -->
           <div class="px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="text-xs text-slate-500">
-              Consejo: desplázate horizontalmente si hay muchas columnas.
+              Consejo: en desktop verás grid/tabla; en móvil verás tarjetas.
             </div>
 
             <div class="flex items-center gap-2">
-              <button
-                id="btnAnteriorBottom"
-                disabled
-                class="h-11 px-5 rounded-2xl bg-slate-200 text-slate-700 font-extrabold opacity-50 cursor-not-allowed"
-                onclick="paginaAnterior?.()"
-              >
-                ← Anterior
-              </button>
-
-              <button
-                id="btnSiguienteBottom"
-                onclick="paginaSiguiente()"
-                class="h-11 px-5 rounded-2xl bg-blue-600 text-white font-extrabold hover:bg-blue-700 transition"
-              >
-                Siguiente →
-              </button>
+              <span class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
+                Total: <span id="total-pedidos">0</span>
+              </span>
             </div>
           </div>
 
         </section>
-
-        <!-- (Opcional) paginación fuera como dashboard si la usas así
-        <section class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <button id="btnAnterior" disabled
-            class="w-full sm:w-auto px-5 py-3 rounded-2xl bg-slate-200 text-slate-700 font-bold opacity-50 cursor-not-allowed">
-            ← Anterior
-          </button>
-
-          <div class="flex items-center gap-2">
-            <span id="pillPagina" class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
-              Página 1
-            </span>
-            <span id="pillPaginaTotal" class="px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm">
-              Página 1
-            </span>
-          </div>
-
-          <button id="btnSiguiente" class="w-full sm:w-auto px-5 py-3 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-700">
-            Siguiente →
-          </button>
-        </section>
-        -->
 
       </div>
     </div>
   </main>
 
   <!-- =========================
-       MODAL DETALLES (tu mismo modal)
+       ✅ MODAL DETALLES FULL (igual dashboard)
   ========================= -->
-  <div id="modalDetalles"
-    class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+  <div id="modalDetallesFull" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50">
+    <div class="absolute inset-0 p-4 sm:p-6">
+      <div class="mx-auto h-full max-w-[1400px] rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-fadeIn">
 
-    <div class="bg-white w-[90%] h-[92%] rounded-3xl shadow-2xl border border-slate-200 p-6 overflow-hidden flex flex-col animate-fadeIn">
+        <div class="p-5 border-b border-slate-200 flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div id="detTitle" class="text-2xl sm:text-3xl font-extrabold text-slate-900 truncate">Detalles</div>
+            <div id="detSubtitle" class="text-sm text-slate-500 mt-1 truncate">—</div>
+          </div>
 
-      <div class="flex justify-between items-center border-b border-slate-200 pb-4">
-        <h2 id="tituloPedido" class="text-2xl font-extrabold text-slate-900">Detalles del pedido</h2>
-
-        <div class="flex gap-3">
-          <button onclick="abrirPanelCliente()"
-            class="h-11 px-4 rounded-2xl bg-blue-600 text-white font-extrabold hover:bg-blue-700 transition">
-            Información del cliente
-          </button>
-
-          <button onclick="cerrarModalDetalles()"
-            class="h-11 px-4 rounded-2xl bg-slate-200 text-slate-800 font-extrabold hover:bg-slate-300 transition">
-            Cerrar
-          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="toggleJsonDetalles()"
+              class="h-11 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold hover:bg-slate-50 transition">
+              JSON
+            </button>
+            <button type="button" onclick="copiarDetallesJson()"
+              class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition">
+              Copiar
+            </button>
+            <button type="button" onclick="cerrarDetallesFull()"
+              class="h-11 px-4 rounded-2xl bg-slate-200 text-slate-800 font-extrabold hover:bg-slate-300 transition">
+              Cerrar
+            </button>
+          </div>
         </div>
+
+        <div class="flex-1 overflow-hidden">
+          <div class="h-full grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-0">
+            <div class="h-full overflow-auto soft-scroll p-5">
+              <div class="flex items-center justify-between mb-4">
+                <div class="text-sm font-extrabold text-slate-900">
+                  Productos <span class="text-slate-500">·</span> <span id="detItemsCount">0</span>
+                </div>
+              </div>
+
+              <div id="detItems" class="space-y-3"></div>
+              <pre id="detJson" class="hidden mt-6 p-4 rounded-2xl bg-slate-950 text-slate-100 text-xs overflow-auto soft-scroll"></pre>
+            </div>
+
+            <div class="h-full overflow-auto soft-scroll p-5 border-l border-slate-200 bg-slate-50">
+              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Cliente</div>
+                <div id="detCliente" class="mt-2 text-sm text-slate-700"></div>
+              </div>
+
+              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Envío</div>
+                <div id="detEnvio" class="mt-2 text-sm text-slate-700"></div>
+              </div>
+
+              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Resumen</div>
+                <div id="detResumen" class="mt-2 text-sm text-slate-700"></div>
+              </div>
+
+              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Totales</div>
+                <div id="detTotales" class="mt-2 text-sm text-slate-700"></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
       </div>
-
-      <div id="detalleProductos"
-        class="flex-1 overflow-auto grid grid-cols-1 md:grid-cols-2 gap-4 p-4 soft-scroll"></div>
-
-      <div id="detalleTotales" class="border-t border-slate-200 pt-4 text-lg font-extrabold text-slate-900"></div>
-
-      <div class="flex gap-2 mb-4">
-        <button onclick="mostrarTodos()"
-          class="h-11 px-4 rounded-2xl bg-slate-200 text-slate-800 font-extrabold hover:bg-slate-300 transition">
-          Todos
-        </button>
-
-        <button onclick="filtrarPreparados()"
-          class="h-11 px-4 rounded-2xl bg-emerald-600 text-white font-extrabold hover:bg-emerald-700 transition">
-          Preparados
-        </button>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- PANEL CLIENTE -->
-  <div id="panelCliente"
-    class="hidden fixed inset-0 flex justify-end bg-black/30 backdrop-blur-sm z-50">
-    <div class="w-[380px] h-full bg-white shadow-xl border-l border-slate-200 p-6 overflow-y-auto animate-fadeIn soft-scroll">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="text-xl font-extrabold text-slate-900">Información del cliente</h3>
-        <button onclick="cerrarPanelCliente()" class="text-slate-600 hover:text-slate-900 text-2xl font-extrabold">×</button>
-      </div>
-
-      <div id="detalleCliente" class="space-y-2 mb-6"></div>
-
-      <h3 class="text-lg font-extrabold mt-6 text-slate-900">Dirección de envío</h3>
-      <div id="detalleEnvio" class="space-y-1 mb-6"></div>
-
-      <h3 class="text-lg font-extrabold mt-6 text-slate-900">Resumen del pedido</h3>
-      <div id="detalleResumen" class="space-y-1 mb-6"></div>
     </div>
   </div>
 
@@ -274,20 +272,18 @@
     </div>
   </div>
 
-  <!-- ✅ Variables globales (mantén las tuyas) -->
+  <!-- ✅ Variables globales -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
-    window.estadoFiltro = "Preparado";
-
-    // Si lo usas como en dashboard:
     window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
+    window.currentUserRole = <?= json_encode(session()->get('role') ?? '') ?>;
     window.API_BASE = "<?= rtrim(site_url(), '/') ?>";
   </script>
 
-  <!-- JS principal (romper caché opcional) -->
+  <!-- JS principal -->
   <script src="<?= base_url('js/produccion.js?v=' . time()) ?>" defer></script>
 
-  <!-- ✅ aplicar colapso si está guardado (igual dashboard) -->
+  <!-- ✅ aplicar colapso menú -->
   <script>
     (function () {
       const main = document.getElementById('mainLayout');

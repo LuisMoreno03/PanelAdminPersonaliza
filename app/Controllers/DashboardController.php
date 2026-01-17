@@ -181,28 +181,23 @@ class DashboardController extends Controller
         $lower = mb_strtolower($s);
 
         $map = [
-            // base
             'por preparar'     => 'Por preparar',
             'pendiente'        => 'Por preparar',
 
-            // faltan archivos
             'faltan archivos'  => 'Faltan archivos',
             'faltan archivo'   => 'Faltan archivos',
             'archivos faltan'  => 'Faltan archivos',
             'sin archivos'     => 'Faltan archivos',
 
-            // confirmado
             'confirmado'       => 'Confirmado',
             'confirmada'       => 'Confirmado',
 
-            // diseñado
             'diseñado'         => 'Diseñado',
             'disenado'         => 'Diseñado',
             'diseño'           => 'Diseñado',
             'ddiseño'          => 'Diseñado',
             'd.diseño'         => 'Diseñado',
 
-            // por producir
             'por producir'     => 'Por producir',
             'produccion'       => 'Por producir',
             'producción'       => 'Por producir',
@@ -214,11 +209,9 @@ class DashboardController extends Controller
             'a medias'         => 'Por producir',
             'produccion '      => 'Por producir',
 
-            // enviado
             'enviado'          => 'Enviado',
             'entregado'        => 'Enviado',
 
-            // repetir
             'repetir'          => 'Repetir',
             'reimpresion'      => 'Repetir',
             'reimpresión'      => 'Repetir',
@@ -234,117 +227,103 @@ class DashboardController extends Controller
         return 'Por preparar';
     }
 
-      private function moneyToDecimal($v): ?float
+    private function moneyToDecimal($v): ?float
     {
         if ($v === null || $v === '') return null;
-        // Shopify suele venir "123.45"
         $s = trim((string)$v);
         $s = str_replace(',', '.', $s);
         if (!is_numeric($s)) return null;
         return (float)$s;
     }
 
-    /**
-     * ✅ Guarda/actualiza pedidos de Shopify en tabla "pedidos"
-     * Requiere que existan las columnas vistas en tu screenshot.
-     */
     private function isoToMysql(?string $iso): ?string
-{
-    if (!$iso) return null;
-
-    // Shopify: 2026-01-15T23:50:57+00:00 / ...Z
-    $ts = strtotime($iso);
-    if (!$ts) return null;
-
-    return date('Y-m-d H:i:s', $ts);
-}
-
-/**
- * ✅ Guarda/actualiza pedidos de Shopify en tabla "pedidos"
- * Usa UPSERT por shopify_order_id (no toca "id" nunca).
- */
-private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): void
-{
-    if (empty($ordersRaw)) return;
-
-    $syncDebug = $syncDebug ?? [
-        'shopify_orders_returned' => count($ordersRaw),
-        'inserted' => 0,
-        'updated' => 0,
-        'last_db_error' => null,
-    ];
-
-    try {
-        $db  = \Config\Database::connect();
-        $now = date('Y-m-d H:i:s');
-
-        $sql = "
-            INSERT INTO pedidos
-                (shopify_order_id, numero, cliente, total, etiquetas, articulos, estado_envio, forma_envio, created_at, synced_at)
-            VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE
-                numero      = VALUES(numero),
-                cliente     = VALUES(cliente),
-                total       = VALUES(total),
-                etiquetas   = VALUES(etiquetas),
-                articulos   = VALUES(articulos),
-                estado_envio= VALUES(estado_envio),
-                forma_envio = VALUES(forma_envio),
-                synced_at   = VALUES(synced_at)
-        ";
-
-        foreach ($ordersRaw as $o) {
-            $shopifyId = (string)($o['id'] ?? '');
-            if ($shopifyId === '') continue;
-
-            $numero = (string)($o['name'] ?? '');
-
-            $cliente = '-';
-            if (!empty($o['customer'])) {
-                $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
-                if ($cliente === '') $cliente = '-';
-            }
-
-            $totalDec   = $this->moneyToDecimal($o['total_price'] ?? null);
-            $tags       = (string)($o['tags'] ?? '');
-            $articulos  = (isset($o['line_items']) && is_array($o['line_items'])) ? count($o['line_items']) : 0;
-            $estadoEnv  = (string)($o['fulfillment_status'] ?? '');
-            $formaEnvio = (!empty($o['shipping_lines'][0]['title'])) ? (string)$o['shipping_lines'][0]['title'] : '';
-
-            $createdAt = $this->isoToMysql($o['created_at'] ?? null);
-
-            // Detectar si existe ANTES para debug (opcional)
-            $exists = $db->query("SELECT id FROM pedidos WHERE shopify_order_id = ? LIMIT 1", [$shopifyId])->getRowArray();
-
-            $ok = $db->query($sql, [
-                $shopifyId,
-                $numero,
-                $cliente,
-                $totalDec,
-                $tags,
-                (int)$articulos,
-                $estadoEnv !== '' ? $estadoEnv : null,
-                $formaEnvio !== '' ? $formaEnvio : null,
-                $createdAt,
-                $now,
-            ]);
-
-            if (!$ok) {
-                $err = $db->error();
-                $syncDebug['last_db_error'] = $err['message'] ?? 'Unknown DB error';
-            } else {
-                if ($exists) $syncDebug['updated']++;
-                else $syncDebug['inserted']++;
-            }
-        }
-
-    } catch (\Throwable $e) {
-        $syncDebug['last_db_error'] = $e->getMessage();
-        log_message('error', 'syncPedidosToDb ERROR: ' . $e->getMessage());
+    {
+        if (!$iso) return null;
+        $ts = strtotime($iso);
+        if (!$ts) return null;
+        return date('Y-m-d H:i:s', $ts);
     }
-}
 
+    private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): void
+    {
+        if (empty($ordersRaw)) return;
+
+        $syncDebug = $syncDebug ?? [
+            'shopify_orders_returned' => count($ordersRaw),
+            'inserted' => 0,
+            'updated' => 0,
+            'last_db_error' => null,
+        ];
+
+        try {
+            $db  = \Config\Database::connect();
+            $now = date('Y-m-d H:i:s');
+
+            $sql = "
+                INSERT INTO pedidos
+                    (shopify_order_id, numero, cliente, total, etiquetas, articulos, estado_envio, forma_envio, created_at, synced_at)
+                VALUES
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    numero      = VALUES(numero),
+                    cliente     = VALUES(cliente),
+                    total       = VALUES(total),
+                    etiquetas   = VALUES(etiquetas),
+                    articulos   = VALUES(articulos),
+                    estado_envio= VALUES(estado_envio),
+                    forma_envio = VALUES(forma_envio),
+                    synced_at   = VALUES(synced_at)
+            ";
+
+            foreach ($ordersRaw as $o) {
+                $shopifyId = trim((string)($o['id'] ?? ''));
+                if ($shopifyId === '') continue;
+
+                $numero = (string)($o['name'] ?? '');
+
+                $cliente = '-';
+                if (!empty($o['customer'])) {
+                    $cliente = trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? ''));
+                    if ($cliente === '') $cliente = '-';
+                }
+
+                $totalDec   = $this->moneyToDecimal($o['total_price'] ?? null);
+                $tags       = (string)($o['tags'] ?? '');
+                $articulos  = (isset($o['line_items']) && is_array($o['line_items'])) ? count($o['line_items']) : 0;
+                $estadoEnv  = (string)($o['fulfillment_status'] ?? '');
+                $formaEnvio = (!empty($o['shipping_lines'][0]['title'])) ? (string)$o['shipping_lines'][0]['title'] : '';
+
+                $createdAt = $this->isoToMysql($o['created_at'] ?? null);
+
+                $exists = $db->query("SELECT id FROM pedidos WHERE shopify_order_id = ? LIMIT 1", [$shopifyId])->getRowArray();
+
+                $ok = $db->query($sql, [
+                    $shopifyId,
+                    $numero,
+                    $cliente,
+                    $totalDec,
+                    $tags,
+                    (int)$articulos,
+                    $estadoEnv !== '' ? $estadoEnv : null,
+                    $formaEnvio !== '' ? $formaEnvio : null,
+                    $createdAt,
+                    $now,
+                ]);
+
+                if (!$ok) {
+                    $err = $db->error();
+                    $syncDebug['last_db_error'] = $err['message'] ?? 'Unknown DB error';
+                } else {
+                    if ($exists) $syncDebug['updated']++;
+                    else $syncDebug['inserted']++;
+                }
+            }
+
+        } catch (\Throwable $e) {
+            $syncDebug['last_db_error'] = $e->getMessage();
+            log_message('error', 'syncPedidosToDb ERROR: ' . $e->getMessage());
+        }
+    }
 
     // ============================================================
     // ETIQUETAS/TAGS POR USUARIO
@@ -455,7 +434,6 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
                 ])->setStatusCode(200);
             }
 
-            // 1) COUNT total pedidos (cache 5 min)
             $cacheKey = 'shopify_orders_count_any';
             $totalOrders = cache($cacheKey);
 
@@ -478,11 +456,9 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
 
             $totalPages = $totalOrders > 0 ? (int) ceil($totalOrders / $limit) : null;
 
-            // 2) ORDERS (50 en 50) con page_info
             if ($pageInfo !== '') {
                 $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
             } else {
-                // ⚠️ Shopify usa "order=" o "sort_by=" según endpoint; esto te ha funcionado así, lo dejamos
                 $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&status=any&order=created_at%20desc";
             }
 
@@ -529,20 +505,17 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
             }
 
             $ordersRaw = $json['orders'] ?? [];
-            // ✅ Guardar/actualizar pedidos en BD (IMPORTANTE: usa shopify_order_id como string)
             $dbSyncDebug = null;
             $this->syncPedidosToDb($ordersRaw, $dbSyncDebug);
 
-
-            // Link header para page_info
             $linkHeader = $resp['headers']['link'] ?? null;
             if (is_array($linkHeader)) $linkHeader = end($linkHeader);
             [$nextPageInfo, $prevPageInfo] = $this->parseLinkHeaderForPageInfo(is_string($linkHeader) ? $linkHeader : null);
 
-            // 3) Mapear formato dashboard (DEFAULT)
             $orders = [];
             foreach ($ordersRaw as $o) {
-                $orderId = $o['id'] ?? null;
+                // ✅ FIX: asegurar string limpio
+                $orderId = trim((string)($o['id'] ?? ''));
 
                 $numero = $o['name'] ?? ('#' . ($o['order_number'] ?? $orderId));
                 $fecha  = isset($o['created_at']) ? substr((string)$o['created_at'], 0, 10) : '-';
@@ -565,10 +538,7 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
                     'fecha'        => $fecha,
                     'cliente'      => $cliente,
                     'total'        => $total,
-
-                    // default, luego se sobreescribe desde BD
                     'estado'       => 'Por preparar',
-
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
                     'estado_envio' => $estado_envio ?: '-',
@@ -599,9 +569,16 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
                             $ord2['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
                         }
 
+                        // ✅ FIX CLAVE: tu tabla guarda fecha en "actualizado"
+                        // y estado_updated_at te sale NULL (lo vimos en tu screenshot).
+                        $changedAt = $rowEstado['estado_updated_at'] ?? null;
+                        if (!$changedAt && !empty($rowEstado['actualizado'])) {
+                            $changedAt = $rowEstado['actualizado'];
+                        }
+
                         $ord2['last_status_change'] = [
                             'user_name'  => $rowEstado['estado_updated_by_name'] ?? 'Sistema',
-                            'changed_at' => $rowEstado['estado_updated_at'] ?? null,
+                            'changed_at' => $changedAt,
                         ];
                     }
                     unset($ord2);
@@ -610,7 +587,6 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
                 log_message('error', 'Override estado pedidos_estado falló: ' . $e->getMessage());
             }
 
-            // 5) Respuesta final + debug opcional
             $payload = [
                 'success'        => true,
                 'orders'         => $orders,
@@ -632,10 +608,8 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
                     'link' => $linkHeader,
                     'orders_returned' => count($ordersRaw),
                 ];
-
-                $payload['db_sync_debug'] = $dbSyncDebug; // <-- esto viene de syncPedidosToDb()
+                $payload['db_sync_debug'] = $dbSyncDebug;
             }
-
 
             return $this->response->setJSON($payload);
 
@@ -667,7 +641,6 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
         $data = $this->request->getJSON(true);
         if (!is_array($data)) $data = [];
 
-        // ✅ Acepta varias keys posibles (según cómo lo envíe el front)
         $orderId = trim((string)(
             $data['order_id'] ??
             $data['shopify_order_id'] ??
@@ -675,16 +648,15 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
             ''
         ));
 
-        // ✅ Normalizar y bloquear el "0" (esto era tu bug)
+        // ✅ FIX: bloquear vacío y 0
         if ($orderId === '' || $orderId === '0') {
             return $this->response->setJSON([
                 'success' => false,
                 'message' => 'order_id inválido (vacío o 0). Revisa el frontend / payload.',
-                'debug_received' => $data, // 👈 te muestra exactamente qué llegó
+                'debug_received' => $data,
             ])->setStatusCode(200);
         }
 
-        // ✅ Estado
         $estado = $this->normalizeEstado((string)($data['estado'] ?? ''));
 
         if (!in_array($estado, $this->allowedEstados, true)) {
@@ -702,8 +674,12 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
 
             $model = new PedidosEstadoModel();
 
-            // ✅ Guardar usando Shopify ID como STRING
-            $ok = $model->setEstadoPedido($orderId, $estado, $userId ? (int)$userId : null, (string)$userName);
+            $ok = $model->setEstadoPedido(
+                $orderId,
+                $estado,
+                $userId ? (int)$userId : null,
+                (string)$userName
+            );
 
             return $this->response->setJSON([
                 'success'  => (bool)$ok,
@@ -720,7 +696,6 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
             ])->setStatusCode(200);
         }
     }
-
 
     // ============================================================
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
@@ -751,7 +726,6 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
                 ])->setStatusCode(200);
             }
 
-            // 1) PEDIDO SHOPIFY
             $urlOrder = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/" . urlencode($orderId) . ".json";
             $resp = $this->curlShopify($urlOrder, 'GET');
 
@@ -773,8 +747,7 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
                     'message' => 'Pedido no encontrado',
                 ])->setStatusCode(200);
             }
-             
-            // 2) IMÁGENES DE PRODUCTOS (SHOPIFY)
+
             $lineItems = $order['line_items'] ?? [];
             $productIds = [];
 
@@ -785,7 +758,7 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
             }
             $productIds = array_keys($productIds);
 
-            $productImages = []; // product_id => url
+            $productImages = [];
 
             foreach ($productIds as $pid) {
                 $urlProd = "https://{$this->shop}/admin/api/{$this->apiVersion}/products/{$pid}.json?fields=id,image,images";
@@ -797,18 +770,12 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
                 if (!$p) continue;
 
                 $img = '';
-                if (!empty($p['image']['src'])) {
-                    $img = $p['image']['src'];
-                } elseif (!empty($p['images'][0]['src'])) {
-                    $img = $p['images'][0]['src'];
-                }
+                if (!empty($p['image']['src'])) $img = $p['image']['src'];
+                elseif (!empty($p['images'][0]['src'])) $img = $p['images'][0]['src'];
 
-                if ($img) {
-                    $productImages[(string)$pid] = $img;
-                }
+                if ($img) $productImages[(string)$pid] = $img;
             }
 
-            // 3) IMÁGENES LOCALES (BD)
             $imagenesLocales = [];
 
             try {
@@ -849,234 +816,7 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
     }
 
     // ============================================================
-    // BADGE ESTADO
-    // ============================================================
-
-    private function badgeEstado(string $estado): string
-    {
-        $estado = $this->normalizeEstado($estado);
-
-        $estilos = [
-            "Por preparar"    => "bg-slate-900 text-white",
-            "Faltan archivos" => "bg-yellow-400 text-slate-900",
-            "Confirmado"      => "bg-fuchsia-600 text-white",
-            "Diseñado"        => "bg-blue-600 text-white",
-            "Por producir"    => "bg-orange-600 text-white",
-            "Enviado"         => "bg-emerald-600 text-white",
-            "Repetir"         => "bg-slate-800 text-white",
-        ];
-
-        $clase = $estilos[$estado] ?? "bg-gray-200 text-gray-900";
-        $estadoEsc = htmlspecialchars($estado, ENT_QUOTES, 'UTF-8');
-
-        return '<span class="px-3 py-1 rounded-full text-xs font-extrabold tracking-wide ' . $clase . '">' . $estadoEsc . '</span>';
-    }
-
-    // ============================================================
-    // HELPERS IMAGENES
-    // ============================================================
-
-    private function extractImageUrlsFromLineItem(array $item): array
-    {
-        $urls = [];
-
-        $props = $item['properties'] ?? [];
-        if (is_array($props)) {
-            foreach ($props as $p) {
-                $val = (string)($p['value'] ?? '');
-                if ($val === '') continue;
-
-                if (preg_match('#^https?://#i', $val) && preg_match('#\.(png|jpe?g|webp|gif|svg)(\?.*)?$#i', $val)) {
-                    $urls[] = $val;
-                }
-
-                if (str_starts_with($val, 'data:image/')) {
-                    $urls[] = $val;
-                }
-            }
-        }
-
-        return array_values(array_unique($urls));
-    }
-
-    private function buildModifiedImage(string $src, string $destAbsPath): bool
-    {
-        try {
-            $bytes = null;
-
-            if (str_starts_with($src, 'data:image/')) {
-                $parts = explode(',', $src, 2);
-                $bytes = base64_decode($parts[1] ?? '', true);
-            } else {
-                $client = \Config\Services::curlrequest(['timeout' => 30, 'http_errors' => false]);
-                $r = $client->get($src);
-                if ($r->getStatusCode() >= 400) return false;
-                $bytes = $r->getBody();
-            }
-
-            if (!$bytes) return false;
-
-            $tmp = WRITEPATH . 'cache/img_' . uniqid() . '.bin';
-            file_put_contents($tmp, $bytes);
-
-            $image = \Config\Services::image();
-            $image->withFile($tmp)
-                ->resize(1200, 1200, true, 'width')
-                ->convert(IMAGETYPE_WEBP)
-                ->save($destAbsPath, 85);
-
-            @unlink($tmp);
-            return true;
-
-        } catch (\Throwable $e) {
-            log_message('error', 'buildModifiedImage: ' . $e->getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * ✅ Procesa imágenes y calcula estado automático.
-     * IMPORTANTE: con tus estados nuevos:
-     * - si faltan imágenes => "Faltan archivos"
-     * - si están todas listas => "Por producir"
-     */
-    private function procesarImagenesYEstado(array &$order): void
-    {
-        $orderId = (string)($order['id'] ?? '');
-        $orderId = trim($orderId);
-        if ($orderId === '') return;
-
-
-        $db = \Config\Database::connect();
-
-        $lineItems = $order['line_items'] ?? [];
-        if (!is_array($lineItems)) $lineItems = [];
-
-        $totalRequeridas = 0;
-        $totalListas = 0;
-
-        $baseDir = FCPATH . 'uploads/pedidos/' . $orderId . '/';
-        if (!is_dir($baseDir)) @mkdir($baseDir, 0775, true);
-
-        $modelImg = new PedidoImagenModel();
-        $imagenesLocales = $modelImg->getByOrder((string)$orderId);
-        if (!is_array($imagenesLocales)) $imagenesLocales = [];
-
-        foreach ($lineItems as $idx => &$item) {
-            $idx = (int)$idx;
-
-            $urls = $this->extractImageUrlsFromLineItem($item);
-            if (!$urls) continue;
-
-            $totalRequeridas++;
-            $original = $urls[0];
-
-            $row = $db->table('pedido_imagenes')
-                ->where('order_id', $orderId)
-                ->where('line_index', $idx)
-                ->get()->getRowArray();
-
-            $localUrl = $row['local_url'] ?? null;
-            $status   = $row['status'] ?? 'missing';
-
-            if ($localUrl && $status === 'ready') {
-                $totalListas++;
-                $imagenesLocales[$idx] = $localUrl;
-                $item['local_image_url'] = $localUrl;
-                continue;
-            }
-
-            $db->table('pedido_imagenes')->replace([
-                'order_id'     => $orderId,
-                'line_index'   => $idx,
-                'original_url' => $original,
-                'local_url'    => $localUrl,
-                'status'       => 'processing',
-                'updated_at'   => date('Y-m-d H:i:s'),
-            ]);
-
-            $fileName = "item_{$idx}.webp";
-            $destAbs = $baseDir . $fileName;
-            $destUrl = base_url("uploads/pedidos/{$orderId}/{$fileName}");
-
-            $ok = $this->buildModifiedImage($original, $destAbs);
-
-            if ($ok) {
-                $totalListas++;
-                $imagenesLocales[$idx] = $destUrl;
-                $item['local_image_url'] = $destUrl;
-
-                $db->table('pedido_imagenes')->replace([
-                    'order_id'     => $orderId,
-                    'line_index'   => $idx,
-                    'original_url' => $original,
-                    'local_url'    => $destUrl,
-                    'status'       => 'ready',
-                    'updated_at'   => date('Y-m-d H:i:s'),
-                ]);
-            } else {
-                $db->table('pedido_imagenes')->replace([
-                    'order_id'     => $orderId,
-                    'line_index'   => $idx,
-                    'original_url' => $original,
-                    'local_url'    => null,
-                    'status'       => 'error',
-                    'updated_at'   => date('Y-m-d H:i:s'),
-                ]);
-            }
-        }
-        unset($item);
-
-        // ✅ Estados auto según tu modal
-        $estadoAuto = null;
-        if ($totalRequeridas > 0) {
-            $estadoAuto = ($totalListas >= $totalRequeridas) ? 'Por producir' : 'Faltan archivos';
-        }
-
-        $order['imagenes_locales'] = $imagenesLocales;
-        $order['auto_estado'] = $estadoAuto;
-        $order['auto_images_required'] = $totalRequeridas;
-        $order['auto_images_ready'] = $totalListas;
-
-        // ✅ IMPORTANTE: el auto-estado NO debe pisar el manual
-        if ($estadoAuto) {
-            $this->guardarEstadoSistema($orderId, $estadoAuto);
-        }
-    }
-
-    /**
-     * ✅ Auto-estado del sistema SIN PISAR el manual.
-     * Requiere que PedidosEstadoModel tenga getEstadoPedido($orderId).
-     */
-    private function guardarEstadoSistema(string $orderId, string $estado): void
-    {
-        try {
-            $estado = $this->normalizeEstado($estado);
-
-            $model = new PedidosEstadoModel();
-
-            // ✅ Si ya hay estado manual, no sobrescribir
-            if (method_exists($model, 'getEstadoPedido')) {
-                $actual = $model->getEstadoPedido($orderId);
-
-                if ($actual) {
-                    $byName = trim((string)($actual['estado_updated_by_name'] ?? ''));
-                    $byId   = (int)($actual['estado_updated_by'] ?? 0);
-
-                    // si lo cambió un usuario (no "Sistema"), respetar
-                    if ($byId > 0) return;
-                    if ($byName !== '' && mb_strtolower($byName) !== 'sistema') return;
-                }
-            }
-
-            $model->setEstadoPedido($orderId, $estado, null, 'Sistema');
-        } catch (\Throwable $e) {
-            log_message('error', 'guardarEstadoSistema: ' . $e->getMessage());
-        }
-    }
-
-    // ============================================================
-    // ENDPOINT: /dashboard/etiquetas-disponibles
+    // ENDPOINTS
     // ============================================================
 
     public function etiquetasDisponibles()
@@ -1094,10 +834,6 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
         ]);
     }
 
-    // ============================================================
-    // ENDPOINT: /dashboard/ping
-    // ============================================================
-
     public function ping()
     {
         if (!session()->get('logged_in')) {
@@ -1113,10 +849,6 @@ private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): vo
             'user' => session('nombre') ?? 'Usuario',
         ]);
     }
-
-    // ============================================================
-    // ENDPOINT: /dashboard/usuarios-estado
-    // ============================================================
 
     public function usuariosEstado()
     {
