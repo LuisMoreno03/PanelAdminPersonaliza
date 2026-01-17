@@ -15,32 +15,35 @@
   <script src="https://unpkg.com/alpinejs" defer></script>
 
   <style>
-  /* ✅ Grid columnas (más compacto para que quepa TODO en desktop) */
-  .orders-grid.cols{
-    display:grid;
-    grid-template-columns:
-      130px 135px minmax(190px,1fr) 95px
-      185px 145px 170px 80px
-      150px 170px 130px;
-    gap:12px;
-    align-items:center;
-  }
+    body { background: #f3f4f6; }
 
-  /* ✅ ETIQUETAS más compacto + NO rompe layout */
-  .col-etiquetas { max-width: 120px; width: 120px; overflow: hidden; }
-  .tags-wrap-mini { display:flex; gap:6px; flex-wrap:nowrap; overflow:hidden; }
-  .tag-mini{
-    display:inline-flex; align-items:center;
-    height:18px; padding:0 6px; border-radius:999px;
-    font-size:10px; font-weight:800; line-height:18px;
-    border:1px solid #e2e8f0; background:#f8fafc; color:#0f172a;
-    white-space:nowrap;
-  }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px) scale(0.99); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .animate-fadeIn { animation: fadeIn .18s ease-out; }
 
-  /* ✅ Método/cliente no rompen */
-  .cell-truncate{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-</style>
+    .soft-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+    .soft-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    .soft-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
 
+    /* ✅ Layout con menú (igual dashboard) */
+    .layout { transition: padding-left .2s ease; padding-left: 16rem; }
+    .layout.menu-collapsed { padding-left: 5.25rem; }
+    @media (max-width: 768px) { .layout, .layout.menu-collapsed { padding-left: 0 !important; } }
+
+    /* ✅ ETIQUETAS mini (para no comerse el ancho) */
+    .col-etiquetas { max-width: 120px; width: 120px; overflow: hidden; }
+    .tags-wrap-mini { display:flex; gap:6px; flex-wrap:nowrap; overflow:hidden; max-width:120px; }
+    .tag-mini{
+      display:inline-flex; align-items:center;
+      height:18px; padding:0 6px; border-radius:999px;
+      font-size:10px; font-weight:800; line-height:18px;
+      border:1px solid #e2e8f0; background:#f8fafc; color:#0f172a;
+      white-space:nowrap;
+      flex: 0 0 auto;
+    }
+  </style>
 </head>
 
 <body class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 overflow-x-hidden">
@@ -83,8 +86,6 @@
 
             <!-- Toolbar -->
             <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-
-              <!-- Buscador -->
               <div class="relative">
                 <input
                   id="inputBuscar"
@@ -127,69 +128,35 @@
             </div>
           </div>
 
-          <!-- ✅ LISTADO estilo DASHBOARD (RESPONSIVE REAL) -->
-          <div class="w-full">
-
-            <!-- Header grid (solo pantallas 2xl+) -->
-           <div class="hidden 2xl:block bg-slate-50 border-b border-slate-200">
-            <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
-              <div>Pedido</div>
-              <div>Fecha</div>
-              <div>Cliente</div>
-              <div>Total</div>
-              <div>Estado</div>
-              <div>Último cambio</div>
-              <div>Etiquetas</div>
-              <div class="text-center">Artículos</div>
-              <div>Entrega</div>
-              <div>Método</div>
-              <div class="text-right">Detalles</div>
-            </div>
+          <!-- ✅ DESKTOP: TABLA CON SCROLL (igual dashboard) -->
+          <div class="hidden xl:block w-full overflow-x-auto soft-scroll">
+            <table class="min-w-[1600px] w-full text-sm">
+              <thead class="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
+                <tr class="text-left text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
+                  <th class="px-5 py-4">Pedido</th>
+                  <th class="px-5 py-4">Fecha</th>
+                  <th class="px-5 py-4">Cliente</th>
+                  <th class="px-5 py-4">Total</th>
+                  <th class="px-5 py-4">Estado</th>
+                  <th class="px-5 py-4">Último cambio</th>
+                  <th class="px-5 py-4 col-etiquetas">Etiquetas</th>
+                  <th class="px-5 py-4 text-center">Artículos</th>
+                  <th class="px-5 py-4">Entrega</th>
+                  <th class="px-5 py-4">Método</th>
+                  <th class="px-5 py-4 text-right">Detalles</th>
+                </tr>
+              </thead>
+              <tbody id="tablaPedidosTable" class="divide-y divide-slate-100 text-slate-800"></tbody>
+            </table>
           </div>
 
-
-            <!-- ✅ GRID grande (2xl+) -->
-            <!-- OJO: tu JS debe renderizar aquí DIVs tipo grid.
-                 Para etiquetas: usa <div class="col-etiquetas"><div class="tags-wrap-mini">...</div></div>
-            -->
-            <div id="tablaPedidos" class="hidden 2xl:block"></div>
-
-            <!-- ✅ TABLA con scroll para pantallas intermedias (xl y 2xl-) -->
-            <div class="hidden xl:block 2xl:hidden w-full overflow-x-auto soft-scroll">
-              <table class="min-w-[1400px] w-full text-sm">
-                <thead class="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
-                  <tr class="text-left text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
-                    <th class="px-5 py-4">Pedido</th>
-                    <th class="px-5 py-4">Fecha</th>
-                    <th class="px-5 py-4">Cliente</th>
-                    <th class="px-5 py-4">Total</th>
-                    <th class="px-5 py-4">Estado</th>
-                    <th class="px-5 py-4">Último cambio</th>
-
-                    <!-- ✅ ETIQUETAS compact -->
-                    <th class="px-5 py-4 col-etiquetas">Etiquetas</th>
-
-                    <th class="px-5 py-4 text-center">Artículos</th>
-                    <th class="px-5 py-4">Entrega</th>
-                    <th class="px-5 py-4">Método</th>
-                    <th class="px-5 py-4 text-right">Detalles</th>
-                  </tr>
-                </thead>
-
-                <!-- ✅ aquí renderizas filas TR cuando estás en "modo tabla" -->
-                <tbody id="tablaPedidosTable" class="divide-y divide-slate-100 text-slate-800"></tbody>
-              </table>
-            </div>
-
-            <!-- ✅ CARDS móvil/mediano (<xl) -->
-            <div id="cardsPedidos" class="block xl:hidden p-3"></div>
-
-          </div>
+          <!-- ✅ MOBILE/TABLET: CARDS (igual dashboard) -->
+          <div id="cardsPedidos" class="block xl:hidden p-3"></div>
 
           <!-- Footer -->
           <div class="px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="text-xs text-slate-500">
-              Consejo: en desktop verás el grid; en móvil verás tarjetas.
+              Consejo: en desktop verás la tabla con scroll; en móvil verás tarjetas.
             </div>
 
             <div class="flex items-center gap-2">
@@ -205,84 +172,6 @@
     </div>
   </main>
 
-  <!-- =========================
-       ✅ MODAL DETALLES FULL (estilo dashboard)
-  ========================= -->
-  <div id="modalDetallesFull" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50">
-    <div class="absolute inset-0 p-4 sm:p-6">
-      <div class="mx-auto h-full max-w-[1400px] rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-fadeIn">
-
-        <!-- Header -->
-        <div class="p-5 border-b border-slate-200 flex items-start justify-between gap-4">
-          <div class="min-w-0">
-            <div id="detTitle" class="text-2xl sm:text-3xl font-extrabold text-slate-900 truncate">Detalles</div>
-            <div id="detSubtitle" class="text-sm text-slate-500 mt-1 truncate">—</div>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <button type="button" onclick="toggleJsonDetalles()"
-              class="h-11 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold hover:bg-slate-50 transition">
-              JSON
-            </button>
-            <button type="button" onclick="copiarDetallesJson()"
-              class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition">
-              Copiar
-            </button>
-            <button type="button" onclick="cerrarDetallesFull()"
-              class="h-11 px-4 rounded-2xl bg-slate-200 text-slate-800 font-extrabold hover:bg-slate-300 transition">
-              Cerrar
-            </button>
-          </div>
-        </div>
-
-        <!-- Body -->
-        <div class="flex-1 overflow-hidden">
-          <div class="h-full grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-0">
-
-            <!-- Left: items -->
-            <div class="h-full overflow-auto soft-scroll p-5">
-              <div class="flex items-center justify-between mb-4">
-                <div class="text-sm font-extrabold text-slate-900">
-                  Productos <span class="text-slate-500">·</span> <span id="detItemsCount">0</span>
-                </div>
-              </div>
-
-              <div id="detItems" class="space-y-3"></div>
-
-              <pre id="detJson" class="hidden mt-6 p-4 rounded-2xl bg-slate-950 text-slate-100 text-xs overflow-auto soft-scroll"></pre>
-            </div>
-
-            <!-- Right: panels -->
-            <div class="h-full overflow-auto soft-scroll p-5 border-l border-slate-200 bg-slate-50">
-
-              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Cliente</div>
-                <div id="detCliente" class="mt-2 text-sm text-slate-700"></div>
-              </div>
-
-              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
-                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Envío</div>
-                <div id="detEnvio" class="mt-2 text-sm text-slate-700"></div>
-              </div>
-
-              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
-                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Resumen</div>
-                <div id="detResumen" class="mt-2 text-sm text-slate-700"></div>
-              </div>
-
-              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
-                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Totales</div>
-                <div id="detTotales" class="mt-2 text-sm text-slate-700"></div>
-              </div>
-
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
   <!-- LOADER GLOBAL -->
   <div id="globalLoader" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]">
     <div class="bg-white p-6 rounded-3xl shadow-xl text-center animate-fadeIn border border-slate-200">
@@ -294,10 +183,8 @@
   <!-- ✅ Variables globales -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
-
     window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
     window.currentUserRole = <?= json_encode(session()->get('role') ?? '') ?>;
-
     window.API_BASE = "<?= rtrim(site_url(), '/') ?>";
   </script>
 
