@@ -126,7 +126,7 @@ class ProduccionController extends BaseController
             $disponibles = $db->query("
                 SELECT COUNT(*) c
                 FROM pedidos_estado pe
-                JOIN pedidos p ON p.shopify_order_id = pe.order_id
+                JOIN pedidos_estado pe ON pe.order_id = p.shopify_order_id
                 WHERE LOWER(TRIM(pe.estado))='confirmado'
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
             ")->getRowArray()['c'] ?? 0;
@@ -182,7 +182,9 @@ class ProduccionController extends BaseController
                 ]);
             }
 
+            require_once APPPATH . 'Models/PedidosEstadoModel.php';
             $estadoModel = new \App\Models\PedidosEstadoModel();
+
             foreach ($candidatos as $c) {
                 $oid = trim((string)($c['shopify_order_id'] ?? ''));
                 if ($oid === '' || $oid === '0') continue;
