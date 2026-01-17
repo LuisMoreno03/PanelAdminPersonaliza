@@ -1,11 +1,30 @@
 /**
- * produccion.js (CI4) — FIX COMPLETO (RESPONSIVE COMO DASHBOARD)
- * - Grid (2xl) + Tabla con scroll (xl..2xl-) + Cards (<xl)
- * - GRID 2XL alineado con el header del view (Tailwind [grid-template-columns:...])
- * - Etiquetas COMPACTAS: usa .col-etiquetas + .tags-wrap-mini + .tag-mini (CSS del view)
- * - Botón "Ver detalles →" (OPCION A) en grid/tabla/cards
- * - Detalle FULL usando el modal #modalDetallesFull (del view)
- * - Si existe window.verDetalles del dashboard, se usa y no se pisa
+ * produccion.js (CI4) — COMPLETO + RESPONSIVE + DETALLES FULL + SUBIR ARCHIVOS
+ *
+ * ✅ Listado responsive igual dashboard:
+ *   - 2xl: Grid (divs) (#tablaPedidos)
+ *   - xl..2xl-: Tabla con scroll (#tablaPedidosTable)
+ *   - <xl: Cards (#cardsPedidos)
+ *
+ * ✅ Botón "Ver detalles →" (OPCION A) en grid/tabla/cards
+ * ✅ Etiquetas ULTRA compactas (usa .col-etiquetas + .tags-wrap-mini + .tag-mini del view)
+ * ✅ Detalles FULL usando modal #modalDetallesFull (del view)
+ * ✅ Muestra: cliente, envío, resumen, totales, items, properties, imágenes, etc.
+ *
+ * ✅ Upload de archivos Illustrator (AI/EPS/PDF/SVG/ZIP) en el modal:
+ *   - input multiple
+ *   - preview de nombres
+ *   - botón subir
+ *   - usa endpoint configurable:
+ *       window.UPLOAD_ENDPOINT o por defecto: /produccion/upload-archivos/{orderId}
+ *   - envía FormData con files[] y order_id
+ *
+ * Endpoints:
+ * - GET  /produccion/my-queue
+ * - POST /produccion/pull        {count: 5|10}
+ * - POST /produccion/return-all  {}
+ * - GET  /dashboard/detalles/{id}  (detalle pedido)
+ * - POST /produccion/upload-archivos/{id} (subida archivos)  <-- debes crearlo en backend
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -80,7 +99,6 @@ function parseDateSafe(dtStr) {
   let s = String(dtStr).trim();
   if (!s) return null;
 
-  // epoch
   if (/^\d+$/.test(s)) {
     const n = Number(s);
     const ms = s.length <= 10 ? n * 1000 : n;
@@ -88,7 +106,6 @@ function parseDateSafe(dtStr) {
     return isNaN(d) ? null : d;
   }
 
-  // "YYYY-MM-DD HH:mm:ss" -> ISO-ish
   if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(s)) s = s.replace(" ", "T");
 
   const d = new Date(s);
@@ -126,30 +143,14 @@ function estadoStyle(estado) {
     "text-xs font-extrabold shadow-sm tracking-wide uppercase";
   const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
 
-  if (s.includes("por preparar")) {
-    return { label, icon: "⏳", wrap: `${base} bg-slate-900 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
-  }
-  if (s.includes("faltan archivos")) {
-    return { label, icon: "⚠️", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
-  }
-  if (s.includes("confirmado")) {
-    return { label, icon: "✅", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
-  }
-  if (s.includes("diseñado") || s.includes("disenado")) {
-    return { label, icon: "🎨", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
-  }
-  if (s.includes("por producir")) {
-    return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
-  }
-  if (s.includes("fabricando")) {
-    return { label, icon: "🛠️", wrap: `${base} bg-indigo-600 border-indigo-700 text-white`, dot: `${dotBase} bg-indigo-200` };
-  }
-  if (s.includes("enviado")) {
-    return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
-  }
-  if (s.includes("repetir")) {
-    return { label: "Repetir", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
-  }
+  if (s.includes("por preparar")) return { label, icon: "⏳", wrap: `${base} bg-slate-900 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
+  if (s.includes("faltan archivos")) return { label, icon: "⚠️", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
+  if (s.includes("confirmado")) return { label, icon: "✅", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
+  if (s.includes("diseñado") || s.includes("disenado")) return { label, icon: "🎨", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
+  if (s.includes("por producir")) return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
+  if (s.includes("fabricando")) return { label, icon: "🛠️", wrap: `${base} bg-indigo-600 border-indigo-700 text-white`, dot: `${dotBase} bg-indigo-200` };
+  if (s.includes("enviado")) return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
+  if (s.includes("repetir")) return { label: "Repetir", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
 
   return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
 }
@@ -200,17 +201,8 @@ function renderLastChangeCompact(p) {
   `;
 }
 
-function lastChangeTextInline(p) {
-  const info = normalizeLastStatusChange(p?.last_status_change);
-  if (!info?.changed_at) return "—";
-  const exact = formatDateTime(info.changed_at);
-  const user = info.user_name ? String(info.user_name) : "—";
-  return `${user} · ${exact}`;
-}
-
 // =========================
-// Etiquetas (COMPACTAS)
-// Usa CSS del view: .col-etiquetas .tags-wrap-mini .tag-mini
+// Etiquetas (mini)
 // =========================
 function renderEtiquetasMini(etiquetasRaw) {
   const raw = String(etiquetasRaw || "").trim();
@@ -264,7 +256,7 @@ function getCsrfHeaders() {
 }
 
 // =========================
-// API
+// API JSON
 // =========================
 async function apiGet(url) {
   const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" }, credentials: "same-origin" });
@@ -293,7 +285,7 @@ async function apiPost(url, payload) {
 }
 
 // =========================
-// Normalizador payload (ok/data)
+// Payload normalizer
 // =========================
 function extractOrdersPayload(payload) {
   if (!payload || typeof payload !== "object") return { ok: false, orders: [] };
@@ -303,10 +295,7 @@ function extractOrdersPayload(payload) {
 }
 
 // =========================
-// Render según breakpoint
-// - 2xl: GRID (#tablaPedidos)
-// - xl..2xl-: TABLA (#tablaPedidosTable)
-// - <xl: CARDS (#cardsPedidos)
+// Render modes
 // =========================
 function getMode() {
   const w = window.innerWidth || 0;
@@ -315,15 +304,9 @@ function getMode() {
   return "cards";
 }
 
-// ✅ IMPORTANTE: misma columna que el HEADER del view (Tailwind)
-const GRID_COLS_TW =
-  "grid items-center gap-3 px-4 py-3 " +
-  "[grid-template-columns:130px_135px_minmax(150px,1fr)_95px_185px_145px_150px_80px_150px_150px_130px]";
-
 function actualizarListado(pedidos) {
   const mode = getMode();
 
-  // cache útil por si lo necesitas
   window.ordersCache = pedidos || [];
   window.ordersById = new Map((pedidos || []).map(o => [String(o.id), o]));
 
@@ -335,10 +318,11 @@ function actualizarListado(pedidos) {
   if (contTable) contTable.innerHTML = "";
   if (contCards) contCards.innerHTML = "";
 
-  // =========================
   // GRID (2xl)
-  // =========================
   if (mode === "grid") {
+    if (contGrid) contGrid.classList.remove("hidden");
+    if (contCards) contCards.classList.add("hidden");
+
     if (!contGrid) return;
 
     if (!pedidos || !pedidos.length) {
@@ -370,16 +354,18 @@ function actualizarListado(pedidos) {
 
       const detallesBtn = `
         <button type="button" onclick="verDetallesPedido('${escapeJsString(id)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition whitespace-nowrap">
+          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
           Ver detalles →
         </button>
       `;
 
       return `
-        <div class="${GRID_COLS_TW} text-[13px] border-b hover:bg-slate-50 transition">
+        <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
           <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
           <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
-          <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
+          <div class="min-w-0 font-semibold text-slate-800 truncate" title="${escapeHtml(String(cliente || "—"))}">
+            ${escapeHtml(String(cliente || "—"))}
+          </div>
           <div class="font-extrabold text-slate-900 whitespace-nowrap">${moneyFormat(total)}</div>
 
           <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
@@ -392,7 +378,9 @@ function actualizarListado(pedidos) {
 
           <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
 
-          <div class="min-w-0 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
+          <div class="min-w-0 text-xs text-slate-700 truncate" title="${escapeHtml(String(formaEnvio || "—"))}">
+            ${escapeHtml(String(formaEnvio || "—"))}
+          </div>
 
           <div class="text-right whitespace-nowrap">${detallesBtn}</div>
         </div>
@@ -402,10 +390,9 @@ function actualizarListado(pedidos) {
     return;
   }
 
-  // =========================
-  // TABLA (xl..2xl-)
-  // =========================
+  // TABLE (xl..2xl-)
   if (mode === "table") {
+    if (contCards) contCards.classList.add("hidden");
     if (!contTable) return;
 
     if (!pedidos || !pedidos.length) {
@@ -435,7 +422,7 @@ function actualizarListado(pedidos) {
 
       const detallesBtn = `
         <button type="button" onclick="verDetallesPedido('${escapeJsString(id)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition whitespace-nowrap">
+          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
           Ver detalles →
         </button>
       `;
@@ -444,14 +431,18 @@ function actualizarListado(pedidos) {
         <tr class="hover:bg-slate-50/60 transition">
           <td class="px-5 py-4 font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</td>
           <td class="px-5 py-4 text-slate-700 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</td>
-          <td class="px-5 py-4 text-slate-700 max-w-[320px] truncate">${escapeHtml(String(cliente || "—"))}</td>
+          <td class="px-5 py-4 text-slate-700 max-w-[320px] truncate" title="${escapeHtml(String(cliente || "—"))}">
+            ${escapeHtml(String(cliente || "—"))}
+          </td>
           <td class="px-5 py-4 text-slate-700 whitespace-nowrap">${moneyFormat(total)}</td>
           <td class="px-5 py-4 whitespace-nowrap">${estadoHtml}</td>
           <td class="px-5 py-4">${renderLastChangeCompact(p)}</td>
           <td class="px-5 py-4 col-etiquetas">${renderEtiquetasMini(etiquetas)}</td>
           <td class="px-5 py-4 text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</td>
           <td class="px-5 py-4 whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</td>
-          <td class="px-5 py-4 text-slate-700 max-w-[240px] truncate">${escapeHtml(String(formaEnvio || "—"))}</td>
+          <td class="px-5 py-4 text-slate-700 max-w-[240px] truncate" title="${escapeHtml(String(formaEnvio || "—"))}">
+            ${escapeHtml(String(formaEnvio || "—"))}
+          </td>
           <td class="px-5 py-4 text-right whitespace-nowrap">${detallesBtn}</td>
         </tr>
       `;
@@ -460,10 +451,9 @@ function actualizarListado(pedidos) {
     return;
   }
 
-  // =========================
   // CARDS (<xl)
-  // =========================
   if (!contCards) return;
+  contCards.classList.remove("hidden");
 
   if (!pedidos || !pedidos.length) {
     contCards.innerHTML = `<div class="p-8 text-center text-slate-500">No tienes pedidos asignados.</div>`;
@@ -490,7 +480,7 @@ function actualizarListado(pedidos) {
 
     const detallesBtn = `
       <button onclick="verDetallesPedido('${escapeJsString(id)}')"
-        class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition whitespace-nowrap">
+        class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
         Ver detalles →
       </button>
     `;
@@ -524,7 +514,7 @@ function actualizarListado(pedidos) {
           <div class="mt-3 text-xs text-slate-600 space-y-1">
             <div><b>Artículos:</b> ${escapeHtml(String(articulos ?? "-"))}</div>
             <div><b>Método:</b> ${escapeHtml(String(formaEnvio || "—"))}</div>
-            <div><b>Último cambio:</b> ${escapeHtml(lastChangeTextInline(p))}</div>
+            <div><b>Último cambio:</b> ${renderLastChangeCompact(p)}</div>
           </div>
         </div>
       </div>
@@ -684,12 +674,10 @@ async function devolverPedidosRestantes() {
 
 // =========================
 // DETALLES FULL (modalDetallesFull)
-// - Usa /dashboard/detalles/{id}
-// - Si dashboard ya tiene window.verDetalles, se usa
+// + Upload archivos Illustrator
 // =========================
 function setText(id, v) { const el = $(id); if (el) el.textContent = v ?? ""; }
 function setHtml(id, v) { const el = $(id); if (el) el.innerHTML = v ?? ""; }
-function setPreText(id, v) { const el = $(id); if (el) el.textContent = v ?? ""; }
 
 function abrirDetallesFull() {
   const modal = $("modalDetallesFull");
@@ -735,6 +723,14 @@ function buildDetallesUrl(orderId) {
   return `${API_BASE}/dashboard/detalles/${id}`;
 }
 
+function buildUploadUrl(orderId) {
+  const id = encodeURIComponent(String(orderId || ""));
+  if (window.UPLOAD_ENDPOINT) {
+    return String(window.UPLOAD_ENDPOINT).replace("{id}", id);
+  }
+  return `${API_BASE}/produccion/upload-archivos/${id}`;
+}
+
 function esImagenUrl(url) {
   if (!url) return false;
   const u = String(url).trim();
@@ -748,15 +744,199 @@ function fmtMoney(v) {
   return n.toFixed(2);
 }
 
+// ---- UI Upload (se inserta al final del modal, debajo de items)
+let currentDetailOrderId = null;
+let selectedFiles = [];
+
+function renderUploadBox() {
+  // inyecta un bloque de upload dentro de #detItems al final (o en sidebar si quieres)
+  const boxId = "uploadBoxGeneral";
+  const existing = document.getElementById(boxId);
+  if (existing) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = boxId;
+  wrap.className = "mt-6 rounded-3xl border border-slate-200 bg-white shadow-sm p-4";
+  wrap.innerHTML = `
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <div class="text-sm font-extrabold text-slate-900">Archivo general (Illustrator)</div>
+        <div class="text-xs text-slate-500 mt-1">
+          Sube uno o varios archivos (.ai .eps .pdf .svg .zip). Se guardan para este pedido.
+        </div>
+      </div>
+      <div class="text-right">
+        <button id="btnUploadGeneral"
+          class="h-10 px-4 rounded-2xl bg-slate-900 text-white font-extrabold text-xs uppercase tracking-wide hover:bg-slate-800 transition">
+          Subir archivos
+        </button>
+      </div>
+    </div>
+
+    <div class="mt-4 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-center">
+      <input id="inputUploadGeneral" type="file" multiple
+        accept=".ai,.eps,.pdf,.svg,.zip,application/pdf,image/svg+xml,application/zip"
+        class="block w-full text-sm file:mr-4 file:py-2 file:px-4
+               file:rounded-2xl file:border-0 file:text-sm file:font-extrabold
+               file:bg-slate-100 file:text-slate-900 hover:file:bg-slate-200
+               border border-slate-200 rounded-2xl bg-slate-50 p-2"
+      />
+
+      <div id="uploadStatusGeneral"
+        class="text-xs font-extrabold text-slate-600 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2 text-center">
+        Sin archivos
+      </div>
+    </div>
+
+    <div id="uploadListGeneral" class="mt-3 text-xs text-slate-700 space-y-1"></div>
+
+    <div id="uploadErrorGeneral" class="hidden mt-3 text-sm font-extrabold text-rose-600"></div>
+    <div id="uploadOkGeneral" class="hidden mt-3 text-sm font-extrabold text-emerald-600"></div>
+  `;
+
+  const detItems = $("detItems");
+  if (detItems) detItems.appendChild(wrap);
+
+  const input = $("inputUploadGeneral");
+  const list = $("uploadListGeneral");
+  const status = $("uploadStatusGeneral");
+  const btn = $("btnUploadGeneral");
+
+  if (input) {
+    input.addEventListener("change", () => {
+      selectedFiles = Array.from(input.files || []);
+      if (!selectedFiles.length) {
+        status.textContent = "Sin archivos";
+        list.innerHTML = "";
+        return;
+      }
+      status.textContent = `${selectedFiles.length} archivo(s)`;
+      list.innerHTML = selectedFiles.map(f => `• ${escapeHtml(f.name)} <span class="text-slate-400">(${Math.round(f.size/1024)} KB)</span>`).join("<br>");
+      hideUploadMsgs();
+    });
+  }
+
+  if (btn) {
+    btn.addEventListener("click", async () => {
+      await subirArchivosGeneral();
+    });
+  }
+}
+
+function hideUploadMsgs() {
+  $("uploadErrorGeneral")?.classList.add("hidden");
+  $("uploadOkGeneral")?.classList.add("hidden");
+  if ($("uploadErrorGeneral")) $("uploadErrorGeneral").textContent = "";
+  if ($("uploadOkGeneral")) $("uploadOkGeneral").textContent = "";
+}
+
+function showUploadError(msg) {
+  const el = $("uploadErrorGeneral");
+  if (!el) return;
+  el.textContent = msg || "Error subiendo archivos.";
+  el.classList.remove("hidden");
+}
+
+function showUploadOk(msg) {
+  const el = $("uploadOkGeneral");
+  if (!el) return;
+  el.textContent = msg || "Archivos subidos.";
+  el.classList.remove("hidden");
+}
+
+async function subirArchivosGeneral() {
+  hideUploadMsgs();
+
+  const orderId = currentDetailOrderId;
+  if (!orderId) {
+    showUploadError("No hay pedido activo.");
+    return;
+  }
+
+  const input = $("inputUploadGeneral");
+  const files = selectedFiles.length ? selectedFiles : Array.from(input?.files || []);
+  if (!files.length) {
+    showUploadError("Selecciona uno o varios archivos primero.");
+    return;
+  }
+
+  // Validación rápida
+  const allowedExt = [".ai", ".eps", ".pdf", ".svg", ".zip"];
+  const invalid = files.find(f => {
+    const n = String(f.name || "").toLowerCase();
+    return !allowedExt.some(ext => n.endsWith(ext));
+  });
+  if (invalid) {
+    showUploadError(`Archivo no permitido: ${invalid.name}`);
+    return;
+  }
+
+  const url = buildUploadUrl(orderId);
+  const fd = new FormData();
+  fd.append("order_id", String(orderId));
+  files.forEach((f) => fd.append("files[]", f));
+
+  // CSRF para multipart (CI4)
+  const csrfHeaders = getCsrfHeaders();
+
+  try {
+    $("btnUploadGeneral")?.setAttribute("disabled", "disabled");
+    $("btnUploadGeneral")?.classList.add("opacity-60", "cursor-not-allowed");
+
+    const r = await fetch(url, {
+      method: "POST",
+      body: fd,
+      headers: { ...csrfHeaders },
+      credentials: "same-origin",
+    });
+
+    // intenta JSON
+    const txt = await r.text();
+    let data = null;
+    try { data = JSON.parse(txt); } catch { data = null; }
+
+    if (!r.ok) {
+      console.error("UPLOAD FAIL", r.status, txt);
+      showUploadError(data?.error || data?.message || `Error subiendo (HTTP ${r.status})`);
+      return;
+    }
+
+    const ok = data?.ok === true || data?.success === true || data?.status === "ok";
+    if (!ok) {
+      showUploadError(data?.error || data?.message || "No se pudo subir.");
+      return;
+    }
+
+    showUploadOk(data?.message || "Archivos subidos correctamente.");
+    // reset
+    selectedFiles = [];
+    if ($("inputUploadGeneral")) $("inputUploadGeneral").value = "";
+    if ($("uploadListGeneral")) $("uploadListGeneral").innerHTML = "";
+    if ($("uploadStatusGeneral")) $("uploadStatusGeneral").textContent = "Sin archivos";
+
+    // si quieres, refrescar detalles:
+    // await abrirDetallesPedido(orderId);
+
+  } catch (e) {
+    console.error("UPLOAD error", e);
+    showUploadError("Error subiendo archivos.");
+  } finally {
+    $("btnUploadGeneral")?.removeAttribute("disabled");
+    $("btnUploadGeneral")?.classList.remove("opacity-60", "cursor-not-allowed");
+  }
+}
+
 async function abrirDetallesPedido(orderId) {
   const id = String(orderId || "");
   if (!id) return;
 
-  // Si el dashboard ya tiene verDetalles, úsala (NO pisamos)
+  // Si el dashboard ya tiene su verDetalles, úsalo
   if (typeof window.verDetalles === "function" && window.verDetalles !== window.verDetallesPedido) {
     window.verDetalles(id);
     return;
   }
+
+  currentDetailOrderId = id;
 
   abrirDetallesFull();
 
@@ -769,7 +949,7 @@ async function abrirDetallesPedido(orderId) {
   setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
-  setPreText("detJson", "");
+  setHtml("detJson", "");
 
   let payload = null;
   try {
@@ -790,11 +970,14 @@ async function abrirDetallesPedido(orderId) {
   const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
 
   const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
+  const sub = `${o.customer_name || o.cliente || "—"} · ${o.created_at ? formatDateTime(o.created_at) : "—"}`;
   setText("detTitle", `Detalles ${name}`);
-  setText("detSubtitle", `${String(o.customer_name || o.cliente || "—")} · ${String(o.created_at || "—")}`);
+  setText("detSubtitle", sub);
 
-  // JSON como texto (para copiar perfecto)
-  try { setPreText("detJson", JSON.stringify(payload, null, 2)); } catch {}
+  // JSON
+  try {
+    $("detJson").textContent = JSON.stringify(payload, null, 2);
+  } catch {}
 
   // Cliente
   const customer = o.customer || {};
@@ -807,6 +990,7 @@ async function abrirDetallesPedido(orderId) {
       <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre)}</div>
       <div><span class="text-slate-500 font-bold">Email:</span> ${escapeHtml(o.email || "—")}</div>
       <div><span class="text-slate-500 font-bold">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
+      <div><span class="text-slate-500 font-bold">ID Pedido:</span> ${escapeHtml(o.id || id)}</div>
     </div>
   `);
 
@@ -839,10 +1023,11 @@ async function abrirDetallesPedido(orderId) {
       <div><span class="text-slate-500 font-bold">Último cambio:</span> ${lastText}</div>
       <div><span class="text-slate-500 font-bold">Pago:</span> ${escapeHtml(o.financial_status || "—")}</div>
       <div><span class="text-slate-500 font-bold">Entrega:</span> ${escapeHtml(o.fulfillment_status || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Gateway:</span> ${escapeHtml(o.gateway || "—")}</div>
     </div>
   `);
 
-  // Totales
+  // Totales (fallbacks)
   const subtotal = o.subtotal_price ?? "0";
   const envio =
     o.total_shipping_price_set?.shop_money?.amount ??
@@ -851,10 +1036,12 @@ async function abrirDetallesPedido(orderId) {
     "0";
   const impuestos = o.total_tax ?? "0";
   const total = o.total_price ?? "0";
+  const descuento = o.total_discounts ?? "0";
 
   setHtml("detTotales", `
     <div class="space-y-1 text-sm">
       <div><span class="text-slate-500 font-bold">Subtotal:</span> ${escapeHtml(fmtMoney(subtotal))}</div>
+      <div><span class="text-slate-500 font-bold">Descuento:</span> ${escapeHtml(fmtMoney(descuento))}</div>
       <div><span class="text-slate-500 font-bold">Envío:</span> ${escapeHtml(fmtMoney(envio))}</div>
       <div><span class="text-slate-500 font-bold">Impuestos:</span> ${escapeHtml(fmtMoney(impuestos))}</div>
       <div class="pt-2 text-lg font-extrabold text-slate-900">Total: ${escapeHtml(fmtMoney(total))}</div>
@@ -866,6 +1053,7 @@ async function abrirDetallesPedido(orderId) {
 
   if (!lineItems.length) {
     setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
+    renderUploadBox();
     return;
   }
 
@@ -961,6 +1149,9 @@ async function abrirDetallesPedido(orderId) {
   }).join("");
 
   setHtml("detItems", itemsHtml);
+
+  // ✅ agrega bloque upload al final
+  renderUploadBox();
 }
 
 // Hook requerido (OPCION A)
@@ -987,19 +1178,17 @@ function bindEventos() {
     actualizarListado(pedidosFiltrados.length ? pedidosFiltrados : pedidosCache);
   });
 
-  // Cerrar modal al click fuera
   $("modalDetallesFull")?.addEventListener("click", (e) => {
     if (e.target && e.target.id === "modalDetallesFull") cerrarDetallesFull();
   });
 
-  // ESC cierra modal
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") cerrarDetallesFull();
   });
 }
 
 // =========================
-// Live (refresca cola)
+// Live refresh
 // =========================
 function startLive(ms = 30000) {
   if (liveInterval) clearInterval(liveInterval);
