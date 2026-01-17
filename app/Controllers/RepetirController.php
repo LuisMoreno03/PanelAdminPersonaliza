@@ -23,6 +23,7 @@ class RepetirController extends Controller
         'Enviado',
         'Repetir',
     ];
+}
 
     public function __construct()
     {
@@ -231,60 +232,60 @@ class RepetirController extends Controller
             if (mb_strtolower($ok) === $lower) return $ok;
         }
 
-        return 'Repetir';
+        return 'pedidos';
     }
 
     // ============================================================
     // ETIQUETAS/TAGS POR USUARIO
     // ============================================================
 
-    private function getEtiquetasUsuario(): array
-    {
-        $defaults = [
-            'D.Diseño',
-            'P.Produccion',
-            'Cancelar pedido',
-            'Reembolso completo',
-            'No contesta 24h',
-        ];
+ private function getEtiquetasUsuario(): array
+{
+    $defaults = [
+        'D.Diseño',
+        'P.Produccion',
+        'Cancelar pedido',
+        'Reembolso completo',
+        'No contesta 24h',
+    ];
 
-        $userId = session()->get('user_id');
-        if (!$userId) return $defaults;
+    $userId = session()->get('user_id');
+    if (!$userId) return $defaults;
 
-        try {
-            $db = \Config\Database::connect();
+    try {
+        $db = \Config\Database::connect();
 
-            $tableExists = $db->query(
-                "SELECT 1
-                 FROM information_schema.tables
-                 WHERE table_schema = ?
-                   AND table_name = ?
-                 LIMIT 1",
-                [$db->getDatabase(), 'usuarios_etiquetas']
-            )->getRowArray();
+        $tableExists = $db->query(
+            "SELECT 1
+             FROM information_schema.tables
+             WHERE table_schema = ?
+               AND table_name = ?
+             LIMIT 1",
+            [$db->getDatabase(), 'usuarios_etiquetas']
+        )->getRowArray();
 
-            if (empty($tableExists)) return $defaults;
+        if (empty($tableExists)) return $defaults;
 
-            $rows = $db->table('usuarios_etiquetas')
-                ->select('etiqueta')
-                ->where('user_id', $userId)
-                ->orderBy('id', 'ASC')
-                ->get()
-                ->getResultArray();
+        $rows = $db->table('usuarios_etiquetas')
+            ->select('etiqueta')
+            ->where('user_id', $userId)
+            ->orderBy('id', 'ASC')
+            ->get()
+            ->getResultArray();
 
-            $etiquetas = [];
-            foreach ($rows as $r) {
-                $val = trim((string)($r['etiqueta'] ?? ''));
-                if ($val !== '') $etiquetas[] = $val;
-            }
-
-            return !empty($etiquetas) ? $etiquetas : $defaults;
-
-        } catch (\Throwable $e) {
-            log_message('error', 'getEtiquetasUsuario ERROR: ' . $e->getMessage());
-            return $defaults;
+        $etiquetas = [];
+        foreach ($rows as $r) {
+            $val = trim((string)($r['etiqueta'] ?? ''));
+            if ($val !== '') $etiquetas[] = $val;
         }
+
+        return !empty($etiquetas) ? $etiquetas : $defaults;
+
+    } catch (\Throwable $e) {
+        log_message('error', 'getEtiquetasUsuario ERROR: ' . $e->getMessage());
+        return $defaults;
     }
+}
 
     // ============================================================
     // VISTA PRINCIPAL 
@@ -343,7 +344,6 @@ class RepetirController extends Controller
 
         // ✅ 1) IDs desde BD SOLO estado Repetir
         $estadoModel = new PedidosEstadoModel();
-
         $totalOrders = (int)$estadoModel->countByEstado('Repetir');
         $idsPage     = $estadoModel->getOrderIdsByEstado('Repetir', $limit, $offset);
 
@@ -378,10 +378,13 @@ class RepetirController extends Controller
                 'orders'  => [],
                 'count'   => 0,
                 'status'  => $status,
+
+                $ordersRaw = $json['orders'] ?? [];
+
             ])->setStatusCode(200);
+
         }
 
-       
 
         // ✅ 3) Mapear al formato del panel
         $orders = [];
@@ -409,10 +412,7 @@ class RepetirController extends Controller
                 'fecha'        => $fecha,
                 'cliente'      => $cliente,
                 'total'        => $total,
-
-                // ✅ aquí ya sabemos que son repetir
                 'estado'       => 'Repetir',
-
                 'etiquetas'    => $o['tags'] ?? '',
                 'articulos'    => $articulos,
                 'estado_envio' => $estado_envio ?: '-',
@@ -421,7 +421,7 @@ class RepetirController extends Controller
             ];
         }
 
-        // ✅ 4) Añadir info de último cambio desde BD (si quieres mostrarlo)
+        // ✅ 4) último cambio desde BD
         try {
             $ids = array_values(array_unique(array_filter(array_map(fn($x) => (string)($x['id'] ?? ''), $orders))));
             if ($ids) {
@@ -442,7 +442,6 @@ class RepetirController extends Controller
             log_message('error', 'last_status_change repetir: ' . $e->getMessage());
         }
 
-        // ✅ 5) Respuesta final paginada por "page"
         return $this->response->setJSON([
             'success' => true,
             'orders'  => $orders,
@@ -463,27 +462,7 @@ class RepetirController extends Controller
             'orders'  => [],
             'count'   => 0,
         ])->setStatusCode(200);
-
-        log_message('error', 'REPETIR totalOrders=' . $totalOrders . ' idsPage=' . json_encode($idsPage));
-
     }
-}
-
-
-}
-
-    private function hasRepetirTag(?string $tags): bool
-{
-    $t = trim((string)$tags);
-    if ($t === '') return false;
-
-    // Shopify tags viene como string tipo: "Urgente, Repetir, ..."
-    // Buscamos "Repetir" como tag exacto (no parte de otra palabra)
-    $parts = array_map('trim', explode(',', $t));
-    foreach ($parts as $p) {
-        if (mb_strtolower($p) === 'repetir') return true;
-    }
-    return false;
 }
 
 
@@ -849,7 +828,7 @@ class RepetirController extends Controller
         // ✅ Estados auto según tu modal
         $estadoAuto = null;
         if ($totalRequeridas > 0) {
-            $estadoAuto = ($totalListas >= $totalRequeridas) ? 'Por producir' : 'Faltan archivos';
+            $estadoAuto = ($totalListas >= $totalRequeridas) ? 'Por preparar' : 'Faltan archivos';
         }
 
         $order['imagenes_locales'] = $imagenesLocales;
