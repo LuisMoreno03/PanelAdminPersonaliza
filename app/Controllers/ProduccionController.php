@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Controllers\BaseController;
+use App\Models\PedidosEstadoModel;
 
 class ProduccionController extends BaseController
 {
@@ -37,7 +38,8 @@ class ProduccionController extends BaseController
         try {
             $db = \Config\Database::connect();
 
-              $rows = $db->query("
+            // ✅ JOIN correcto: pe.order_id = p.id (id interno)
+            $rows = $db->query("
                 SELECT
                     p.id,
                     p.numero,
@@ -56,10 +58,10 @@ class ProduccionController extends BaseController
                     pe.estado_updated_by_name AS estado_por
                 FROM pedidos p
                 LEFT JOIN pedidos_estado pe
-                     ON pe.order_id = p.shopify_order_id
+                     ON pe.order_id = p.id
                 WHERE p.assigned_to_user_id = ?
                   AND LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por producir','confirmado')
-                ORDER BY COALESCE(pe.estado_updated_at, pe.actualizado) ASC
+                ORDER BY COALESCE(pe.estado_updated_at, pe.actualizado, p.created_at) ASC
             ", [$userId])->getResultArray();
 
             return $this->response->setJSON([
@@ -103,16 +105,18 @@ class ProduccionController extends BaseController
             $db = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
+            // ✅ Candidatos: estado "Confirmado" y sin asignar
+            // ✅ JOIN correcto: pe.order_id = p.id
             $candidatos = $db->query("
                 SELECT
                     p.id,
                     p.shopify_order_id
                 FROM pedidos p
                 JOIN pedidos_estado pe
-                  ON pe.order_id = p.shopify_order_id
+                  ON pe.order_id = p.id
                 WHERE LOWER(TRIM(pe.estado)) = ?
                   AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-                ORDER BY COALESCE(pe.estado_updated_at, pe.actualizado) ASC
+                ORDER BY COALESCE(pe.estado_updated_at, pe.actualizado, p.created_at) ASC
                 LIMIT {$count}
             ", [mb_strtolower($this->estadoEntrada)])->getResultArray();
 
@@ -137,14 +141,16 @@ class ProduccionController extends BaseController
                     'assigned_at' => $now,
                 ]);
 
-            // 2) Cambiar estado usando el MODEL (para que guarde actualizado + estado_updated_*)
+            // 2) Cambiar estado usando el MODEL
+            // ✅ Importante: pasar el ID interno (p.id), NO el shopify_order_id
             $estadoModel = new PedidosEstadoModel();
 
             foreach ($candidatos as $c) {
-                $oid = trim((string)($c['shopify_order_id'] ?? ''));
-                if ($oid === '' || $oid === '0') continue;
+                $internalId = (int)($c['id'] ?? 0);
+                if ($internalId <= 0) continue;
 
-                $estadoModel->setEstadoPedido($oid, $this->estadoProduccion, $userId, $userName);
+                // ajusta tu model para que acepte ID interno (ver nota abajo)
+                $estadoModel->setEstadoPedido($internalId, $this->estadoProduccion, $userId, $userName);
             }
 
             $db->transComplete();

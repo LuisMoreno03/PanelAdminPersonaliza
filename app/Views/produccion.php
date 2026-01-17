@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <!-- (Opcional) si ya usas CSRF como en dashboard -->
+  <!-- (Opcional) CSRF -->
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
   <meta name="csrf-header" content="<?= csrf_header() ?>">
 
@@ -38,6 +38,20 @@
     @media (max-width: 768px) {
       .layout, .layout.menu-collapsed { padding-left: 0 !important; }
     }
+
+    /* ✅ Grid columnas igual dashboard (desktop) */
+    .orders-grid.cols{
+      display:grid;
+      grid-template-columns:
+        120px 110px minmax(220px,1fr) 110px
+        200px 180px 320px 90px
+        170px minmax(180px,1fr) 140px;
+      gap:14px;
+      align-items:center;
+    }
+    @media (max-width: 1280px){
+      .orders-grid.cols{ display:none; }
+    }
   </style>
 </head>
 
@@ -46,7 +60,7 @@
   <!-- MENU -->
   <?= view('layouts/menu') ?>
 
-  <!-- CONTENIDO (igual dashboard) -->
+  <!-- CONTENIDO -->
   <main id="mainLayout" class="layout">
     <div class="p-4 sm:p-6 lg:p-8">
       <div class="mx-auto w-full max-w-[1600px]">
@@ -70,7 +84,7 @@
         <!-- LISTADO -->
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
 
-          <!-- Topbar como dashboard -->
+          <!-- Topbar -->
           <div class="px-4 py-3 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div class="flex items-center justify-between gap-3">
               <div class="font-semibold text-slate-900">Listado de pedidos</div>
@@ -79,7 +93,7 @@
               </div>
             </div>
 
-            <!-- Toolbar: buscador + acciones -->
+            <!-- Toolbar -->
             <div class="flex flex-col sm:flex-row sm:items-center gap-2">
 
               <!-- Buscador -->
@@ -100,10 +114,8 @@
                 Limpiar
               </button>
 
-              <!-- Separador -->
               <div class="hidden sm:block w-px h-11 bg-slate-200 mx-1"></div>
 
-              <!-- ✅ Botones pedidos (orden exacto) -->
               <button
                 id="btnTraer5"
                 class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition"
@@ -127,77 +139,48 @@
             </div>
           </div>
 
-          <!-- Tabla (manteniendo tu estructura actual, con look dashboard) -->
-          <div class="w-full overflow-x-auto soft-scroll">
-            <table class="min-w-[1400px] w-full text-sm">
-              <thead class="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
-                <tr class="text-left text-[11px] uppercase tracking-wider text-slate-600">
-                  <th class="px-5 py-4">Pedido</th>
-                  <th class="px-5 py-4">Fecha</th>
-                  <th class="px-5 py-4">Cliente</th>
-                  <th class="px-5 py-4">Total</th>
-                  <th class="px-5 py-4">Estado</th>
-                  <th class="px-5 py-4">Etiquetas</th>
-                  <th class="px-5 py-4">Artículos</th>
-                  <th class="px-5 py-4">Estado entrega</th>
-                  <th class="px-5 py-4">Forma entrega</th>
-                  <th class="px-5 py-4 text-right">Detalles</th>
-                </tr>
-              </thead>
+          <!-- ✅ LISTADO estilo DASHBOARD (GRID + CARDS) -->
+          <div class="w-full">
 
-              <tbody id="tablaPedidos" class="divide-y divide-slate-100 text-slate-800"></tbody>
-            </table>
+            <!-- Header grid (solo desktop) -->
+            <div class="hidden xl:block bg-slate-50 border-b border-slate-200">
+              <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
+                <div>Pedido</div>
+                <div>Fecha</div>
+                <div>Cliente</div>
+                <div>Total</div>
+                <div>Estado</div>
+                <div>Último cambio</div>
+                <div>Etiquetas</div>
+                <div>Artículos</div>
+                <div>Entrega</div>
+                <div>Método</div>
+                <div class="text-right">Detalles</div>
+              </div>
+            </div>
+
+            <!-- GRID desktop -->
+            <div id="tablaPedidos" class="hidden xl:block"></div>
+
+            <!-- CARDS mobile/tablet -->
+            <div id="cardsPedidos" class="block xl:hidden p-3"></div>
+
           </div>
 
-          <!-- Footer (paginación abajo, estilo dashboard) -->
+          <!-- Footer -->
           <div class="px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="text-xs text-slate-500">
-              Consejo: desplázate horizontalmente si hay muchas columnas.
+              Consejo: en desktop verás el grid; en móvil verás tarjetas.
             </div>
 
-            <div class="flex items-center gap-2">
-              <button
-                id="btnAnteriorBottom"
-                disabled
-                class="h-11 px-5 rounded-2xl bg-slate-200 text-slate-700 font-extrabold opacity-50 cursor-not-allowed"
-                onclick="paginaAnterior?.()"
-              >
-                ← Anterior
-              </button>
-
-              <button
-                id="btnSiguienteBottom"
-                onclick="paginaSiguiente()"
-                class="h-11 px-5 rounded-2xl bg-blue-600 text-white font-extrabold hover:bg-blue-700 transition"
-              >
-                Siguiente →
-              </button>
+            <div class="hidden sm:flex items-center gap-2">
+              <span class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
+                Total: <span id="total-pedidos">0</span>
+              </span>
             </div>
           </div>
 
         </section>
-
-        <!-- (Opcional) paginación fuera como dashboard si la usas así
-        <section class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <button id="btnAnterior" disabled
-            class="w-full sm:w-auto px-5 py-3 rounded-2xl bg-slate-200 text-slate-700 font-bold opacity-50 cursor-not-allowed">
-            ← Anterior
-          </button>
-
-          <div class="flex items-center gap-2">
-            <span id="pillPagina" class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
-              Página 1
-            </span>
-            <span id="pillPaginaTotal" class="px-4 py-2 rounded-2xl bg-slate-50 border border-slate-200 font-bold text-sm">
-              Página 1
-            </span>
-          </div>
-
-          <button id="btnSiguiente" class="w-full sm:w-auto px-5 py-3 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-700">
-            Siguiente →
-          </button>
-        </section>
-        -->
 
       </div>
     </div>
@@ -274,20 +257,19 @@
     </div>
   </div>
 
-  <!-- ✅ Variables globales (mantén las tuyas) -->
+  <!-- ✅ Variables globales -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
     window.estadoFiltro = "Preparado";
 
-    // Si lo usas como en dashboard:
     window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
     window.API_BASE = "<?= rtrim(site_url(), '/') ?>";
   </script>
 
-  <!-- JS principal (romper caché opcional) -->
+  <!-- JS Producción -->
   <script src="<?= base_url('js/produccion.js?v=' . time()) ?>" defer></script>
 
-  <!-- ✅ aplicar colapso si está guardado (igual dashboard) -->
+  <!-- ✅ colapso menú (igual dashboard) -->
   <script>
     (function () {
       const main = document.getElementById('mainLayout');
