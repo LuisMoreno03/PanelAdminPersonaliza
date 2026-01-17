@@ -45,8 +45,12 @@ function setPagination({ page, total_pages }) {
   currentPage = Number(page || 1);
   totalPages = Number(total_pages || 1);
 
-  document.getElementById("pillPagina")!.textContent = `Página ${currentPage}`;
-  document.getElementById("pillPaginaTotal")!.textContent = `Página ${totalPages}`;
+  const pill = document.getElementById("pillPagina");
+if (pill) pill.textContent = `Página ${currentPage}`;
+
+const pillTotal = document.getElementById("pillPaginaTotal");
+if (pillTotal) pillTotal.textContent = `Página ${totalPages}`;
+
 
   const btnPrev = document.getElementById("btnAnterior");
   const btnNext = document.getElementById("btnSiguiente");
@@ -63,7 +67,7 @@ function setPagination({ page, total_pages }) {
     btnNext.classList.toggle("cursor-not-allowed", btnNext.disabled);
   }
 }
-console.log("ORDERS RAW:", data.orders?.map(o => ({ id: o.id, estado: o.estado })));
+
 
 
 // ---------------- FETCH ----------------
