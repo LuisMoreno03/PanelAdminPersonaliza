@@ -28,29 +28,19 @@
     .soft-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
 
     /* ✅ Layout con menú (igual dashboard) */
-    .layout {
-      transition: padding-left .2s ease;
-      padding-left: 16rem; /* 256px (md:w-64) */
-    }
-    .layout.menu-collapsed {
-      padding-left: 5.25rem; /* 84px colapsado */
-    }
-    @media (max-width: 768px) {
-      .layout, .layout.menu-collapsed { padding-left: 0 !important; }
-    }
+    .layout { transition: padding-left .2s ease; padding-left: 16rem; }
+    .layout.menu-collapsed { padding-left: 5.25rem; }
+    @media (max-width: 768px) { .layout, .layout.menu-collapsed { padding-left: 0 !important; } }
 
-    /* ✅ Grid columnas igual dashboard (desktop) */
+    /* ✅ Grid columnas (igual dashboard) */
     .orders-grid.cols{
       display:grid;
       grid-template-columns:
-        120px 110px minmax(220px,1fr) 110px
-        200px 180px 320px 90px
-        170px minmax(180px,1fr) 140px;
+        140px 120px minmax(220px,1fr) 110px
+        210px 180px 320px 90px
+        170px minmax(180px,1fr) 150px;
       gap:14px;
       align-items:center;
-    }
-    @media (max-width: 1280px){
-      .orders-grid.cols{ display:none; }
     }
   </style>
 </head>
@@ -139,10 +129,10 @@
             </div>
           </div>
 
-          <!-- ✅ LISTADO estilo DASHBOARD (GRID + CARDS) -->
+          <!-- ✅ LISTADO estilo DASHBOARD -->
           <div class="w-full">
 
-            <!-- Header grid (solo desktop) -->
+            <!-- Header grid (desktop) -->
             <div class="hidden xl:block bg-slate-50 border-b border-slate-200">
               <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
                 <div>Pedido</div>
@@ -152,7 +142,7 @@
                 <div>Estado</div>
                 <div>Último cambio</div>
                 <div>Etiquetas</div>
-                <div>Artículos</div>
+                <div class="text-center">Artículos</div>
                 <div>Entrega</div>
                 <div>Método</div>
                 <div class="text-right">Detalles</div>
@@ -173,7 +163,7 @@
               Consejo: en desktop verás el grid; en móvil verás tarjetas.
             </div>
 
-            <div class="hidden sm:flex items-center gap-2">
+            <div class="flex items-center gap-2">
               <span class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
                 Total: <span id="total-pedidos">0</span>
               </span>
@@ -187,65 +177,80 @@
   </main>
 
   <!-- =========================
-       MODAL DETALLES (tu mismo modal)
+       ✅ MODAL DETALLES FULL (estilo dashboard)
   ========================= -->
-  <div id="modalDetalles"
-    class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+  <div id="modalDetallesFull" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50">
+    <div class="absolute inset-0 p-4 sm:p-6">
+      <div class="mx-auto h-full max-w-[1400px] rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-fadeIn">
 
-    <div class="bg-white w-[90%] h-[92%] rounded-3xl shadow-2xl border border-slate-200 p-6 overflow-hidden flex flex-col animate-fadeIn">
+        <!-- Header -->
+        <div class="p-5 border-b border-slate-200 flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div id="detTitle" class="text-2xl sm:text-3xl font-extrabold text-slate-900 truncate">Detalles</div>
+            <div id="detSubtitle" class="text-sm text-slate-500 mt-1 truncate">—</div>
+          </div>
 
-      <div class="flex justify-between items-center border-b border-slate-200 pb-4">
-        <h2 id="tituloPedido" class="text-2xl font-extrabold text-slate-900">Detalles del pedido</h2>
-
-        <div class="flex gap-3">
-          <button onclick="abrirPanelCliente()"
-            class="h-11 px-4 rounded-2xl bg-blue-600 text-white font-extrabold hover:bg-blue-700 transition">
-            Información del cliente
-          </button>
-
-          <button onclick="cerrarModalDetalles()"
-            class="h-11 px-4 rounded-2xl bg-slate-200 text-slate-800 font-extrabold hover:bg-slate-300 transition">
-            Cerrar
-          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="toggleJsonDetalles()"
+              class="h-11 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold hover:bg-slate-50 transition">
+              JSON
+            </button>
+            <button type="button" onclick="copiarDetallesJson()"
+              class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition">
+              Copiar
+            </button>
+            <button type="button" onclick="cerrarDetallesFull()"
+              class="h-11 px-4 rounded-2xl bg-slate-200 text-slate-800 font-extrabold hover:bg-slate-300 transition">
+              Cerrar
+            </button>
+          </div>
         </div>
+
+        <!-- Body -->
+        <div class="flex-1 overflow-hidden">
+          <div class="h-full grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-0">
+
+            <!-- Left: items -->
+            <div class="h-full overflow-auto soft-scroll p-5">
+              <div class="flex items-center justify-between mb-4">
+                <div class="text-sm font-extrabold text-slate-900">
+                  Productos <span class="text-slate-500">·</span> <span id="detItemsCount">0</span>
+                </div>
+              </div>
+
+              <div id="detItems" class="space-y-3"></div>
+
+              <pre id="detJson" class="hidden mt-6 p-4 rounded-2xl bg-slate-950 text-slate-100 text-xs overflow-auto soft-scroll"></pre>
+            </div>
+
+            <!-- Right: panels -->
+            <div class="h-full overflow-auto soft-scroll p-5 border-l border-slate-200 bg-slate-50">
+
+              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Cliente</div>
+                <div id="detCliente" class="mt-2 text-sm text-slate-700"></div>
+              </div>
+
+              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Envío</div>
+                <div id="detEnvio" class="mt-2 text-sm text-slate-700"></div>
+              </div>
+
+              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Resumen</div>
+                <div id="detResumen" class="mt-2 text-sm text-slate-700"></div>
+              </div>
+
+              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Totales</div>
+                <div id="detTotales" class="mt-2 text-sm text-slate-700"></div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
       </div>
-
-      <div id="detalleProductos"
-        class="flex-1 overflow-auto grid grid-cols-1 md:grid-cols-2 gap-4 p-4 soft-scroll"></div>
-
-      <div id="detalleTotales" class="border-t border-slate-200 pt-4 text-lg font-extrabold text-slate-900"></div>
-
-      <div class="flex gap-2 mb-4">
-        <button onclick="mostrarTodos()"
-          class="h-11 px-4 rounded-2xl bg-slate-200 text-slate-800 font-extrabold hover:bg-slate-300 transition">
-          Todos
-        </button>
-
-        <button onclick="filtrarPreparados()"
-          class="h-11 px-4 rounded-2xl bg-emerald-600 text-white font-extrabold hover:bg-emerald-700 transition">
-          Preparados
-        </button>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- PANEL CLIENTE -->
-  <div id="panelCliente"
-    class="hidden fixed inset-0 flex justify-end bg-black/30 backdrop-blur-sm z-50">
-    <div class="w-[380px] h-full bg-white shadow-xl border-l border-slate-200 p-6 overflow-y-auto animate-fadeIn soft-scroll">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="text-xl font-extrabold text-slate-900">Información del cliente</h3>
-        <button onclick="cerrarPanelCliente()" class="text-slate-600 hover:text-slate-900 text-2xl font-extrabold">×</button>
-      </div>
-
-      <div id="detalleCliente" class="space-y-2 mb-6"></div>
-
-      <h3 class="text-lg font-extrabold mt-6 text-slate-900">Dirección de envío</h3>
-      <div id="detalleEnvio" class="space-y-1 mb-6"></div>
-
-      <h3 class="text-lg font-extrabold mt-6 text-slate-900">Resumen del pedido</h3>
-      <div id="detalleResumen" class="space-y-1 mb-6"></div>
     </div>
   </div>
 
@@ -260,16 +265,17 @@
   <!-- ✅ Variables globales -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
-    window.estadoFiltro = "Preparado";
 
     window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
+    window.currentUserRole = <?= json_encode(session()->get('role') ?? '') ?>;
+
     window.API_BASE = "<?= rtrim(site_url(), '/') ?>";
   </script>
 
-  <!-- JS Producción -->
+  <!-- JS principal -->
   <script src="<?= base_url('js/produccion.js?v=' . time()) ?>" defer></script>
 
-  <!-- ✅ colapso menú (igual dashboard) -->
+  <!-- ✅ aplicar colapso menú (igual dashboard) -->
   <script>
     (function () {
       const main = document.getElementById('mainLayout');
