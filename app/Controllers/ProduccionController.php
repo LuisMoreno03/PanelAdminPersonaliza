@@ -18,6 +18,7 @@ class ProduccionController extends BaseController
     // =========================
     // GET /produccion/my-queue
     // =========================
+
     public function myQueue()
     {
         if (!session()->get('logged_in')) {
@@ -27,7 +28,7 @@ class ProduccionController extends BaseController
             ]);
         }
 
-        $userId = (int) (session('user_id') ?? 0);
+        $userId = (int)(session('user_id') ?? 0);
         if (!$userId) {
             return $this->response->setJSON([
                 'ok' => false,
@@ -38,7 +39,7 @@ class ProduccionController extends BaseController
         try {
             $db = \Config\Database::connect();
 
-            $rows = $db->query("
+            $sql = "
                 SELECT
                     p.id,
                     p.numero,
@@ -59,22 +60,24 @@ class ProduccionController extends BaseController
                     h.user_id AS estado_user_id
 
                 FROM pedidos p
-
                 LEFT JOIN (
-                    SELECT x.*
-                    FROM pedidos_estado_historial x
+                    SELECT ph.*
+                    FROM pedidos_estado_historial ph
                     INNER JOIN (
-                        SELECT order_id, MAX(id) AS max_id
+                        SELECT order_id, MAX(id) AS last_id
                         FROM pedidos_estado_historial
                         GROUP BY order_id
-                    ) last ON last.order_id = x.order_id AND last.max_id = x.id
+                    ) last
+                    ON last.order_id = ph.order_id AND last.last_id = ph.id
                 ) h ON h.order_id = p.id
 
                 WHERE p.assigned_to_user_id = ?
                 AND LOWER(TRIM(COALESCE(h.estado,''))) = 'confirmado'
 
                 ORDER BY COALESCE(h.actualizado, p.created_at) ASC
-            ", [$userId])->getResultArray();
+            ";
+
+            $rows = $db->query($sql, [$userId])->getResultArray();
 
             return $this->response->setJSON([
                 'ok' => true,
@@ -83,12 +86,16 @@ class ProduccionController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'ProduccionController myQueue ERROR: ' . $e->getMessage());
+
+            // ✅ Para debug rápido (puedes quitarlo luego)
             return $this->response->setJSON([
                 'ok' => false,
                 'error' => 'Error interno cargando cola',
+                'debug' => $e->getMessage(),
             ]);
         }
     }
+
 
 
 
