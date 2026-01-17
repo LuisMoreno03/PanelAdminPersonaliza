@@ -30,7 +30,7 @@ class PedidosEstadoModel extends Model
     /** ✅ Guarda el ESTADO GENERAL del pedido */
     public function setEstadoPedido(string $orderId, string $estado, ?int $userId, ?string $userName): bool
     {
-        $orderId = trim($orderId);
+        $orderId = trim((string)$orderId);
         if ($orderId === '') return false;
 
         $now = date('Y-m-d H:i:s');
@@ -38,12 +38,9 @@ class PedidosEstadoModel extends Model
         $row = $this->where('order_id', $orderId)->first();
 
         $data = [
-            'estado' => $estado,
-
-            // tu columna vieja:
+            'order_id' => $orderId,      // <- importante
+            'estado'   => $estado,
             'actualizado' => $now,
-
-            // tus columnas nuevas (si existen):
             'estado_updated_at' => $now,
             'estado_updated_by' => $userId,
             'estado_updated_by_name' => $userName,
@@ -53,8 +50,9 @@ class PedidosEstadoModel extends Model
             return (bool) $this->update($row['id'], $data);
         }
 
-        return (bool) $this->insert(['order_id' => $orderId] + $data);
+        return (bool) $this->insert($data);
     }
+
 
     /** ✅ Obtiene el ÚLTIMO estado por order_id */
     public function getEstadosForOrderIds(array $orderIds): array
