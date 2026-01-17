@@ -53,15 +53,28 @@ class ProduccionController extends BaseController
                     p.shopify_order_id,
                     p.assigned_to_user_id,
                     p.assigned_at,
-                    pe.estado AS estado_bd,
-                    pe.actualizado AS estado_actualizado,
-                    pe.estado_updated_by_name AS estado_por
+
+                    h.estado AS estado_bd,
+                    h.actualizado AS estado_actualizado,
+                    h.user_name AS estado_por,
+                    h.user_id AS estado_user_id
+
                 FROM pedidos p
-                LEFT JOIN pedidos_estado pe
-                    ON pe.order_id = p.shopify_order_id
+
+                LEFT JOIN (
+                    SELECT x.*
+                    FROM pedidos_estado_historial x
+                    INNER JOIN (
+                        SELECT order_id, MAX(id) AS max_id
+                        FROM pedidos_estado_historial
+                        GROUP BY order_id
+                    ) last ON last.order_id = x.order_id AND last.max_id = x.id
+                ) h ON h.order_id = p.id
+
                 WHERE p.assigned_to_user_id = ?
-                AND LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por producir','confirmado')
-                ORDER BY COALESCE(pe.actualizado, p.created_at) ASC
+                AND LOWER(TRIM(COALESCE(h.estado,''))) = 'diseñado'
+
+                ORDER BY COALESCE(h.actualizado, p.created_at) ASC
             ", [$userId])->getResultArray();
 
             return $this->response->setJSON([
@@ -141,13 +154,41 @@ class ProduccionController extends BaseController
         // ✅ Candidatos: estado confirmado + no asignados
         // OJO: tu DB mostró que lo correcto es: pedidos.shopify_order_id = pedidos_estado.order_id
         $candidatos = $db->query("
-            SELECT p.id, p.shopify_order_id
+            SELECT
+                p.id,
+                p.numero,
+                p.cliente,
+                p.total,
+                p.estado_envio,
+                p.forma_envio,
+                p.etiquetas,
+                p.articulos,
+                p.created_at,
+                p.shopify_order_id,
+                p.assigned_to_user_id,
+                p.assigned_at,
+
+                h.estado AS estado_bd,
+                h.actualizado AS estado_actualizado,
+                h.user_name AS estado_por,
+                h.user_id AS estado_user_id
+
             FROM pedidos p
-            JOIN pedidos_estado pe ON pe.order_id = p.shopify_order_id
-            WHERE LOWER(TRIM(pe.estado))='confirmado'
-              AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-            ORDER BY COALESCE(pe.estado_updated_at, pe.actualizado, p.created_at) ASC
-            LIMIT {$count}
+
+            LEFT JOIN (
+                SELECT x.*
+                FROM pedidos_estado_historial x
+                INNER JOIN (
+                    SELECT order_id, MAX(id) AS max_id
+                    FROM pedidos_estado_historial
+                    GROUP BY order_id
+                ) last ON last.order_id = x.order_id AND last.max_id = x.id
+            ) h ON h.order_id = p.id
+
+            WHERE p.assigned_to_user_id = ?
+              AND LOWER(TRIM(COALESCE(h.estado,''))) = 'diseñado'
+
+            ORDER BY COALESCE(h.actualizado, p.created_at) ASC
         ")->getResultArray();
 
         if (!$candidatos) {
