@@ -36,12 +36,13 @@
     .orders-grid.cols{
       display:grid;
       grid-template-columns:
-        140px 120px minmax(220px,1fr) 110px
-        210px 180px 320px 90px
-        170px minmax(180px,1fr) 150px;
+        150px 140px minmax(220px,1fr) 110px
+        210px 180px minmax(280px,1fr) 90px
+        170px minmax(220px,1fr) 150px;
       gap:14px;
       align-items:center;
     }
+
   </style>
 </head>
 
@@ -130,10 +131,11 @@
           </div>
 
           <!-- ✅ LISTADO estilo DASHBOARD -->
+          <!-- ✅ LISTADO estilo DASHBOARD (RESPONSIVE REAL) -->
           <div class="w-full">
 
-            <!-- Header grid (desktop) -->
-            <div class="hidden xl:block bg-slate-50 border-b border-slate-200">
+            <!-- Header grid (solo pantallas grandes) -->
+            <div class="hidden 2xl:block bg-slate-50 border-b border-slate-200">
               <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
                 <div>Pedido</div>
                 <div>Fecha</div>
@@ -149,13 +151,38 @@
               </div>
             </div>
 
-            <!-- GRID desktop -->
-            <div id="tablaPedidos" class="hidden xl:block"></div>
+            <!-- ✅ GRID grande (2xl+) -->
+            <div id="tablaPedidos" class="hidden 2xl:block"></div>
 
-            <!-- CARDS mobile/tablet -->
+            <!-- ✅ TABLA con scroll para pantallas intermedias (xl y 2xl-) -->
+            <div class="hidden xl:block 2xl:hidden w-full overflow-x-auto soft-scroll">
+              <table class="min-w-[1400px] w-full text-sm">
+                <thead class="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
+                  <tr class="text-left text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
+                    <th class="px-5 py-4">Pedido</th>
+                    <th class="px-5 py-4">Fecha</th>
+                    <th class="px-5 py-4">Cliente</th>
+                    <th class="px-5 py-4">Total</th>
+                    <th class="px-5 py-4">Estado</th>
+                    <th class="px-5 py-4">Último cambio</th>
+                    <th class="px-5 py-4">Etiquetas</th>
+                    <th class="px-5 py-4 text-center">Artículos</th>
+                    <th class="px-5 py-4">Entrega</th>
+                    <th class="px-5 py-4">Método</th>
+                    <th class="px-5 py-4 text-right">Detalles</th>
+                  </tr>
+                </thead>
+
+                <!-- ✅ aquí renderizas filas TR cuando estás en "modo tabla" -->
+                <tbody id="tablaPedidosTable" class="divide-y divide-slate-100 text-slate-800"></tbody>
+              </table>
+            </div>
+
+            <!-- ✅ CARDS móvil/mediano (<xl) -->
             <div id="cardsPedidos" class="block xl:hidden p-3"></div>
 
           </div>
+
 
           <!-- Footer -->
           <div class="px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
