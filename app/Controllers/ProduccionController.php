@@ -142,7 +142,7 @@ class ProduccionController extends BaseController
             // ✅ candidatos: pedidos SIN asignar cuyo ultimo estado (historial) sea CONFIRMADO
             $candidatos = $db->query("
                 SELECT
-                    p.id,
+                    p.id, 
                     p.shopify_order_id
                 FROM pedidos p
                 INNER JOIN (
