@@ -39,7 +39,9 @@ class ProduccionController extends BaseController
         try {
             $db = \Config\Database::connect();
 
-            $sql = "
+            // ✅ Ultimo estado desde HISTORIAL (por pedido interno p.id)
+            // Nota: h.created_at existe, h.actualizado NO existe.
+            $rows = $db->query("
                 SELECT
                     p.id,
                     p.numero,
@@ -54,30 +56,37 @@ class ProduccionController extends BaseController
                     p.assigned_to_user_id,
                     p.assigned_at,
 
-                    h.estado AS estado_bd,
-                    h.actualizado AS estado_actualizado,
-                    h.user_name AS estado_por,
-                    h.user_id AS estado_user_id
+                    -- ✅ estado actual: primero historial, si no hay historial usa pedidos_estado
+                    COALESCE(h.estado, pe.estado, 'por preparar') AS estado_bd,
+
+                    -- ✅ ultimo cambio
+                    COALESCE(h.created_at, pe.estado_updated_at, pe.actualizado, p.created_at) AS estado_actualizado,
+                    COALESCE(h.user_name, pe.estado_updated_by_name) AS estado_por
 
                 FROM pedidos p
+
+                -- fallback: pedidos_estado (ojo: a veces guarda order_id = p.id o shopify_order_id)
+                LEFT JOIN pedidos_estado pe
+                    ON (pe.order_id = p.id OR pe.order_id = p.shopify_order_id)
+
+                -- ✅ subquery: ultimo historial por p.id
                 LEFT JOIN (
-                    SELECT ph.*
-                    FROM pedidos_estado_historial ph
+                    SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
+                    FROM pedidos_estado_historial h1
                     INNER JOIN (
-                        SELECT order_id, MAX(id) AS last_id
+                        SELECT order_id, MAX(created_at) AS max_created
                         FROM pedidos_estado_historial
                         GROUP BY order_id
-                    ) last
-                    ON last.order_id = ph.order_id AND last.last_id = ph.id
-                ) h ON h.order_id = p.id
+                    ) hx
+                    ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
+                ) h
+                ON h.order_id = p.id
 
                 WHERE p.assigned_to_user_id = ?
-                AND LOWER(TRIM(COALESCE(h.estado,''))) = 'confirmado'
+                AND LOWER(TRIM(COALESCE(h.estado, pe.estado, ''))) = 'confirmado'
 
-                ORDER BY COALESCE(h.actualizado, p.created_at) ASC
-            ";
-
-            $rows = $db->query($sql, [$userId])->getResultArray();
+                ORDER BY COALESCE(h.created_at, pe.estado_updated_at, pe.actualizado, p.created_at) ASC
+            ", [$userId])->getResultArray();
 
             return $this->response->setJSON([
                 'ok' => true,
@@ -86,8 +95,6 @@ class ProduccionController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'ProduccionController myQueue ERROR: ' . $e->getMessage());
-
-            // ✅ Para debug rápido (puedes quitarlo luego)
             return $this->response->setJSON([
                 'ok' => false,
                 'error' => 'Error interno cargando cola',
@@ -95,9 +102,6 @@ class ProduccionController extends BaseController
             ]);
         }
     }
-
-
-
 
     // =========================
     // POST /produccion/pull
@@ -109,7 +113,9 @@ class ProduccionController extends BaseController
             return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
         }
 
-        $userId = (int)(session('user_id') ?? 0);
+        $userId   = (int)(session('user_id') ?? 0);
+        $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
+
         if (!$userId) {
             return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
         }
@@ -118,38 +124,38 @@ class ProduccionController extends BaseController
         if (!is_array($data)) $data = [];
 
         $count = (int)($data['count'] ?? 5);
-        if (!in_array($count, [5, 10], true)) $count = 5;
+        if (!in_array($count, [5,10], true)) $count = 5;
 
         try {
-            $db = \Config\Database::connect();
+            $db  = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
+            // ✅ candidatos: pedidos SIN asignar cuyo ultimo estado (historial) sea CONFIRMADO
             $candidatos = $db->query("
                 SELECT
                     p.id,
                     p.shopify_order_id
                 FROM pedidos p
-                JOIN (
-                    SELECT x.*
-                    FROM pedidos_estado_historial x
+                INNER JOIN (
+                    SELECT h1.order_id, h1.estado, h1.created_at
+                    FROM pedidos_estado_historial h1
                     INNER JOIN (
-                        SELECT order_id, MAX(id) AS max_id
+                        SELECT order_id, MAX(created_at) AS max_created
                         FROM pedidos_estado_historial
                         GROUP BY order_id
-                    ) last ON last.order_id = x.order_id AND last.max_id = x.id
+                    ) hx
+                    ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
                 ) h ON h.order_id = p.id
-
-                WHERE LOWER(TRIM(COALESCE(h.estado,''))) = 'confirmado'
+                WHERE LOWER(TRIM(h.estado)) = 'confirmado'
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-
-                ORDER BY COALESCE(h.actualizado, p.created_at) ASC
+                ORDER BY h.created_at ASC
                 LIMIT {$count}
             ")->getResultArray();
 
             if (!$candidatos) {
                 return $this->response->setJSON([
                     'ok' => true,
-                    'message' => 'No hay pedidos disponibles en estado Confirmado',
+                    'message' => 'No hay pedidos disponibles para asignar',
                     'assigned' => 0,
                 ]);
             }
@@ -168,11 +174,33 @@ class ProduccionController extends BaseController
 
             $affected = (int)$db->affectedRows();
 
-            $db->transComplete();
-
-            if ($db->transStatus() === false) {
-                return $this->response->setJSON(['ok' => false, 'error' => 'No se pudo asignar (transacción falló)']);
+            if ($affected <= 0) {
+                $db->transComplete();
+                return $this->response->setJSON([
+                    'ok' => false,
+                    'error' => 'No se asignó nada (affectedRows=0).',
+                    'debug' => ['ids_candidatos' => $ids]
+                ]);
             }
+
+            // ✅ (Opcional recomendado) registrar en historial un evento de asignación
+            // Si NO quieres cambiar estado, solo registra log si te interesa.
+            // Si sí quieres cambiar estado aquí, cambia 'Confirmado' por el nuevo estado.
+            foreach ($candidatos as $c) {
+                $pid = (int)($c['id'] ?? 0);
+                if (!$pid) continue;
+
+                $db->table('pedidos_estado_historial')->insert([
+                    'order_id'    => $pid,
+                    'estado'      => 'Confirmado', // o el estado que corresponda al asignar
+                    'user_id'     => $userId,
+                    'user_name'   => $userName,
+                    'created_at'  => $now,
+                    'pedido_json' => null,
+                ]);
+            }
+
+            $db->transComplete();
 
             return $this->response->setJSON([
                 'ok' => true,
@@ -182,7 +210,11 @@ class ProduccionController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'ProduccionController pull ERROR: ' . $e->getMessage());
-            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno asignando pedidos']);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno asignando pedidos',
+                'debug' => $e->getMessage()
+            ]);
         }
     }
 
