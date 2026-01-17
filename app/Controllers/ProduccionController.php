@@ -101,6 +101,17 @@ class ProduccionController extends BaseController
 
         $count = (int)($data['count'] ?? 5);
         if (!in_array($count, [5, 10], true)) $count = 5;
+        if (!class_exists(\App\Models\PedidosEstadoModel::class)) {
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Model no carga',
+                'debug' => [
+                    'exists' => false,
+                    'path_expected' => APPPATH . 'Models/PedidosEstadoModel.php',
+                    'file_exists' => file_exists(APPPATH . 'Models/PedidosEstadoModel.php'),
+                ],
+            ]);
+        }
 
         try {
             $db = \Config\Database::connect();
