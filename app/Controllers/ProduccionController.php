@@ -57,7 +57,12 @@ class ProduccionController extends BaseController
                     p.assigned_at,
 
                     -- ✅ estado actual: primero historial, si no hay historial usa pedidos_estado
-                    COALESCE(h.estado, pe.estado, 'por preparar') AS estado_bd,
+                    COALESCE(
+                        CAST(h.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
+                        CAST(pe.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
+                        'por preparar'
+                    ) AS estado_bd,
+
 
                     -- ✅ ultimo cambio
                     COALESCE(h.created_at, pe.estado_updated_at, pe.actualizado, p.created_at) AS estado_actualizado,
@@ -83,7 +88,11 @@ class ProduccionController extends BaseController
                 ON h.order_id = p.id
 
                 WHERE p.assigned_to_user_id = ?
-                AND LOWER(TRIM(COALESCE(h.estado, pe.estado, ''))) = 'confirmado'
+                    AND LOWER(TRIM(
+                        CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
+                        COLLATE utf8mb4_uca1400_ai_ci
+                    )) = 'confirmado'
+
 
                 ORDER BY COALESCE(h.created_at, pe.estado_updated_at, pe.actualizado, p.created_at) ASC
             ", [$userId])->getResultArray();
@@ -144,9 +153,12 @@ class ProduccionController extends BaseController
                         FROM pedidos_estado_historial
                         GROUP BY order_id
                     ) hx
-                    ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
+                    ON hx.order_id = h1.order_id
+                    AND hx.max_created = h1.created_at
                 ) h ON h.order_id = p.id
-                WHERE LOWER(TRIM(h.estado)) = 'confirmado'
+                WHERE LOWER(TRIM(
+                    CAST(h.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci
+                )) = 'confirmado'
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
                 ORDER BY h.created_at ASC
                 LIMIT {$count}
