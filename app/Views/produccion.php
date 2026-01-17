@@ -41,7 +41,39 @@
         170px minmax(220px,1fr) 150px;
       gap:14px;
       align-items:center;
+    } 
+    /* --- ETIQUETAS: más compacto --- */
+    .col-etiquetas {
+      max-width: 140px;          /* 👈 reduce ancho */
+      width: 140px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
+
+    .tag-mini {
+      display: inline-flex;
+      align-items: center;
+      height: 18px;              /* 👈 más bajo */
+      padding: 0 6px;            /* 👈 más estrecho */
+      border-radius: 999px;
+      font-size: 10px;           /* 👈 más pequeño */
+      font-weight: 800;
+      line-height: 18px;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    .tags-wrap-mini {
+      display: flex;
+      flex-wrap: nowrap;         /* 👈 NO envuelve */
+      gap: 6px;
+      overflow: hidden;
+    }
+
 
   </style>
 </head>
