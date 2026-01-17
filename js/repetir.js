@@ -46,11 +46,10 @@ function setPagination({ page, total_pages }) {
   totalPages = Number(total_pages || 1);
 
   const pill = document.getElementById("pillPagina");
-if (pill) pill.textContent = `Página ${currentPage}`;
+  if (pill) pill.textContent = `Página ${currentPage}`;
 
-const pillTotal = document.getElementById("pillPaginaTotal");
-if (pillTotal) pillTotal.textContent = `Página ${totalPages}`;
-
+  const pillTotal = document.getElementById("pillPaginaTotal");
+  if (pillTotal) pillTotal.textContent = `Página ${totalPages}`;
 
   const btnPrev = document.getElementById("btnAnterior");
   const btnNext = document.getElementById("btnSiguiente");
@@ -68,19 +67,14 @@ if (pillTotal) pillTotal.textContent = `Página ${totalPages}`;
   }
 }
 
-
-
-// ---------------- FETCH ----------------
 function cargarPedidosRepetir(page = 1, { silent = false } = {}) {
   if (isLoading) return;
   isLoading = true;
 
   if (!silent) showLoader();
 
-   let url = "/repetir/filter?page=" + (page || 1);
-   
   const baseUrl = window.API?.filter || "/repetir/filter";
-  const url = `${baseUrl}?page=${encodeURIComponent(page)}`;
+  const url = `${baseUrl}?page=${encodeURIComponent(page || 1)}`;
 
   fetch(url, {
     headers: {
@@ -91,26 +85,24 @@ function cargarPedidosRepetir(page = 1, { silent = false } = {}) {
   })
     .then((res) => res.json())
     .then((data) => {
+      console.log("ORDERS RAW:", data.orders?.map(o => ({ id: o.id, estado: o.estado })));
+
       if (!data?.success) {
         actualizarTabla([]);
         setPagination({ page: 1, total_pages: 1 });
         return;
       }
 
-      // ✅ Si tu backend ya devuelve SOLO "Repetir", no hace falta filtrar.
-      // Por seguridad lo dejamos (no molesta).
       const pedidos = (data.orders || []).filter(
-        (p) => String(p.estado || "").trim().toLowerCase() === "Repetir"
+        (p) => String(p.estado || "").trim().toLowerCase() === "repetir"
       );
 
-      // evita rerender inútil
       const hash = JSON.stringify(pedidos.map((p) => p.id));
       if (hash === lastRenderedHash && Number(data.page) === currentPage) return;
       lastRenderedHash = hash;
 
       actualizarTabla(pedidos);
 
-      // ✅ paginación desde backend
       setPagination({
         page: data.page,
         total_pages: data.total_pages || 1,
@@ -125,6 +117,7 @@ function cargarPedidosRepetir(page = 1, { silent = false } = {}) {
       isLoading = false;
     });
 }
+
 
 // ---------------- TABLE ----------------
 function actualizarTabla(pedidos) {
