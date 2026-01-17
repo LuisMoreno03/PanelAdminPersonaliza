@@ -94,6 +94,9 @@ function cargarPedidosRepetir(page = 1, { silent = false } = {}) {
       }
 
       const pedidos = data.orders || [];
+  (p) => String(p.estado || "").trim().toLowerCase() === "repetir"
+    ;
+
 
 
       const hash = JSON.stringify(pedidos.map((p) => p.id));
