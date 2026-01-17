@@ -1025,6 +1025,7 @@ async function guardarEstado(nuevoEstado) {
   try {
     // ✅ endpoints ampliados (incluye doble index.php)
     const endpoints = [
+      window.API?.guardarEstado,   // ✅ este primero
       apiUrl("/api/estado/guardar"),
       "/api/estado/guardar",
       "/index.php/api/estado/guardar",
