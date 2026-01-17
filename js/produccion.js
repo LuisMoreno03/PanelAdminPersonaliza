@@ -722,3 +722,372 @@ document.addEventListener("DOMContentLoaded", () => {
   cargarMiCola();
   startLive(30000);
 });
+
+
+// ===============================
+// DETALLES (FULL) EN PRODUCCIÓN
+// - Trae detalle completo del pedido
+// - Refleja cambios: estado, etiquetas, last_status_change, imágenes, etc.
+// ===============================
+
+// Endpoints posibles (usa el de dashboard si ya lo tienes hecho allí)
+function buildDetallesEndpoints(orderId) {
+  const id = encodeURIComponent(String(orderId || ""));
+  const base = (typeof window.apiUrl === "function")
+    ? window.apiUrl(`/dashboard/detalles/${id}`)
+    : `${API_BASE}/dashboard/detalles/${id}`;
+
+  return [
+    base,
+    `${API_BASE}/dashboard/detalles/${id}`,
+    `/dashboard/detalles/${id}`,
+    `/index.php/dashboard/detalles/${id}`,
+    `/index.php/index.php/dashboard/detalles/${id}`,
+    `${API_BASE}/produccion/detalles/${id}`,       // por si luego creas endpoint dedicado
+    `/produccion/detalles/${id}`,
+    `/index.php/produccion/detalles/${id}`,
+  ];
+}
+
+function abrirModalDetalles() {
+  const modal = document.getElementById("modalDetalles");
+  if (modal) modal.classList.remove("hidden");
+  document.documentElement.classList.add("overflow-hidden");
+  document.body.classList.add("overflow-hidden");
+}
+
+function cerrarModalDetalles() {
+  const modal = document.getElementById("modalDetalles");
+  if (modal) modal.classList.add("hidden");
+  document.documentElement.classList.remove("overflow-hidden");
+  document.body.classList.remove("overflow-hidden");
+}
+
+function abrirPanelCliente() {
+  document.getElementById("panelCliente")?.classList.remove("hidden");
+}
+
+function cerrarPanelCliente() {
+  document.getElementById("panelCliente")?.classList.add("hidden");
+}
+
+// helpers
+function esUrl(u) {
+  return /^https?:\/\//i.test(String(u || "").trim());
+}
+function esImagenUrl(url) {
+  if (!url) return false;
+  const u = String(url).trim();
+  return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
+}
+function totalLinea(price, qty) {
+  const p = Number(price);
+  const q = Number(qty);
+  if (isNaN(p) || isNaN(q)) return null;
+  return (p * q).toFixed(2);
+}
+function fmtMoneyEUR(v) {
+  if (v === null || v === undefined || v === "") return "0";
+  const n = Number(v);
+  if (isNaN(n)) return String(v);
+  return n.toFixed(2);
+}
+
+function setHtml(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+function setText(id, txt) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = txt ?? "";
+}
+
+// ✅ Detalle completo (similar al dashboard)
+window.verDetalles = async function (orderId) {
+  const id = String(orderId || "");
+  if (!id) return;
+
+  // Si ya existe el verDetalles del dashboard (porque lo importaste), úsalo
+  // y sal de aquí.
+  if (window.__DASHBOARD_VERDETALLES && typeof window.__DASHBOARD_VERDETALLES === "function") {
+    window.__DASHBOARD_VERDETALLES(id);
+    return;
+  }
+
+  // placeholders
+  abrirModalDetalles();
+  setText("tituloPedido", "Cargando detalles...");
+  setHtml("detalleProductos", `<div class="text-slate-500">Cargando productos…</div>`);
+  setHtml("detalleTotales", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detalleCliente", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detalleEnvio", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detalleResumen", `<div class="text-slate-500">Cargando…</div>`);
+
+  // fetch robusto
+  let payload = null;
+  let lastErr = null;
+
+  for (const url of buildDetallesEndpoints(id)) {
+    try {
+      const r = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+      if (r.status === 404) continue;
+
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d) throw new Error(d?.message || `HTTP ${r.status}`);
+
+      // dashboard suele devolver {success:true, order:{...}, imagenes_locales:{}, product_images:{}}
+      if (d.success !== true) throw new Error(d.message || "Respuesta inválida (success!=true)");
+      payload = d;
+      break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  if (!payload) {
+    console.error("Detalle error:", lastErr);
+    setHtml("detalleProductos", `<div class="text-rose-600 font-extrabold">Error cargando detalles del pedido.</div>`);
+    return;
+  }
+
+  const o = payload.order || {};
+  const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+
+  const imagenesLocales = payload.imagenes_locales || {};
+  const productImages = payload.product_images || {};
+
+  // ==========================
+  // Header / Resumen (incluye cambios)
+  // ==========================
+  const name = o.name || ("#" + (o.id || id));
+  setText("tituloPedido", `Detalles ${name}`);
+
+  // ✅ estado y etiquetas (los cambios vienen del backend)
+  const estado = o.estado ?? o.status ?? o.estado_bd ?? "—";
+  const tags = String(o.tags ?? o.etiquetas ?? "").trim();
+
+  const last = o.last_status_change || payload.last_status_change || null;
+  const lastInfo = normalizeLastStatusChange(last);
+  const lastText = lastInfo?.changed_at
+    ? `${escapeHtml(lastInfo.user_name || "—")} · ${escapeHtml(formatDateTime(lastInfo.changed_at))}`
+    : "—";
+
+  // Cliente
+  const clienteNombre = o.customer
+    ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
+    : (o.customer_name || "");
+
+  setHtml("detalleCliente", `
+    <div class="space-y-2">
+      <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre || "—")}</div>
+      <div><span class="text-slate-500">Email:</span> ${escapeHtml(o.email || "—")}</div>
+      <div><span class="text-slate-500">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
+      <div><span class="text-slate-500">ID:</span> ${escapeHtml(o.customer?.id || "—")}</div>
+    </div>
+  `);
+
+  // Envío
+  const a = o.shipping_address || {};
+  setHtml("detalleEnvio", `
+    <div class="space-y-1">
+      <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
+      <div>${escapeHtml(a.address1 || "")}</div>
+      <div>${escapeHtml(a.address2 || "")}</div>
+      <div>${escapeHtml((a.zip || "") + " " + (a.city || ""))}</div>
+      <div>${escapeHtml(a.province || "")}</div>
+      <div>${escapeHtml(a.country || "")}</div>
+      <div class="pt-2"><span class="text-slate-500">Tel envío:</span> ${escapeHtml(a.phone || "—")}</div>
+    </div>
+  `);
+
+  // Totales
+  const envio =
+    o.total_shipping_price_set?.shop_money?.amount ??
+    o.total_shipping_price_set?.presentment_money?.amount ??
+    "0";
+  const impuestos = o.total_tax ?? "0";
+
+  setHtml("detalleTotales", `
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div class="text-sm sm:text-base font-extrabold">
+        <span class="text-slate-500">Subtotal:</span> ${escapeHtml(fmtMoneyEUR(o.subtotal_price || "0"))} €
+        <span class="mx-2 text-slate-300">|</span>
+        <span class="text-slate-500">Envío:</span> ${escapeHtml(fmtMoneyEUR(envio))} €
+        <span class="mx-2 text-slate-300">|</span>
+        <span class="text-slate-500">Impuestos:</span> ${escapeHtml(fmtMoneyEUR(impuestos))} €
+      </div>
+      <div class="text-lg font-extrabold text-slate-900">
+        Total: ${escapeHtml(fmtMoneyEUR(o.total_price || "0"))} €
+      </div>
+    </div>
+  `);
+
+  // Resumen (incluye estado/tags/último cambio)
+  setHtml("detalleResumen", `
+    <div class="space-y-2 text-sm">
+      <div><span class="text-slate-500 font-bold">Estado:</span> ${renderEstadoPill(estado)}</div>
+      <div><span class="text-slate-500 font-bold">Etiquetas:</span> ${tags ? escapeHtml(tags) : "—"}</div>
+      <div><span class="text-slate-500 font-bold">Último cambio:</span> ${lastText}</div>
+      <div><span class="text-slate-500 font-bold">Pago:</span> ${escapeHtml(o.financial_status || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Entrega:</span> ${escapeHtml(o.fulfillment_status || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Creado:</span> ${escapeHtml(o.created_at || "—")}</div>
+    </div>
+  `);
+
+  // ==========================
+  // Productos (con imágenes y personalización)
+  // ==========================
+  if (!lineItems.length) {
+    setHtml("detalleProductos", `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
+    return;
+  }
+
+  const itemsHtml = lineItems.map((item, index) => {
+    const props = Array.isArray(item.properties) ? item.properties : [];
+
+    const propsImg = [];
+    const propsTxt = [];
+
+    for (const p of props) {
+      const name = String(p?.name ?? "").trim() || "Campo";
+      const value = p?.value;
+      const v =
+        value === null || value === undefined
+          ? ""
+          : typeof value === "object"
+          ? JSON.stringify(value)
+          : String(value);
+
+      if (esImagenUrl(v)) propsImg.push({ name, value: v });
+      else propsTxt.push({ name, value: v });
+    }
+
+    const pid = String(item.product_id || "");
+    const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
+
+    const productImgHtml = productImg
+      ? `
+        <a href="${escapeHtml(productImg)}" target="_blank"
+          class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
+          <img src="${escapeHtml(productImg)}" class="h-full w-full object-cover">
+        </a>
+      `
+      : `
+        <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
+          🧾
+        </div>
+      `;
+
+    const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
+
+    const propsTxtHtml = propsTxt.length
+      ? `
+        <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
+          <div class="space-y-1 text-sm">
+            ${propsTxt.map(({ name, value }) => {
+              const safeV = escapeHtml(value || "—");
+              const safeName = escapeHtml(name);
+
+              const val = esUrl(value)
+                ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
+
+              return `
+                <div class="flex gap-2">
+                  <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
+                  <div class="flex-1">${val}</div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </div>
+      `
+      : "";
+
+    const propsImgsHtml = propsImg.length
+      ? `
+        <div class="mt-3">
+          <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
+          <div class="flex flex-wrap gap-3">
+            ${propsImg.map(({ name, value }) => `
+              <a href="${escapeHtml(value)}" target="_blank"
+                class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
+                <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
+                  ${escapeHtml(name)}
+                </div>
+              </a>
+            `).join("")}
+          </div>
+        </div>
+      `
+      : "";
+
+    const modificadaHtml = localUrl
+      ? `
+        <div class="mt-3">
+          <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
+          <a href="${escapeHtml(localUrl)}" target="_blank"
+            class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+            <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
+          </a>
+        </div>
+      `
+      : "";
+
+    const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
+    const sku = item.sku || "";
+    const qty = item.quantity ?? 1;
+    const price = item.price ?? "0";
+    const tot = totalLinea(price, qty);
+
+    const datosProductoHtml = `
+      <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+        ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
+        ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
+        ${item.product_id ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(item.product_id)}</span></div>` : ""}
+        ${item.variant_id ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(item.variant_id)}</span></div>` : ""}
+      </div>
+    `;
+
+    return `
+      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+        <div class="flex items-start gap-4">
+          ${productImgHtml}
+          <div class="min-w-0 flex-1">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || item.name || "Producto")}</div>
+                <div class="text-sm text-slate-600 mt-1">
+                  Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
+                  ${tot ? ` · Total: <b>${escapeHtml(tot)} €</b>` : ""}
+                </div>
+              </div>
+            </div>
+
+            ${datosProductoHtml}
+            ${propsTxtHtml}
+            ${propsImgsHtml}
+            ${modificadaHtml}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  setHtml("detalleProductos", itemsHtml);
+};
+
+// hooks para tus botones HTML
+window.cerrarModalDetalles = cerrarModalDetalles;
+window.abrirPanelCliente = abrirPanelCliente;
+window.cerrarPanelCliente = cerrarPanelCliente;
+
+// Si te quedan tus botones "Todos / Preparados" y aún no tienes filtro:
+window.mostrarTodos = function () {
+  // no hace nada (placeholder) — si quieres filtrado por imagen, te lo meto igual que dashboard
+};
+window.filtrarPreparados = function () {
+  // placeholder
+};
