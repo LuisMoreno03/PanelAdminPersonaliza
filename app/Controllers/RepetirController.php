@@ -26,7 +26,7 @@ class RepetirController extends Controller
 
     public function __construct()
     {
-        // 1) Config/Shopify.php
+        // 1) Config/Shopify.php $estadoModel
         $this->loadShopifyFromConfig();
 
         // 2) archivo fuera del repo
@@ -231,7 +231,7 @@ class RepetirController extends Controller
             if (mb_strtolower($ok) === $lower) return $ok;
         }
 
-        return 'Por preparar';
+        return 'Repetir';
     }
 
     // ============================================================
@@ -467,7 +467,7 @@ class RepetirController extends Controller
 }
 
 
-            $ordersRaw = $json['orders'] ?? [];
+           
 
                  
             // Link header para page_info
