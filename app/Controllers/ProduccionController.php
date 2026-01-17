@@ -20,88 +20,88 @@ class ProduccionController extends BaseController
     // =========================
 
     public function myQueue()
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setStatusCode(401)->setJSON([
-            'ok' => false,
-            'error' => 'No autenticado',
-        ]);
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'ok' => false,
+                'error' => 'No autenticado',
+            ]);
+        }
+
+        $userId = (int)(session('user_id') ?? 0);
+        if (!$userId) {
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Sin user_id en sesión',
+            ]);
+        }
+
+        try {
+            $db = \Config\Database::connect();
+
+            // ✅ Ultimo estado desde HISTORIAL (por pedido interno p.id)
+            // Nota: h.created_at existe, h.actualizado NO existe.
+            $rows = $db->query("
+                SELECT
+                    p.id,
+                    p.numero,
+                    p.cliente,
+                    p.total,
+                    p.estado_envio,
+                    p.forma_envio,
+                    p.etiquetas,
+                    p.articulos,
+                    p.created_at,
+                    p.shopify_order_id,
+                    p.assigned_to_user_id,
+                    p.assigned_at,
+
+                    -- ✅ estado actual: primero historial, si no hay historial usa pedidos_estado
+                    COALESCE(h.estado, pe.estado, 'por preparar') AS estado_bd,
+
+                    -- ✅ ultimo cambio
+                    COALESCE(h.created_at, pe.estado_updated_at, pe.actualizado, p.created_at) AS estado_actualizado,
+                    COALESCE(h.user_name, pe.estado_updated_by_name) AS estado_por
+
+                FROM pedidos p
+
+                -- fallback: pedidos_estado (ojo: a veces guarda order_id = p.id o shopify_order_id)
+                LEFT JOIN pedidos_estado pe
+                    ON (pe.order_id = p.id OR pe.order_id = p.shopify_order_id)
+
+                -- ✅ subquery: ultimo historial por p.id
+                LEFT JOIN (
+                    SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
+                    FROM pedidos_estado_historial h1
+                    INNER JOIN (
+                        SELECT order_id, MAX(created_at) AS max_created
+                        FROM pedidos_estado_historial
+                        GROUP BY order_id
+                    ) hx
+                    ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
+                ) h
+                ON h.order_id = p.id
+
+                WHERE p.assigned_to_user_id = ?
+                AND LOWER(TRIM(COALESCE(h.estado, pe.estado, ''))) = 'confirmado'
+
+                ORDER BY COALESCE(h.created_at, pe.estado_updated_at, pe.actualizado, p.created_at) ASC
+            ", [$userId])->getResultArray();
+
+            return $this->response->setJSON([
+                'ok' => true,
+                'data' => $rows ?: [],
+            ]);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'ProduccionController myQueue ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno cargando cola',
+                'debug' => $e->getMessage(),
+            ]);
+        }
     }
-
-    $userId = (int)(session('user_id') ?? 0);
-    if (!$userId) {
-        return $this->response->setJSON([
-            'ok' => false,
-            'error' => 'Sin user_id en sesión',
-        ]);
-    }
-
-    try {
-        $db = \Config\Database::connect();
-
-        // ✅ Ultimo estado desde HISTORIAL (por pedido interno p.id)
-        // Nota: h.created_at existe, h.actualizado NO existe.
-        $rows = $db->query("
-            SELECT
-                p.id,
-                p.numero,
-                p.cliente,
-                p.total,
-                p.estado_envio,
-                p.forma_envio,
-                p.etiquetas,
-                p.articulos,
-                p.created_at,
-                p.shopify_order_id,
-                p.assigned_to_user_id,
-                p.assigned_at,
-
-                -- ✅ estado actual: primero historial, si no hay historial usa pedidos_estado
-                COALESCE(h.estado, pe.estado, 'por preparar') AS estado_bd,
-
-                -- ✅ ultimo cambio
-                COALESCE(h.created_at, pe.estado_updated_at, pe.actualizado, p.created_at) AS estado_actualizado,
-                COALESCE(h.user_name, pe.estado_updated_by_name) AS estado_por
-
-            FROM pedidos p
-
-            -- fallback: pedidos_estado (ojo: a veces guarda order_id = p.id o shopify_order_id)
-            LEFT JOIN pedidos_estado pe
-                ON (pe.order_id = p.id OR pe.order_id = p.shopify_order_id)
-
-            -- ✅ subquery: ultimo historial por p.id
-            LEFT JOIN (
-                SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
-                FROM pedidos_estado_historial h1
-                INNER JOIN (
-                    SELECT order_id, MAX(created_at) AS max_created
-                    FROM pedidos_estado_historial
-                    GROUP BY order_id
-                ) hx
-                  ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
-            ) h
-              ON h.order_id = p.id
-
-            WHERE p.assigned_to_user_id = ?
-              AND LOWER(TRIM(COALESCE(h.estado, pe.estado, ''))) = 'confirmado'
-
-            ORDER BY COALESCE(h.created_at, pe.estado_updated_at, pe.actualizado, p.created_at) ASC
-        ", [$userId])->getResultArray();
-
-        return $this->response->setJSON([
-            'ok' => true,
-            'data' => $rows ?: [],
-        ]);
-
-    } catch (\Throwable $e) {
-        log_message('error', 'ProduccionController myQueue ERROR: ' . $e->getMessage());
-        return $this->response->setJSON([
-            'ok' => false,
-            'error' => 'Error interno cargando cola',
-            'debug' => $e->getMessage(),
-        ]);
-    }
-}
 
     // =========================
     // POST /produccion/pull
@@ -217,7 +217,6 @@ class ProduccionController extends BaseController
             ]);
         }
     }
-
 
     // =========================
     // POST /produccion/return-all
