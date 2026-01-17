@@ -453,7 +453,7 @@ class RepetirController extends Controller
                     'total'        => $total,
 
                     // default, luego se sobreescribe desde BD
-                    'estado'       => 'Repetir',
+                    'estado'       => 'Por preparar',
 
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
@@ -497,9 +497,13 @@ class RepetirController extends Controller
             }
 
             // ✅ SOLO pedidos cuyo ESTADO final sea "Repetir" (después del override)
-        $orders = array_values(array_filter($orders, function ($o) {
-        return ($o['estado'] ?? '') === 'Repetir';
-    }));
+      $orders = array_values(array_filter($orders, function ($o) {
+    $estado = (string)($o['estado'] ?? '');
+    $estado = preg_replace('/\s+/u', ' ', trim($estado)); // limpia espacios raros
+    return mb_strtolower($estado) === 'repetir';
+}));
+
+
 
 
             // 5) Respuesta final + debug opcional
@@ -1002,7 +1006,7 @@ class RepetirController extends Controller
     }
 
     // ============================================================
-    // ENDPOINT: /dashboard/usuarios-estado
+    // ENDPOINT: /dashboard/usuarios-estado  estado
     // ============================================================
 
     public function usuariosEstado()
