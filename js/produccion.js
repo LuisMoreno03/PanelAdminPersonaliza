@@ -1,16 +1,11 @@
 /**
- * produccion.js (CI4) — FIX COMPLETO
+ * produccion.js (CI4) — FIX COMPLETO (RESPONSIVE COMO DASHBOARD)
  * - Grid (2xl) + Tabla con scroll (xl..2xl-) + Cards (<xl)
- * - Etiquetas COMPACTAS: usa .col-etiquetas + .tags-wrap-mini + .tag-mini (del CSS del view)
- * - Boton "Ver detalles →" (OPCION A) en grid/tabla/cards
- * - Detalle FULL usando el modal #modalDetallesFull (el que pusiste en el view)
- * - No pisa window.verDetalles del dashboard si existe (lo usa si está)
- *
- * Endpoints:
- * - GET  /produccion/my-queue
- * - POST /produccion/pull        {count: 5|10}
- * - POST /produccion/return-all  {}
- * - GET  /dashboard/detalles/{id}   (se usa para cargar detalle)
+ * - GRID 2XL alineado con el header del view (Tailwind [grid-template-columns:...])
+ * - Etiquetas COMPACTAS: usa .col-etiquetas + .tags-wrap-mini + .tag-mini (CSS del view)
+ * - Botón "Ver detalles →" (OPCION A) en grid/tabla/cards
+ * - Detalle FULL usando el modal #modalDetallesFull (del view)
+ * - Si existe window.verDetalles del dashboard, se usa y no se pisa
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -205,6 +200,14 @@ function renderLastChangeCompact(p) {
   `;
 }
 
+function lastChangeTextInline(p) {
+  const info = normalizeLastStatusChange(p?.last_status_change);
+  if (!info?.changed_at) return "—";
+  const exact = formatDateTime(info.changed_at);
+  const user = info.user_name ? String(info.user_name) : "—";
+  return `${user} · ${exact}`;
+}
+
 // =========================
 // Etiquetas (COMPACTAS)
 // Usa CSS del view: .col-etiquetas .tags-wrap-mini .tag-mini
@@ -302,7 +305,7 @@ function extractOrdersPayload(payload) {
 // =========================
 // Render según breakpoint
 // - 2xl: GRID (#tablaPedidos)
-// - xl..2xl-: TABLA con scroll (#tablaPedidosTable)
+// - xl..2xl-: TABLA (#tablaPedidosTable)
 // - <xl: CARDS (#cardsPedidos)
 // =========================
 function getMode() {
@@ -312,10 +315,15 @@ function getMode() {
   return "cards";
 }
 
+// ✅ IMPORTANTE: misma columna que el HEADER del view (Tailwind)
+const GRID_COLS_TW =
+  "grid items-center gap-3 px-4 py-3 " +
+  "[grid-template-columns:130px_135px_minmax(150px,1fr)_95px_185px_145px_150px_80px_150px_150px_130px]";
+
 function actualizarListado(pedidos) {
   const mode = getMode();
 
-  // cache útil para detalles
+  // cache útil por si lo necesitas
   window.ordersCache = pedidos || [];
   window.ordersById = new Map((pedidos || []).map(o => [String(o.id), o]));
 
@@ -323,17 +331,14 @@ function actualizarListado(pedidos) {
   const contTable = $("tablaPedidosTable");
   const contCards = $("cardsPedidos");
 
-  // reset visibility
   if (contGrid) contGrid.innerHTML = "";
   if (contTable) contTable.innerHTML = "";
   if (contCards) contCards.innerHTML = "";
 
-  // GRID
+  // =========================
+  // GRID (2xl)
+  // =========================
   if (mode === "grid") {
-    if (contGrid) contGrid.classList.remove("hidden");
-    if (contCards) contCards.classList.add("hidden");
-    // el wrapper table ya lo maneja el view (hidden/show). No tocamos clases aquí.
-
     if (!contGrid) return;
 
     if (!pedidos || !pedidos.length) {
@@ -365,13 +370,13 @@ function actualizarListado(pedidos) {
 
       const detallesBtn = `
         <button type="button" onclick="verDetallesPedido('${escapeJsString(id)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition whitespace-nowrap">
           Ver detalles →
         </button>
       `;
 
       return `
-        <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
+        <div class="${GRID_COLS_TW} text-[13px] border-b hover:bg-slate-50 transition">
           <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
           <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
           <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
@@ -381,14 +386,13 @@ function actualizarListado(pedidos) {
 
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
 
-          <!-- ✅ ETIQUETAS compact -->
           <div class="col-etiquetas">${renderEtiquetasMini(etiquetas)}</div>
 
           <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
 
           <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
 
-          <div class="min-w-0 text-xs text-slate-700">${escapeHtml(String(formaEnvio || "—"))}</div>
+          <div class="min-w-0 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
 
           <div class="text-right whitespace-nowrap">${detallesBtn}</div>
         </div>
@@ -398,11 +402,10 @@ function actualizarListado(pedidos) {
     return;
   }
 
-  // TABLA con scroll (xl..2xl-)
+  // =========================
+  // TABLA (xl..2xl-)
+  // =========================
   if (mode === "table") {
-    if (contCards) contCards.classList.add("hidden");
-    // contGrid queda hidden por el view (2xl:block) pero igual limpiamos
-
     if (!contTable) return;
 
     if (!pedidos || !pedidos.length) {
@@ -432,7 +435,7 @@ function actualizarListado(pedidos) {
 
       const detallesBtn = `
         <button type="button" onclick="verDetallesPedido('${escapeJsString(id)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition whitespace-nowrap">
           Ver detalles →
         </button>
       `;
@@ -445,10 +448,7 @@ function actualizarListado(pedidos) {
           <td class="px-5 py-4 text-slate-700 whitespace-nowrap">${moneyFormat(total)}</td>
           <td class="px-5 py-4 whitespace-nowrap">${estadoHtml}</td>
           <td class="px-5 py-4">${renderLastChangeCompact(p)}</td>
-
-          <!-- ✅ ETIQUETAS compact -->
           <td class="px-5 py-4 col-etiquetas">${renderEtiquetasMini(etiquetas)}</td>
-
           <td class="px-5 py-4 text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</td>
           <td class="px-5 py-4 whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</td>
           <td class="px-5 py-4 text-slate-700 max-w-[240px] truncate">${escapeHtml(String(formaEnvio || "—"))}</td>
@@ -460,8 +460,9 @@ function actualizarListado(pedidos) {
     return;
   }
 
+  // =========================
   // CARDS (<xl)
-  if (contCards) contCards.classList.remove("hidden");
+  // =========================
   if (!contCards) return;
 
   if (!pedidos || !pedidos.length) {
@@ -489,7 +490,7 @@ function actualizarListado(pedidos) {
 
     const detallesBtn = `
       <button onclick="verDetallesPedido('${escapeJsString(id)}')"
-        class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+        class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition whitespace-nowrap">
         Ver detalles →
       </button>
     `;
@@ -523,7 +524,7 @@ function actualizarListado(pedidos) {
           <div class="mt-3 text-xs text-slate-600 space-y-1">
             <div><b>Artículos:</b> ${escapeHtml(String(articulos ?? "-"))}</div>
             <div><b>Método:</b> ${escapeHtml(String(formaEnvio || "—"))}</div>
-            <div><b>Último cambio:</b> ${renderLastChangeCompact(p)}</div>
+            <div><b>Último cambio:</b> ${escapeHtml(lastChangeTextInline(p))}</div>
           </div>
         </div>
       </div>
@@ -684,10 +685,11 @@ async function devolverPedidosRestantes() {
 // =========================
 // DETALLES FULL (modalDetallesFull)
 // - Usa /dashboard/detalles/{id}
-// - NO pisa window.verDetalles del dashboard si ya existe
+// - Si dashboard ya tiene window.verDetalles, se usa
 // =========================
 function setText(id, v) { const el = $(id); if (el) el.textContent = v ?? ""; }
 function setHtml(id, v) { const el = $(id); if (el) el.innerHTML = v ?? ""; }
+function setPreText(id, v) { const el = $(id); if (el) el.textContent = v ?? ""; }
 
 function abrirDetallesFull() {
   const modal = $("modalDetallesFull");
@@ -707,7 +709,6 @@ function cerrarDetallesFull() {
 
 window.cerrarDetallesFull = cerrarDetallesFull;
 
-// JSON panel
 window.toggleJsonDetalles = function () {
   const pre = $("detJson");
   if (!pre) return;
@@ -720,7 +721,6 @@ window.copiarDetallesJson = async function () {
   try {
     await navigator.clipboard.writeText(pre.textContent || "");
   } catch {
-    // fallback
     const ta = document.createElement("textarea");
     ta.value = pre.textContent || "";
     document.body.appendChild(ta);
@@ -752,7 +752,7 @@ async function abrirDetallesPedido(orderId) {
   const id = String(orderId || "");
   if (!id) return;
 
-  // Si el dashboard ya inyectó su verDetalles, úsala
+  // Si el dashboard ya tiene verDetalles, úsala (NO pisamos)
   if (typeof window.verDetalles === "function" && window.verDetalles !== window.verDetallesPedido) {
     window.verDetalles(id);
     return;
@@ -769,7 +769,7 @@ async function abrirDetallesPedido(orderId) {
   setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detJson", "");
+  setPreText("detJson", "");
 
   let payload = null;
   try {
@@ -791,12 +791,10 @@ async function abrirDetallesPedido(orderId) {
 
   const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
   setText("detTitle", `Detalles ${name}`);
-  setText("detSubtitle", `${escapeHtml(o.customer_name || o.cliente || "—")} · ${escapeHtml(o.created_at || "—")}`);
+  setText("detSubtitle", `${String(o.customer_name || o.cliente || "—")} · ${String(o.created_at || "—")}`);
 
-  // JSON
-  try {
-    setHtml("detJson", escapeHtml(JSON.stringify(payload, null, 2)));
-  } catch {}
+  // JSON como texto (para copiar perfecto)
+  try { setPreText("detJson", JSON.stringify(payload, null, 2)); } catch {}
 
   // Cliente
   const customer = o.customer || {};
@@ -844,7 +842,7 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Totales (fallbacks)
+  // Totales
   const subtotal = o.subtotal_price ?? "0";
   const envio =
     o.total_shipping_price_set?.shop_money?.amount ??
@@ -986,7 +984,6 @@ function bindEventos() {
   });
 
   window.addEventListener("resize", () => {
-    // re-render sin pedir backend
     actualizarListado(pedidosFiltrados.length ? pedidosFiltrados : pedidosCache);
   });
 
