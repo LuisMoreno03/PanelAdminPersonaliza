@@ -268,131 +268,161 @@ class ProduccionController extends BaseController
     public function uploadGeneral()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No autenticado']);
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
         }
 
-        $orderId = trim((string)$this->request->getPost('order_id'));
-        if ($orderId === '' || $orderId === '0') {
-            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'order_id requerido']);
+        $orderIdRaw = trim((string)($this->request->getPost('order_id') ?? ''));
+        if ($orderIdRaw === '' || $orderIdRaw === '0') {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'order_id requerido',
+            ])->setStatusCode(400);
         }
 
         $files = $this->request->getFiles();
         if (!isset($files['files'])) {
-            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'Sin archivos']);
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Sin archivos',
+            ])->setStatusCode(400);
         }
-
-        // Normaliza: a veces llega 1 archivo y no array
-        $incoming = $files['files'];
-        if (!is_array($incoming)) $incoming = [$incoming];
 
         $db = \Config\Database::connect();
         $now = date('Y-m-d H:i:s');
 
-        $userId   = (int)(session('user_id') ?? 0);
-        $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
+        // ------------------------------------------------------------
+        // 1) Resolver pedido en DB: puede venir p.id o p.shopify_order_id
+        // ------------------------------------------------------------
+        $pedido = $db->table('pedidos')
+            ->select('id, shopify_order_id, assigned_to_user_id')
+            ->groupStart()
+                ->where('id', $orderIdRaw)
+                ->orWhere('shopify_order_id', $orderIdRaw)
+            ->groupEnd()
+            ->get()
+            ->getRowArray();
 
+        // Si no existe igual subimos a carpeta por orderIdRaw, pero NO podremos desasignar ni cambiar estado
+        $pedidoId = $pedido['id'] ?? null;
+        $shopifyOrderId = trim((string)($pedido['shopify_order_id'] ?? $orderIdRaw)); // fallback
+
+        // ------------------------------------------------------------
+        // 2) Guardar archivos (siempre)
+        // ------------------------------------------------------------
         $saved = 0;
         $out = [];
 
+        // Carpeta: writable/uploads/produccion/{orderIdRaw}/
+        $dir = WRITEPATH . "uploads/produccion/" . $orderIdRaw;
+        if (!is_dir($dir)) mkdir($dir, 0777, true);
+
+        foreach ($files['files'] as $f) {
+            if (!$f || !$f->isValid()) continue;
+
+            $newName  = $f->getRandomName();
+            $original = $f->getName();
+            $mime     = $f->getClientMimeType();
+
+            $f->move($dir, $newName);
+
+            $saved++;
+            $out[] = [
+                'original_name' => $original,
+                'filename' => $newName,
+                'mime' => $mime,
+                'size' => $f->getSize(),
+                'created_at' => $now,
+                'url' => site_url("produccion/file/{$orderIdRaw}/{$newName}"),
+            ];
+        }
+
+        if ($saved <= 0) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'No se subió ningún archivo válido',
+            ])->setStatusCode(200);
+        }
+
+        // ------------------------------------------------------------
+        // 3) Si existe el pedido, entonces:
+        //    - Cambiar estado a "Por producir"
+        //    - Quitar asignación
+        //    - Registrar en historial
+        // ------------------------------------------------------------
+        $didUnassign = false;
+        $didEstado = false;
+
         try {
+            $userId   = (int)(session('user_id') ?? 0);
+            $userName = (string)(session('nombre') ?? session('user_name') ?? 'Sistema');
+
             $db->transStart();
 
-            foreach ($incoming as $f) {
-                if (!$f || !$f->isValid()) continue;
+            if ($pedidoId) {
+                // ✅ desasignar
+                $db->table('pedidos')
+                    ->where('id', (int)$pedidoId)
+                    ->update([
+                        'assigned_to_user_id' => null,
+                        'assigned_at' => null,
+                    ]);
 
-                $newName  = $f->getRandomName();
-                $original = $f->getName();
-                $mime     = $f->getClientMimeType();
+                $didUnassign = ($db->affectedRows() >= 0); // >=0 porque puede ya estar null
 
-                // Carpeta: writable/uploads/produccion/{orderId}/
-                $dir = WRITEPATH . "uploads/produccion/" . $orderId;
-                if (!is_dir($dir)) mkdir($dir, 0777, true);
+                // ✅ estado actual (pedidos_estado)
+                $estadoModel = new \App\Models\PedidosEstadoModel();
 
-                $f->move($dir, $newName);
+                // OJO: tu Dashboard override usa order_id = shopify_order_id (string)
+                $didEstado = (bool) $estadoModel->setEstadoPedido(
+                    (string)$shopifyOrderId,
+                    'Por producir',
+                    $userId ?: null,
+                    $userName
+                );
 
-                $saved++;
-                $out[] = [
-                    'original_name' => $original,
-                    'filename' => $newName,
-                    'mime' => $mime,
-                    'size' => $f->getSize(),
+                // ✅ historial (order_id = shopify_order_id)
+                $db->table('pedidos_estado_historial')->insert([
+                    'order_id'   => (string)$shopifyOrderId,
+                    'estado'     => 'Por producir',
+                    'user_id'    => $userId ?: null,
+                    'user_name'  => $userName,
                     'created_at' => $now,
-                    'url' => site_url("produccion/file/{$orderId}/{$newName}") // si ya tienes route para servirlo
-                ];
-
-                // (Opcional) Si tienes tabla para guardar archivos, aquí insertas.
-                // Ej: produccion_archivos_generales(order_id, filename, original_name, mime, size, created_at, user_id)
-            }
-
-            if ($saved <= 0) {
-                $db->transComplete();
-                return $this->response->setStatusCode(400)->setJSON([
-                    'success' => false,
-                    'message' => 'No se guardó ningún archivo válido'
+                    'pedido_json'=> null,
                 ]);
             }
-
-            // ✅ 1) Cambiar estado a "Por producir" en HISTORIAL
-            // IMPORTANTE: usa el mismo tipo de order_id que vienes usando en el historial.
-            // Si tu historial guarda shopify_order_id -> cambia $histOrderId a shopify id.
-            $histOrderId = $orderId;
-
-            $db->table('pedidos_estado_historial')->insert([
-                'order_id'   => $histOrderId,
-                'estado'     => 'Por producir',
-                'user_id'    => $userId ?: null,
-                'user_name'  => $userName ?: null,
-                'created_at' => $now,
-                'pedido_json'=> null,
-            ]);
-
-            // ✅ 2) (Recomendado) también actualizar pedidos_estado para el dashboard
-            // Si en pedidos_estado guardas order_id como shopify_order_id:
-            $db->query("
-                INSERT INTO pedidos_estado (order_id, estado, actualizado, estado_updated_at, estado_updated_by, estado_updated_by_name)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    estado = VALUES(estado),
-                    actualizado = VALUES(actualizado),
-                    estado_updated_at = VALUES(estado_updated_at),
-                    estado_updated_by = VALUES(estado_updated_by),
-                    estado_updated_by_name = VALUES(estado_updated_by_name)
-            ", [$histOrderId, 'Por producir', $now, $now, ($userId ?: null), ($userName ?: null)]);
-
-            // ✅ 3) Quitar asignación del pedido
-            // OJO: aquí debes decidir si $orderId corresponde a p.id (interno) o a shopify_order_id.
-            // Si en Producción trabajas con p.id interno:
-            $db->table('pedidos')
-                ->where('id', (int)$orderId)
-                ->update([
-                    'assigned_to_user_id' => null,
-                    'assigned_at' => null,
-                ]);
-
-            // Si en tu UI estás pasando shopify_order_id en order_id, usa este en vez del anterior:
-            // $db->table('pedidos')->where('shopify_order_id', $orderId)->update([...]);
 
             $db->transComplete();
 
+        } catch (\Throwable $e) {
+            log_message('error', 'uploadGeneral post-actions ERROR: ' . $e->getMessage());
+            // No abortamos el upload, pero avisamos
             return $this->response->setJSON([
                 'success' => true,
                 'saved' => $saved,
                 'files' => $out,
-                'estado_changed_to' => 'Por producir',
-                'unassigned' => true
-            ]);
-
-        } catch (\Throwable $e) {
-            $db->transRollback();
-            log_message('error', 'uploadGeneral ERROR: ' . $e->getMessage());
-
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => 'Error interno subiendo archivos',
+                'warning' => 'Archivos subidos, pero falló actualizar estado/desasignar',
                 'debug' => $e->getMessage(),
-            ]);
+            ])->setStatusCode(200);
         }
+
+        return $this->response->setJSON([
+            'success' => true,
+            'saved' => $saved,
+            'files' => $out,
+
+            // info extra para el frontend
+            'order_id_received' => $orderIdRaw,
+            'pedido_id' => $pedidoId,
+            'shopify_order_id' => $shopifyOrderId,
+            'estado_set' => $didEstado,
+            'unassigned' => $didUnassign,
+            'new_estado' => 'Por producir',
+        ]);
     }
+
     public function listGeneral()
     {
         $orderId = $this->request->getGet('order_id');
