@@ -1,10 +1,10 @@
 /**
- * produccion.js (CI4) — FULL
- * - Responsive real: GRID (>=2xl) + TABLE (xl..2xl-) + CARDS (<xl)
- * - Detalles FULL en #modalDetallesFull
- * - FIX: ver detalles usa shopify_order_id cuando existe
- * - Fallback endpoints: con/sin index.php
- * - Upload Illustrator: permite cargar 1 o varios archivos (.ai/.eps/.pdf/.svg) en el modal
+ * produccion.js (CI4) — FULL (CORREGIDO)
+ * - GRID (>=2xl) + TABLE (xl..2xl-) + CARDS (<xl)
+ * - Modal detalles FULL (#modalDetallesFull)
+ * - Ver detalles usa shopify_order_id cuando existe
+ * - Upload GENERAL (Illustrator) usando /produccion/upload-general
+ * - Al subir: refresca archivos + refresca cola (desaparece del listado si backend lo desasigna/cambia estado)
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -12,14 +12,15 @@ const ENDPOINT_QUEUE = `${API_BASE}/produccion/my-queue`;
 const ENDPOINT_PULL = `${API_BASE}/produccion/pull`;
 const ENDPOINT_RETURN_ALL = `${API_BASE}/produccion/return-all`;
 const ENDPOINT_UPLOAD_GENERAL = `${API_BASE}/produccion/upload-general`;
-const ENDPOINT_LIST_GENERAL   = `${API_BASE}/produccion/list-general`;
-
+const ENDPOINT_LIST_GENERAL = `${API_BASE}/produccion/list-general`;
 
 let pedidosCache = [];
 let pedidosFiltrados = [];
 let isLoading = false;
 let liveInterval = null;
 let silentFetch = false;
+
+let currentDetallesOrderId = null;
 
 // =========================
 // Helpers DOM/UI
@@ -203,7 +204,7 @@ function renderLastChangeCompact(p) {
 }
 
 // =========================
-// Etiquetas mini (usa CSS del view)
+// Etiquetas mini
 // =========================
 function renderEtiquetasMini(etiquetasRaw) {
   const raw = String(etiquetasRaw || "").trim();
@@ -305,11 +306,6 @@ function getMode() {
 function actualizarListado(pedidos) {
   const mode = getMode();
 
-  // caches globales
-  window.ordersCache = pedidos || [];
-  window.ordersById = new Map((pedidos || []).map(o => [String(o.id), o]));
-  window.ordersByShopify = new Map((pedidos || []).map(o => [String(o.shopify_order_id || ""), o]).filter(([k]) => k && k !== "0"));
-
   const contGrid = $("tablaPedidos");
   const contTable = $("tablaPedidosTable");
   const contCards = $("cardsPedidos");
@@ -318,14 +314,10 @@ function actualizarListado(pedidos) {
   if (contTable) contTable.innerHTML = "";
   if (contCards) contCards.innerHTML = "";
 
-  // GRID (>=2xl)
+  // GRID
   if (mode === "grid") {
-    if (contGrid) contGrid.classList.remove("hidden");
-    if (contCards) contCards.classList.add("hidden");
-
     if (!contGrid) return;
-
-    if (!pedidos || !pedidos.length) {
+    if (!pedidos?.length) {
       contGrid.innerHTML = `<div class="p-8 text-center text-slate-500">No tienes pedidos asignados.</div>`;
       return;
     }
@@ -339,21 +331,11 @@ function actualizarListado(pedidos) {
       const fecha = p.fecha ?? p.created_at ?? "—";
       const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
-      const estado = p.estado ?? p.estado_bd ?? "Por producir";
+      const estado = p.estado ?? p.estado_bd ?? "—";
       const etiquetas = p.etiquetas ?? "";
       const articulos = p.articulos ?? "-";
-      const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
-      const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
-
-      const estadoBtn = (typeof window.abrirModal === "function")
-        ? `
-          <button type="button" onclick="window.abrirModal('${escapeJsString(internalId)}')"
-            class="group inline-flex items-center gap-1 rounded-xl px-1 py-0.5 bg-transparent hover:bg-slate-100 transition"
-            title="Cambiar estado">
-            ${renderEstadoPill(estado)}
-          </button>
-        `
-        : renderEstadoPill(estado);
+      const estadoEnvio = p.estado_envio ?? "-";
+      const formaEnvio = p.forma_envio ?? "-";
 
       const detallesBtn = `
         <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
@@ -368,7 +350,7 @@ function actualizarListado(pedidos) {
           <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
           <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
           <div class="font-extrabold text-slate-900 whitespace-nowrap">${moneyFormat(total)}</div>
-          <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
+          <div class="whitespace-nowrap">${renderEstadoPill(estado)}</div>
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
           <div class="col-etiquetas">${renderEtiquetasMini(etiquetas)}</div>
           <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
@@ -378,20 +360,15 @@ function actualizarListado(pedidos) {
         </div>
       `;
     }).join("");
-
     return;
   }
 
-  // TABLE (xl..2xl-)
+  // TABLE
   if (mode === "table") {
-    if (contCards) contCards.classList.add("hidden");
     if (!contTable) return;
-
-    if (!pedidos || !pedidos.length) {
+    if (!pedidos?.length) {
       contTable.innerHTML = `
-        <tr>
-          <td colspan="11" class="px-5 py-8 text-slate-500 text-sm">No tienes pedidos asignados.</td>
-        </tr>
+        <tr><td colspan="11" class="px-5 py-8 text-slate-500 text-sm">No tienes pedidos asignados.</td></tr>
       `;
       return;
     }
@@ -405,15 +382,11 @@ function actualizarListado(pedidos) {
       const fecha = p.fecha ?? p.created_at ?? "—";
       const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
-      const estado = p.estado ?? p.estado_bd ?? "Por producir";
+      const estado = p.estado ?? p.estado_bd ?? "—";
       const etiquetas = p.etiquetas ?? "";
       const articulos = p.articulos ?? "-";
-      const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
-      const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
-
-      const estadoHtml = (typeof window.abrirModal === "function")
-        ? `<button type="button" onclick="window.abrirModal('${escapeJsString(internalId)}')" class="hover:opacity-90">${renderEstadoPill(estado)}</button>`
-        : renderEstadoPill(estado);
+      const estadoEnvio = p.estado_envio ?? "-";
+      const formaEnvio = p.forma_envio ?? "-";
 
       const detallesBtn = `
         <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
@@ -428,7 +401,7 @@ function actualizarListado(pedidos) {
           <td class="px-5 py-4 text-slate-700 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</td>
           <td class="px-5 py-4 text-slate-700 max-w-[320px] truncate">${escapeHtml(String(cliente || "—"))}</td>
           <td class="px-5 py-4 text-slate-700 whitespace-nowrap">${moneyFormat(total)}</td>
-          <td class="px-5 py-4 whitespace-nowrap">${estadoHtml}</td>
+          <td class="px-5 py-4 whitespace-nowrap">${renderEstadoPill(estado)}</td>
           <td class="px-5 py-4">${renderLastChangeCompact(p)}</td>
           <td class="px-5 py-4 col-etiquetas">${renderEtiquetasMini(etiquetas)}</td>
           <td class="px-5 py-4 text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</td>
@@ -438,15 +411,12 @@ function actualizarListado(pedidos) {
         </tr>
       `;
     }).join("");
-
     return;
   }
 
-  // CARDS (<xl)
-  if (contCards) contCards.classList.remove("hidden");
+  // CARDS
   if (!contCards) return;
-
-  if (!pedidos || !pedidos.length) {
+  if (!pedidos?.length) {
     contCards.innerHTML = `<div class="p-8 text-center text-slate-500">No tienes pedidos asignados.</div>`;
     return;
   }
@@ -460,24 +430,11 @@ function actualizarListado(pedidos) {
     const fecha = p.fecha ?? p.created_at ?? "—";
     const cliente = p.cliente ?? "—";
     const total = p.total ?? "";
-    const estado = p.estado ?? p.estado_bd ?? "Por producir";
+    const estado = p.estado ?? p.estado_bd ?? "—";
     const etiquetas = p.etiquetas ?? "";
     const articulos = p.articulos ?? "-";
-    const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
-    const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
-
-    const estadoBtn = (typeof window.abrirModal === "function")
-      ? `<button onclick="window.abrirModal('${escapeJsString(internalId)}')" class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0">
-          ${renderEstadoPill(estado)}
-        </button>`
-      : renderEstadoPill(estado);
-
-    const detallesBtn = `
-      <button onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
-        class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-        Ver detalles →
-      </button>
-    `;
+    const estadoEnvio = p.estado_envio ?? "-";
+    const formaEnvio = p.forma_envio ?? "-";
 
     return `
       <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
@@ -494,8 +451,11 @@ function actualizarListado(pedidos) {
           </div>
 
           <div class="mt-3 flex items-center justify-between gap-3">
-            ${estadoBtn}
-            <div class="text-right whitespace-nowrap">${detallesBtn}</div>
+            ${renderEstadoPill(estado)}
+            <button onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
+              class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+              Ver detalles →
+            </button>
           </div>
 
           <div class="mt-3">${renderEntregaPill(estadoEnvio)}</div>
@@ -533,9 +493,9 @@ function aplicarFiltroBusqueda() {
       p.id, p.shopify_order_id, p.numero,
       p.cliente,
       p.estado, p.estado_bd,
-      p.etiquetas, p.tags,
-      p.forma_envio, p.forma_entrega,
-      p.estado_envio, p.estado_entrega,
+      p.etiquetas,
+      p.forma_envio,
+      p.estado_envio,
     ].map(safeText).join(" ").toLowerCase();
 
     return haystack.includes(q);
@@ -575,23 +535,22 @@ async function cargarMiCola() {
       return;
     }
 
-    // normaliza shape
     const incoming = extracted.orders.map((r) => ({
       id: r.id ?? r.pedido_id ?? "",
-      shopify_order_id: r.shopify_order_id ?? r.order_id ?? r.shopifyId ?? "",
+      shopify_order_id: r.shopify_order_id ?? r.order_id ?? "",
       numero: r.numero ?? r.name ?? (r.id ? ("#" + r.id) : ""),
-      fecha: r.fecha ?? r.created_at ?? r.order_date ?? null,
-      cliente: r.cliente ?? r.customer_name ?? r.customer ?? null,
+      fecha: r.fecha ?? r.created_at ?? null,
+      cliente: r.cliente ?? r.customer_name ?? null,
       total: r.total ?? r.total_price ?? null,
-      estado: r.estado ?? r.estado_bd ?? "Por producir",
+      estado: r.estado ?? r.estado_bd ?? "—",
       estado_bd: r.estado_bd ?? r.estado ?? null,
       etiquetas: r.etiquetas ?? r.tags ?? "",
-      articulos: r.articulos ?? r.items_count ?? r.items ?? "",
-      estado_envio: r.estado_envio ?? r.estado_entrega ?? r.fulfillment_status ?? "",
-      forma_envio: r.forma_envio ?? r.forma_entrega ?? r.shipping_method ?? r.metodo_entrega ?? "",
+      articulos: r.articulos ?? r.items_count ?? "",
+      estado_envio: r.estado_envio ?? r.fulfillment_status ?? "",
+      forma_envio: r.forma_envio ?? r.shipping_method ?? "",
       last_status_change: r.last_status_change ?? {
-        user_name: r.estado_por ?? r.estado_changed_by ?? null,
-        changed_at: r.estado_actualizado ?? r.estado_changed_at ?? null,
+        user_name: r.estado_por ?? null,
+        changed_at: r.estado_actualizado ?? null,
       },
     }));
 
@@ -692,10 +651,8 @@ function cerrarDetallesFull() {
   document.documentElement.classList.remove("overflow-hidden");
   document.body.classList.remove("overflow-hidden");
 }
-
 window.cerrarDetallesFull = cerrarDetallesFull;
 
-// JSON panel
 window.toggleJsonDetalles = function () {
   const pre = $("detJson");
   if (!pre) return;
@@ -717,10 +674,8 @@ window.copiarDetallesJson = async function () {
   }
 };
 
-// ---- endpoints fallback para detalles
 function buildDetallesEndpoints(orderId) {
   const id = encodeURIComponent(String(orderId || ""));
-  // Probables rutas CI4:
   return [
     `${API_BASE}/dashboard/detalles/${id}`,
     `/dashboard/detalles/${id}`,
@@ -741,44 +696,44 @@ function fmtMoney(v) {
   return n.toFixed(2);
 }
 
-// ---- UI upload illustrator (inyectada en modal)
+// ✅ Upload box para endpoint REAL upload-general
 function renderUploadBox(orderId) {
   const oid = escapeHtml(String(orderId || ""));
   return `
-    <div id="detUploadBox" class="mt-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Archivos Illustrator</div>
-          <div class="text-sm font-semibold text-slate-900 mt-1">Sube 1 o varios archivos para este pedido</div>
-          <div class="text-xs text-slate-500 mt-1">Acepta: .ai, .eps, .pdf, .svg</div>
+    <div class="mt-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Archivos Illustrator (General)</div>
+      <div class="text-sm font-semibold text-slate-900 mt-1">Sube 1 o varios archivos para este pedido</div>
+      <div class="text-xs text-slate-500 mt-1">Acepta: .ai, .eps, .pdf, .svg</div>
+
+      <form id="formGeneralUpload" class="mt-3">
+        <input type="hidden" id="generalOrderId" value="${oid}">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+          <input
+            id="generalFiles"
+            type="file"
+            multiple
+            accept=".ai,.eps,.pdf,.svg"
+            class="block w-full text-sm text-slate-700
+                   file:mr-4 file:py-2 file:px-4
+                   file:rounded-2xl file:border-0
+                   file:text-sm file:font-extrabold
+                   file:bg-slate-200 file:text-slate-900
+                   hover:file:bg-slate-300"
+          />
+          <button
+            type="submit"
+            class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition whitespace-nowrap"
+          >
+            Subir archivos
+          </button>
         </div>
-      </div>
 
-      <div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
-        <input
-          id="detIllustratorFiles"
-          type="file"
-          multiple
-          accept=".ai,.eps,.pdf,.svg"
-          class="block w-full text-sm text-slate-700
-                 file:mr-4 file:py-2 file:px-4
-                 file:rounded-2xl file:border-0
-                 file:text-sm file:font-extrabold
-                 file:bg-slate-200 file:text-slate-900
-                 hover:file:bg-slate-300"
-        />
-
-        <button
-          id="btnUploadIllustrator"
-          type="button"
-          class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition whitespace-nowrap"
-        >
-          Subir archivos
-        </button>
-      </div>
-
-      <div id="detUploadMsg" class="mt-3 text-sm text-slate-600"></div>
-      <div id="detUploadList" class="mt-3 space-y-2"></div>
+        <div id="generalUploadMsg" class="mt-3 text-sm text-slate-600"></div>
+        <div class="mt-3">
+          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Archivos subidos</div>
+          <div id="generalFilesList" class="space-y-2"></div>
+        </div>
+      </form>
 
       <div class="mt-2 text-xs text-slate-500">
         Pedido: <span class="font-bold text-slate-700">${oid}</span>
@@ -786,362 +741,6 @@ function renderUploadBox(orderId) {
     </div>
   `;
 }
-
-// ---- subida (requiere endpoint backend; si no existe, mostrará error claro)
-function buildUploadEndpoints(orderId) {
-  const id = encodeURIComponent(String(orderId || ""));
-  return [
-    `${API_BASE}/produccion/upload-illustrator/${id}`,
-    `${API_BASE}/produccion/upload-illustrator`,
-    `/produccion/upload-illustrator/${id}`,
-    `/produccion/upload-illustrator`,
-    `/index.php/produccion/upload-illustrator/${id}`,
-    `/index.php/produccion/upload-illustrator`,
-  ];
-}
-
-async function uploadIllustratorFiles(orderId) {
-  const input = $("detIllustratorFiles");
-  const msg = $("detUploadMsg");
-  const list = $("detUploadList");
-  if (!input || !msg || !list) return;
-
-  const files = Array.from(input.files || []);
-  if (!files.length) {
-    msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona al menos 1 archivo.</span>`;
-    return;
-  }
-
-  msg.innerHTML = `Subiendo ${files.length} archivo(s)…`;
-  list.innerHTML = "";
-
-  const fd = new FormData();
-  fd.append("order_id", String(orderId || ""));
-  files.forEach((f) => fd.append("files[]", f, f.name));
-
-  // CSRF header (CI4)
-  const csrf = getCsrfHeaders();
-
-  let ok = false;
-  let lastError = null;
-  let responseData = null;
-
-  for (const url of buildUploadEndpoints(orderId)) {
-    try {
-      const r = await fetch(url, {
-        method: "POST",
-        headers: { ...csrf }, // NO pongas Content-Type, FormData lo pone solo
-        body: fd,
-        credentials: "same-origin",
-      });
-
-      const text = await r.text();
-      let d = null;
-      try { d = JSON.parse(text); } catch { d = null; }
-
-      if (!r.ok) throw new Error(d?.error || d?.message || `HTTP ${r.status}`);
-
-      // esperamos algo como {ok:true, files:[{name,url}...]}
-      if (d && (d.ok === true || d.success === true)) {
-        ok = true;
-        responseData = d;
-        break;
-      }
-
-      throw new Error(d?.error || d?.message || "Respuesta inválida (ok!=true)");
-    } catch (e) {
-      lastError = e;
-    }
-  }
-
-  if (!ok) {
-    msg.innerHTML = `<span class="text-rose-600 font-extrabold">No se pudo subir.</span> <span class="text-slate-600">${escapeHtml(lastError?.message || "")}</span>`;
-    return;
-  }
-
-  const uploaded = responseData?.files || responseData?.data || [];
-  msg.innerHTML = `<span class="text-emerald-700 font-extrabold">Subido ✅</span>`;
-
-  if (Array.isArray(uploaded) && uploaded.length) {
-    list.innerHTML = uploaded.map((f) => {
-      const name = escapeHtml(f.name || f.filename || "archivo");
-      const url = f.url ? String(f.url) : "";
-      return `
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-3">
-          <div class="min-w-0">
-            <div class="font-bold text-slate-900 truncate">${name}</div>
-            ${url ? `<a class="text-xs text-blue-700 underline break-all" href="${escapeHtml(url)}" target="_blank">${escapeHtml(url)}</a>` : `<div class="text-xs text-slate-500">Sin URL devuelta por el backend</div>`}
-          </div>
-        </div>
-      `;
-    }).join("");
-  } else {
-    list.innerHTML = `<div class="text-xs text-slate-500">El backend no devolvió listado de archivos, pero marcó ok=true.</div>`;
-  }
-
-  input.value = "";
-}
-
-async function abrirDetallesPedido(orderId) {
-  const id = String(orderId || "");
-  if (!id) return;
-
-  abrirDetallesFull();
-  currentDetallesOrderId = id;
-
-  const hiddenId = $("generalOrderId");
-  if (hiddenId) hiddenId.value = id;
-
-  await cargarArchivosGenerales(id);
-
-  // placeholders
-  setText("detTitle", "Cargando...");
-  setText("detSubtitle", "—");
-  setText("detItemsCount", "0");
-  setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
-  setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detJson", "");
-
-  // fetch robusto (prueba varias rutas)
-  let payload = null;
-  let lastErr = null;
-
-  for (const url of buildDetallesEndpoints(id)) {
-    try {
-      const r = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" });
-      if (r.status === 404) continue;
-
-      const text = await r.text();
-      let d = null;
-      try { d = JSON.parse(text); } catch { d = null; }
-
-      if (!r.ok || !d) throw new Error(d?.message || `HTTP ${r.status}`);
-      if (d.success !== true) throw new Error(d.message || "Respuesta inválida (success!=true)");
-
-      payload = d;
-      break;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-
-  if (!payload) {
-    console.error("Detalle error:", lastErr);
-    setText("detTitle", "Error");
-    setText("detSubtitle", "No se pudo cargar el detalle.");
-    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalle del pedido.</div>`);
-    return;
-  }
-
-  const o = payload.order || {};
-  const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
-
-  // header
-  const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
-  setText("detTitle", `Detalles ${name}`);
-
-  const clienteHeader = o.customer_name || o.cliente || (() => {
-    const c = o.customer || {};
-    const full = `${c.first_name || ""} ${c.last_name || ""}`.trim();
-    return full || "—";
-  })();
-
-  setText("detSubtitle", `${clienteHeader} · ${o.created_at || "—"}`);
-
-  // JSON
-  try {
-    const json = JSON.stringify(payload, null, 2);
-    setHtml("detJson", escapeHtml(json));
-  } catch {}
-
-  // Cliente
-  const customer = o.customer || {};
-  const clienteNombre = (customer.first_name || customer.last_name)
-    ? `${customer.first_name || ""} ${customer.last_name || ""}`.trim()
-    : (o.customer_name || o.cliente || "—");
-
-  setHtml("detCliente", `
-    <div class="space-y-1">
-      <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre)}</div>
-      <div><span class="text-slate-500 font-bold">Email:</span> ${escapeHtml(o.email || "—")}</div>
-      <div><span class="text-slate-500 font-bold">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
-      <div><span class="text-slate-500 font-bold">Shopify ID:</span> ${escapeHtml(String(o.id || o.shopify_order_id || id || "—"))}</div>
-    </div>
-  `);
-
-  // Envío
-  const a = o.shipping_address || {};
-  setHtml("detEnvio", `
-    <div class="space-y-1">
-      <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
-      <div>${escapeHtml(a.address1 || "")}</div>
-      <div>${escapeHtml(a.address2 || "")}</div>
-      <div>${escapeHtml((a.zip || "") + " " + (a.city || ""))}</div>
-      <div>${escapeHtml(a.province || "")}</div>
-      <div>${escapeHtml(a.country || "")}</div>
-      <div class="pt-2"><span class="text-slate-500 font-bold">Tel envío:</span> ${escapeHtml(a.phone || "—")}</div>
-    </div>
-  `);
-
-  // Resumen
-  const estado = o.estado ?? o.status ?? "—";
-  const tags = String(o.tags ?? o.etiquetas ?? "").trim();
-  const lastInfo = normalizeLastStatusChange(o.last_status_change || payload.last_status_change);
-  const lastText = lastInfo?.changed_at
-    ? `${escapeHtml(lastInfo.user_name || "—")} · ${escapeHtml(formatDateTime(lastInfo.changed_at))}`
-    : "—";
-
-  setHtml("detResumen", `
-    <div class="space-y-2 text-sm">
-      <div><span class="text-slate-500 font-bold">Estado:</span> ${renderEstadoPill(estado)}</div>
-      <div><span class="text-slate-500 font-bold">Etiquetas:</span> ${tags ? escapeHtml(tags) : "—"}</div>
-      <div><span class="text-slate-500 font-bold">Último cambio:</span> ${lastText}</div>
-      <div><span class="text-slate-500 font-bold">Pago:</span> ${escapeHtml(o.financial_status || "—")}</div>
-      <div><span class="text-slate-500 font-bold">Entrega:</span> ${escapeHtml(o.fulfillment_status || "—")}</div>
-      <div><span class="text-slate-500 font-bold">Total artículos:</span> ${escapeHtml(String(lineItems.length))}</div>
-    </div>
-  `);
-
-  // Totales
-  const subtotal = o.subtotal_price ?? "0";
-  const envio =
-    o.total_shipping_price_set?.shop_money?.amount ??
-    o.total_shipping_price_set?.presentment_money?.amount ??
-    o.total_shipping_price ??
-    "0";
-  const impuestos = o.total_tax ?? "0";
-  const total = o.total_price ?? "0";
-
-  setHtml("detTotales", `
-    <div class="space-y-1 text-sm">
-      <div><span class="text-slate-500 font-bold">Subtotal:</span> ${escapeHtml(fmtMoney(subtotal))}</div>
-      <div><span class="text-slate-500 font-bold">Envío:</span> ${escapeHtml(fmtMoney(envio))}</div>
-      <div><span class="text-slate-500 font-bold">Impuestos:</span> ${escapeHtml(fmtMoney(impuestos))}</div>
-      <div class="pt-2 text-lg font-extrabold text-slate-900">Total: ${escapeHtml(fmtMoney(total))}</div>
-    </div>
-  `);
-
-  // Items
-  setText("detItemsCount", String(lineItems.length));
-
-  if (!lineItems.length) {
-    setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>${renderUploadBox(id)}`);
-    // bind upload
-    setTimeout(() => {
-      $("btnUploadIllustrator")?.addEventListener("click", () => uploadIllustratorFiles(id));
-    }, 0);
-    return;
-  }
-
-  const imagenesLocales = payload.imagenes_locales || {};
-  const productImages = payload.product_images || {};
-
-  const itemsHtml = lineItems.map((item, index) => {
-    const title = item.title || item.name || "Producto";
-    const qty = item.quantity ?? 1;
-    const price = item.price ?? "0";
-    const tot = (Number(qty) * Number(price));
-    const totTxt = Number.isFinite(tot) ? fmtMoney(tot) : "—";
-
-    const props = Array.isArray(item.properties) ? item.properties : [];
-    const propsImg = [];
-    const propsTxt = [];
-
-    for (const p of props) {
-      const name = String(p?.name ?? "").trim() || "Campo";
-      const v = p?.value === null || p?.value === undefined ? "" : String(p.value);
-      if (esImagenUrl(v)) propsImg.push({ name, value: v });
-      else propsTxt.push({ name, value: v });
-    }
-
-    const pid = String(item.product_id || "");
-    const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
-    const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
-
-    const productImgHtml = productImg
-      ? `<a href="${escapeHtml(productImg)}" target="_blank"
-            class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
-           <img src="${escapeHtml(productImg)}" class="h-full w-full object-cover">
-         </a>`
-      : `<div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">🧾</div>`;
-
-    const propsTxtHtml = propsTxt.length ? `
-      <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
-        <div class="space-y-1 text-sm">
-          ${propsTxt.map(({ name, value }) => `
-            <div class="flex gap-2">
-              <div class="min-w-[130px] text-slate-500 font-bold">${escapeHtml(name)}:</div>
-              <div class="flex-1 font-semibold text-slate-900 break-words">${escapeHtml(value || "—")}</div>
-            </div>
-          `).join("")}
-        </div>
-      </div>
-    ` : "";
-
-    const propsImgsHtml = propsImg.length ? `
-      <div class="mt-3">
-        <div class="text-xs font-extrabold text-slate-500 mb-2">Imágenes del cliente</div>
-        <div class="flex flex-wrap gap-3">
-          ${propsImg.map(({ name, value }) => `
-            <a href="${escapeHtml(value)}" target="_blank"
-               class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-              <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
-              <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
-                ${escapeHtml(name)}
-              </div>
-            </a>
-          `).join("")}
-        </div>
-      </div>
-    ` : "";
-
-    const modificadaHtml = localUrl ? `
-      <div class="mt-3">
-        <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
-        <a href="${escapeHtml(localUrl)}" target="_blank"
-           class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-          <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
-        </a>
-      </div>
-    ` : "";
-
-    return `
-      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
-        <div class="flex items-start gap-4">
-          ${productImgHtml}
-          <div class="min-w-0 flex-1">
-            <div class="font-extrabold text-slate-900 truncate">${escapeHtml(title)}</div>
-            <div class="text-sm text-slate-600 mt-1">
-              Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)}</b> · Total: <b>${escapeHtml(totTxt)}</b>
-            </div>
-            ${propsTxtHtml}
-            ${propsImgsHtml}
-            ${modificadaHtml}
-          </div>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  // ✅ al final metemos el upload box
-  setHtml("detItems", `${itemsHtml}${renderUploadBox(id)}`);
-
-  // bind upload
-  setTimeout(() => {
-    $("btnUploadIllustrator")?.addEventListener("click", () => uploadIllustratorFiles(id));
-  }, 0);
-}
-
-// Hook del botón
-window.verDetallesPedido = function (pedidoId) {
-  abrirDetallesPedido(String(pedidoId));
-};
-
-let currentDetallesOrderId = null;
 
 async function cargarArchivosGenerales(orderId) {
   const list = $("generalFilesList");
@@ -1195,7 +794,7 @@ async function subirArchivosGenerales(orderId, fileList) {
   const res = await fetch(ENDPOINT_UPLOAD_GENERAL, {
     method: "POST",
     body: fd,
-    headers: { ...getCsrfHeaders() },
+    headers: { ...getCsrfHeaders() }, // NO pongas Content-Type
     credentials: "same-origin",
   });
 
@@ -1216,6 +815,248 @@ async function subirArchivosGenerales(orderId, fileList) {
   return true;
 }
 
+async function abrirDetallesPedido(orderId) {
+  const id = String(orderId || "");
+  if (!id) return;
+
+  abrirDetallesFull();
+  currentDetallesOrderId = id;
+
+  // placeholders
+  setText("detTitle", "Cargando...");
+  setText("detSubtitle", "—");
+  setText("detItemsCount", "0");
+  setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
+  setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detJson", "");
+
+  let payload = null;
+  let lastErr = null;
+
+  for (const url of buildDetallesEndpoints(id)) {
+    try {
+      const r = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+      if (r.status === 404) continue;
+
+      const text = await r.text();
+      let d = null;
+      try { d = JSON.parse(text); } catch { d = null; }
+
+      if (!r.ok || !d) throw new Error(d?.message || `HTTP ${r.status}`);
+      if (d.success !== true) throw new Error(d.message || "Respuesta inválida (success!=true)");
+
+      payload = d;
+      break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  if (!payload) {
+    console.error("Detalle error:", lastErr);
+    setText("detTitle", "Error");
+    setText("detSubtitle", "No se pudo cargar el detalle.");
+    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalle del pedido.</div>`);
+    return;
+  }
+
+  const o = payload.order || {};
+  const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+
+  const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
+  setText("detTitle", `Detalles ${name}`);
+
+  const clienteHeader = o.customer_name || o.cliente || (() => {
+    const c = o.customer || {};
+    const full = `${c.first_name || ""} ${c.last_name || ""}`.trim();
+    return full || "—";
+  })();
+
+  setText("detSubtitle", `${clienteHeader} · ${o.created_at || "—"}`);
+
+  try {
+    setHtml("detJson", escapeHtml(JSON.stringify(payload, null, 2)));
+  } catch {}
+
+  // cliente
+  const customer = o.customer || {};
+  const clienteNombre = (customer.first_name || customer.last_name)
+    ? `${customer.first_name || ""} ${customer.last_name || ""}`.trim()
+    : (o.customer_name || o.cliente || "—");
+
+  setHtml("detCliente", `
+    <div class="space-y-1">
+      <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre)}</div>
+      <div><span class="text-slate-500 font-bold">Email:</span> ${escapeHtml(o.email || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Shopify ID:</span> ${escapeHtml(String(o.id || o.shopify_order_id || id || "—"))}</div>
+    </div>
+  `);
+
+  // envio
+  const a = o.shipping_address || {};
+  setHtml("detEnvio", `
+    <div class="space-y-1">
+      <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
+      <div>${escapeHtml(a.address1 || "")}</div>
+      <div>${escapeHtml(a.address2 || "")}</div>
+      <div>${escapeHtml((a.zip || "") + " " + (a.city || ""))}</div>
+      <div>${escapeHtml(a.province || "")}</div>
+      <div>${escapeHtml(a.country || "")}</div>
+      <div class="pt-2"><span class="text-slate-500 font-bold">Tel envío:</span> ${escapeHtml(a.phone || "—")}</div>
+    </div>
+  `);
+
+  // resumen
+  const estado = o.estado ?? o.status ?? "—";
+  const tags = String(o.tags ?? o.etiquetas ?? "").trim();
+  const lastInfo = normalizeLastStatusChange(o.last_status_change || payload.last_status_change);
+  const lastText = lastInfo?.changed_at
+    ? `${escapeHtml(lastInfo.user_name || "—")} · ${escapeHtml(formatDateTime(lastInfo.changed_at))}`
+    : "—";
+
+  setHtml("detResumen", `
+    <div class="space-y-2 text-sm">
+      <div><span class="text-slate-500 font-bold">Estado:</span> ${renderEstadoPill(estado)}</div>
+      <div><span class="text-slate-500 font-bold">Etiquetas:</span> ${tags ? escapeHtml(tags) : "—"}</div>
+      <div><span class="text-slate-500 font-bold">Último cambio:</span> ${lastText}</div>
+      <div><span class="text-slate-500 font-bold">Pago:</span> ${escapeHtml(o.financial_status || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Entrega:</span> ${escapeHtml(o.fulfillment_status || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Total artículos:</span> ${escapeHtml(String(lineItems.length))}</div>
+    </div>
+  `);
+
+  // totales
+  const subtotal = o.subtotal_price ?? "0";
+  const envio =
+    o.total_shipping_price_set?.shop_money?.amount ??
+    o.total_shipping_price_set?.presentment_money?.amount ??
+    o.total_shipping_price ??
+    "0";
+  const impuestos = o.total_tax ?? "0";
+  const total = o.total_price ?? "0";
+
+  setHtml("detTotales", `
+    <div class="space-y-1 text-sm">
+      <div><span class="text-slate-500 font-bold">Subtotal:</span> ${escapeHtml(fmtMoney(subtotal))}</div>
+      <div><span class="text-slate-500 font-bold">Envío:</span> ${escapeHtml(fmtMoney(envio))}</div>
+      <div><span class="text-slate-500 font-bold">Impuestos:</span> ${escapeHtml(fmtMoney(impuestos))}</div>
+      <div class="pt-2 text-lg font-extrabold text-slate-900">Total: ${escapeHtml(fmtMoney(total))}</div>
+    </div>
+  `);
+
+  // items
+  setText("detItemsCount", String(lineItems.length));
+
+  const itemsHtml = lineItems.map((item, index) => {
+    const title = item.title || item.name || "Producto";
+    const qty = item.quantity ?? 1;
+    const price = item.price ?? "0";
+    const tot = (Number(qty) * Number(price));
+    const totTxt = Number.isFinite(tot) ? fmtMoney(tot) : "—";
+
+    const props = Array.isArray(item.properties) ? item.properties : [];
+    const propsImg = [];
+    const propsTxt = [];
+
+    for (const p of props) {
+      const name = String(p?.name ?? "").trim() || "Campo";
+      const v = p?.value === null || p?.value === undefined ? "" : String(p.value);
+      if (esImagenUrl(v)) propsImg.push({ name, value: v });
+      else propsTxt.push({ name, value: v });
+    }
+
+    const propsTxtHtml = propsTxt.length ? `
+      <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
+        <div class="space-y-1 text-sm">
+          ${propsTxt.map(({ name, value }) => `
+            <div class="flex gap-2">
+              <div class="min-w-[130px] text-slate-500 font-bold">${escapeHtml(name)}:</div>
+              <div class="flex-1 font-semibold text-slate-900 break-words">${escapeHtml(value || "—")}</div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    ` : "";
+
+    const propsImgsHtml = propsImg.length ? `
+      <div class="mt-3">
+        <div class="text-xs font-extrabold text-slate-500 mb-2">Imágenes del cliente</div>
+        <div class="flex flex-wrap gap-3">
+          ${propsImg.map(({ name, value }) => `
+            <a href="${escapeHtml(value)}" target="_blank"
+               class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+              <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
+              <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
+                ${escapeHtml(name)}
+              </div>
+            </a>
+          `).join("")}
+        </div>
+      </div>
+    ` : "";
+
+    return `
+      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+        <div class="min-w-0">
+          <div class="font-extrabold text-slate-900 truncate">${escapeHtml(title)}</div>
+          <div class="text-sm text-slate-600 mt-1">
+            Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)}</b> · Total: <b>${escapeHtml(totTxt)}</b>
+          </div>
+          ${propsTxtHtml}
+          ${propsImgsHtml}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // ✅ inyecta upload box al final
+  setHtml("detItems", `${itemsHtml}${renderUploadBox(id)}`);
+
+  // ✅ cargar archivos existentes + bind submit
+  await cargarArchivosGenerales(id);
+
+  // bind submit (se crea dinámico)
+  const form = $("formGeneralUpload");
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const orderId = $("generalOrderId")?.value || currentDetallesOrderId;
+      const input = $("generalFiles");
+      const files = input?.files;
+
+      if (!orderId) return;
+      if (!files || !files.length) {
+        const msg = $("generalUploadMsg");
+        if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona uno o más archivos.</span>`;
+        return;
+      }
+
+      setLoader(true);
+      try {
+        const ok = await subirArchivosGenerales(orderId, files);
+        if (!ok) return;
+
+        await cargarArchivosGenerales(orderId);
+        await cargarMiCola(); // ✅ se desaparece si ya cambió estado/desasignó
+
+      } finally {
+        if (input) input.value = "";
+        setLoader(false);
+      }
+    }, { once: true });
+  }
+}
+
+window.verDetallesPedido = function (pedidoId) {
+  abrirDetallesPedido(String(pedidoId));
+};
+
 // =========================
 // Eventos
 // =========================
@@ -1230,38 +1071,6 @@ function bindEventos() {
     if (el) el.value = "";
     aplicarFiltroBusqueda();
   });
-  $("formGeneralUpload")?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-
-  const orderId = $("generalOrderId")?.value || currentDetallesOrderId;
-  const input = $("generalFiles");
-  const files = input?.files;
-
-  if (!orderId) return;
-  if (!files || !files.length) {
-    const msg = $("generalUploadMsg");
-    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona uno o más archivos.</span>`;
-    return;
-  }
-
-  setLoader(true);
-  try {
-    const ok = await subirArchivosGenerales(orderId, files);
-    if (!ok) return;
-
-    // ✅ refresca lista archivos
-    await cargarArchivosGenerales(orderId);
-
-    // ✅ refresca cola de producción (el backend ya lo desasignó, entonces desaparece)
-    await cargarMiCola();
-
-    // opcional: cerrar modal automáticamente
-    // cerrarDetallesFull();
-  } finally {
-    if (input) input.value = "";
-    setLoader(false);
-  }
-});
 
   window.addEventListener("resize", () => {
     actualizarListado(pedidosFiltrados.length ? pedidosFiltrados : pedidosCache);
