@@ -136,7 +136,7 @@ $routes->post('produccion/pull', 'ProduccionController::pull');
 $routes->post('produccion/return-all', 'ProduccionController::returnAll');
 $routes->post('produccion/upload-general', 'Produccion::uploadGeneral');
 $routes->get('produccion/list-general', 'Produccion::listGeneral');
-
+    
 
 
 /*
