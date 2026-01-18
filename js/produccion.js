@@ -11,6 +11,9 @@ const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
 const ENDPOINT_QUEUE = `${API_BASE}/produccion/my-queue`;
 const ENDPOINT_PULL = `${API_BASE}/produccion/pull`;
 const ENDPOINT_RETURN_ALL = `${API_BASE}/produccion/return-all`;
+const ENDPOINT_UPLOAD_GENERAL = `${API_BASE}/produccion/upload-general`;
+const ENDPOINT_LIST_GENERAL   = `${API_BASE}/produccion/list-general`;
+
 
 let pedidosCache = [];
 let pedidosFiltrados = [];
@@ -884,6 +887,12 @@ async function abrirDetallesPedido(orderId) {
   if (!id) return;
 
   abrirDetallesFull();
+  currentDetallesOrderId = id;
+
+  const hiddenId = $("generalOrderId");
+  if (hiddenId) hiddenId.value = id;
+
+  await cargarArchivosGenerales(id);
 
   // placeholders
   setText("detTitle", "Cargando...");
@@ -1132,6 +1141,81 @@ window.verDetallesPedido = function (pedidoId) {
   abrirDetallesPedido(String(pedidoId));
 };
 
+let currentDetallesOrderId = null;
+
+async function cargarArchivosGenerales(orderId) {
+  const list = $("generalFilesList");
+  if (!list) return;
+
+  list.innerHTML = `<div class="text-slate-500 text-sm">Cargando...</div>`;
+
+  try {
+    const url = `${ENDPOINT_LIST_GENERAL}?order_id=${encodeURIComponent(orderId)}`;
+    const r = await fetch(url, { credentials: "same-origin" });
+    const d = await r.json().catch(() => null);
+
+    if (!r.ok || !d || d.success !== true) {
+      list.innerHTML = `<div class="text-rose-600 text-sm font-bold">No se pudo cargar archivos.</div>`;
+      return;
+    }
+
+    const files = Array.isArray(d.files) ? d.files : [];
+    if (!files.length) {
+      list.innerHTML = `<div class="text-slate-500 text-sm">—</div>`;
+      return;
+    }
+
+    list.innerHTML = files.map(f => `
+      <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+        <div class="min-w-0">
+          <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(f.original_name || f.filename || "Archivo")}</div>
+          <div class="text-xs text-slate-600">${escapeHtml(f.mime || "")} · ${escapeHtml(String(f.size || ""))}</div>
+        </div>
+        <a href="${escapeHtml(f.url || "#")}" target="_blank"
+           class="shrink-0 px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
+          Abrir
+        </a>
+      </div>
+    `).join("");
+
+  } catch (e) {
+    console.error(e);
+    list.innerHTML = `<div class="text-rose-600 text-sm font-bold">Error cargando archivos.</div>`;
+  }
+}
+
+async function subirArchivosGenerales(orderId, fileList) {
+  const msg = $("generalUploadMsg");
+  if (msg) msg.innerHTML = `<span class="text-slate-600">Subiendo...</span>`;
+
+  const fd = new FormData();
+  fd.append("order_id", String(orderId));
+  for (const f of fileList) fd.append("files[]", f);
+
+  const res = await fetch(ENDPOINT_UPLOAD_GENERAL, {
+    method: "POST",
+    body: fd,
+    headers: { ...getCsrfHeaders() },
+    credentials: "same-origin",
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || !data || data.success !== true) {
+    const err = data?.message || "No se pudo subir.";
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(err)}</span>`;
+    return false;
+  }
+
+  if (msg) {
+    msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
+      Subido (${data.saved || 0}). Estado → Por producir. Pedido desasignado.
+    </span>`;
+  }
+
+  return true;
+}
+
 // =========================
 // Eventos
 // =========================
@@ -1146,6 +1230,38 @@ function bindEventos() {
     if (el) el.value = "";
     aplicarFiltroBusqueda();
   });
+  $("formGeneralUpload")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const orderId = $("generalOrderId")?.value || currentDetallesOrderId;
+  const input = $("generalFiles");
+  const files = input?.files;
+
+  if (!orderId) return;
+  if (!files || !files.length) {
+    const msg = $("generalUploadMsg");
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona uno o más archivos.</span>`;
+    return;
+  }
+
+  setLoader(true);
+  try {
+    const ok = await subirArchivosGenerales(orderId, files);
+    if (!ok) return;
+
+    // ✅ refresca lista archivos
+    await cargarArchivosGenerales(orderId);
+
+    // ✅ refresca cola de producción (el backend ya lo desasignó, entonces desaparece)
+    await cargarMiCola();
+
+    // opcional: cerrar modal automáticamente
+    // cerrarDetallesFull();
+  } finally {
+    if (input) input.value = "";
+    setLoader(false);
+  }
+});
 
   window.addEventListener("resize", () => {
     actualizarListado(pedidosFiltrados.length ? pedidosFiltrados : pedidosCache);
