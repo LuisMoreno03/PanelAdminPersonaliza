@@ -145,24 +145,28 @@ class ProduccionController extends BaseController
                     p.id,
                     p.shopify_order_id
                 FROM pedidos p
+
                 INNER JOIN (
-                    SELECT h1.order_id, h1.estado, h1.created_at
+                    SELECT h1.*
                     FROM pedidos_estado_historial h1
                     INNER JOIN (
-                        SELECT order_id, MAX(created_at) AS max_created
+                        SELECT order_id, MAX(id) AS last_id
                         FROM pedidos_estado_historial
                         GROUP BY order_id
-                    ) hx
-                    ON hx.order_id = h1.order_id
-                    AND hx.max_created = h1.created_at
-                ) h ON h.order_id = p.shopify_order_id
+                    ) x ON x.last_id = h1.id
+                ) h ON (
+                    h.order_id = p.id
+                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
+                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                )
 
-                WHERE LOWER(TRIM(h.estado)) COLLATE utf8mb4_unicode_ci = 'confirmado'
+                WHERE TRIM(LOWER(h.estado)) COLLATE utf8mb4_unicode_ci = 'confirmado'
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
 
-                ORDER BY h.created_at ASC
+                ORDER BY h.created_at ASC, p.id ASC
                 LIMIT {$count}
             ")->getResultArray();
+
 
             if (!$candidatos) {
                 return $this->response->setJSON([
