@@ -141,27 +141,22 @@ class ProduccionController extends BaseController
 
             // ✅ candidatos: pedidos SIN asignar cuyo ultimo estado (historial) sea CONFIRMADO
             $candidatos = $db->query("
-                SELECT
-                    p.id, 
-                    p.shopify_order_id
+               SELECT p.id, p.shopify_order_id
                 FROM pedidos p
-                INNER JOIN (
-                    SELECT h1.order_id, h1.estado, h1.created_at
-                    FROM pedidos_estado_historial h1
-                    INNER JOIN (
-                        SELECT order_id, MAX(created_at) AS max_created
-                        FROM pedidos_estado_historial
-                        GROUP BY order_id
-                    ) hx
-                    ON hx.order_id = h1.order_id
-                    AND hx.max_created = h1.created_at
-                ) h ON h.order_id = p.id
-                WHERE LOWER(TRIM(
-                    CAST(h.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci
-                )) = 'confirmado'
+                JOIN (
+                SELECT h1.order_id, h1.estado, h1.created_at
+                FROM pedidos_estado_historial h1
+                JOIN (
+                    SELECT order_id, MAX(id) AS max_id
+                    FROM pedidos_estado_historial
+                    GROUP BY order_id
+                ) hx ON hx.max_id = h1.id
+                ) h ON h.order_id = p.shopify_order_id
+                WHERE LOWER(TRIM(h.estado)) = 'confirmado'
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
                 ORDER BY h.created_at ASC
-                LIMIT {$count}
+                LIMIT 5;
+
             ")->getResultArray();
 
             if (!$candidatos) {
