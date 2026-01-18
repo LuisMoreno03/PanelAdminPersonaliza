@@ -122,7 +122,7 @@ class ProduccionController extends BaseController
             return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
         }
 
-        $userId   = (int)(session('user_id') ?? 0);
+        $userId = (int)(session('user_id') ?? 0);
         $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
 
         if (!$userId) {
@@ -133,30 +133,35 @@ class ProduccionController extends BaseController
         if (!is_array($data)) $data = [];
 
         $count = (int)($data['count'] ?? 5);
-        if (!in_array($count, [5,10], true)) $count = 5;
+        if (!in_array($count, [5, 10], true)) $count = 5;
 
         try {
-            $db  = \Config\Database::connect();
+            $db = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // ✅ candidatos: pedidos SIN asignar cuyo ultimo estado (historial) sea CONFIRMADO
+            // ✅ candidatos por último estado en historial
             $candidatos = $db->query("
-               SELECT p.id, p.shopify_order_id
+                SELECT
+                    p.id,
+                    p.shopify_order_id
                 FROM pedidos p
-                JOIN (
-                SELECT h1.order_id, h1.estado, h1.created_at
-                FROM pedidos_estado_historial h1
-                JOIN (
-                    SELECT order_id, MAX(id) AS max_id
-                    FROM pedidos_estado_historial
-                    GROUP BY order_id
-                ) hx ON hx.max_id = h1.id
+                INNER JOIN (
+                    SELECT h1.order_id, h1.estado, h1.created_at
+                    FROM pedidos_estado_historial h1
+                    INNER JOIN (
+                        SELECT order_id, MAX(created_at) AS max_created
+                        FROM pedidos_estado_historial
+                        GROUP BY order_id
+                    ) hx
+                    ON hx.order_id = h1.order_id
+                    AND hx.max_created = h1.created_at
                 ) h ON h.order_id = p.shopify_order_id
-                WHERE LOWER(TRIM(h.estado)) = 'confirmado'
-                AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-                ORDER BY h.created_at ASC
-                LIMIT 5;
 
+                WHERE LOWER(TRIM(h.estado)) COLLATE utf8mb4_unicode_ci = 'confirmado'
+                AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
+
+                ORDER BY h.created_at ASC
+                LIMIT {$count}
             ")->getResultArray();
 
             if (!$candidatos) {
@@ -171,6 +176,7 @@ class ProduccionController extends BaseController
 
             $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
 
+            // ✅ asigna en pedidos
             $db->table('pedidos')
                 ->whereIn('id', $ids)
                 ->where("(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)", null, false)
@@ -186,24 +192,23 @@ class ProduccionController extends BaseController
                 return $this->response->setJSON([
                     'ok' => false,
                     'error' => 'No se asignó nada (affectedRows=0).',
-                    'debug' => ['ids_candidatos' => $ids]
+                    'debug' => ['ids' => $ids],
                 ]);
             }
 
-            // ✅ (Opcional recomendado) registrar en historial un evento de asignación
-            // Si NO quieres cambiar estado, solo registra log si te interesa.
-            // Si sí quieres cambiar estado aquí, cambia 'Confirmado' por el nuevo estado.
+            // ✅ (OPCIONAL) registra evento en historial para auditar la asignación
+            //    Si NO quieres cambiar estado aquí, igual puedes registrar "Asignado".
             foreach ($candidatos as $c) {
-                $pid = (int)($c['id'] ?? 0);
-                if (!$pid) continue;
+                $shopifyId = trim((string)($c['shopify_order_id'] ?? ''));
+                if ($shopifyId === '' || $shopifyId === '0') continue;
 
                 $db->table('pedidos_estado_historial')->insert([
-                    'order_id'    => $pid,
-                    'estado'      => 'Confirmado', // o el estado que corresponda al asignar
-                    'user_id'     => $userId,
-                    'user_name'   => $userName,
-                    'created_at'  => $now,
-                    'pedido_json' => null,
+                    'order_id'   => (int)$shopifyId,
+                    'estado'     => 'Confirmado',     // o 'Asignado' si prefieres
+                    'user_id'    => $userId,
+                    'user_name'  => $userName,
+                    'created_at' => $now,
+                    'pedido_json'=> null,
                 ]);
             }
 
@@ -220,7 +225,7 @@ class ProduccionController extends BaseController
             return $this->response->setJSON([
                 'ok' => false,
                 'error' => 'Error interno asignando pedidos',
-                'debug' => $e->getMessage()
+                'debug' => $e->getMessage(),
             ]);
         }
     }

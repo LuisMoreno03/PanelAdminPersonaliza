@@ -648,7 +648,6 @@ class DashboardController extends Controller
             ''
         ));
 
-        // ✅ FIX: bloquear vacío y 0
         if ($orderId === '' || $orderId === '0') {
             return $this->response->setJSON([
                 'success' => false,
@@ -681,6 +680,21 @@ class DashboardController extends Controller
                 (string)$userName
             );
 
+            // ✅ AQUI MISMO: guardar también en historial (solo si OK)
+            if ($ok) {
+                $db  = \Config\Database::connect();
+                $now = date('Y-m-d H:i:s');
+
+                $db->table('pedidos_estado_historial')->insert([
+                    'order_id'    => (string)$orderId, // ideal si ya lo cambiaste a VARCHAR(64)
+                    'estado'      => $estado,
+                    'user_id'     => $userId ? (int)$userId : null,
+                    'user_name'   => (string)$userName,
+                    'created_at'  => $now,
+                    'pedido_json' => null,
+                ]);
+            }
+
             return $this->response->setJSON([
                 'success'  => (bool)$ok,
                 'message'  => $ok ? 'Estado guardado' : 'No se pudo guardar',
@@ -696,6 +710,7 @@ class DashboardController extends Controller
             ])->setStatusCode(200);
         }
     }
+
 
     // ============================================================
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
