@@ -292,13 +292,11 @@ class ProduccionController extends BaseController
 
         $db = \Config\Database::connect();
 
-        // ✅ mejor timestamp (evita empates de created_at)
-        // si tu columna created_at es DATETIME sin micros, igual sirve como string distinto si lo guardas
-        $now = date('Y-m-d H:i:s'); 
-        $nowMicro = date('Y-m-d H:i:s') . '.' . substr((string)microtime(true), -6);
+        // ✅ compatible con DATETIME
+        $now = date('Y-m-d H:i:s');
 
         // ------------------------------------------------------------
-        // 1) Resolver pedido en DB: puede venir p.id o p.shopify_order_id
+        // 1) Resolver pedido: puede venir p.id o p.shopify_order_id
         // ------------------------------------------------------------
         $pedido = $db->table('pedidos')
             ->select('id, shopify_order_id, assigned_to_user_id')
@@ -318,7 +316,7 @@ class ProduccionController extends BaseController
         $saved = 0;
         $out = [];
 
-        // ✅ carpeta siempre por el pedido interno (si existe) para consistencia
+        // ✅ Carpeta siempre por pedido interno si existe
         $folderKey = $pedidoId ? (string)$pedidoId : $orderIdRaw;
 
         $dir = WRITEPATH . "uploads/produccion/" . $folderKey;
@@ -365,9 +363,10 @@ class ProduccionController extends BaseController
             $userId   = (int)(session('user_id') ?? 0);
             $userName = (string)(session('nombre') ?? session('user_name') ?? 'Sistema');
 
-            $db->transStart();
+            $db->transBegin();
 
             if ($pedidoId) {
+
                 // ✅ 3.1) desasignar (para que desaparezca de la cola)
                 $db->table('pedidos')
                     ->where('id', (int)$pedidoId)
@@ -377,8 +376,10 @@ class ProduccionController extends BaseController
                     ]);
                 $didUnassign = true;
 
-                // ✅ 3.2) estado actual en pedidos_estado (order_id = shopify_order_id)
+                // ✅ 3.2) estado actual (pedidos_estado)
                 $estadoModel = new \App\Models\PedidosEstadoModel();
+
+                // order_id = shopify_order_id (como tu sistema lo viene usando)
                 $didEstado = (bool) $estadoModel->setEstadoPedido(
                     (string)$shopifyOrderId,
                     'Por producir',
@@ -386,20 +387,34 @@ class ProduccionController extends BaseController
                     $userName
                 );
 
-                // ✅ 3.3) historial: IMPORTANTE -> order_id = shopify_order_id
-                // y created_at con micro para evitar empates
+                // ✅ 3.3) historial: created_at DATETIME, y el "último" se resuelve por (created_at, id)
                 $okHist = $db->table('pedidos_estado_historial')->insert([
                     'order_id'   => (string)$shopifyOrderId,
                     'estado'     => 'Por producir',
                     'user_id'    => $userId ?: null,
                     'user_name'  => $userName,
-                    'created_at' => $nowMicro, // ✅ evita empates
+                    'created_at' => $now,
                     'pedido_json'=> null,
                 ]);
                 $didHist = (bool)$okHist;
+
             }
 
-            $db->transComplete();
+            if ($db->transStatus() === false) {
+                $db->transRollback();
+
+                return $this->response->setJSON([
+                    'success' => true,
+                    'saved' => $saved,
+                    'files' => $out,
+                    'warning' => 'Archivos subidos, pero falló la transacción de estado/desasignación',
+                    'order_id_received' => $orderIdRaw,
+                    'pedido_id' => $pedidoId,
+                    'shopify_order_id' => $shopifyOrderId,
+                ])->setStatusCode(200);
+            }
+
+            $db->transCommit();
 
         } catch (\Throwable $e) {
             log_message('error', 'uploadGeneral post-actions ERROR: ' . $e->getMessage());
@@ -421,19 +436,17 @@ class ProduccionController extends BaseController
             'success' => true,
             'saved' => $saved,
             'files' => $out,
-
-            // info extra para el frontend
             'order_id_received' => $orderIdRaw,
             'folder_key' => $folderKey,
             'pedido_id' => $pedidoId,
             'shopify_order_id' => $shopifyOrderId,
-
             'estado_set' => $didEstado,
             'historial_inserted' => $didHist,
             'unassigned' => $didUnassign,
             'new_estado' => 'Por producir',
         ])->setStatusCode(200);
     }
+
 
     public function listGeneral()
     {
