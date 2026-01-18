@@ -294,13 +294,25 @@ function applyEstadosLSToIncoming(incoming) {
     if (!id || !all[id]) return o;
 
     const saved = all[id];
+
+    const backendEstado = String(o.estado ?? "").trim();
+    const savedEstado = String(saved.estado ?? "").trim();
+
+    // ✅ Si backend trae un estado real, NO lo pises con LS
+    // (solo usamos LS si backend viene vacío o viene "Por preparar" por default)
+    const backendEsDefault =
+      !backendEstado ||
+      backendEstado.toLowerCase() === "por preparar" ||
+      backendEstado === "-";
+
     return {
       ...o,
-      estado: saved.estado || o.estado,
-      last_status_change: saved.last_status_change || o.last_status_change,
+      estado: backendEsDefault ? (savedEstado || backendEstado) : backendEstado,
+      last_status_change: o.last_status_change || saved.last_status_change || null,
     };
   });
 }
+
 
 
 /* =====================================================

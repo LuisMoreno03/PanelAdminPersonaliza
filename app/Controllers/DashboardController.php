@@ -539,6 +539,8 @@ class DashboardController extends Controller
                     'cliente'      => $cliente,
                     'total'        => $total,
                     'estado'       => 'Por preparar',
+                    'estado_bd'    => null,         // opcional
+                    'estado_html'  => null,       // opcional
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
                     'estado_envio' => $estado_envio ?: '-',
@@ -567,6 +569,8 @@ class DashboardController extends Controller
 
                         if (!empty($rowEstado['estado'])) {
                             $ord2['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
+                            $ord2['estado'] = strip_tags($ord2['estado']);
+                            $ord2['estado_bd'] = $ord2['estado']; // opcional para debug
                         }
 
                         // ✅ FIX CLAVE: tu tabla guarda fecha en "actualizado"
