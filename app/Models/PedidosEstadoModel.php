@@ -3,9 +3,11 @@ namespace App\Models;
 
 use CodeIgniter\Model;
 
-class PedidosEstadoModel extends Model{
+class PedidosEstadoModel extends Model
+{
     protected $table = 'pedidos_estado';
     protected $primaryKey = 'id';
+
     protected $allowedFields = [
         'order_id',
         'estado',
@@ -14,45 +16,54 @@ class PedidosEstadoModel extends Model{
         'estado_updated_by',
         'estado_updated_by_name',
     ];
+
     protected $useTimestamps = false;
 
+    // =========================
+    // Confirmados / filtros
+    // =========================
     public function getOrderIdsByEstado(string $estado, int $limit, int $offset): array
-{
-    $estado = trim($estado);
+    {
+        $estadoNorm = mb_strtolower(trim($estado));
 
-    $rows = $this->db->table('pedidos_estado')
-        ->select('order_id')
-        ->where('LOWER(TRIM(estado))', mb_strtolower($estado))
-        // 🔥 esto hace que lo nuevo salga primero
-        ->orderBy('estado_updated_at', 'DESC')
-        ->limit($limit, $offset)
-        ->get()
-        ->getResultArray();
+        $rows = $this->db->table($this->table)
+            ->select('order_id')
+            // ✅ IMPORTANTE: escape=false para que LOWER/TRIM se ejecute
+            ->where("LOWER(TRIM(estado)) = '{$estadoNorm}'", null, false)
+            ->orderBy('COALESCE(estado_updated_at, actualizado)', 'DESC', false)
+            ->limit($limit, $offset)
+            ->get()
+            ->getResultArray();
 
-    return array_values(array_filter(array_map(fn($r) => $r['order_id'] ?? null, $rows)));
-}
+        return array_values(array_filter(array_map(
+            fn($r) => isset($r['order_id']) ? trim((string)$r['order_id']) : null,
+            $rows
+        )));
+    }
 
+    public function countByEstado(string $estado): int
+    {
+        $estadoNorm = mb_strtolower(trim($estado));
 
-public function countByEstado(string $estado): int
-{
-    $estado = trim($estado);
+        return (int) $this->db->table($this->table)
+            ->where("LOWER(TRIM(estado)) = '{$estadoNorm}'", null, false)
+            ->countAllResults();
+    }
 
-    return (int)$this->db->table('pedidos_estado')
-        ->where('LOWER(TRIM(estado))', mb_strtolower($estado))
-        ->countAllResults();
-}
-
-
-    /** ✅ Leer estado actual (para NO pisar manual con "Sistema") */
-   public function getEstadoPedido(string $orderId): ?array
+    // =========================
+    // Lectura estado
+    // =========================
+    public function getEstadoPedido(string $orderId): ?array
     {
         $orderId = trim($orderId);
-        if ($orderId === '') return null;
+        if ($orderId === '' || $orderId === '0') return null;
 
         return $this->where('order_id', $orderId)->first();
     }
 
-    /** ✅ Guarda el ESTADO GENERAL del pedido */
+    // =========================
+    // Guardar estado (UPSERT)
+    // =========================
     public function setEstadoPedido(string $orderId, string $estado, ?int $userId, ?string $userName): bool
     {
         $orderId = trim($orderId);
@@ -61,13 +72,13 @@ public function countByEstado(string $estado): int
         $now = date('Y-m-d H:i:s');
 
         $data = [
-        'order_id' => $orderId,
-        'estado'   => trim($estado),
-        'estado_updated_by' => $userId,
-        'estado_updated_by_name' => $userName,
-        'estado_updated_at' => date('Y-m-d H:i:s'),
-];
-
+            'order_id'               => $orderId,
+            'estado'                 => trim($estado),
+            'estado_updated_by'      => $userId,
+            'estado_updated_by_name' => $userName ?: 'Sistema',
+            'estado_updated_at'      => $now,
+            'actualizado'            => $now, // ✅ MUY IMPORTANTE para tu fallback
+        ];
 
         $row = $this->select('id')->where('order_id', $orderId)->first();
 
@@ -77,13 +88,19 @@ public function countByEstado(string $estado): int
 
         return (bool) $this->insert($data);
     }
-    
-    /** ✅ Obtiene el ÚLTIMO estado por order_id */
+
+    // =========================
+    // Mapa estados por IDs
+    // =========================
     public function getEstadosForOrderIds(array $orderIds): array
     {
         if (!$orderIds) return [];
 
-        $orderIds = array_values(array_unique(array_filter(array_map('strval', $orderIds))));
+        $orderIds = array_values(array_unique(array_filter(array_map(function ($v) {
+            $s = trim((string)$v);
+            return ($s !== '' && $s !== '0') ? $s : null;
+        }, $orderIds))));
+
         if (!$orderIds) return [];
 
         $rows = $this->select('order_id, estado, actualizado, estado_updated_at, estado_updated_by, estado_updated_by_name')
@@ -93,9 +110,9 @@ public function countByEstado(string $estado): int
 
         $map = [];
         foreach ($rows as $r) {
-            $oid = (string)($r['order_id'] ?? '');
+            $oid = trim((string)($r['order_id'] ?? ''));
             if ($oid === '') continue;
-            if (!isset($map[$oid])) $map[$oid] = $r;
+            if (!isset($map[$oid])) $map[$oid] = $r; // ✅ se queda con el más nuevo
         }
 
         return $map;
