@@ -308,7 +308,20 @@ class ProduccionController extends BaseController
             ->getRowArray();
 
         $pedidoId = $pedido['id'] ?? null;
-        $shopifyOrderId = trim((string)($pedido['shopify_order_id'] ?? $orderIdRaw)); // fallback
+        // ✅ ID que usa el Dashboard SIEMPRE debe ser el Shopify numeric id
+        $shopifyOrderId = '';
+        if (!empty($pedido['shopify_order_id'])) {
+            $shopifyOrderId = trim((string)$pedido['shopify_order_id']);
+        } else {
+            // si no vino desde DB, y lo recibido parece Shopify id (solo dígitos y largo), úsalo
+            $tmp = trim((string)$orderIdRaw);
+            if ($tmp !== '' && preg_match('/^\d{6,}$/', $tmp)) {
+                $shopifyOrderId = $tmp;
+            }
+        }
+
+        // si aún así queda vacío, ya no intentamos setEstadoPedido porque el Dashboard no lo va a ver
+
 
         // ------------------------------------------------------------
         // 2) Guardar archivos
