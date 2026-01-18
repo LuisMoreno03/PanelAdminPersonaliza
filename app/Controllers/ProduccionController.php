@@ -291,7 +291,11 @@ class ProduccionController extends BaseController
         }
 
         $db = \Config\Database::connect();
-        $now = date('Y-m-d H:i:s');
+
+        // ✅ mejor timestamp (evita empates de created_at)
+        // si tu columna created_at es DATETIME sin micros, igual sirve como string distinto si lo guardas
+        $now = date('Y-m-d H:i:s'); 
+        $nowMicro = date('Y-m-d H:i:s') . '.' . substr((string)microtime(true), -6);
 
         // ------------------------------------------------------------
         // 1) Resolver pedido en DB: puede venir p.id o p.shopify_order_id
@@ -305,18 +309,19 @@ class ProduccionController extends BaseController
             ->get()
             ->getRowArray();
 
-        // Si no existe igual subimos a carpeta por orderIdRaw, pero NO podremos desasignar ni cambiar estado
         $pedidoId = $pedido['id'] ?? null;
         $shopifyOrderId = trim((string)($pedido['shopify_order_id'] ?? $orderIdRaw)); // fallback
 
         // ------------------------------------------------------------
-        // 2) Guardar archivos (siempre)
+        // 2) Guardar archivos
         // ------------------------------------------------------------
         $saved = 0;
         $out = [];
 
-        // Carpeta: writable/uploads/produccion/{orderIdRaw}/
-        $dir = WRITEPATH . "uploads/produccion/" . $orderIdRaw;
+        // ✅ carpeta siempre por el pedido interno (si existe) para consistencia
+        $folderKey = $pedidoId ? (string)$pedidoId : $orderIdRaw;
+
+        $dir = WRITEPATH . "uploads/produccion/" . $folderKey;
         if (!is_dir($dir)) mkdir($dir, 0777, true);
 
         foreach ($files['files'] as $f) {
@@ -335,7 +340,7 @@ class ProduccionController extends BaseController
                 'mime' => $mime,
                 'size' => $f->getSize(),
                 'created_at' => $now,
-                'url' => site_url("produccion/file/{$orderIdRaw}/{$newName}"),
+                'url' => site_url("produccion/file/{$folderKey}/{$newName}"),
             ];
         }
 
@@ -347,13 +352,14 @@ class ProduccionController extends BaseController
         }
 
         // ------------------------------------------------------------
-        // 3) Si existe el pedido, entonces:
+        // 3) Acciones post-upload:
         //    - Cambiar estado a "Por producir"
         //    - Quitar asignación
-        //    - Registrar en historial
+        //    - Registrar historial
         // ------------------------------------------------------------
         $didUnassign = false;
         $didEstado = false;
+        $didHist = false;
 
         try {
             $userId   = (int)(session('user_id') ?? 0);
@@ -362,20 +368,17 @@ class ProduccionController extends BaseController
             $db->transStart();
 
             if ($pedidoId) {
-                // ✅ desasignar
+                // ✅ 3.1) desasignar (para que desaparezca de la cola)
                 $db->table('pedidos')
                     ->where('id', (int)$pedidoId)
                     ->update([
                         'assigned_to_user_id' => null,
                         'assigned_at' => null,
                     ]);
+                $didUnassign = true;
 
-                $didUnassign = ($db->affectedRows() >= 0); // >=0 porque puede ya estar null
-
-                // ✅ estado actual (pedidos_estado)
+                // ✅ 3.2) estado actual en pedidos_estado (order_id = shopify_order_id)
                 $estadoModel = new \App\Models\PedidosEstadoModel();
-
-                // OJO: tu Dashboard override usa order_id = shopify_order_id (string)
                 $didEstado = (bool) $estadoModel->setEstadoPedido(
                     (string)$shopifyOrderId,
                     'Por producir',
@@ -383,28 +386,34 @@ class ProduccionController extends BaseController
                     $userName
                 );
 
-                // ✅ historial (order_id = shopify_order_id)
-                $db->table('pedidos_estado_historial')->insert([
+                // ✅ 3.3) historial: IMPORTANTE -> order_id = shopify_order_id
+                // y created_at con micro para evitar empates
+                $okHist = $db->table('pedidos_estado_historial')->insert([
                     'order_id'   => (string)$shopifyOrderId,
                     'estado'     => 'Por producir',
                     'user_id'    => $userId ?: null,
                     'user_name'  => $userName,
-                    'created_at' => $now,
+                    'created_at' => $nowMicro, // ✅ evita empates
                     'pedido_json'=> null,
                 ]);
+                $didHist = (bool)$okHist;
             }
 
             $db->transComplete();
 
         } catch (\Throwable $e) {
             log_message('error', 'uploadGeneral post-actions ERROR: ' . $e->getMessage());
-            // No abortamos el upload, pero avisamos
+
+            // ✅ NO abortamos el upload, pero avisamos.
             return $this->response->setJSON([
                 'success' => true,
                 'saved' => $saved,
                 'files' => $out,
                 'warning' => 'Archivos subidos, pero falló actualizar estado/desasignar',
                 'debug' => $e->getMessage(),
+                'order_id_received' => $orderIdRaw,
+                'pedido_id' => $pedidoId,
+                'shopify_order_id' => $shopifyOrderId,
             ])->setStatusCode(200);
         }
 
@@ -415,12 +424,15 @@ class ProduccionController extends BaseController
 
             // info extra para el frontend
             'order_id_received' => $orderIdRaw,
+            'folder_key' => $folderKey,
             'pedido_id' => $pedidoId,
             'shopify_order_id' => $shopifyOrderId,
+
             'estado_set' => $didEstado,
+            'historial_inserted' => $didHist,
             'unassigned' => $didUnassign,
             'new_estado' => 'Por producir',
-        ]);
+        ])->setStatusCode(200);
     }
 
     public function listGeneral()
