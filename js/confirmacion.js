@@ -257,7 +257,7 @@ function pintarErrorDetalles(msg) {
 /* =====================================================
    DETALLES MANUAL (FALLBACK)
 ===================================================== */
-function pintarDetallesPedido(order, imagenesLocales = {}) {
+function pintarDetallesManual(order, imagenesLocales = {}) {
   const items = extraerLineItems(order);
 
   setTextSafe("detTitulo", `Pedido #${order.name || order.id}`);
