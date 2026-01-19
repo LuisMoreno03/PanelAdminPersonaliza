@@ -1,14 +1,17 @@
 /**
- * confirmacion.js — FINAL
- * Independiente de dashboard
- * Basado en Shopify Order ID
+ * confirmacion.js — COMPLETO
+ * Módulo Confirmación
+ * Independiente de dashboard.js
  */
 
+/* =====================================================
+  CONFIG
+===================================================== */
 const API = window.API || {};
 const ENDPOINT_QUEUE = API.myQueue;
 const ENDPOINT_PULL = API.pull;
 const ENDPOINT_RETURN_ALL = API.returnAll;
-const ENDPOINT_DETALLES = API.detalles; // 👈 nuevo
+const ENDPOINT_DETALLES = "/dashboard/detalles";
 
 let pedidosCache = [];
 let loading = false;
@@ -20,12 +23,6 @@ function $(id) {
   return document.getElementById(id);
 }
 
-function setLoader(show) {
-  const el = $("globalLoader");
-  if (!el) return;
-  el.classList.toggle("hidden", !show);
-}
-
 function escapeHtml(str) {
   return String(str ?? "")
     .replaceAll("&", "&amp;")
@@ -35,37 +32,41 @@ function escapeHtml(str) {
     .replaceAll("'", "&#039;");
 }
 
-function getCsrfHeaders() {
-  const token = document.querySelector('meta[name="csrf-token"]')?.content;
-  const header = document.querySelector('meta[name="csrf-header"]')?.content;
-  return token && header ? { [header]: token } : {};
+function esUrl(u) {
+  return /^https?:\/\//i.test(String(u || "").trim());
+}
+
+function esImagenUrl(url) {
+  if (!url) return false;
+  return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(String(url));
+}
+
+function setLoader(show) {
+  const el = $("globalLoader");
+  if (!el) return;
+  el.classList.toggle("hidden", !show);
 }
 
 /* =====================================================
-  LISTADO (MISMA TABLA DASHBOARD)
+  LISTADO PEDIDOS
 ===================================================== */
 function renderPedidos(pedidos) {
-  const wrap = $("tablaPedidos");
-  wrap.innerHTML = "";
+  const cont = $("tablaPedidos");
+  cont.innerHTML = "";
 
   if (!pedidos.length) {
-    wrap.innerHTML = `
-      <div class="p-8 text-center text-slate-500">
-        No tienes pedidos asignados
-      </div>`;
+    cont.innerHTML = `<div class="p-8 text-center text-slate-500">No hay pedidos</div>`;
     $("total-pedidos").textContent = "0";
     return;
   }
 
   pedidos.forEach(p => {
-    const express = p.forma_envio?.toLowerCase().includes("express");
-
     const row = document.createElement("div");
-    row.className = "orders-grid cols px-4 py-3 border-b items-center";
+    row.className = "orders-grid cols px-4 py-3 border-b items-center text-sm";
 
     row.innerHTML = `
       <div class="font-extrabold">${escapeHtml(p.numero)}</div>
-      <div>${escapeHtml((p.created_at || "").slice(0, 10))}</div>
+      <div>${escapeHtml((p.created_at || "").slice(0,10))}</div>
       <div class="truncate">${escapeHtml(p.cliente)}</div>
       <div class="font-bold">${Number(p.total).toFixed(2)} €</div>
 
@@ -75,7 +76,7 @@ function renderPedidos(pedidos) {
         </span>
       </div>
 
-      <div>${escapeHtml(p.estado_por || "—")}</div>
+      <div>—</div>
 
       <div>
         <button class="px-3 py-1 rounded-full text-xs font-bold border">
@@ -91,11 +92,7 @@ function renderPedidos(pedidos) {
         </span>
       </div>
 
-      <div class="metodo-entrega">
-        ${express
-          ? `<span class="text-rose-600 font-extrabold">🚀 ${escapeHtml(p.forma_envio)}</span>`
-          : escapeHtml(p.forma_envio || "-")}
-      </div>
+      <div class="text-xs">${escapeHtml(p.forma_envio || "-")}</div>
 
       <div class="text-right">
         <button
@@ -105,8 +102,7 @@ function renderPedidos(pedidos) {
         </button>
       </div>
     `;
-
-    wrap.appendChild(row);
+    cont.appendChild(row);
   });
 
   $("total-pedidos").textContent = pedidos.length;
@@ -150,10 +146,7 @@ async function traerPedidos(n) {
   try {
     await fetch(ENDPOINT_PULL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...getCsrfHeaders()
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ count: n }),
       credentials: "same-origin"
     });
@@ -169,7 +162,6 @@ async function devolverPedidos() {
   try {
     await fetch(ENDPOINT_RETURN_ALL, {
       method: "POST",
-      headers: getCsrfHeaders(),
       credentials: "same-origin"
     });
     await cargarMiCola();
@@ -179,81 +171,145 @@ async function devolverPedidos() {
 }
 
 /* =====================================================
-  MODAL DETALLES (SHOPIFY REAL)
+  MODAL DETALLES (FULL - CLON DASHBOARD)
 ===================================================== */
-window.verDetalles = async function (shopifyOrderId) {
-  abrirModalDetalles();
-  pintarCargandoDetalles();
+window.verDetalles = async function (orderId) {
+  const id = String(orderId || "");
+  if (!id) return;
+
+  const modal = $("modalDetallesFull");
+  modal?.classList.remove("hidden");
+  document.body.classList.add("overflow-hidden");
+
+  const setHtml = (id, html) => $(id) && ($(id).innerHTML = html);
+  const setText = (id, txt) => $(id) && ($(id).textContent = txt ?? "");
+
+  setText("detTitle", "Cargando…");
+  setText("detSubtitle", "—");
+  setText("detItemsCount", "0");
+
+  setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
+  setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
+
+  const pre = $("detJson");
+  if (pre) pre.textContent = "";
 
   try {
-    const r = await fetch(`${ENDPOINT_DETALLES}/${shopifyOrderId}`, {
-      headers: { Accept: "application/json" },
-      credentials: "same-origin"
+    const r = await fetch(`${ENDPOINT_DETALLES}/${encodeURIComponent(id)}`, {
+      headers: { Accept: "application/json" }
     });
-
     const d = await r.json();
 
-    // 🧠 normalizar backend
-    const order =
-      d?.order ||
-      (d?.id && d?.line_items ? d : null);
-
-    if (!r.ok || !order) {
-      throw new Error(d?.message || "Pedido sin información Shopify");
+    if (!r.ok || !d || d.success !== true) {
+      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Pedido sin información Shopify</div>`);
+      if (pre) pre.textContent = JSON.stringify(d, null, 2);
+      return;
     }
 
-    pintarDetallesPedido(order);
+    if (pre) pre.textContent = JSON.stringify(d, null, 2);
+
+    const o = d.order || {};
+    const items = Array.isArray(o.line_items) ? o.line_items : [];
+
+    setText("detTitle", `Pedido ${o.name || "#" + id}`);
+
+    const clienteNombre = o.customer
+      ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
+      : "";
+
+    setText("detSubtitle", clienteNombre || o.email || "—");
+
+    setHtml("detCliente", `
+      <div class="space-y-2">
+        <div class="font-extrabold">${escapeHtml(clienteNombre || "—")}</div>
+        <div>Email: ${escapeHtml(o.email || "—")}</div>
+        <div>Tel: ${escapeHtml(o.phone || "—")}</div>
+      </div>
+    `);
+
+    const a = o.shipping_address || {};
+    setHtml("detEnvio", `
+      <div class="space-y-1">
+        <div class="font-extrabold">${escapeHtml(a.name || "—")}</div>
+        <div>${escapeHtml(a.address1 || "")}</div>
+        <div>${escapeHtml(a.zip || "")} ${escapeHtml(a.city || "")}</div>
+        <div>${escapeHtml(a.country || "")}</div>
+      </div>
+    `);
+
+    setHtml("detTotales", `
+      <div>
+        <div>Subtotal: ${escapeHtml(o.subtotal_price)} €</div>
+        <div>Envío: ${escapeHtml(o.total_shipping_price_set?.shop_money?.amount || "0")} €</div>
+        <div class="font-extrabold text-lg">Total: ${escapeHtml(o.total_price)} €</div>
+      </div>
+    `);
+
+    setText("detItemsCount", items.length);
+
+    const productImages = d.product_images || {};
+    const imagenesLocales = d.imagenes_locales || {};
+
+    const html = items.map((item, index) => {
+      const props = Array.isArray(item.properties) ? item.properties : [];
+      const imgs = props.filter(p => esImagenUrl(p.value));
+      const textos = props.filter(p => !esImagenUrl(p.value));
+
+      const pid = item.product_id;
+      const prodImg = productImages?.[pid] || "";
+
+      return `
+        <div class="rounded-3xl border bg-white shadow-sm p-4">
+          <div class="flex gap-4">
+            ${
+              prodImg
+                ? `<img src="${escapeHtml(prodImg)}" class="h-16 w-16 rounded-xl object-cover">`
+                : `<div class="h-16 w-16 bg-slate-100 rounded-xl flex items-center justify-center">🧾</div>`
+            }
+            <div class="flex-1">
+              <div class="font-extrabold">${escapeHtml(item.title)}</div>
+              <div class="text-sm">Cant: ${item.quantity} · ${item.price} €</div>
+
+              ${
+                textos.length
+                  ? `<div class="mt-2 text-sm">
+                      ${textos.map(p => `<div><b>${escapeHtml(p.name)}:</b> ${escapeHtml(p.value)}</div>`).join("")}
+                    </div>`
+                  : ""
+              }
+
+              ${
+                imgs.length
+                  ? `<div class="mt-3 flex gap-2">
+                      ${imgs.map(p => `<img src="${escapeHtml(p.value)}" class="h-24 rounded-xl">`).join("")}
+                    </div>`
+                  : ""
+              }
+
+              ${
+                imagenesLocales[index]
+                  ? `<div class="mt-3">
+                      <div class="text-xs font-bold">Imagen modificada</div>
+                      <img src="${escapeHtml(imagenesLocales[index])}" class="h-32 rounded-xl">
+                    </div>`
+                  : ""
+              }
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    setHtml("detItems", html);
 
   } catch (e) {
     console.error(e);
-    pintarErrorDetalles(e.message);
+    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles</div>`);
   }
 };
-
-/* =====================================================
-  DETALLES UI
-===================================================== */
-function abrirModalDetalles() {
-  $("modalDetalles").classList.remove("hidden");
-  document.body.classList.add("overflow-hidden");
-}
-
-function cerrarModalDetalles() {
-  $("modalDetalles").classList.add("hidden");
-  document.body.classList.remove("overflow-hidden");
-}
-
-function pintarCargandoDetalles() {
-  $("detTitulo").textContent = "Cargando…";
-  $("detProductos").innerHTML = "Cargando productos…";
-  $("detResumen").innerHTML = "—";
-}
-
-function pintarErrorDetalles(msg) {
-  $("detProductos").innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(msg)}</span>`;
-}
-
-function pintarDetallesPedido(o) {
-  $("detTitulo").textContent = `Pedido ${o.name || "#" + o.id}`;
-
-  // Productos
-  $("detProductos").innerHTML = o.line_items.map(i => `
-    <div class="border rounded-2xl p-4 bg-white shadow-sm">
-      <div class="font-extrabold">${escapeHtml(i.title)}</div>
-      <div class="text-sm text-slate-600">
-        Cant: ${i.quantity} · ${i.price} €
-      </div>
-    </div>
-  `).join("");
-
-  // Resumen
-  $("detResumen").innerHTML = `
-    <div><b>Total:</b> ${escapeHtml(o.total_price)} €</div>
-    <div><b>Estado pago:</b> ${escapeHtml(o.financial_status)}</div>
-    <div><b>Entrega:</b> ${escapeHtml(o.fulfillment_status || "—")}</div>
-    <div><b>Cliente:</b> ${escapeHtml(o.customer?.first_name || "")} ${escapeHtml(o.customer?.last_name || "")}</div>
-  `;
-}
 
 /* =====================================================
   INIT
