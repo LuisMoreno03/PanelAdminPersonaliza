@@ -190,7 +190,7 @@ class ConfirmacionController extends BaseController
                     END,
                     COALESCE(h.created_at, p.created_at) ASC
 
-                LIMIT {$count}
+                LIMIT 5
             ")->getResultArray();
 
             if (!$candidatos) {
