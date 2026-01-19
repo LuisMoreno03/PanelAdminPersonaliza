@@ -10,10 +10,8 @@
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/alpinejs" defer></script>
-  <script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>
-  <script src="<?= base_url('js/confirmacion.js?v=' . time()) ?>"></script>
 
-  <!-- ✅ ESTILOS EXACTOS DEL DASHBOARD -->
+  <!-- ESTILOS (idénticos al dashboard) -->
   <style>
     body { background: #f3f4f6; }
 
@@ -47,9 +45,7 @@
 
     .orders-grid > div { min-width: 0; }
 
-    .table-scroll {
-      overflow-x: auto;
-    }
+    .table-scroll { overflow-x: auto; }
   </style>
 </head>
 
@@ -66,7 +62,9 @@
         <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex justify-between">
           <div>
             <h1 class="text-3xl font-extrabold text-slate-900">Confirmación</h1>
-            <p class="text-slate-500 mt-1">Pedidos en estado <b>Por preparar</b></p>
+            <p class="text-slate-500 mt-1">
+              Pedidos en estado <b>Por preparar</b>
+            </p>
           </div>
           <span class="px-4 py-2 rounded-2xl bg-white border font-extrabold text-sm">
             Pedidos: <span id="total-pedidos">0</span>
@@ -76,13 +74,19 @@
 
       <!-- LISTADO -->
       <section class="rounded-3xl border bg-white shadow-sm overflow-hidden">
-        <div class="px-4 py-3 border-b flex justify-between">
+        <div class="px-4 py-3 border-b flex justify-between items-center">
           <div class="font-semibold">Listado de pedidos</div>
 
           <div class="flex gap-2">
-            <button id="btnTraer5" class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold">Traer 5</button>
-            <button id="btnTraer10" class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold">Traer 10</button>
-            <button id="btnDevolver" class="px-4 py-2 rounded-xl bg-rose-600 text-white font-bold">Devolver</button>
+            <button id="btnTraer5" class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold">
+              Traer 5
+            </button>
+            <button id="btnTraer10" class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold">
+              Traer 10
+            </button>
+            <button id="btnDevolver" class="px-4 py-2 rounded-xl bg-rose-600 text-white font-bold">
+              Devolver
+            </button>
           </div>
         </div>
 
@@ -106,11 +110,12 @@
           <div id="tablaPedidos" class="divide-y"></div>
         </div>
       </section>
+
     </div>
   </div>
 </main>
 
-<!-- ✅ MODALES REUTILIZADOS DEL DASHBOARD -->
+<!-- MODALES (solo reutilización visual) -->
 <?= view('layouts/modal_detalles') ?>
 <?= view('layouts/modales_estados') ?>
 
@@ -124,15 +129,16 @@
 
 <!-- VARIABLES -->
 <script>
-window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
-window.API = {
-  myQueue: "<?= site_url('confirmacion/my-queue') ?>",
-  pull: "<?= site_url('confirmacion/pull') ?>",
-  returnAll: "<?= site_url('confirmacion/return-all') ?>"
-};
+  window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
+  window.API = {
+    myQueue: "<?= site_url('confirmacion/my-queue') ?>",
+    pull: "<?= site_url('confirmacion/pull') ?>",
+    returnAll: "<?= site_url('confirmacion/return-all') ?>"
+  };
 </script>
 
-<!-- JS -->
+<!-- JS (ORDEN CORRECTO) -->
+<script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>
 <script src="<?= base_url('js/confirmacion.js?v=' . time()) ?>"></script>
 
 <script>
