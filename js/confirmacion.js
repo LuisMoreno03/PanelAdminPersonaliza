@@ -217,9 +217,11 @@ window.verDetalles = async function (orderId) {
 
 function pintarCargandoDetalles() {
   setTextSafe("detTitulo", "Cargando pedido…");
-  setHtmlSafe("detProductos", `<div class="text-slate-500">Cargando productos…</div>`);
+  setTextSafe("detItemsCount", "—");
+  setHtmlSafe("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
   setHtmlSafe("detResumen", `<div class="text-slate-500">Cargando resumen…</div>`);
 }
+
 
 function pintarErrorDetalles(msg) {
   setHtmlSafe("detProductos", `<div class="text-rose-600 font-extrabold">${escapeHtml(msg)}</div>`);
@@ -242,36 +244,76 @@ function requiereImagenModificada(item) {
    PINTAR PRODUCTOS
 ===================================================== */
 function pintarDetallesPedido(order, imagenesLocales) {
-  const items = order.line_items || [];
+  const items = Array.isArray(order.line_items) ? order.line_items : [];
 
   imagenesRequeridas = [];
   imagenesCargadas = [];
 
-  setTextSafe("detTitulo", `Pedido ${order.name}`);
+  // Título
+  setTextSafe("detTitulo", `Pedido ${order.name || "#" + order.id}`);
 
-  setHtmlSafe("detProductos", items.map((item, index) => {
-    const requiere = requiereImagenModificada(item);
-    const localImg = imagenesLocales[index] || "";
+  // Contador productos
+  setTextSafe("detItemsCount", items.length);
 
-    imagenesRequeridas[index] = requiere;
-    imagenesCargadas[index] = !!localImg;
+  if (!items.length) {
+    setHtmlSafe("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
+    return;
+  }
 
-    return `
-      <div class="border rounded-2xl p-4 bg-white">
-        <div class="font-extrabold">${escapeHtml(item.title)}</div>
+  setHtmlSafe(
+    "detItems",
+    items.map((item, index) => {
+      const requiere = requiereImagenModificada(item);
+      const localImg = imagenesLocales[index] || "";
 
-        ${requiere ? `
-          <input type="file" accept="image/*"
-            onchange="subirImagenProducto('${order.id}', ${index}, this)"
-            class="mt-3">
-        ` : ""}
+      imagenesRequeridas[index] = requiere;
+      imagenesCargadas[index] = !!localImg;
 
-        ${localImg ? `
-          <img src="${escapeHtml(localImg)}" class="mt-3 h-32 rounded-xl border">
-        ` : ""}
-      </div>
-    `;
-  }).join(""));
+      const estadoTxt = requiere
+        ? localImg
+          ? "🟢 Imagen cargada"
+          : "🟡 Falta imagen"
+        : "—";
+
+      return `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+          <div class="font-extrabold text-slate-900">
+            ${escapeHtml(item.title || "Producto")}
+          </div>
+
+          <div class="text-sm text-slate-600 mt-1">
+            Cant: <b>${item.quantity ?? 1}</b>
+          </div>
+
+          <div class="mt-2 text-sm font-bold">${estadoTxt}</div>
+
+          ${
+            requiere
+              ? `
+                <input
+                  type="file"
+                  accept="image/*"
+                  class="mt-3 block w-full text-sm"
+                  onchange="subirImagenProducto('${order.id}', ${index}, this)"
+                >
+              `
+              : ""
+          }
+
+          ${
+            localImg
+              ? `
+                <img
+                  src="${escapeHtml(localImg)}"
+                  class="mt-3 h-32 rounded-2xl border object-cover"
+                >
+              `
+              : ""
+          }
+        </div>
+      `;
+    }).join("")
+  );
 
   actualizarResumenAuto(order.id);
 }
