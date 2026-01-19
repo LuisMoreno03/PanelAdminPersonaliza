@@ -108,7 +108,7 @@ $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection
 |--------------------------------------------------------------------------
 | CONFIRMACIÓN (PROTEGIDO)
 |--------------------------------------------------------------------------
-*/
+
 $routes->get('confirmacion', 'ConfirmacionController::index');
 $routes->get('confirmacion/my-queue', 'ConfirmacionController::myQueue');
 $routes->post('confirmacion/pull', 'ConfirmacionController::pull');
@@ -118,7 +118,7 @@ $routes->post('confirmacion/return-all', 'ConfirmacionController::returnAll');
 $routes->post('confirmacion/upload', 'ConfirmacionController::uploadConfirmacion');
 $routes->get('confirmacion/list', 'ConfirmacionController::listFiles');
 
-
+*/
 /*
 |--------------------------------------------------------------------------
 | PEDIDOS LEGACY (PROTEGIDO)
