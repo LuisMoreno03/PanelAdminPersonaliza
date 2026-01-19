@@ -93,7 +93,9 @@ private function upsertPedidoDesdeShopify(array $o, array $productImagesMap): vo
     $shopifyId = (string)($o['id'] ?? '');
     if (!$shopifyId) return;
 
-    $cliente = trim(($o['shipping_address']['name'] ?? '') ?: ($o['customer']['first_name'] ?? '').' '.($o['customer']['last_name'] ?? ''));
+    $fields = $db->getFieldNames('pedidos') ?? [];
+
+    $cliente = trim(($o['shipping_address']['name'] ?? '') ?: (($o['customer']['first_name'] ?? '').' '.($o['customer']['last_name'] ?? '')));
     $cliente = trim($cliente) ?: ($o['email'] ?? '—');
 
     $articulos = 0;
@@ -103,43 +105,50 @@ private function upsertPedidoDesdeShopify(array $o, array $productImagesMap): vo
         if (!empty($li['product_id'])) $productIds[] = (int)$li['product_id'];
     }
 
-    // product_images por pedido: solo los usados en ese pedido
+    // product_images por pedido
     $pedidoProductImages = [];
     foreach (array_unique($productIds) as $pid) {
         $k = (string)$pid;
         if (!empty($productImagesMap[$k])) $pedidoProductImages[$k] = $productImagesMap[$k];
     }
 
-    // columnas opcionales según tu tabla
-    $fields = $db->getFieldNames('pedidos') ?? [];
-    $hasFulfillment = in_array('fulfillment_status', $fields, true);
-    $hasEstadoEnvio = in_array('estado_envio', $fields, true);
+    // Construimos data SOLO con columnas existentes
+    $data = [];
 
-    $data = [
-        'shopify_order_id' => $shopifyId,
-        'numero'           => $o['name'] ?? ('#'.$shopifyId),
-        'created_at'       => $o['created_at'] ?? date('Y-m-d H:i:s'),
-        'cliente'          => $cliente,
-        'total'            => $o['total_price'] ?? '0.00',
-        'articulos'        => $articulos,
-        'pedido_json'      => json_encode($o, JSON_UNESCAPED_UNICODE),
-        'product_images'   => json_encode($pedidoProductImages, JSON_UNESCAPED_UNICODE),
-    ];
+    if (in_array('shopify_order_id', $fields, true)) $data['shopify_order_id'] = $shopifyId;
+    if (in_array('numero', $fields, true))           $data['numero'] = $o['name'] ?? ('#'.$shopifyId);
+    if (in_array('created_at', $fields, true))       $data['created_at'] = $o['created_at'] ?? date('Y-m-d H:i:s');
+    if (in_array('cliente', $fields, true))          $data['cliente'] = $cliente;
+    if (in_array('total', $fields, true))            $data['total'] = $o['total_price'] ?? '0.00';
+    if (in_array('articulos', $fields, true))        $data['articulos'] = $articulos;
 
-    $ful = $o['fulfillment_status'] ?? null; // null / unfulfilled / fulfilled
-    if ($hasFulfillment) $data['fulfillment_status'] = $ful;
-    if ($hasEstadoEnvio) $data['estado_envio'] = $ful;
+    $ful = $o['fulfillment_status'] ?? null;
+    if (in_array('fulfillment_status', $fields, true)) $data['fulfillment_status'] = $ful;
+    if (in_array('estado_envio', $fields, true))       $data['estado_envio'] = $ful;
 
-    // INSERT si no existe, UPDATE si existe
+    // ✅ Estas 3 solo si existen (tu error es justamente aquí)
+    if (in_array('pedido_json', $fields, true)) {
+        $data['pedido_json'] = json_encode($o, JSON_UNESCAPED_UNICODE);
+    }
+    if (in_array('product_images', $fields, true)) {
+        $data['product_images'] = json_encode($pedidoProductImages, JSON_UNESCAPED_UNICODE);
+    }
+    if (in_array('imagenes_locales', $fields, true)) {
+        // no las tocamos si no existen, pero si existen y está vacío:
+        // $data['imagenes_locales'] = $data['imagenes_locales'] ?? '[]';
+    }
+
+    // Si por algún motivo tu tabla no tiene campos esperados, no hacemos nada
+    if (!$data) return;
+
     $existe = $db->table('pedidos')->where('shopify_order_id', $shopifyId)->countAllResults();
     if ($existe) {
         $db->table('pedidos')->where('shopify_order_id', $shopifyId)->update($data);
     } else {
-        // Si tu tabla requiere valores por defecto para assigned_to_user_id etc, añádelos aquí
         $db->table('pedidos')->insert($data);
     }
 
-    // Asegurar que exista fila en pedidos_estado (para que COALESCE no dependa de join raro)
+    // asegurar pedidos_estado
     $exPe = $db->table('pedidos_estado')->where('order_id', $shopifyId)->countAllResults();
     if (!$exPe) {
         $db->table('pedidos_estado')->insert([
@@ -148,6 +157,7 @@ private function upsertPedidoDesdeShopify(array $o, array $productImagesMap): vo
         ]);
     }
 }
+
 
 
     public function myQueue()
