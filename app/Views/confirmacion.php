@@ -142,7 +142,7 @@
 <!-- ================= MODALES ================= -->
 <!-- =========================
    MODAL DETALLES (FULL SCREEN)
-   AJUSTADO AL confirmacion.js
+   CLON VISUAL DEL DASHBOARD
 ========================= -->
 <div
   id="modalDetallesFull"
@@ -150,48 +150,80 @@
 
   <div class="h-full w-full bg-white flex flex-col">
 
-    <!-- HEADER -->
-    <div class="px-5 sm:px-8 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+    <!-- ================= HEADER ================= -->
+    <div class="px-6 sm:px-8 py-4 border-b border-slate-200
+                flex items-center justify-between gap-4">
+
       <div class="min-w-0">
         <div class="text-xs font-extrabold uppercase tracking-wider text-slate-500">
           Detalles del pedido
         </div>
 
-        <!-- USADO DIRECTAMENTE POR JS -->
+        <!-- JS -->
         <h2
           id="detTitulo"
-          class="text-xl sm:text-2xl font-extrabold text-slate-900 truncate">
+          class="text-2xl font-extrabold text-slate-900 truncate">
           —
         </h2>
+
+        <!-- JS -->
+        <p
+          id="detCliente"
+          class="text-sm text-slate-500 mt-1 truncate">
+          —
+        </p>
       </div>
 
-      <button
-        type="button"
-        onclick="cerrarModalDetalles()"
-        class="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-600
-               hover:text-slate-900 hover:border-slate-300 transition
-               font-extrabold text-xl leading-none">
-        ×
-      </button>
+      <div class="flex items-center gap-2 shrink-0">
+
+        <button
+          type="button"
+          onclick="copiarJsonPedido?.()"
+          class="px-4 py-2 rounded-xl bg-slate-100 border border-slate-200
+                 text-slate-900 font-extrabold text-xs uppercase tracking-wide
+                 hover:bg-slate-200 transition">
+          Copiar JSON
+        </button>
+
+        <button
+          type="button"
+          onclick="abrirClienteDetalle?.()"
+          class="px-4 py-2 rounded-xl bg-slate-900 text-white
+                 font-extrabold text-xs uppercase tracking-wide
+                 hover:bg-slate-800 transition">
+          Cliente
+        </button>
+
+        <button
+          type="button"
+          onclick="cerrarModalDetalles()"
+          class="h-10 w-10 rounded-xl border border-slate-200 bg-white
+                 text-slate-600 hover:text-slate-900 hover:border-slate-300
+                 transition font-extrabold text-xl leading-none">
+          ×
+        </button>
+      </div>
     </div>
 
-    <!-- BODY -->
+    <!-- ================= BODY ================= -->
     <div class="flex-1 overflow-auto">
-      <div class="max-w-[1500px] mx-auto px-5 sm:px-8 py-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="max-w-[1500px] mx-auto px-6 sm:px-8 py-6
+                  grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        <!-- PRODUCTOS -->
-        <div class="lg:col-span-2">
-          <div id="detProductos" class="grid grid-cols-1 gap-4">
-            <!-- JS pinta aquí -->
-          </div>
+        <!-- ================= PRODUCTOS ================= -->
+        <div class="lg:col-span-2 space-y-4">
+
+          <!-- JS inyecta el bloque completo -->
+          <div id="detProductos"></div>
+
         </div>
 
-        <!-- RESUMEN -->
+        <!-- ================= RESUMEN ================= -->
         <div
           id="detResumen"
           class="rounded-3xl border border-slate-200 bg-white shadow-sm
                  p-5 h-fit sticky top-6">
-          <!-- JS pinta aquí -->
+          <!-- JS inyecta resumen -->
         </div>
 
       </div>
@@ -201,8 +233,6 @@
 </div>
 <!-- /MODAL DETALLES -->
 
-
-<?= view('layouts/modales_estados') ?>
 
 <!-- ================= LOADER ================= -->
 <div id="globalLoader" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-[100]">

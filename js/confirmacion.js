@@ -257,30 +257,107 @@ function pintarErrorDetalles(msg) {
 /* =====================================================
    DETALLES MANUAL (FALLBACK)
 ===================================================== */
-function pintarDetallesManual(order) {
-  setTextSafe("detTitulo", `Pedido ${order.numero || order.shopify_order_id}`);
+function pintarDetallesPedido(order, imagenesLocales = {}) {
+  const items = extraerLineItems(order);
+
+  setTextSafe("detTitulo", `Pedido #${order.name || order.id}`);
+  setTextSafe("detCliente", order.customer?.name || order.cliente || "—");
+
+  imagenesRequeridas = [];
+  imagenesCargadas = [];
+
+  /* ================= PRODUCTOS ================= */
+  const productosHtml = items.map((item, index) => {
+    const requiere = requiereImagenModificada(item);
+    const imgLocal = imagenesLocales[index] || "";
+
+    imagenesRequeridas[index] = requiere;
+    imagenesCargadas[index] = !!imgLocal;
+
+    const estado = requiere
+      ? imgLocal
+        ? `<span class="px-3 py-1 rounded-full text-xs bg-emerald-100 text-emerald-800 font-bold">Listo</span>`
+        : `<span class="px-3 py-1 rounded-full text-xs bg-amber-100 text-amber-800 font-bold">Falta imagen</span>`
+      : `<span class="px-3 py-1 rounded-full text-xs bg-slate-100 text-slate-600">Sin imagen</span>`;
+
+    const propsTxt = item.properties.filter(p => !esImagenUrl(p.value));
+    const propsImg = item.properties.filter(p => esImagenUrl(p.value));
+
+    return `
+      <div class="rounded-3xl border bg-white p-6 shadow-sm space-y-4">
+        <div class="flex justify-between items-start">
+          <div>
+            <div class="font-extrabold text-lg">${escapeHtml(item.title)}</div>
+            <div class="text-sm text-slate-600">
+              Cant: ${item.quantity} · Precio: ${item.price.toFixed(2)} € ·
+              Total: ${(item.price * item.quantity).toFixed(2)} €
+            </div>
+
+            ${item.variant_title ? `
+              <div class="text-sm mt-1">
+                <b>Variante:</b> ${escapeHtml(item.variant_title)}
+              </div>` : ""}
+          </div>
+          ${estado}
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 text-xs text-slate-600">
+          <div><b>Product ID:</b> ${item.product_id || "—"}</div>
+          <div><b>Variant ID:</b> ${item.variant_id || "—"}</div>
+        </div>
+
+        ${propsTxt.length ? `
+          <div class="bg-slate-50 rounded-xl p-3 text-sm">
+            <div class="font-bold mb-1">Personalización</div>
+            ${propsTxt.map(p => `
+              <div><b>${escapeHtml(p.name)}:</b> ${escapeHtml(p.value)}</div>
+            `).join("")}
+          </div>` : ""}
+
+        ${propsImg.length ? `
+          <div>
+            <div class="text-sm font-bold mb-2">Imagen original (cliente)</div>
+            <div class="flex gap-3 flex-wrap">
+              ${propsImg.map(p => `
+                <a href="${p.value}" target="_blank">
+                  <img src="${p.value}" class="h-32 w-32 rounded-xl border object-cover">
+                </a>
+              `).join("")}
+            </div>
+          </div>` : ""}
+
+        ${imgLocal ? `
+          <div>
+            <div class="text-sm font-bold mb-2">Imagen modificada</div>
+            <img src="${imgLocal}" class="h-40 rounded-xl border object-cover">
+          </div>` : ""}
+
+        ${requiere ? `
+          <div>
+            <div class="text-sm font-bold mb-2">Subir imagen modificada</div>
+            <input type="file" accept="image/*"
+              onchange="subirImagenProducto('${order.id}', ${index}, this)">
+          </div>` : ""}
+      </div>
+    `;
+  }).join("");
 
   setHtmlSafe("detProductos", `
-    <div class="rounded-3xl border bg-white p-5 shadow-sm">
-      <div class="font-extrabold text-lg mb-2">Pedido (modo manual)</div>
-      <div class="text-sm text-slate-600 space-y-1">
-        <div><b>Cliente:</b> ${escapeHtml(order.cliente || "—")}</div>
-        <div><b>Total:</b> ${Number(order.total || 0).toFixed(2)} €</div>
-        <div><b>Artículos:</b> ${order.articulos || 1}</div>
-        <div><b>Método envío:</b> ${escapeHtml(order.forma_envio || "—")}</div>
-        <div><b>Estado:</b> Por preparar</div>
+    <div class="rounded-3xl border bg-white shadow-sm p-5 space-y-5">
+      <div class="flex items-center justify-between">
+        <h3 class="font-extrabold text-slate-900">Productos</h3>
+        <span class="text-xs font-extrabold px-3 py-1 rounded-full bg-slate-100">
+          ${items.length}
+        </span>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        ${productosHtml}
       </div>
     </div>
   `);
 
-  setHtmlSafe("detResumen", `
-    <div class="font-extrabold text-amber-600">
-      ⚠️ Detalles cargados en modo manual
-    </div>
-    <div class="text-sm text-slate-600 mt-2">
-      El backend de detalles no respondió.
-    </div>
-  `);
+  /* ================= RESUMEN ================= */
+  actualizarResumenAuto(order.id);
 }
 
 /* =====================================================
