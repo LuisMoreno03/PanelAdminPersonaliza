@@ -118,6 +118,7 @@ $routes->post('confirmacion/return-all', 'ConfirmacionController::returnAll');
 $routes->post('confirmacion/upload', 'ConfirmacionController::uploadConfirmacion');
 $routes->get('confirmacion/list', 'ConfirmacionController::listFiles');
 $routes->get('confirmacion/detalles/(:any)', 'ConfirmacionController::detalles/$1');
+$routes->post('confirmacion/guardar-estado', 'ConfirmacionController::guardarEstado');
 
 
 /*

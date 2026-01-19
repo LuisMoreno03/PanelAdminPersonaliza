@@ -315,5 +315,67 @@ class ConfirmacionController extends BaseController
         }
     }
 
+    // =========================
+// POST /confirmacion/guardar-estado
+// =========================
+public function guardarEstado()
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setStatusCode(401)->setJSON([
+            'success' => false,
+            'message' => 'No autenticado'
+        ]);
+    }
+
+    $payload = $this->request->getJSON(true) ?? [];
+
+    $shopifyOrderId = (string)($payload['shopify_order_id'] ?? '');
+    $nuevoEstado    = trim((string)($payload['estado'] ?? ''));
+
+    if (!$shopifyOrderId || !$nuevoEstado) {
+        return $this->response->setStatusCode(400)->setJSON([
+            'success' => false,
+            'message' => 'Datos incompletos'
+        ]);
+    }
+
+    try {
+        $db = \Config\Database::connect();
+        $now = date('Y-m-d H:i:s');
+
+        // 1️⃣ Actualizar estado actual
+        $db->table('pedidos_estado')->replace([
+            'order_id'               => $shopifyOrderId,
+            'estado'                 => $nuevoEstado,
+            'estado_updated_at'      => $now,
+            'estado_updated_by_id'   => session('user_id'),
+            'estado_updated_by_name' => session('nombre') ?? 'Sistema',
+        ]);
+
+        // 2️⃣ Guardar historial
+        $db->table('pedidos_estado_historial')->insert([
+            'order_id'   => $shopifyOrderId,
+            'estado'     => $nuevoEstado,
+            'user_id'    => session('user_id'),
+            'user_name'  => session('nombre') ?? 'Sistema',
+            'created_at' => $now,
+            'pedido_json'=> null,
+        ]);
+
+        return $this->response->setJSON([
+            'success' => true,
+            'estado' => $nuevoEstado
+        ]);
+
+    } catch (\Throwable $e) {
+        log_message('error', 'Confirmacion guardarEstado ERROR: ' . $e->getMessage());
+
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => 'Error guardando estado'
+        ]);
+    }
+}
+
 
 }

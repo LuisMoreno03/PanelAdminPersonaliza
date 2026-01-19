@@ -1011,53 +1011,53 @@ window.subirImagenProducto = async function (orderId, index, input) {
 // - si falta alguna => "Faltan archivos"
 // - si están todas => "Confirmado"
 // =====================================
-window.validarEstadoAuto = async function (orderId) {
+window.validarEstadoAuto = async function (shopifyOrderId) {
   try {
-    const oid = String(orderId || "");
-    if (!oid) return;
-
     const req = Array.isArray(window.imagenesRequeridas) ? window.imagenesRequeridas : [];
     const ok  = Array.isArray(window.imagenesCargadas) ? window.imagenesCargadas : [];
 
     const requiredIdx = req.map((v, i) => (v ? i : -1)).filter(i => i >= 0);
-    const requiredCount = requiredIdx.length;
-
-    // Solo aplica regla automática si requiere 2 o más imágenes
-    if (requiredCount < 1) return;
+    if (!requiredIdx.length) return;
 
     const uploadedCount = requiredIdx.filter(i => ok[i] === true).length;
-    const faltaAlguna = uploadedCount < requiredCount;
+    const faltaAlguna = uploadedCount < requiredIdx.length;
 
-    const nuevoEstado = faltaAlguna ? "Faltan archivos" : "Confirmado";
+    const nuevoEstado = faltaAlguna ? "Faltan imágenes" : "Confirmado";
 
-    // Si ya está en el mismo estado, no hagas nada
-    const order =
-      (window.ordersById && window.ordersById.get && window.ordersById.get(oid)) ||
-      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === oid) : null);
+    // 🔥 Guardar en backend
+    const r = await fetch("/confirmacion/guardar-estado", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getCsrfHeaders()
+      },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        shopify_order_id: String(shopifyOrderId),
+        estado: nuevoEstado
+      })
+    });
 
-    const estadoActual = String(order?.estado || "").toLowerCase().trim();
-    const nuevoLower = nuevoEstado.toLowerCase();
-
-    if (
-      (nuevoLower.includes("faltan") && (estadoActual.includes("faltan archivos") || estadoActual.includes("faltan_archivos"))) ||
-      (nuevoLower.includes("confirmado") && estadoActual.includes("confirmado"))
-    ) return;
-
-    // asegurar que guardarEstado encuentre el input
-    let idInput = document.getElementById("modalOrderId");
-    if (!idInput) {
-      idInput = document.createElement("input");
-      idInput.type = "hidden";
-      idInput.id = "modalOrderId";
-      document.body.appendChild(idInput);
+    const d = await r.json();
+    if (!r.ok || !d.success) {
+      console.error("Error guardando estado:", d);
+      return;
     }
-    idInput.value = oid;
 
-    await window.guardarEstado(nuevoEstado);
+    // ✅ Si queda CONFIRMADO → eliminar de la lista
+    if (nuevoEstado === "Confirmado") {
+      pedidosCache = pedidosCache.filter(
+        p => String(p.shopify_order_id) !== String(shopifyOrderId)
+      );
+      renderPedidos(pedidosCache);
+      cerrarDetallesFull();
+    }
+
   } catch (e) {
     console.error("validarEstadoAuto error:", e);
   }
 };
+
 
 /* =====================================================
   INIT
