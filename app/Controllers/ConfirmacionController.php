@@ -79,10 +79,22 @@ class ConfirmacionController extends BaseController
             ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
             ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
             ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)')
+
+            // ✅ SOLO pedidos NO preparados en Shopify:
+            // Shopify REST: "unfulfilled" muchas veces es NULL
+            ->groupStart()
+                ->where('p.fulfillment_status IS NULL', null, false)
+                ->orWhere("LOWER(p.fulfillment_status)", 'unfulfilled')
+            ->groupEnd()
+
+            // (opcional pero recomendado) por si tu BD guarda "fulfilled"/"partial"
+            ->whereNotIn('LOWER(COALESCE(p.fulfillment_status, ""))', ['fulfilled', 'partial'])
+
             ->orderBy('p.created_at', 'ASC')
             ->limit($count)
             ->get()
             ->getResultArray();
+
 
         if (!$candidatos) {
             return $this->response->setJSON(['ok' => true, 'assigned' => 0]);
