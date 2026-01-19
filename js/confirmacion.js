@@ -703,6 +703,35 @@ window.verDetalles = async function (orderId) {
     setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
   }
 };
+function requiereImagenModificada(item) {
+  const props = Array.isArray(item?.properties) ? item.properties : [];
+
+  // ✅ Si hay alguna property que sea URL de imagen => requiere
+  const tieneImagenEnProps = props.some((p) => {
+    const v = p?.value;
+    const s =
+      v === null || v === undefined
+        ? ""
+        : typeof v === "object"
+        ? JSON.stringify(v)
+        : String(v);
+
+    return esImagenUrl(s); // usa tu helper que acepta querystring
+  });
+
+  // ✅ Si el backend ya trae campos típicos de imagen
+  const tieneCamposImagen =
+    esImagenUrl(item?.image_original) ||
+    esImagenUrl(item?.image_url) ||
+    esImagenUrl(item?.imagen_original) ||
+    esImagenUrl(item?.imagen_url);
+
+  // ✅ Llavero siempre requiere (aunque no haya imagen)
+  if (isLlaveroItem(item)) return true;
+
+  // ✅ Solo requiere si hay imagen real del cliente
+  return tieneImagenEnProps || tieneCamposImagen;
+}
 
 // ===============================
 // SUBIR IMAGEN MODIFICADA (ROBUSTO)
