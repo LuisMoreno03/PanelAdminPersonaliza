@@ -732,7 +732,19 @@ function requiereImagenModificada(item) {
   // ✅ Solo requiere si hay imagen real del cliente
   return tieneImagenEnProps || tieneCamposImagen;
 }
+function isLlaveroItem(item) {
+  const title = String(item?.title || item?.name || "").toLowerCase();
+  const productType = String(item?.product_type || "").toLowerCase();
+  const sku = String(item?.sku || "").toLowerCase();
 
+  // ✅ Ajusta aquí tus palabras clave reales
+  const hayLlavero =
+    title.includes("llavero") ||
+    productType.includes("llavero") ||
+    sku.includes("llav");
+
+  return hayLlavero;
+}
 // ===============================
 // SUBIR IMAGEN MODIFICADA (ROBUSTO)
 // ===============================
