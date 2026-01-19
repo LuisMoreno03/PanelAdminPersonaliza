@@ -41,13 +41,13 @@
 
     .orders-grid.cols {
       grid-template-columns:
-        110px
+        140px
         92px
         minmax(170px, 1.2fr)
         90px
         160px
-        minmax(140px, 0.9fr)
-        minmax(170px, 1fr)
+        minmax(120px, 0.9fr)
+        minmax(160px, 1fr)
         44px
         140px
         minmax(190px, 1fr)
@@ -116,7 +116,7 @@
 
         <div class="table-scroll">
           <!-- HEADER -->
-          <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wide text-slate-600 bg-slate-50 border-b">
+          <div class="orders-grid cols px-4 py-3 text-[8px] uppercase tracking-wide text-slate-600 bg-slate-50 border-b">
             <div>Pedido</div>
             <div>Fecha</div>
             <div>Cliente</div>
