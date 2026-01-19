@@ -743,20 +743,8 @@ function fmtMoney(v) {
   return n.toFixed(2);
 }
 
-// ---- UI upload illustrator (inyectada en modal)
 
-// ---- subida (requiere endpoint backend; si no existe, mostrará error claro)
-function buildUploadEndpoints(orderId) {
-  const id = encodeURIComponent(String(orderId || ""));
-  return [
-    `${API_BASE}/produccion/upload-illustrator/${id}`,
-    `${API_BASE}/produccion/upload-illustrator`,
-    `/produccion/upload-illustrator/${id}`,
-    `/produccion/upload-illustrator`,
-    `/index.php/produccion/upload-illustrator/${id}`,
-    `/index.php/produccion/upload-illustrator`,
-  ];
-}
+
 
 
 async function abrirDetallesPedido(orderId) {
