@@ -222,22 +222,69 @@ function renderDetalles(order, imagenesLocales = {}) {
   imagenesRequeridas = [];
   imagenesCargadas = [];
 
-  setTextSafe("detTitulo", `Pedido #${order.numero || order.name || order.id}`);
+  /* =========================
+     CABECERA PEDIDO
+  ========================= */
+  setTextSafe(
+    "detTitulo",
+    `Pedido ${order.name || order.numero || "#" + order.id}`
+  );
 
+  setHtmlSafe(
+    "detResumen",
+    `
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+      <div>
+        <div class="font-extrabold text-slate-900">${escapeHtml(
+          order.customer?.name ||
+          `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}` ||
+          order.cliente ||
+          "—"
+        )}</div>
+        <div class="text-slate-600">${escapeHtml(order.email || "—")}</div>
+        <div class="text-slate-600">${escapeHtml(order.phone || "—")}</div>
+      </div>
+
+      <div>
+        <div><b>Estado pago:</b> ${escapeHtml(order.financial_status || "—")}</div>
+        <div><b>Estado envío:</b> ${escapeHtml(order.fulfillment_status || "—")}</div>
+        <div><b>Fecha:</b> ${escapeHtml(
+          (order.created_at || "").slice(0, 10) || "—"
+        )}</div>
+      </div>
+    </div>
+
+    <div class="mt-4 border-t pt-4 text-sm space-y-1">
+      <div><b>Subtotal:</b> ${escapeHtml(order.subtotal_price || "0")} €</div>
+      <div><b>Envío:</b> ${escapeHtml(
+        order.total_shipping_price_set?.shop_money?.amount ||
+        order.shipping_price ||
+        "0"
+      )} €</div>
+      <div><b>Impuestos:</b> ${escapeHtml(order.total_tax || "0")} €</div>
+      <div class="text-lg font-extrabold">
+        Total: ${escapeHtml(order.total_price || order.total || "0")} €
+      </div>
+    </div>
+    `
+  );
+
+  /* =========================
+     PRODUCTOS
+  ========================= */
   if (!items.length) {
     setHtmlSafe(
       "detProductos",
       `<div class="p-6 text-center text-slate-500">Este pedido no tiene productos</div>`
     );
-    setHtmlSafe("detResumen", "");
     return;
   }
 
-  const html = items
+  const productosHtml = items
     .map((item, i) => {
-      const requiere = requiereImagenModificada(item);
-
       const props = Array.isArray(item.properties) ? item.properties : [];
+
+      const requiere = requiereImagenModificada(item);
 
       const imgCliente =
         props.find(p => esImagenUrl(p.value))?.value || "";
@@ -247,31 +294,39 @@ function renderDetalles(order, imagenesLocales = {}) {
       imagenesRequeridas[i] = !!requiere;
       imagenesCargadas[i] = !!imgModificada;
 
+      /* === IMAGEN PRODUCTO (Shopify real) === */
+      const imgProducto =
+        item.image ||
+        item.featured_image ||
+        item.image_url ||
+        item.product_image ||
+        "";
+
+      const precio = Number(item.price || 0);
+      const qty = Number(item.quantity || 1);
+      const totalLinea = (precio * qty).toFixed(2);
+
       const estadoBadge = requiere
         ? imgModificada
           ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-100 text-emerald-800 font-bold">Listo</span>`
           : `<span class="px-3 py-1 text-xs rounded-full bg-amber-100 text-amber-800 font-bold">Falta imagen</span>`
         : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">Sin imagen</span>`;
 
-      const precio = Number(item.price || 0);
-      const qty = Number(item.quantity || 1);
-      const totalLinea = (precio * qty).toFixed(2);
-
       return `
         <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 space-y-4">
 
-          <!-- CABECERA PRODUCTO -->
+          <!-- HEADER PRODUCTO -->
           <div class="flex items-start gap-4">
             ${
-              item.image
+              imgProducto
                 ? `
                   <img
-                    src="${item.image}"
+                    src="${imgProducto}"
                     class="h-20 w-20 rounded-2xl border object-cover flex-shrink-0"
                   >
                 `
                 : `
-                  <div class="h-20 w-20 rounded-2xl border bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
+                  <div class="h-20 w-20 rounded-2xl border bg-slate-50 flex items-center justify-center text-slate-400">
                     🧾
                   </div>
                 `
@@ -279,7 +334,7 @@ function renderDetalles(order, imagenesLocales = {}) {
 
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
+                <div>
                   <div class="font-extrabold text-slate-900 truncate">
                     ${escapeHtml(item.title)}
                   </div>
@@ -313,17 +368,14 @@ function renderDetalles(order, imagenesLocales = {}) {
                     Imagen original (cliente)
                   </div>
                   <a href="${imgCliente}" target="_blank">
-                    <img
-                      src="${imgCliente}"
-                      class="h-36 rounded-2xl border object-cover"
-                    >
+                    <img src="${imgCliente}" class="h-36 rounded-2xl border object-cover">
                   </a>
                 </div>
               `
               : ""
           }
 
-          <!-- IMAGEN MODIFICADA / SUBIDA -->
+          <!-- IMAGEN MODIFICADA -->
           ${
             imgModificada
               ? `
@@ -332,10 +384,7 @@ function renderDetalles(order, imagenesLocales = {}) {
                     Imagen modificada
                   </div>
                   <a href="${imgModificada}" target="_blank">
-                    <img
-                      src="${imgModificada}"
-                      class="h-40 rounded-2xl border object-cover"
-                    >
+                    <img src="${imgModificada}" class="h-40 rounded-2xl border object-cover">
                   </a>
                 </div>
               `
@@ -349,8 +398,7 @@ function renderDetalles(order, imagenesLocales = {}) {
                     type="file"
                     accept="image/*"
                     class="block w-full text-sm border border-slate-200 rounded-2xl p-2"
-                    onchange="subirImagenProducto('${order.id}', ${i}, this)"
-                  >
+                    onchange="subirImagenProducto('${order.id}', ${i}, this)">
                 </div>
               `
               : ""
@@ -361,7 +409,9 @@ function renderDetalles(order, imagenesLocales = {}) {
     })
     .join("");
 
-  setHtmlSafe("detProductos", `
+  setHtmlSafe(
+    "detProductos",
+    `
     <div class="space-y-5">
       <div class="flex items-center justify-between">
         <h3 class="font-extrabold text-slate-900">Productos</h3>
@@ -369,13 +419,13 @@ function renderDetalles(order, imagenesLocales = {}) {
           ${items.length}
         </span>
       </div>
-      ${html}
+      ${productosHtml}
     </div>
-  `);
+    `
+  );
 
   actualizarResumenAuto(order.id);
 }
-
 
 /* =====================================================
    SUBIR IMAGEN MODIFICADA
