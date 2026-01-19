@@ -347,7 +347,7 @@
 
   <!-- ✅ Variables globales (UNA sola vez) -->
   <script>
-  window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas) ?>;
+  window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
   window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
 
   // ✅ Endpoints correctos (sin concatenaciones peligrosas)

@@ -49,14 +49,12 @@ class ConfirmacionController extends BaseController
                     p.created_at,
                     p.shopify_order_id,
 
-                    -- estado actual
                     COALESCE(
                         CAST(h.estado AS CHAR),
                         CAST(pe.estado AS CHAR),
                         ''
                     ) AS estado_bd,
 
-                    -- último cambio
                     COALESCE(h.created_at, pe.estado_updated_at, p.created_at) AS estado_actualizado,
                     COALESCE(h.user_name, pe.estado_updated_by_name) AS estado_por
 
@@ -81,12 +79,29 @@ class ConfirmacionController extends BaseController
                     OR h.order_id = p.shopify_order_id
 
                 WHERE p.assigned_to_user_id = ?
+
+                -- ✅ SOLO Por preparar
                 AND LOWER(TRIM(
                     CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
                 )) = 'por preparar'
 
-                ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
+                -- ❌ EXCLUIR pedidos enviados / entregados
+                AND (
+                    p.estado_envio IS NULL
+                    OR LOWER(p.estado_envio) NOT IN ('fulfilled', 'entregado', 'enviado', 'complete')
+                )
+
+                ORDER BY
+                    -- 🚀 PRIORIDAD ENVÍO EXPRESS
+                    CASE
+                        WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
+                        WHEN LOWER(p.forma_envio) LIKE '%urgente%' THEN 0
+                        WHEN LOWER(p.forma_envio) LIKE '%priority%' THEN 0
+                        ELSE 1
+                    END,
+                    COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
             ";
+
 
             $rows = $db->query($sql, [$userId])->getResultArray();
 
