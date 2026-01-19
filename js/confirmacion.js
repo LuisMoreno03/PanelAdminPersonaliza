@@ -249,3 +249,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
   cargarMiCola();
 });
+// ===============================
+// MODAL DETALLES — CONFIRMACION
+// ===============================
+function abrirDetallesFull() {
+  const modal = document.getElementById("modalDetallesFull");
+  if (!modal) {
+    console.error("No existe #modalDetallesFull en el DOM");
+    return;
+  }
+
+  modal.classList.remove("hidden");
+  document.documentElement.classList.add("overflow-hidden");
+  document.body.classList.add("overflow-hidden");
+}
+
+function cerrarDetallesFull() {
+  const modal = document.getElementById("modalDetallesFull");
+  if (!modal) return;
+
+  modal.classList.add("hidden");
+  document.documentElement.classList.remove("overflow-hidden");
+  document.body.classList.remove("overflow-hidden");
+}
