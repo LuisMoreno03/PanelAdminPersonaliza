@@ -377,3 +377,120 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btnDevolver")?.addEventListener("click", devolverPedidos);
   cargarMiCola();
 });
+/* =====================================================
+   REGLAS IMÁGENES (FIX DEFINITIVO)
+===================================================== */
+function isLlaveroItem(item) {
+  return String(item?.title || "").toLowerCase().includes("llavero");
+}
+
+function requiereImagenModificada(item) {
+  const props = Array.isArray(item?.properties) ? item.properties : [];
+  const tieneImagen = props.some(p => esImagenUrl(p?.value));
+  return isLlaveroItem(item) || tieneImagen;
+}
+
+/* =====================================================
+   TRAER PEDIDOS (FALTABA)
+===================================================== */
+async function traerPedidos(n) {
+  setLoader(true);
+  try {
+    await fetch(ENDPOINT_PULL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
+      body: JSON.stringify({ count: n }),
+      credentials: "same-origin"
+    });
+    await cargarMiCola();
+  } catch (e) {
+    console.error("Error trayendo pedidos", e);
+  } finally {
+    setLoader(false);
+  }
+}
+
+/* =====================================================
+   RESUMEN + AUTO ESTADO (FIX REAL)
+===================================================== */
+function actualizarResumenAuto(orderId) {
+  const total = imagenesRequeridas.filter(Boolean).length;
+  const ok = imagenesRequeridas.filter((v, i) => v && imagenesCargadas[i]).length;
+  const falta = total - ok;
+
+  setHtmlSafe("detResumen", `
+    <div class="space-y-2">
+      <div class="font-extrabold text-slate-900">
+        ${ok} / ${total} imágenes cargadas
+      </div>
+
+      <div class="font-bold ${falta ? "text-amber-600" : "text-emerald-600"}">
+        ${falta ? `🟡 Faltan ${falta} imágenes` : "🟢 Todo listo"}
+      </div>
+    </div>
+  `);
+
+  if (total > 0) {
+    guardarEstadoAuto(orderId, falta === 0 ? "Confirmado" : "Faltan archivos");
+  }
+}
+
+/* =====================================================
+   SUBIR IMAGEN PRODUCTO (FALTABA)
+===================================================== */
+window.subirImagenProducto = async function (orderId, index, input) {
+  const file = input.files?.[0];
+  if (!file) return;
+
+  const fd = new FormData();
+  fd.append("order_id", orderId);
+  fd.append("line_index", index);
+  fd.append("file", file);
+
+  setLoader(true);
+
+  try {
+    const r = await fetch("/api/pedidos/imagenes/subir", {
+      method: "POST",
+      body: fd,
+      headers: getCsrfHeaders(),
+      credentials: "same-origin"
+    });
+
+    const d = await r.json();
+    if (!r.ok || !d?.url) {
+      throw new Error("Subida fallida");
+    }
+
+    imagenesCargadas[index] = true;
+    actualizarResumenAuto(orderId);
+  } catch (e) {
+    console.error("Error subiendo imagen", e);
+    alert("Error subiendo imagen");
+  } finally {
+    setLoader(false);
+  }
+};
+
+/* =====================================================
+   AUTO ESTADO (GUARDAR)
+===================================================== */
+async function guardarEstadoAuto(orderId, estado) {
+  try {
+    await fetch("/api/estado/guardar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
+      body: JSON.stringify({ id: orderId, estado }),
+      credentials: "same-origin"
+    });
+
+    if (estado === "Confirmado") {
+      setTimeout(() => {
+        cerrarModalDetalles();
+        cargarMiCola();
+      }, 600);
+    }
+  } catch (e) {
+    console.error("Error guardando estado", e);
+  }
+}
