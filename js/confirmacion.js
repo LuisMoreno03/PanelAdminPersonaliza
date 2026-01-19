@@ -103,6 +103,70 @@ function renderEntregaBadge(forma) {
   }
   return `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-slate-200 text-slate-800">Normal</span>`;
 }
+function renderPedidos(pedidos) {
+  const tbody = document.getElementById('listaPedidos');
+  tbody.innerHTML = '';
+
+  pedidos.forEach(p => {
+    const tr = document.createElement('tr');
+
+    const esExpress =
+      p.forma_envio &&
+      p.forma_envio.toLowerCase().includes('express');
+
+    tr.innerHTML = `
+      <td class="font-bold">#${p.numero}</td>
+
+      <td>${(p.created_at || '').substring(0, 10)}</td>
+
+      <td>${p.cliente || '-'}</td>
+
+      <td class="font-bold">${Number(p.total).toFixed(2)} €</td>
+
+      <td>
+        <span class="badge badge-primary">
+          POR PREPARAR
+        </span>
+      </td>
+
+      <td>—</td>
+
+      <td>
+        <button class="btn btn-xs btn-outline">
+          ETIQUETAS +
+        </button>
+      </td>
+
+      <td>${p.articulos || 1}</td>
+
+      <td>
+        <span class="badge badge-ghost">
+          Sin preparar
+        </span>
+      </td>
+
+      <td>
+        ${esExpress
+          ? `<span class="badge badge-error">🚀 Express</span>`
+          : `<span class="badge badge-info">${p.forma_envio}</span>`
+        }
+      </td>
+
+      <td>
+        <button
+          class="btn btn-sm btn-primary"
+          onclick="abrirModalPedido(${p.id})"
+        >
+          VER DETALLES →
+        </button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById('total-pedidos').textContent = pedidos.length;
+}
 
 function actualizarListado(pedidos) {
   const mode = getMode();
