@@ -1,24 +1,26 @@
-// confirmacion.js (ENCAPSULADO para no chocar con dashboard.js)
+// confirmacion.js
+// Encapsulado para NO chocar con dashboard.js
 (function () {
-  let confirmacionCache = [];
-  let isLoadingConfirmacion = false;
-  let liveInterval = null;
+
+  let isLoading = false;
+  let cache = [];
+
+  /* ===============================
+     Helpers
+  =============================== */
+
+  function qs(id) {
+    return document.getElementById(id);
+  }
 
   function showLoader() {
-    const el = document.getElementById("globalLoader");
+    const el = qs("globalLoader");
     if (el) el.classList.remove("hidden");
   }
-  function hideLoader() {
-    const el = document.getElementById("globalLoader");
-    if (el) el.classList.add("hidden");
-  }
 
-  function csrfHeadersJson() {
-    const headers = { Accept: "application/json", "Content-Type": "application/json" };
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
-    const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
-    if (csrfToken) headers[csrfHeader] = csrfToken;
-    return headers;
+  function hideLoader() {
+    const el = qs("globalLoader");
+    if (el) el.classList.add("hidden");
   }
 
   function escapeHtml(str) {
@@ -30,212 +32,187 @@
       .replaceAll("'", "&#039;");
   }
 
-  function isExpress(o) {
-    const forma = String(o?.forma_envio || "").toLowerCase();
-    const tags  = String(o?.etiquetas || "").toLowerCase();
-    return forma.includes("express") || tags.includes("express") || tags.includes("urgente");
+  function csrfHeadersJson() {
+    const headers = {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+    };
+
+    const token = document
+      .querySelector('meta[name="csrf-token"]')
+      ?.getAttribute("content");
+
+    const header =
+      document
+        .querySelector('meta[name="csrf-header"]')
+        ?.getAttribute("content") || "X-CSRF-TOKEN";
+
+    if (token) headers[header] = token;
+    return headers;
   }
 
-  function renderEntregaPill(estadoEnvio) {
-    // si dashboard.js lo expuso, úsalo
-    if (typeof window.renderEntregaPill === "function") return window.renderEntregaPill(estadoEnvio);
+  /* ===============================
+     Render
+  =============================== */
 
-    const s = String(estadoEnvio ?? "").toLowerCase().trim();
-    if (!s || s === "null" || s === "-" || s === "unfulfilled") {
-      return `<span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
-        bg-slate-100 text-slate-800 border border-slate-200 whitespace-nowrap">⏳ Sin preparar</span>`;
-    }
-    return `<span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
-      bg-white text-slate-900 border border-slate-200 whitespace-nowrap">📦 ${escapeHtml(estadoEnvio)}</span>`;
-  }
-
-  function renderEstadoPill(estado) {
-    const s = String(estado || "").toLowerCase().trim();
-    const base =
-      "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border text-xs font-extrabold shadow-sm tracking-wide uppercase";
+  function renderEstado(estado) {
+    const s = String(estado || "").toLowerCase();
 
     if (s.includes("por preparar")) {
-      return `<span class="${base} bg-slate-900 border-slate-700 text-white">
-        <span class="h-2 w-2 rounded-full bg-slate-300"></span>⏳ Por preparar</span>`;
+      return `
+        <span class="inline-flex items-center gap-2 px-3 py-1.5
+          rounded-2xl bg-slate-900 text-white text-xs font-extrabold">
+          ⏳ Por preparar
+        </span>`;
     }
-    if (s.includes("confirmado")) {
-      return `<span class="${base} bg-fuchsia-600 border-fuchsia-700 text-white">
-        <span class="h-2 w-2 rounded-full bg-white"></span>✅ Confirmado</span>`;
-    }
-    if (s.includes("faltan")) {
-      return `<span class="${base} bg-yellow-400 border-yellow-500 text-black">
-        <span class="h-2 w-2 rounded-full bg-black/70"></span>⚠️ Faltan archivos</span>`;
-    }
-    return `<span class="${base} bg-slate-50 border-slate-200 text-slate-800">
-      <span class="h-2 w-2 rounded-full bg-slate-400"></span>${escapeHtml(estado)}</span>`;
+
+    return `
+      <span class="inline-flex items-center gap-2 px-3 py-1.5
+        rounded-2xl bg-slate-200 text-slate-800 text-xs font-extrabold">
+        ${escapeHtml(estado)}
+      </span>`;
   }
 
   function renderList(orders) {
-    const list = document.getElementById("confirmacionList");
-    const empty = document.getElementById("confirmacionEmpty");
+    const list = qs("confirmacionList");
+    const empty = qs("confirmacionEmpty");
+
     if (!list) return;
 
-    if (!orders || !orders.length) {
+    if (!orders || orders.length === 0) {
       list.innerHTML = "";
-      empty?.classList.remove("hidden");
+      if (empty) empty.classList.remove("hidden");
       return;
     }
-    empty?.classList.add("hidden");
 
-    // ✅ Express primero (por si backend no lo ordenó)
-    const sorted = [...orders].sort((a, b) => Number(isExpress(b)) - Number(isExpress(a)));
+    if (empty) empty.classList.add("hidden");
 
-    list.innerHTML = sorted
+    list.innerHTML = orders
       .map((o) => {
-        const id = String(o.id ?? o.shopify_order_id ?? "");
-        const expressBadge = isExpress(o)
-          ? `<span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-[10px] font-extrabold
-                bg-rose-100 text-rose-900 border border-rose-200 uppercase">Express</span>`
-          : "";
-
+        const id = String(o.id || "");
         return `
-          <div class="px-4 py-3 hover:bg-slate-50 transition grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
-            <div class="lg:col-span-2 font-extrabold text-slate-900 whitespace-nowrap">
-              ${escapeHtml(o.numero ?? ("#" + id))} ${expressBadge}
+          <div class="grid grid-cols-[140px_120px_1fr_120px_160px_120px]
+                      px-4 py-3 hover:bg-slate-50 transition">
+
+            <div class="font-extrabold text-slate-900">
+              ${escapeHtml(o.numero ?? "#" + id)}
             </div>
 
-            <div class="lg:col-span-2 text-slate-600 whitespace-nowrap">
+            <div class="text-slate-600">
               ${escapeHtml(o.fecha ?? "-")}
             </div>
 
-            <div class="lg:col-span-3 min-w-0 font-semibold text-slate-800 truncate">
+            <div class="font-semibold text-slate-800 truncate">
               ${escapeHtml(o.cliente ?? "-")}
             </div>
 
-            <div class="lg:col-span-1 font-extrabold text-slate-900 whitespace-nowrap">
+            <div class="font-extrabold text-slate-900">
               ${escapeHtml(o.total ?? "-")}
             </div>
 
-            <div class="lg:col-span-2 whitespace-nowrap">
-              ${renderEstadoPill(o.estado ?? "Por preparar")}
+            <div>
+              ${renderEstado(o.estado)}
             </div>
 
-            <div class="lg:col-span-1 whitespace-nowrap">
-              ${renderEntregaPill(o.estado_envio ?? null)}
-            </div>
-
-            <div class="lg:col-span-1 text-right whitespace-nowrap">
-              <button type="button"
-                onclick="window.verDetalles && window.verDetalles('${id}')"
-                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+            <div class="text-right">
+              <button
+                class="px-3 py-2 rounded-2xl bg-blue-600
+                       text-white text-[11px] font-extrabold
+                       hover:bg-blue-700 transition"
+                onclick="window.verDetalles && window.verDetalles('${id}')">
                 Ver detalles →
               </button>
             </div>
+
           </div>
         `;
       })
       .join("");
   }
 
-  async function cargarQueue({ silent = false } = {}) {
-    if (isLoadingConfirmacion) return;
-    isLoadingConfirmacion = true;
-    if (!silent) showLoader();
+  /* ===============================
+     API Calls
+  =============================== */
+
+  async function cargarQueue() {
+    if (isLoading) return;
+    isLoading = true;
+    showLoader();
 
     try {
-      const limit = Number(document.getElementById("limitSelect")?.value || 10);
+      const limit = Number(qs("limitSelect")?.value || 10);
 
-      const url = new URL(window.API_CONFIRMACION.myQueue, window.location.origin);
+      const url = new URL(
+        window.API_CONFIRMACION.myQueue,
+        window.location.origin
+      );
       url.searchParams.set("limit", String(limit));
 
       const r = await fetch(url.toString(), {
-        headers: { Accept: "application/json" },
         credentials: "same-origin",
+        headers: { Accept: "application/json" },
       });
+
       const d = await r.json().catch(() => null);
 
-      if (!r.ok || !d?.success) {
-        confirmacionCache = [];
+      if (!r.ok || !d || !d.success) {
         renderList([]);
         return;
       }
 
-      confirmacionCache = Array.isArray(d.orders) ? d.orders : [];
+      cache = Array.isArray(d.orders) ? d.orders : [];
+      renderList(cache);
 
-      // ✅ por seguridad: solo mostramos por preparar
-      confirmacionCache = confirmacionCache.filter(o =>
-        String(o?.estado || "").toLowerCase().includes("por preparar")
-      );
-
-      renderList(confirmacionCache);
-    } catch (e) {
-      console.error("cargarQueue error:", e);
+    } catch (err) {
+      console.error("Confirmación cargarQueue error:", err);
       renderList([]);
     } finally {
-      isLoadingConfirmacion = false;
-      if (!silent) hideLoader();
+      isLoading = false;
+      hideLoader();
     }
   }
 
-  async function pull() {
+  async function pullPedido() {
+    if (isLoading) return;
+
     try {
       const r = await fetch(window.API_CONFIRMACION.pull, {
         method: "POST",
-        headers: csrfHeadersJson(),
         credentials: "same-origin",
+        headers: csrfHeadersJson(),
         body: JSON.stringify({}),
       });
 
       const d = await r.json().catch(() => null);
+
       if (!r.ok || !d?.success) {
         alert(d?.message || "No se pudo hacer pull");
         return;
       }
 
       await cargarQueue();
-    } catch (e) {
-      console.error("pull error:", e);
+
+    } catch (err) {
+      console.error("Confirmación pull error:", err);
       alert("Error haciendo pull");
     }
   }
 
-  function startLive(ms = 25000) {
-    if (liveInterval) clearInterval(liveInterval);
-    liveInterval = setInterval(() => {
-      if (!isLoadingConfirmacion) cargarQueue({ silent: true });
-    }, ms);
-  }
-
-  function setupRealtimeSync() {
-    // ✅ Escucha cambios de estado desde otras pestañas (tu dashboard.js ya emite esto)
-    try {
-      if ("BroadcastChannel" in window) {
-        const bc = new BroadcastChannel("panel_pedidos");
-        bc.onmessage = (ev) => {
-          const msg = ev?.data;
-          if (msg?.type === "estado_changed") {
-            // si un pedido se confirmó, en confirmación debe desaparecer
-            cargarQueue({ silent: true });
-          }
-        };
-      }
-    } catch {}
-
-    // fallback: storage event
-    window.addEventListener("storage", (e) => {
-      if (e.key === "pedido_estado_changed") {
-        cargarQueue({ silent: true });
-      }
-    });
-  }
+  /* ===============================
+     Init
+  =============================== */
 
   document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("btnPull")?.addEventListener("click", (e) => {
+    qs("btnPull")?.addEventListener("click", (e) => {
       e.preventDefault();
-      pull();
+      pullPedido();
     });
 
-    document.getElementById("limitSelect")?.addEventListener("change", () => {
+    qs("limitSelect")?.addEventListener("change", () => {
       cargarQueue();
     });
 
-    setupRealtimeSync();
     cargarQueue();
-    startLive(30000);
   });
+
 })();
