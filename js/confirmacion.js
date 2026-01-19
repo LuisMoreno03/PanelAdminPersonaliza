@@ -121,7 +121,7 @@ function renderPedidos(pedidos) {
 
       <div class="text-right">
         <button
-          onclick="verDetalles(${p.id})"
+          onclick="verDetalles('${p.shopify_order_id}')"
           class="px-4 py-2 rounded-2xl bg-blue-600 text-white font-extrabold hover:bg-blue-700">
           VER DETALLES →
         </button>
