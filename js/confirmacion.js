@@ -240,6 +240,7 @@ window.verDetalles = async function (orderId) {
   }
 };
 
+
 function pintarCargandoDetalles() {
   setTextSafe("detTitulo", "Cargando pedido…");
   setTextSafe("detItemsCount", "—");

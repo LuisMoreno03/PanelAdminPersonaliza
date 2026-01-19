@@ -143,13 +143,25 @@ class ConfirmacionController extends BaseController
       GET /confirmacion/detalles/{id}
     ===================================================== */
     public function detalles($id = null)
-    {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false]);
-        }
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setStatusCode(401)->setJSON([
+            'success' => false,
+            'message' => 'No autenticado'
+        ]);
+    }
 
+    if (!$id) {
+        return $this->response->setStatusCode(400)->setJSON([
+            'success' => false,
+            'message' => 'ID inválido'
+        ]);
+    }
+
+    try {
         $db = \Config\Database::connect();
 
+        // 1️⃣ Buscar pedido por ID interno o Shopify ID
         $pedido = $db->table('pedidos')
             ->groupStart()
                 ->where('id', $id)
@@ -159,21 +171,49 @@ class ConfirmacionController extends BaseController
             ->getRowArray();
 
         if (!$pedido) {
-            return $this->response->setStatusCode(404)->setJSON(['success' => false]);
+            return $this->response->setStatusCode(404)->setJSON([
+                'success' => false,
+                'message' => 'Pedido no encontrado'
+            ]);
         }
 
-        $orderJson = json_decode($pedido['pedido_json'] ?? '{}', true);
-        if (!$orderJson || empty($orderJson['line_items'])) {
-            return $this->response->setJSON(['success' => false]);
+        // 2️⃣ Usar SIEMPRE el JSON guardado (el mismo del dashboard)
+        $orderJson = json_decode($pedido['pedido_json'] ?? '', true);
+
+        if (
+            empty($orderJson) ||
+            (
+                empty($orderJson['line_items']) &&
+                empty($orderJson['lineItems'])
+            )
+        ) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Pedido sin productos'
+            ]);
         }
+
+        // 3️⃣ Cargar imágenes locales y de producto
+        $imagenesLocales = json_decode($pedido['imagenes_locales'] ?? '[]', true);
+        $productImages  = json_decode($pedido['product_images'] ?? '{}', true);
 
         return $this->response->setJSON([
             'success' => true,
-            'order' => $orderJson,
-            'imagenes_locales' => json_decode($pedido['imagenes_locales'] ?? '{}', true),
-            'product_images' => json_decode($pedido['product_images'] ?? '{}', true),
+            'order' => $orderJson,              // 👈 PEDIDO COMPLETO
+            'imagenes_locales' => is_array($imagenesLocales) ? $imagenesLocales : [],
+            'product_images' => is_array($productImages) ? $productImages : [],
+        ]);
+
+    } catch (\Throwable $e) {
+        log_message('error', 'Confirmacion detalles ERROR: ' . $e->getMessage());
+
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => 'Error interno cargando detalles'
         ]);
     }
+}
+
 
     /* =====================================================
       🔥 POST /api/pedidos/imagenes/subir
