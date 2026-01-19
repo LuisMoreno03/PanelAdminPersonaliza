@@ -55,7 +55,7 @@ class ConfirmacionController extends BaseController
                 ])
                 ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
                 ->where('p.assigned_to_user_id', $userId)
-                ->where("LOWER(COALESCE(pe.estado, 'por preparar')) = 'por preparar'", null, false)
+                ->where('LOWER(pe.estado)', 'por preparar')
                 ->groupStart()
                     ->where('p.estado_envio IS NULL')
                     ->orWhereNotIn('LOWER(p.estado_envio)', ['fulfilled', 'entregado', 'enviado', 'complete'])
@@ -122,6 +122,7 @@ class ConfirmacionController extends BaseController
                 ->select('p.id, p.shopify_order_id')
                 ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
                 ->where("LOWER(COALESCE(pe.estado, 'por preparar')) = 'por preparar'", null, false)
+
                 ->groupStart()
                     ->where('p.assigned_to_user_id IS NULL')
                     ->orWhere('p.assigned_to_user_id', 0)
