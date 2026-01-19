@@ -17,12 +17,12 @@ class ConfirmacionController extends BaseController
 
     private function shopifyGet(string $endpoint, array $query = []): array
 {
-    $shop = getenv('SHOPIFY_SHOP');
-    $token = getenv('SHOPIFY_TOKEN');
-    $ver = getenv('SHOPIFY_API_VERSION') ?: '2024-10';
+    $shop = getenv('SHOPIFY_STORE_DOMAIN');
+    $token = getenv('SHOPIFY_ADMIN_TOKEN');
+    $ver = getenv('SHOPIFY_API_VERSION') ?: '2025-10';
 
     if (!$shop || !$token) {
-        throw new \RuntimeException('Faltan SHOPIFY_SHOP o SHOPIFY_TOKEN en .env');
+        throw new \RuntimeException('Faltan SHOPIFY_STORE_DOMAIN o SHOPIFY_TOKEN en .env');
     }
 
     $qs = $query ? ('?' . http_build_query($query)) : '';
