@@ -7,12 +7,11 @@ use App\Controllers\BaseController;
 class ConfirmacionController extends BaseController
 {
     public function index()
-{
-    return view('confirmacion', [
-        'etiquetasPredeterminadas' => []
-    ]);
-}
-
+    {
+        return view('confirmacion', [
+            'etiquetasPredeterminadas' => []
+        ]);
+    }
 
     // =========================
     // GET /confirmacion/my-queue
@@ -20,12 +19,13 @@ class ConfirmacionController extends BaseController
     public function myQueue()
     {
         if (!session()->get('logged_in')) {
-            return $this->response
-                ->setStatusCode(401)
-                ->setJSON(['ok' => false, 'error' => 'No autenticado']);
+            return $this->response->setStatusCode(401)->setJSON([
+                'ok' => false,
+                'error' => 'No autenticado'
+            ]);
         }
 
-        $userId = (int) (session('user_id') ?? 0);
+        $userId = (int)(session('user_id') ?? 0);
         if ($userId <= 0) {
             return $this->response->setJSON([
                 'ok' => false,
@@ -36,74 +36,41 @@ class ConfirmacionController extends BaseController
         try {
             $db = \Config\Database::connect();
 
-            $sql = "
-                SELECT
-                    p.id,
-                    p.numero,
-                    p.cliente,
-                    p.total,
-                    p.estado_envio,
-                    p.forma_envio,
-                    p.etiquetas,
-                    p.articulos,
-                    p.created_at,
-                    p.shopify_order_id,
-
-                    COALESCE(
-                        CAST(h.estado AS CHAR),
-                        CAST(pe.estado AS CHAR),
-                        ''
-                    ) AS estado_bd,
-
-                    COALESCE(h.created_at, pe.estado_updated_at, p.created_at) AS estado_actualizado,
-                    COALESCE(h.user_name, pe.estado_updated_by_name) AS estado_por
-
-                FROM pedidos p
-
-                LEFT JOIN pedidos_estado pe
-                    ON pe.order_id = p.id
-                    OR pe.order_id = p.shopify_order_id
-
-                LEFT JOIN (
-                    SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
-                    FROM pedidos_estado_historial h1
-                    INNER JOIN (
-                        SELECT order_id, MAX(created_at) AS max_created
-                        FROM pedidos_estado_historial
-                        GROUP BY order_id
-                    ) x
-                    ON x.order_id = h1.order_id
-                    AND x.max_created = h1.created_at
-                ) h
-                    ON h.order_id = p.id
-                    OR h.order_id = p.shopify_order_id
-
-                WHERE p.assigned_to_user_id = ?
-
-                -- ✅ SOLO Por preparar
-                AND LOWER(TRIM(
-                    CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
-                )) = 'por preparar'
-
-                -- ❌ EXCLUIR pedidos enviados / entregados
-                AND (
-                    p.estado_envio IS NULL
-                    OR LOWER(p.estado_envio) NOT IN ('fulfilled', 'entregado', 'enviado', 'complete')
-                )
-
-                ORDER BY
-                    -- 🚀 PRIORIDAD ENVÍO EXPRESS
+            // ⚡ QUERY SIMPLE Y SEGURA
+            $rows = $db->table('pedidos p')
+                ->select([
+                    'p.id',
+                    'p.numero',
+                    'p.cliente',
+                    'p.total',
+                    'p.estado_envio',
+                    'p.forma_envio',
+                    'p.etiquetas',
+                    'p.articulos',
+                    'p.created_at',
+                    'p.shopify_order_id',
+                    'pe.estado AS estado_bd',
+                    'pe.estado_updated_at AS estado_actualizado',
+                    'pe.estado_updated_by_name AS estado_por',
+                ])
+                ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+                ->where('p.assigned_to_user_id', $userId)
+                ->where('LOWER(pe.estado)', 'por preparar')
+                ->groupStart()
+                    ->where('p.estado_envio IS NULL')
+                    ->orWhereNotIn('LOWER(p.estado_envio)', ['fulfilled', 'entregado', 'enviado', 'complete'])
+                ->groupEnd()
+                ->orderBy("
                     CASE
                         WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
                         WHEN LOWER(p.forma_envio) LIKE '%urgente%' THEN 0
                         WHEN LOWER(p.forma_envio) LIKE '%priority%' THEN 0
                         ELSE 1
-                    END,
-                    COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
-            ";
-
-
-            $rows = $db->query($sql, [$userId])->getResultArray();
+                    END
+                ", '', false)
+                ->orderBy('p.created_at', 'ASC')
+                ->get()
+                ->getResultArray();
 
             return $this->response->setJSON([
                 'ok' => true,
@@ -150,48 +117,25 @@ class ConfirmacionController extends BaseController
             $db  = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // ✅ QUERY PROBADA EN BD
-            $candidatos = $db->query("
-                SELECT
-                    p.id,
-                    p.shopify_order_id
-                FROM pedidos p
-
-                LEFT JOIN pedidos_estado pe
-                    ON pe.order_id = p.id
-                    OR pe.order_id = p.shopify_order_id
-
-                LEFT JOIN (
-                    SELECT h1.*
-                    FROM pedidos_estado_historial h1
-                    INNER JOIN (
-                        SELECT order_id, MAX(created_at) AS max_created
-                        FROM pedidos_estado_historial
-                        GROUP BY order_id
-                    ) x
-                        ON x.order_id = h1.order_id
-                    AND x.max_created = h1.created_at
-                ) h
-                ON (
-                    h.order_id = p.id
-                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
-                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
-                )
-
-                WHERE LOWER(TRIM(
-                    COALESCE(h.estado, pe.estado, 'por preparar')
-                )) = 'por preparar'
-                AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-
-                ORDER BY
+            // ⚡ QUERY SEGURA (SIN HISTORIAL)
+            $candidatos = $db->table('pedidos p')
+                ->select('p.id, p.shopify_order_id')
+                ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+                ->where('LOWER(pe.estado)', 'por preparar')
+                ->groupStart()
+                    ->where('p.assigned_to_user_id IS NULL')
+                    ->orWhere('p.assigned_to_user_id', 0)
+                ->groupEnd()
+                ->orderBy("
                     CASE
                         WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
                         ELSE 1
-                    END,
-                    COALESCE(h.created_at, p.created_at) ASC
-
-                LIMIT 5
-            ")->getResultArray();
+                    END
+                ", '', false)
+                ->orderBy('p.created_at', 'ASC')
+                ->limit($count)
+                ->get()
+                ->getResultArray();
 
             if (!$candidatos) {
                 return $this->response->setJSON([
@@ -200,18 +144,17 @@ class ConfirmacionController extends BaseController
                 ]);
             }
 
-            $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
+            $ids = array_column($candidatos, 'id');
 
-            // ✅ ASIGNAR PEDIDOS
+            // ✅ ASIGNAR
             $db->table('pedidos')
                 ->whereIn('id', $ids)
-                ->where('(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)', null, false)
                 ->update([
                     'assigned_to_user_id' => $userId,
                     'assigned_at' => $now
                 ]);
 
-            // ✅ HISTORIAL (opcional, solo auditoría)
+            // 🧾 HISTORIAL (solo escritura, sin lectura)
             foreach ($candidatos as $c) {
                 if (empty($c['shopify_order_id'])) continue;
 
@@ -241,19 +184,16 @@ class ConfirmacionController extends BaseController
         }
     }
 
-
     // =========================
     // POST /confirmacion/return-all
     // =========================
     public function returnAll()
     {
         if (!session()->get('logged_in')) {
-            return $this->response
-                ->setStatusCode(401)
-                ->setJSON(['ok' => false]);
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false]);
         }
 
-        $userId = (int) (session('user_id') ?? 0);
+        $userId = (int)(session('user_id') ?? 0);
         if ($userId <= 0) {
             return $this->response->setJSON(['ok' => false]);
         }
