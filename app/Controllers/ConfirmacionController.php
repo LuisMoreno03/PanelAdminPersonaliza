@@ -19,136 +19,161 @@ class ConfirmacionController extends BaseController
     ===================================================== */
     public function myQueue()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['ok' => false]);
+        try {
+            if (!session()->get('logged_in')) {
+                return $this->response->setStatusCode(401)->setJSON(['ok' => false]);
+            }
+
+            $userId = (int) session('user_id');
+            $db = \Config\Database::connect();
+
+            // ✅ Detectar columnas reales para no romper
+            $hasEstadoEnvio = $db->fieldExists('estado_envio', 'pedidos');
+            $hasFulfillment = $db->fieldExists('fulfillment_status', 'pedidos');
+
+            // pedidos_estado columnas posibles
+            $hasPeUserName = $db->fieldExists('user_name', 'pedidos_estado');
+            $hasPeUpdatedBy = $db->fieldExists('estado_updated_by_name', 'pedidos_estado');
+
+            // ✅ Elegir columna correcta para "estado_por"
+            if ($hasPeUpdatedBy) {
+                $estadoPorSelect = 'pe.estado_updated_by_name as estado_por';
+            } elseif ($hasPeUserName) {
+                $estadoPorSelect = 'pe.user_name as estado_por';
+            } else {
+                $estadoPorSelect = 'NULL as estado_por';
+            }
+
+            $q = $db->table('pedidos p')
+                ->select("p.*, COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect", false)
+                ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+                ->where('p.assigned_to_user_id', $userId)
+                ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar');
+
+            // ✅ FILTRO: SOLO UNFULFILLED (si existe la columna)
+            if ($hasEstadoEnvio) {
+                $q->groupStart()
+                    ->where('p.estado_envio IS NULL', null, false)
+                    ->orWhere("LOWER(TRIM(p.estado_envio))", 'unfulfilled')
+                ->groupEnd();
+            } elseif ($hasFulfillment) {
+                $q->groupStart()
+                    ->where('p.fulfillment_status IS NULL', null, false)
+                    ->orWhere("LOWER(TRIM(p.fulfillment_status))", 'unfulfilled')
+                ->groupEnd();
+            }
+
+            $rows = $q->orderBy('p.created_at', 'ASC')
+                ->get()
+                ->getResultArray();
+
+            return $this->response->setJSON([
+                'ok' => true,
+                'data' => $rows
+            ]);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'myQueue() error: '.$e->getMessage());
+
+            // ✅ para que lo veas en Network > Response
+            return $this->response->setStatusCode(500)->setJSON([
+                'ok' => false,
+                'message' => $e->getMessage(),
+                'file' => basename($e->getFile()),
+                'line' => $e->getLine(),
+            ]);
         }
-
-        $userId = (int) session('user_id');
-        $db = \Config\Database::connect();
-
-        $rows = $db->table('pedidos p')
-            ->select('p.*, COALESCE(pe.estado,"Por preparar") as estado, pe.user_name as estado_por')
-            ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
-            ->where('p.assigned_to_user_id', $userId)
-            ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
-
-            // ✅ CLAVE: no mostrar pedidos ya enviados
-            ->where("LOWER(COALESCE(p.estado_envio,'unfulfilled'))", 'unfulfilled')
-
-            ->orderBy('p.created_at', 'ASC')
-            ->get()
-            ->getResultArray();
-
-        return $this->response->setJSON([
-            'ok' => true,
-            'data' => $rows
-        ]);
     }
-
 
     /* =====================================================
       POST /confirmacion/pull
     ===================================================== */
     public function pull()
-{
-    try {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'message' => 'No auth']);
-        }
+    {
+        try {
+            if (!session()->get('logged_in')) {
+                return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'message' => 'No auth']);
+            }
 
-        $userId = (int) session('user_id');
-        $user   = session('nombre') ?? 'Sistema';
+            $userId = (int) session('user_id');
+            $user   = session('nombre') ?? 'Sistema';
 
-        $payload = $this->request->getJSON(true);
-        $count = (int) ($payload['count'] ?? 5);
-        if ($count <= 0) $count = 5;
+            $payload = $this->request->getJSON(true);
+            $count = (int) ($payload['count'] ?? 5);
+            if ($count <= 0) $count = 5;
 
-        $db = \Config\Database::connect();
-        $now = date('Y-m-d H:i:s');
+            $db = \Config\Database::connect();
+            $now = date('Y-m-d H:i:s');
 
-        // ✅ Detectar columna de fulfillment en tu tabla
-        // (Shopify: fulfillment_status suele ser NULL o 'unfulfilled' cuando NO está preparado)
-        $hasFulfillment = $db->fieldExists('fulfillment_status', 'pedidos');
-        $hasEstadoEnvio = $db->fieldExists('estado_envio', 'pedidos'); // por si en tu BD lo guardas así
+            $hasFulfillment = $db->fieldExists('fulfillment_status', 'pedidos');
+            $hasEstadoEnvio = $db->fieldExists('estado_envio', 'pedidos');
 
-        $q = $db->table('pedidos p')
-            ->select('p.id, p.shopify_order_id')
-            ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
-            ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
-            ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)');
+            $q = $db->table('pedidos p')
+                ->select('p.id, p.shopify_order_id')
+                ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+                ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
+                ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)');
 
-        // ✅ FILTRO: solo NO preparados en Shopify
-        // Shopify REST: "no preparado" suele venir como NULL o "unfulfilled"
-        if ($hasFulfillment) {
-            $q->groupStart()
-                ->where('p.fulfillment_status IS NULL', null, false)
-                ->orWhere("LOWER(p.fulfillment_status)", 'unfulfilled')
-              ->groupEnd();
-        } elseif ($hasEstadoEnvio) {
-            // si tu tabla usa estado_envio en vez de fulfillment_status
-            $q->groupStart()
-                ->where('p.estado_envio IS NULL', null, false)
-                ->orWhere("LOWER(p.estado_envio)", 'unfulfilled')
-              ->groupEnd();
-        } else {
-            // ✅ No hay columna: no rompemos, pero avisamos en log
-            log_message('warning', 'pull(): pedidos no tiene fulfillment_status ni estado_envio. No se puede filtrar por unfulfilled.');
-        }
+            // ✅ SOLO UNFULFILLED (null o unfulfilled)
+            if ($hasFulfillment) {
+                $q->groupStart()
+                    ->where('p.fulfillment_status IS NULL', null, false)
+                    ->orWhere("LOWER(TRIM(p.fulfillment_status))", 'unfulfilled')
+                ->groupEnd();
+            } elseif ($hasEstadoEnvio) {
+                $q->groupStart()
+                    ->where('p.estado_envio IS NULL', null, false)
+                    ->orWhere("LOWER(TRIM(p.estado_envio))", 'unfulfilled')
+                ->groupEnd();
+            }
 
-        $candidatos = $q
-            ->orderBy('p.created_at', 'ASC')
-            ->limit($count)
-            ->get()
-            ->getResultArray();
+            $candidatos = $q
+                ->orderBy('p.created_at', 'ASC')
+                ->limit($count)
+                ->get()
+                ->getResultArray();
 
-        if (!$candidatos) {
+            if (!$candidatos) {
+                return $this->response->setJSON([
+                    'ok' => true,
+                    'assigned' => 0,
+                    'message' => 'Sin candidatos'
+                ]);
+            }
+
+            $ids = array_column($candidatos, 'id');
+
+            $db->table('pedidos')
+                ->whereIn('id', $ids)
+                ->update([
+                    'assigned_to_user_id' => $userId,
+                    'assigned_at' => $now
+                ]);
+
+            foreach ($candidatos as $c) {
+                if (!$c['shopify_order_id']) continue;
+
+                $db->table('pedidos_estado_historial')->insert([
+                    'order_id'   => $c['shopify_order_id'],
+                    'estado'     => 'Por preparar',
+                    'user_name'  => $user,
+                    'created_at' => $now
+                ]);
+            }
+
             return $this->response->setJSON([
                 'ok' => true,
-                'assigned' => 0,
-                'message' => 'Sin candidatos'
+                'assigned' => count($ids)
+            ]);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'pull() error: '.$e->getMessage());
+            return $this->response->setStatusCode(500)->setJSON([
+                'ok' => false,
+                'message' => $e->getMessage()
             ]);
         }
-
-        $ids = array_column($candidatos, 'id');
-
-        $db->table('pedidos')
-            ->whereIn('id', $ids)
-            ->update([
-                'assigned_to_user_id' => $userId,
-                'assigned_at' => $now
-            ]);
-
-        foreach ($candidatos as $c) {
-            if (!$c['shopify_order_id']) continue;
-
-            $db->table('pedidos_estado_historial')->insert([
-                'order_id'   => $c['shopify_order_id'],
-                'estado'     => 'Por preparar',
-                'user_name'  => $user,
-                'created_at' => $now
-            ]);
-        }
-
-        return $this->response->setJSON([
-            'ok' => true,
-            'assigned' => count($ids)
-        ]);
-
-    } catch (\Throwable $e) {
-        // ✅ en vez de 500 “mudo”, devolvemos mensaje
-        log_message('error', 'pull() error: {msg} {file}:{line}', [
-            'msg' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-        ]);
-
-        return $this->response->setStatusCode(500)->setJSON([
-            'ok' => false,
-            'message' => $e->getMessage()
-        ]);
     }
-}
-
 
     /* =====================================================
       POST /confirmacion/return-all
