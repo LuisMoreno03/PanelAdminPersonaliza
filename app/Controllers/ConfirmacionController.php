@@ -14,6 +14,142 @@ class ConfirmacionController extends BaseController
     /* =====================================================
       GET /confirmacion/my-queue
     ===================================================== */
+
+    private function shopifyGet(string $endpoint, array $query = []): array
+{
+    $shop = getenv('SHOPIFY_SHOP');
+    $token = getenv('SHOPIFY_TOKEN');
+    $ver = getenv('SHOPIFY_API_VERSION') ?: '2024-10';
+
+    if (!$shop || !$token) {
+        throw new \RuntimeException('Faltan SHOPIFY_SHOP o SHOPIFY_TOKEN en .env');
+    }
+
+    $qs = $query ? ('?' . http_build_query($query)) : '';
+    $url = "https://{$shop}/admin/api/{$ver}/{$endpoint}{$qs}";
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            "X-Shopify-Access-Token: {$token}",
+            "Accept: application/json",
+        ],
+        CURLOPT_TIMEOUT => 30,
+    ]);
+
+    $raw = curl_exec($ch);
+    $err = curl_error($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($raw === false) {
+        throw new \RuntimeException("Shopify CURL error: {$err}");
+    }
+
+    $data = json_decode($raw, true);
+    if ($code >= 400) {
+        $msg = is_array($data) ? json_encode($data) : $raw;
+        throw new \RuntimeException("Shopify HTTP {$code}: {$msg}");
+    }
+
+    return is_array($data) ? $data : [];
+}
+
+private function shopifyGetProductImageMap(array $productIds): array
+{
+    // Devuelve: [product_id => image_url]
+    $map = [];
+    $productIds = array_values(array_unique(array_filter(array_map('intval', $productIds))));
+    if (!$productIds) return $map;
+
+    foreach ($productIds as $pid) {
+        try {
+            // GET /products/{id}.json?fields=id,image,images
+            $res = $this->shopifyGet("products/{$pid}.json", [
+                'fields' => 'id,image,images'
+            ]);
+
+            $p = $res['product'] ?? null;
+            if (!$p) continue;
+
+            // prioridad: image.src, si no: images[0].src
+            $img = $p['image']['src'] ?? ($p['images'][0]['src'] ?? null);
+            if ($img) $map[(string)$pid] = (string)$img;
+
+        } catch (\Throwable $e) {
+            // si un producto falla, no rompemos el pull
+            log_message('warning', 'shopifyGetProductImageMap() product '.$pid.' error: '.$e->getMessage());
+        }
+    }
+
+    return $map;
+}
+
+private function upsertPedidoDesdeShopify(array $o, array $productImagesMap): void
+{
+    $db = \Config\Database::connect();
+
+    $shopifyId = (string)($o['id'] ?? '');
+    if (!$shopifyId) return;
+
+    $cliente = trim(($o['shipping_address']['name'] ?? '') ?: ($o['customer']['first_name'] ?? '').' '.($o['customer']['last_name'] ?? ''));
+    $cliente = trim($cliente) ?: ($o['email'] ?? '—');
+
+    $articulos = 0;
+    $productIds = [];
+    foreach (($o['line_items'] ?? []) as $li) {
+        $articulos += (int)($li['quantity'] ?? 0);
+        if (!empty($li['product_id'])) $productIds[] = (int)$li['product_id'];
+    }
+
+    // product_images por pedido: solo los usados en ese pedido
+    $pedidoProductImages = [];
+    foreach (array_unique($productIds) as $pid) {
+        $k = (string)$pid;
+        if (!empty($productImagesMap[$k])) $pedidoProductImages[$k] = $productImagesMap[$k];
+    }
+
+    // columnas opcionales según tu tabla
+    $fields = $db->getFieldNames('pedidos') ?? [];
+    $hasFulfillment = in_array('fulfillment_status', $fields, true);
+    $hasEstadoEnvio = in_array('estado_envio', $fields, true);
+
+    $data = [
+        'shopify_order_id' => $shopifyId,
+        'numero'           => $o['name'] ?? ('#'.$shopifyId),
+        'created_at'       => $o['created_at'] ?? date('Y-m-d H:i:s'),
+        'cliente'          => $cliente,
+        'total'            => $o['total_price'] ?? '0.00',
+        'articulos'        => $articulos,
+        'pedido_json'      => json_encode($o, JSON_UNESCAPED_UNICODE),
+        'product_images'   => json_encode($pedidoProductImages, JSON_UNESCAPED_UNICODE),
+    ];
+
+    $ful = $o['fulfillment_status'] ?? null; // null / unfulfilled / fulfilled
+    if ($hasFulfillment) $data['fulfillment_status'] = $ful;
+    if ($hasEstadoEnvio) $data['estado_envio'] = $ful;
+
+    // INSERT si no existe, UPDATE si existe
+    $existe = $db->table('pedidos')->where('shopify_order_id', $shopifyId)->countAllResults();
+    if ($existe) {
+        $db->table('pedidos')->where('shopify_order_id', $shopifyId)->update($data);
+    } else {
+        // Si tu tabla requiere valores por defecto para assigned_to_user_id etc, añádelos aquí
+        $db->table('pedidos')->insert($data);
+    }
+
+    // Asegurar que exista fila en pedidos_estado (para que COALESCE no dependa de join raro)
+    $exPe = $db->table('pedidos_estado')->where('order_id', $shopifyId)->countAllResults();
+    if (!$exPe) {
+        $db->table('pedidos_estado')->insert([
+            'order_id' => $shopifyId,
+            'estado'   => 'Por preparar',
+        ]);
+    }
+}
+
+
     public function myQueue()
     {
         try {
@@ -81,100 +217,114 @@ class ConfirmacionController extends BaseController
       POST /confirmacion/pull
     ===================================================== */
     public function pull()
-    {
-        try {
-            if (!session()->get('logged_in')) {
-                return $this->response->setStatusCode(401)->setJSON([
-                    'ok' => false,
-                    'message' => 'No auth'
-                ]);
+{
+    try {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'message' => 'No auth']);
+        }
+
+        $userId = (int) session('user_id');
+        $user   = session('nombre') ?? 'Sistema';
+
+        $payload = $this->request->getJSON(true) ?? [];
+        $count   = (int) ($payload['count'] ?? 5);
+        if ($count <= 0) $count = 5;
+
+        $db  = \Config\Database::connect();
+        $now = date('Y-m-d H:i:s');
+
+        // 1) Traer de Shopify SOLO unfulfilled (y status=any para que Shopify no limite)
+        $res = $this->shopifyGet('orders.json', [
+            'status'            => 'any',
+            'fulfillment_status'=> 'unfulfilled',
+            'limit'             => max(10, $count * 3),
+            // fields para reducir payload si quieres (pero tú dijiste “toda la info”, así que lo dejamos completo)
+        ]);
+
+        $orders = $res['orders'] ?? [];
+        if (!$orders) {
+            return $this->response->setJSON(['ok' => true, 'assigned' => 0, 'message' => 'Shopify no devolvió pedidos unfulfilled']);
+        }
+
+        // 2) Sacar product_ids y resolver product_images (referencias visuales)
+        $productIds = [];
+        foreach ($orders as $o) {
+            foreach (($o['line_items'] ?? []) as $li) {
+                if (!empty($li['product_id'])) $productIds[] = (int)$li['product_id'];
             }
+        }
+        $productImagesMap = $this->shopifyGetProductImageMap($productIds);
 
-            $userId = (int) session('user_id');
-            $user   = session('nombre') ?? 'Sistema';
+        // 3) Upsert cada pedido en tu BD (pedido_json completo + product_images)
+        foreach ($orders as $o) {
+            $this->upsertPedidoDesdeShopify($o, $productImagesMap);
+        }
 
-            $payload = $this->request->getJSON(true) ?? [];
-            $count   = (int) ($payload['count'] ?? 5);
-            if ($count <= 0) $count = 5;
+        // 4) Asignar a este usuario (solo por preparar + no asignados + unfulfilled)
+        $pedidoFields = $db->getFieldNames('pedidos') ?? [];
+        $hasFulfillment = in_array('fulfillment_status', $pedidoFields, true);
+        $hasEstadoEnvio = in_array('estado_envio', $pedidoFields, true);
 
-            $db  = \Config\Database::connect();
-            $now = date('Y-m-d H:i:s');
+        $q = $db->table('pedidos p')
+            ->select('p.id, p.shopify_order_id')
+            ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+            ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
+            ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)', null, false);
 
-            $pedidoFields = $db->getFieldNames('pedidos') ?? [];
-            $hasFulfillment = in_array('fulfillment_status', $pedidoFields, true);
-            $hasEstadoEnvio = in_array('estado_envio', $pedidoFields, true);
+        // filtro unfulfilled en tu tabla
+        if ($hasFulfillment) {
+            $q->groupStart()
+                ->where('p.fulfillment_status IS NULL', null, false)
+                ->orWhere("TRIM(COALESCE(p.fulfillment_status,'')) = ''", null, false)
+                ->orWhere("LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'", null, false)
+            ->groupEnd();
+        } elseif ($hasEstadoEnvio) {
+            $q->groupStart()
+                ->where('p.estado_envio IS NULL', null, false)
+                ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
+                ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
+            ->groupEnd();
+        }
 
-            $q = $db->table('pedidos p')
-                ->select('p.id, p.shopify_order_id')
-                ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
-                ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
-                ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)', null, false);
+        $candidatos = $q->orderBy('p.created_at', 'ASC')->limit($count)->get()->getResultArray();
 
-            // ✅ SOLO NO ENVIADOS (NULL / '' / unfulfilled)
-            if ($hasFulfillment) {
-                $q->groupStart()
-                    ->where('p.fulfillment_status IS NULL', null, false)
-                    ->orWhere("TRIM(COALESCE(p.fulfillment_status,'')) = ''", null, false)
-                    ->orWhere("LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'", null, false)
-                ->groupEnd();
-            } elseif ($hasEstadoEnvio) {
-                $q->groupStart()
-                    ->where('p.estado_envio IS NULL', null, false)
-                    ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
-                    ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
-                ->groupEnd();
-            } else {
-                log_message('warning', 'pull(): no existe fulfillment_status ni estado_envio en pedidos');
-            }
+        if (!$candidatos) {
+            return $this->response->setJSON(['ok' => true, 'assigned' => 0, 'message' => 'Sin candidatos luego del sync']);
+        }
 
-            $candidatos = $q->orderBy('p.created_at', 'ASC')
-                ->limit($count)
-                ->get()
-                ->getResultArray();
+        $ids = array_column($candidatos, 'id');
 
-            if (!$candidatos) {
-                return $this->response->setJSON([
-                    'ok' => true,
-                    'assigned' => 0,
-                    'message' => 'Sin candidatos'
-                ]);
-            }
+        $db->table('pedidos')->whereIn('id', $ids)->update([
+            'assigned_to_user_id' => $userId,
+            'assigned_at' => $now
+        ]);
 
-            $ids = array_column($candidatos, 'id');
-
-            $db->table('pedidos')
-                ->whereIn('id', $ids)
-                ->update([
-                    'assigned_to_user_id' => $userId,
-                    'assigned_at' => $now
-                ]);
-
-            foreach ($candidatos as $c) {
-                if (empty($c['shopify_order_id'])) continue;
-
-                $db->table('pedidos_estado_historial')->insert([
-                    'order_id'   => $c['shopify_order_id'],
-                    'estado'     => 'Por preparar',
-                    'user_name'  => $user,
-                    'created_at' => $now
-                ]);
-            }
-
-            return $this->response->setJSON([
-                'ok' => true,
-                'assigned' => count($ids)
-            ]);
-
-        } catch (\Throwable $e) {
-            log_message('error', 'pull() error: '.$e->getMessage().' in '.$e->getFile().':'.$e->getLine());
-            return $this->response->setStatusCode(500)->setJSON([
-                'ok' => false,
-                'message' => $e->getMessage(),
-                'file' => basename($e->getFile()),
-                'line' => $e->getLine(),
+        foreach ($candidatos as $c) {
+            if (empty($c['shopify_order_id'])) continue;
+            $db->table('pedidos_estado_historial')->insert([
+                'order_id'   => $c['shopify_order_id'],
+                'estado'     => 'Por preparar',
+                'user_name'  => $user,
+                'created_at' => $now
             ]);
         }
+
+        return $this->response->setJSON([
+            'ok' => true,
+            'assigned' => count($ids),
+            'shopify_fetched' => count($orders),
+        ]);
+
+    } catch (\Throwable $e) {
+        log_message('error', 'pull(shopify) error: '.$e->getMessage().' in '.$e->getFile().':'.$e->getLine());
+        return $this->response->setStatusCode(500)->setJSON([
+            'ok' => false,
+            'message' => $e->getMessage(),
+            'file' => basename($e->getFile()),
+            'line' => $e->getLine(),
+        ]);
     }
+}
 
     /* =====================================================
       POST /confirmacion/return-all
