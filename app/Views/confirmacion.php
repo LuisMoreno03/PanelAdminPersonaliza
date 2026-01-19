@@ -17,21 +17,10 @@
     body { background: #f3f4f6; }
 
     /* Layout */
-    .layout {
-      padding-left: 16rem;
-      transition: padding-left .2s ease;
-    }
-
-    .layout.menu-collapsed {
-      padding-left: 5.25rem;
-    }
-
-    @media (max-width: 768px) {
-      .layout,
-      .layout.menu-collapsed {
-        padding-left: 0 !important;
-      }
-    }
+     /* Layout menú */
+    .layout { transition: padding-left .2s ease; padding-left: 16rem; }
+    .layout.menu-collapsed { padding-left: 5.25rem; }
+    @media (max-width: 768px) { .layout, .layout.menu-collapsed { padding-left: 0 !important; } }
 
     /* Orders grid (MISMO QUE PRODUCCIÓN) */
     .orders-grid {
@@ -175,38 +164,20 @@ window.API = {
 <script src="<?= base_url('js/confirmacion.js?v=' . time()) ?>"></script>
 
 <script>
-(function () {
-  const main = document.getElementById("mainLayout");
-  const sidebar = document.querySelector("aside"); // menú lateral
+    (function () {
+      const main = document.getElementById('mainLayout');
+      if (!main) return;
 
-  if (!main || !sidebar) {
-    console.warn("Layout o sidebar no encontrados");
-    return;
-  }
+      const collapsed = localStorage.getItem('menuCollapsed') === '1';
+      main.classList.toggle('menu-collapsed', collapsed);
 
-  // ✅ función única de sincronización
-  function syncLayoutWithMenu() {
-    const collapsed =
-      sidebar.classList.contains("collapsed") ||
-      sidebar.classList.contains("menu-collapsed") ||
-      localStorage.getItem("menuCollapsed") === "1";
-
-    main.classList.toggle("menu-collapsed", collapsed);
-  }
-
-  // 🔁 Estado inicial
-  syncLayoutWithMenu();
-
-  // 👀 Observa cambios reales en el menú
-  const observer = new MutationObserver(syncLayoutWithMenu);
-
-  observer.observe(sidebar, {
-    attributes: true,
-    attributeFilter: ["class"]
-  });
-
-})();
-</script>
+      window.setMenuCollapsed = function (v) {
+        main.classList.toggle('menu-collapsed', !!v);
+        localStorage.setItem('menuCollapsed', v ? '1' : '0');
+        window.dispatchEvent(new Event('resize'));
+      };
+    })();
+  </script>
 
 
 
