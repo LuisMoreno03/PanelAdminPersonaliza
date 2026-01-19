@@ -174,27 +174,40 @@ window.API = {
 <!-- ================= JS ================= -->
 <script src="<?= base_url('js/confirmacion.js?v=' . time()) ?>"></script>
 
-<!-- ================= MENU COLLAPSE ================= -->
 <script>
-  // 🔁 Sincroniza el layout con el menú lateral
-  document.addEventListener("menu:toggle", () => {
-    const main = document.getElementById("mainLayout");
-    if (!main) return;
+(function () {
+  const main = document.getElementById("mainLayout");
+  const sidebar = document.querySelector("aside"); // menú lateral
 
-    const collapsed = localStorage.getItem("menuCollapsed") === "1";
+  if (!main || !sidebar) {
+    console.warn("Layout o sidebar no encontrados");
+    return;
+  }
+
+  // ✅ función única de sincronización
+  function syncLayoutWithMenu() {
+    const collapsed =
+      sidebar.classList.contains("collapsed") ||
+      sidebar.classList.contains("menu-collapsed") ||
+      localStorage.getItem("menuCollapsed") === "1";
+
     main.classList.toggle("menu-collapsed", collapsed);
+  }
+
+  // 🔁 Estado inicial
+  syncLayoutWithMenu();
+
+  // 👀 Observa cambios reales en el menú
+  const observer = new MutationObserver(syncLayoutWithMenu);
+
+  observer.observe(sidebar, {
+    attributes: true,
+    attributeFilter: ["class"]
   });
 
-  // Estado inicial
-  document.addEventListener("DOMContentLoaded", () => {
-    const main = document.getElementById("mainLayout");
-    if (!main) return;
-
-    if (localStorage.getItem("menuCollapsed") === "1") {
-      main.classList.add("menu-collapsed");
-    }
-  });
+})();
 </script>
+
 
 
 </body>
