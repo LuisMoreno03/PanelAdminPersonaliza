@@ -2,9 +2,10 @@
 
 namespace App\Controllers;
 
-use CodeIgniter\Controller;
+use App\Controllers\BaseController;
+use App\Models\PedidosEstadoModel;
 
-class ConfirmacionController extends Controller
+class ConfirmacionController extends BaseController
 {
     protected $db;
 
@@ -13,189 +14,117 @@ class ConfirmacionController extends Controller
         $this->db = \Config\Database::connect();
     }
 
+    /* =====================================================
+     * VISTA
+     * ===================================================== */
     public function index()
     {
         if (!session()->get('logged_in')) {
-            return redirect()->to(site_url('login'));
+            return redirect()->to('/login');
         }
 
-        // Renderiza vista (tu layout + scripts)
-        return view('confirmacion');
+        return view('confirmacion/index');
     }
 
-    /**
-     * Cola del usuario (solo "Por preparar" + entrega sin preparar)
-     * GET /confirmacion/my-queue?limit=10
-     */
+    /* =====================================================
+     * MI COLA (POR PREPARAR)
+     * ===================================================== */
     public function myQueue()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
+            return $this->response->setJSON(['success' => false])->setStatusCode(401);
         }
 
-        $userId = (int)(session('user_id') ?? 0);
-        $limit  = (int)($this->request->getGet('limit') ?? 10);
-        $limit  = max(1, min(50, $limit));
+        $limit = (int)($this->request->getGet('limit') ?? 10);
+        if ($limit <= 0 || $limit > 50) $limit = 10;
 
-        // ✅ IMPORTANTÍSIMO:
-        // - order_id en pedidos_estado es el shopify_order_id (string)
-        // - pedidos.shopify_order_id también es ese string
-        // - pedidos.assigned_to_user_id controla la “cola” (igual que producción)
+        /*
+         * Reglas:
+         * - estado = Por preparar
+         * - fulfillment = unfulfilled | null (Sin preparar)
+         * - Express primero
+         */
 
-        $rows = $this->db->table('pedidos p')
-            ->select([
-                'p.id',
-                'p.shopify_order_id',
-                'p.numero',
-                'p.fecha',
-                'p.cliente',
-                'p.total',
-                'p.estado_envio',         // si ya lo guardas en tu tabla
-                'p.forma_envio',          // aquí detectamos express
-                'p.etiquetas',
-                'p.articulos',
-                'pe.estado as estado',
-                'pe.estado_updated_at',
-                'pe.estado_updated_by_name',
-            ])
-            ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
-            ->where('p.assigned_to_user_id', $userId)
+        $rows = $this->db->table('pedidos_estado pe')
+            ->select("
+                pe.order_id,
+                pe.estado,
+                pe.estado_updated_at,
+                o.id,
+                o.name            AS numero,
+                DATE(o.created_at) AS fecha,
+                o.customer_name   AS cliente,
+                o.total_price     AS total,
+                o.tags,
+                o.fulfillment_status,
+                o.shipping_title
+            ")
+            ->join('pedidos o', 'o.id = pe.order_id', 'left')
             ->where('LOWER(TRIM(pe.estado))', 'por preparar')
-            // ✅ entrega "Sin preparar"
             ->groupStart()
-                ->where('p.estado_envio IS NULL')
-                ->orWhere('LOWER(TRIM(p.estado_envio))', 'unfulfilled')
-                ->orWhere('LOWER(TRIM(p.estado_envio))', '')  // por si guardas vacío
+                ->where('o.fulfillment_status IS NULL', null, false)
+                ->orWhere('LOWER(o.fulfillment_status)', 'unfulfilled')
             ->groupEnd()
-            ->orderBy("CASE 
-                WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
-                WHEN LOWER(p.etiquetas) LIKE '%express%' THEN 1
-                WHEN LOWER(p.etiquetas) LIKE '%urgente%' THEN 1
-                ELSE 2
-            END", '', false)
-            ->orderBy('p.fecha', 'ASC')
+            // 🚀 EXPRESS PRIMERO
+            ->orderBy("(LOWER(o.tags) LIKE '%express%' OR LOWER(o.shipping_title) LIKE '%express%')", 'DESC', false)
+            // ⏱️ MÁS RECIENTES
+            ->orderBy('COALESCE(pe.estado_updated_at, pe.actualizado)', 'DESC', false)
             ->limit($limit)
             ->get()
             ->getResultArray();
 
-        // normaliza last_status_change como en dashboard
-        $orders = array_map(function ($r) {
-            return [
-                'id'       => (string)($r['shopify_order_id'] ?? $r['id']),
-                'numero'   => $r['numero'] ?? ('#' . ($r['shopify_order_id'] ?? $r['id'])),
-                'fecha'    => $r['fecha'] ?? '-',
-                'cliente'  => $r['cliente'] ?? '-',
-                'total'    => $r['total'] ?? '-',
-                'estado'   => $r['estado'] ?? 'Por preparar',
-                'etiquetas'=> $r['etiquetas'] ?? '',
-                'articulos'=> $r['articulos'] ?? '-',
-                'estado_envio' => $r['estado_envio'] ?? null,
-                'forma_envio'  => $r['forma_envio'] ?? '',
-                'last_status_change' => [
-                    'user_name'  => $r['estado_updated_by_name'] ?? null,
-                    'changed_at' => $r['estado_updated_at'] ?? null,
-                ],
-            ];
-        }, $rows);
-
         return $this->response->setJSON([
             'success' => true,
-            'orders'  => $orders,
-            'count'   => count($orders),
+            'orders'  => $rows,
+            'count'   => count($rows),
         ]);
     }
 
-    /**
-     * Pull: asigna 1 pedido "Por preparar" (y sin preparar) al usuario.
-     * POST /confirmacion/pull
-     */
+    /* =====================================================
+     * PULL DESDE SHOPIFY
+     * ===================================================== */
     public function pull()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
+            return $this->response->setJSON(['success' => false])->setStatusCode(401);
         }
 
-        $userId = (int)(session('user_id') ?? 0);
-        if (!$userId) {
-            return $this->response->setStatusCode(200)->setJSON([
-                'success' => false,
-                'message' => 'Usuario inválido',
-            ]);
-        }
+        /*
+         * Aquí SOLO traes pedidos nuevos desde Shopify
+         * que todavía NO estén en pedidos_estado
+         * y los marcas como "Por preparar"
+         */
 
-        // Busca candidato (NO asignado)
-        $candidate = $this->db->table('pedidos p')
-            ->select('p.id')
-            ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
-            ->where('p.assigned_to_user_id IS NULL', null, false)
-            ->where('LOWER(TRIM(pe.estado))', 'por preparar')
-            ->groupStart()
-                ->where('p.estado_envio IS NULL')
-                ->orWhere('LOWER(TRIM(p.estado_envio))', 'unfulfilled')
-                ->orWhere('LOWER(TRIM(p.estado_envio))', '')
-            ->groupEnd()
-            ->orderBy("CASE 
-                WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
-                WHEN LOWER(p.etiquetas) LIKE '%express%' THEN 1
-                WHEN LOWER(p.etiquetas) LIKE '%urgente%' THEN 1
-                ELSE 2
-            END", '', false)
-            ->orderBy('p.fecha', 'ASC')
-            ->get(1)
-            ->getRowArray();
-
-        if (!$candidate) {
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => 'No hay pedidos disponibles',
-            ]);
-        }
-
+        $estadoModel = new PedidosEstadoModel();
         $now = date('Y-m-d H:i:s');
 
-        $this->db->table('pedidos')
-            ->where('id', (int)$candidate['id'])
-            ->update([
-                'assigned_to_user_id' => $userId,
-                'assigned_at' => $now,
-            ]);
+        // ⚠️ ESTE ARRAY DEBE VENIR DE TU CACHE SHOPIFY
+        // Aquí simulo pedidos ya sincronizados
+        $orders = $this->db->table('pedidos')
+            ->select('id')
+            ->where('fulfillment_status IS NULL', null, false)
+            ->get()
+            ->getResultArray();
 
-        return $this->response->setJSON([
-            'success' => true,
-            'message' => 'Pedido asignado a tu cola',
-        ]);
-    }
+        $inserted = 0;
 
-    /**
-     * Devuelve todos los pedidos de tu cola (opcional)
-     */
-    public function returnAll()
-    {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
+        foreach ($orders as $o) {
+            $exists = $estadoModel->getEstadoPedido((string)$o['id']);
+            if ($exists) continue;
+
+            $estadoModel->setEstadoPedido(
+                (string)$o['id'],
+                'Por preparar',
+                session('user_id'),
+                session('nombre')
+            );
+
+            $inserted++;
         }
 
-        $userId = (int)(session('user_id') ?? 0);
-
-        $this->db->table('pedidos')
-            ->where('assigned_to_user_id', $userId)
-            ->update([
-                'assigned_to_user_id' => null,
-                'assigned_at' => null,
-            ]);
-
         return $this->response->setJSON([
-            'success' => true,
-            'message' => 'Pedidos devueltos',
+            'success'  => true,
+            'inserted'=> $inserted,
         ]);
     }
 }
