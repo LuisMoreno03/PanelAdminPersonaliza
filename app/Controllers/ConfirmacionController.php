@@ -3,7 +3,7 @@
 namespace App\Controllers;
 
 use App\Controllers\BaseController;
-use App\Models\OrderModel;
+use App\Models\PedidoModel as OrderModel;
 use App\Services\ShopifyService;
 
 class ConfirmacionController extends BaseController
