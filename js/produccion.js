@@ -743,9 +743,146 @@ function fmtMoney(v) {
   return n.toFixed(2);
 }
 
+// ---- UI upload illustrator (inyectada en modal)
+function renderUploadBox(orderId) {
+  const oid = escapeHtml(String(orderId || ""));
+  return `
+    <div id="detUploadBox" class="mt-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Archivos Illustrator</div>
+          <div class="text-sm font-semibold text-slate-900 mt-1">Sube 1 o varios archivos para este pedido</div>
+          <div class="text-xs text-slate-500 mt-1">Acepta: .ai, .eps, .pdf, .svg</div>
+        </div>
+      </div>
 
+      <div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
+        <input
+          id="detIllustratorFiles"
+          type="file"
+          multiple
+          accept=".ai,.eps,.pdf,.svg"
+          class="block w-full text-sm text-slate-700
+                 file:mr-4 file:py-2 file:px-4
+                 file:rounded-2xl file:border-0
+                 file:text-sm file:font-extrabold
+                 file:bg-slate-200 file:text-slate-900
+                 hover:file:bg-slate-300"
+        />
 
+        <button
+          id="btnUploadIllustrator"
+          type="button"
+          class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition whitespace-nowrap"
+        >
+          Subir archivos
+        </button>
+      </div>
 
+      <div id="detUploadMsg" class="mt-3 text-sm text-slate-600"></div>
+      <div id="detUploadList" class="mt-3 space-y-2"></div>
+
+      <div class="mt-2 text-xs text-slate-500">
+        Pedido: <span class="font-bold text-slate-700">${oid}</span>
+      </div>
+    </div>
+  `;
+}
+
+// ---- subida (requiere endpoint backend; si no existe, mostrará error claro)
+function buildUploadEndpoints(orderId) {
+  const id = encodeURIComponent(String(orderId || ""));
+  return [
+    `${API_BASE}/produccion/upload-illustrator/${id}`,
+    `${API_BASE}/produccion/upload-illustrator`,
+    `/produccion/upload-illustrator/${id}`,
+    `/produccion/upload-illustrator`,
+    `/index.php/produccion/upload-illustrator/${id}`,
+    `/index.php/produccion/upload-illustrator`,
+  ];
+}
+
+async function uploadIllustratorFiles(orderId) {
+  const input = $("detIllustratorFiles");
+  const msg = $("detUploadMsg");
+  const list = $("detUploadList");
+  if (!input || !msg || !list) return;
+
+  const files = Array.from(input.files || []);
+  if (!files.length) {
+    msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona al menos 1 archivo.</span>`;
+    return;
+  }
+
+  msg.innerHTML = `Subiendo ${files.length} archivo(s)…`;
+  list.innerHTML = "";
+
+  const fd = new FormData();
+  fd.append("order_id", String(orderId || ""));
+  files.forEach((f) => fd.append("files[]", f, f.name));
+
+  // CSRF header (CI4)
+  const csrf = getCsrfHeaders();
+
+  let ok = false;
+  let lastError = null;
+  let responseData = null;
+
+  for (const url of buildUploadEndpoints(orderId)) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { ...csrf }, // NO pongas Content-Type, FormData lo pone solo
+        body: fd,
+        credentials: "same-origin",
+      });
+
+      const text = await r.text();
+      let d = null;
+      try { d = JSON.parse(text); } catch { d = null; }
+
+      if (!r.ok) throw new Error(d?.error || d?.message || `HTTP ${r.status}`);
+
+      // esperamos algo como {ok:true, files:[{name,url}...]}
+      if (d && (d.ok === true || d.success === true)) {
+        ok = true;
+        responseData = d;
+        break;
+      }
+
+      throw new Error(d?.error || d?.message || "Respuesta inválida (ok!=true)");
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  if (!ok) {
+    msg.innerHTML = `<span class="text-rose-600 font-extrabold">No se pudo subir.</span> <span class="text-slate-600">${escapeHtml(lastError?.message || "")}</span>`;
+    return;
+  }
+
+  const uploaded = responseData?.files || responseData?.data || [];
+  msg.innerHTML = `<span class="text-emerald-700 font-extrabold">Subido ✅</span>`;
+
+  if (Array.isArray(uploaded) && uploaded.length) {
+    list.innerHTML = uploaded.map((f) => {
+      const name = escapeHtml(f.name || f.filename || "archivo");
+      const url = f.url ? String(f.url) : "";
+      return `
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div class="font-bold text-slate-900 truncate">${name}</div>
+            ${url ? `<a class="text-xs text-blue-700 underline break-all" href="${escapeHtml(url)}" target="_blank">${escapeHtml(url)}</a>` : `<div class="text-xs text-slate-500">Sin URL devuelta por el backend</div>`}
+          </div>
+        </div>
+      `;
+    }).join("");
+  } else {
+    list.innerHTML = `<div class="text-xs text-slate-500">El backend no devolvió listado de archivos, pero marcó ok=true.</div>`;
+  }
+
+  input.value = "";
+}
 
 async function abrirDetallesPedido(orderId) {
   const id = String(orderId || "");
@@ -892,7 +1029,14 @@ async function abrirDetallesPedido(orderId) {
   // Items
   setText("detItemsCount", String(lineItems.length));
 
-  
+  if (!lineItems.length) {
+    setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>${renderUploadBox(id)}`);
+    // bind upload
+    setTimeout(() => {
+      $("btnUploadIllustrator")?.addEventListener("click", () => uploadIllustratorFiles(id));
+    }, 0);
+    return;
+  }
 
   const imagenesLocales = payload.imagenes_locales || {};
   const productImages = payload.product_images || {};
@@ -986,7 +1130,7 @@ async function abrirDetallesPedido(orderId) {
   }).join("");
 
   // ✅ al final metemos el upload box
-  
+  setHtml("detItems", `${itemsHtml}${renderUploadBox(id)}`);
 
   // bind upload
   setTimeout(() => {
