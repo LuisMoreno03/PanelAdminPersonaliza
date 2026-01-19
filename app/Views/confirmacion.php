@@ -10,6 +10,8 @@
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/alpinejs" defer></script>
+  <script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>
+  <script src="<?= base_url('js/confirmacion.js?v=' . time()) ?>"></script>
 
   <!-- ✅ ESTILOS EXACTOS DEL DASHBOARD -->
   <style>
