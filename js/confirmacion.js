@@ -177,7 +177,7 @@ window.verDetalles = async function (orderId) {
   const id = String(orderId || "");
   if (!id) return;
 
-  const modal = $("modalEtiquetas");
+  const modal = $("modalDetallesFull");
   modal?.classList.remove("hidden");
   document.body.classList.add("overflow-hidden");
 
