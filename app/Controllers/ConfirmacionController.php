@@ -101,15 +101,17 @@ class ConfirmacionController extends BaseController
             $userId = (int) session('user_id');
             $user   = session('nombre') ?? 'Sistema';
 
-            $payload = $this->request->getJSON(true);
-            $count = (int) ($payload['count'] ?? 5);
+            $payload = $this->request->getJSON(true) ?? [];
+            $count   = (int) ($payload['count'] ?? 5);
             if ($count <= 0) $count = 5;
 
             $db  = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            $hasFulfillment = $db->fieldExists('fulfillment_status', 'pedidos');
-            $hasEstadoEnvio = $db->fieldExists('estado_envio', 'pedidos');
+            // ✅ detectar columnas SIN fieldExists (más estable)
+            $fields = $db->getFieldNames('pedidos') ?? [];
+            $hasFulfillment = in_array('fulfillment_status', $fields, true);
+            $hasEstadoEnvio = in_array('estado_envio', $fields, true);
 
             $q = $db->table('pedidos p')
                 ->select('p.id, p.shopify_order_id')
@@ -117,40 +119,24 @@ class ConfirmacionController extends BaseController
                 ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
                 ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)');
 
-            // ✅ FILTRO ROBUSTO: solo pedidos NO enviados (unfulfilled)
-            // Acepta: NULL, '' (vacío), 'unfulfilled'
-            // Excluye: 'fulfilled', 'partial'
+            // ✅ SOLO pedidos NO enviados (Shopify: NULL / '' / unfulfilled)
             if ($hasFulfillment) {
-
                 $q->groupStart()
                         ->where('p.fulfillment_status IS NULL', null, false)
-                        ->orWhere("TRIM(COALESCE(p.fulfillment_status,'')) =", '', false)
-                        ->orWhere("LOWER(TRIM(p.fulfillment_status))", 'unfulfilled')
+                        ->orWhere("TRIM(COALESCE(p.fulfillment_status,'')) = ''", null, false)
+                        ->orWhere("LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'", null, false)
                 ->groupEnd();
-
-                // excluir estados ya enviados
-                $q->where("LOWER(TRIM(COALESCE(p.fulfillment_status,''))) !=", 'fulfilled')
-                ->where("LOWER(TRIM(COALESCE(p.fulfillment_status,''))) !=", 'partial');
-
             } elseif ($hasEstadoEnvio) {
-
                 $q->groupStart()
                         ->where('p.estado_envio IS NULL', null, false)
-                        ->orWhere("TRIM(COALESCE(p.estado_envio,'')) =", '', false)
-                        ->orWhere("LOWER(TRIM(p.estado_envio))", 'unfulfilled')
+                        ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
+                        ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
                 ->groupEnd();
-
-                // excluir estados ya enviados
-                $q->where("LOWER(TRIM(COALESCE(p.estado_envio,''))) !=", 'fulfilled')
-                ->where("LOWER(TRIM(COALESCE(p.estado_envio,''))) !=", 'partial');
-
             } else {
-                // Si no existe columna, no rompemos. Solo log.
-                log_message('warning', 'pull(): pedidos no tiene fulfillment_status ni estado_envio. No se puede filtrar unfulfilled.');
+                log_message('warning', 'pull(): no existe fulfillment_status ni estado_envio en pedidos');
             }
 
-            $candidatos = $q
-                ->orderBy('p.created_at', 'ASC')
+            $candidatos = $q->orderBy('p.created_at', 'ASC')
                 ->limit($count)
                 ->get()
                 ->getResultArray();
@@ -173,7 +159,7 @@ class ConfirmacionController extends BaseController
                 ]);
 
             foreach ($candidatos as $c) {
-                if (!$c['shopify_order_id']) continue;
+                if (empty($c['shopify_order_id'])) continue;
 
                 $db->table('pedidos_estado_historial')->insert([
                     'order_id'   => $c['shopify_order_id'],
@@ -189,10 +175,15 @@ class ConfirmacionController extends BaseController
             ]);
 
         } catch (\Throwable $e) {
-            log_message('error', 'pull() error: '.$e->getMessage());
+            log_message('error', 'pull() error: {msg} in {file}:{line}', [
+                'msg'  => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
             return $this->response->setStatusCode(500)->setJSON([
                 'ok' => false,
-                'message' => $e->getMessage()
+                'message' => $e->getMessage(),
             ]);
         }
     }
