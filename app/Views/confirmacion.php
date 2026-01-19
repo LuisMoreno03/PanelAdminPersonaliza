@@ -4,34 +4,26 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
+  <!-- CSRF -->
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
   <meta name="csrf-header" content="<?= csrf_header() ?>">
 
   <title>Confirmación · Panel</title>
 
-  <!-- Tailwind + Alpine -->
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/alpinejs" defer></script>
 
-  <!-- =========================
-       ESTILOS (idénticos dashboard)
-  ========================== -->
   <style>
     body { background: #f3f4f6; }
 
-    .layout {
-      transition: padding-left .2s ease;
-      padding-left: 16rem;
-    }
-    .layout.menu-collapsed {
-      padding-left: 5.25rem;
-    }
+    /* Layout con menú */
+    .layout { padding-left: 16rem; transition: padding-left .2s ease; }
+    .layout.menu-collapsed { padding-left: 5.25rem; }
     @media (max-width: 768px) {
-      .layout, .layout.menu-collapsed {
-        padding-left: 0 !important;
-      }
+      .layout, .layout.menu-collapsed { padding-left: 0 !important; }
     }
 
+    /* Grilla EXACTA dashboard */
     .orders-grid {
       display: grid;
       align-items: center;
@@ -56,9 +48,7 @@
 
     .orders-grid > div { min-width: 0; }
 
-    .table-scroll {
-      overflow-x: auto;
-    }
+    .table-scroll { overflow-x: auto; }
   </style>
 </head>
 
@@ -70,11 +60,9 @@
   <div class="p-4 sm:p-6 lg:p-8">
     <div class="mx-auto w-full max-w-[1600px]">
 
-      <!-- =========================
-           HEADER
-      ========================== -->
+      <!-- HEADER -->
       <section class="mb-6">
-        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex items-center justify-between">
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex justify-between items-center gap-4">
           <div>
             <h1 class="text-3xl font-extrabold text-slate-900">Confirmación</h1>
             <p class="text-slate-500 mt-1">
@@ -88,11 +76,8 @@
         </div>
       </section>
 
-      <!-- =========================
-           LISTADO
-      ========================== -->
+      <!-- LISTADO -->
       <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-
         <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
           <div class="font-semibold text-slate-900">Listado de pedidos</div>
 
@@ -115,8 +100,8 @@
         </div>
 
         <div class="table-scroll">
-          <!-- HEADER -->
-          <div class="orders-grid cols px-4 py-3 text-[8px] uppercase tracking-wide text-slate-600 bg-slate-50 border-b">
+          <!-- HEADER TABLA -->
+          <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
             <div>Pedido</div>
             <div>Fecha</div>
             <div>Cliente</div>
@@ -130,10 +115,9 @@
             <div class="text-right">Ver</div>
           </div>
 
-          <!-- ROWS -->
+          <!-- FILAS -->
           <div id="tablaPedidos" class="divide-y"></div>
         </div>
-
       </section>
 
     </div>
@@ -141,49 +125,67 @@
 </main>
 
 <!-- =========================
-     MODAL DETALLES (MISMO HTML)
-     SOLO PRESENTACIÓN
-========================== -->
-<?= view('layouts/modal_detalles') ?>
+     MODAL DETALLES PEDIDO
+========================= -->
+<div id="modalDetalles" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
+  <div class="w-full max-w-4xl bg-white rounded-3xl shadow-xl border border-slate-200 mt-10 animate-fadeIn">
 
-<!-- =========================
-     LOADER GLOBAL
-========================== -->
-<div id="globalLoader"
-     class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
-  <div class="bg-white p-6 rounded-3xl shadow-xl text-center">
-    <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-    <p class="mt-3 font-semibold text-slate-900">Cargando…</p>
+    <!-- Header -->
+    <div class="p-5 border-b border-slate-200 flex justify-between items-center">
+      <h2 id="detTitulo" class="text-xl font-extrabold text-slate-900">Pedido</h2>
+      <button onclick="cerrarModalDetalles()"
+        class="h-10 w-10 rounded-2xl border border-slate-200 text-slate-600 hover:text-slate-900 font-extrabold">
+        ×
+      </button>
+    </div>
+
+    <!-- Content -->
+    <div class="p-6 space-y-6">
+      <section>
+        <h3 class="font-extrabold text-slate-900 mb-3">Productos</h3>
+        <div id="detProductos" class="space-y-3 text-slate-600">
+          —
+        </div>
+      </section>
+
+      <section>
+        <h3 class="font-extrabold text-slate-900 mb-3">Resumen</h3>
+        <div id="detResumen" class="space-y-1 text-slate-700">
+          —
+        </div>
+      </section>
+    </div>
+
   </div>
 </div>
 
-<!-- =========================
-     VARIABLES JS
-========================== -->
+<!-- LOADER GLOBAL -->
+<div id="globalLoader" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-[100]">
+  <div class="bg-white p-6 rounded-3xl shadow-xl text-center">
+    <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+    <p class="mt-3 font-semibold">Cargando…</p>
+  </div>
+</div>
+
+<!-- API ENDPOINTS -->
 <script>
-  window.API = {
-    myQueue: "<?= site_url('confirmacion/my-queue') ?>",
-    pull: "<?= site_url('confirmacion/pull') ?>",
-    returnAll: "<?= site_url('confirmacion/return-all') ?>",
-    detalles: "<?= site_url('confirmacion/detalles') ?>"
-  };
+window.API = {
+  myQueue: "<?= site_url('confirmacion/my-queue') ?>",
+  pull: "<?= site_url('confirmacion/pull') ?>",
+  returnAll: "<?= site_url('confirmacion/return-all') ?>",
+  detalles: "<?= site_url('confirmacion/detalles') ?>"
+};
 </script>
 
-<!-- =========================
-     JS CONFIRMACIÓN (ÚNICO)
-========================== -->
+<!-- JS CONFIRMACIÓN -->
 <script src="<?= base_url('js/confirmacion.js?v=' . time()) ?>"></script>
 
-<!-- =========================
-     COLAPSO MENU
-========================== -->
+<!-- MENU COLLAPSE -->
 <script>
 (function () {
   const main = document.getElementById('mainLayout');
-  if (!main) return;
-
   const collapsed = localStorage.getItem('menuCollapsed') === '1';
-  main.classList.toggle('menu-collapsed', collapsed);
+  if (collapsed) main.classList.add('menu-collapsed');
 })();
 </script>
 
