@@ -142,7 +142,7 @@
 <!-- ================= MODALES ================= -->
 <!-- =========================
    MODAL DETALLES (FULL SCREEN)
-   COMPATIBLE CON confirmacion.js
+   AJUSTADO AL confirmacion.js
 ========================= -->
 <div
   id="modalDetallesFull"
@@ -157,59 +157,41 @@
           Detalles del pedido
         </div>
 
-        <!-- ⬇️ USADO POR JS -->
+        <!-- USADO DIRECTAMENTE POR JS -->
         <h2
           id="detTitulo"
           class="text-xl sm:text-2xl font-extrabold text-slate-900 truncate">
           —
         </h2>
-
-        <!-- Subtitle opcional (no rompe nada) -->
-        <p class="text-sm text-slate-500 mt-1 truncate">
-          Revisión y preparación
-        </p>
       </div>
 
-      <div class="flex items-center gap-2">
-
-        <!-- Botón cerrar -->
-        <button
-          type="button"
-          onclick="cerrarModalDetalles()"
-          class="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-600
-                 hover:text-slate-900 hover:border-slate-300 transition
-                 font-extrabold text-xl leading-none">
-          ×
-        </button>
-      </div>
+      <button
+        type="button"
+        onclick="cerrarModalDetalles()"
+        class="h-10 w-10 rounded-2xl border border-slate-200 bg-white text-slate-600
+               hover:text-slate-900 hover:border-slate-300 transition
+               font-extrabold text-xl leading-none">
+        ×
+      </button>
     </div>
 
     <!-- BODY -->
     <div class="flex-1 overflow-auto">
       <div class="max-w-[1500px] mx-auto px-5 sm:px-8 py-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        <!-- =========================
-             PRODUCTOS
-        ========================= -->
-        <div class="lg:col-span-2 space-y-4">
-
-          <!-- Contenedor donde JS pinta productos -->
-          <div
-            id="detProductos"
-            class="grid grid-cols-1 gap-4">
-            <!-- JS inyecta aquí -->
+        <!-- PRODUCTOS -->
+        <div class="lg:col-span-2">
+          <div id="detProductos" class="grid grid-cols-1 gap-4">
+            <!-- JS pinta aquí -->
           </div>
-
         </div>
 
-        <!-- =========================
-             RESUMEN
-        ========================= -->
+        <!-- RESUMEN -->
         <div
           id="detResumen"
           class="rounded-3xl border border-slate-200 bg-white shadow-sm
                  p-5 h-fit sticky top-6">
-          <!-- JS inyecta resumen -->
+          <!-- JS pinta aquí -->
         </div>
 
       </div>
@@ -218,6 +200,7 @@
   </div>
 </div>
 <!-- /MODAL DETALLES -->
+
 
 <?= view('layouts/modales_estados') ?>
 
