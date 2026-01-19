@@ -386,6 +386,12 @@ async function guardarEstadoAuto(orderId, estado) {
   }
 }
 
+function cerrarDetallesFull() {
+  const modal = $("modalDetallesFull");
+  if (modal) modal.classList.add("hidden");
+  document.documentElement.classList.remove("overflow-hidden");
+  document.body.classList.remove("overflow-hidden");
+}
 /* =====================================================
    EVENTOS GLOBALES
 ===================================================== */
