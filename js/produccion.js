@@ -892,14 +892,7 @@ async function abrirDetallesPedido(orderId) {
   // Items
   setText("detItemsCount", String(lineItems.length));
 
-  if (!lineItems.length) {
-    setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>${renderUploadBox(id)}`);
-    // bind upload
-    setTimeout(() => {
-      $("btnUploadIllustrator")?.addEventListener("click", () => uploadIllustratorFiles(id));
-    }, 0);
-    return;
-  }
+  
 
   const imagenesLocales = payload.imagenes_locales || {};
   const productImages = payload.product_images || {};
@@ -993,7 +986,7 @@ async function abrirDetallesPedido(orderId) {
   }).join("");
 
   // ✅ al final metemos el upload box
-  setHtml("detItems", `${itemsHtml}${renderUploadBox(id)}`);
+  
 
   // bind upload
   setTimeout(() => {
