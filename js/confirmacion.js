@@ -207,18 +207,27 @@ async function cargarMiCola() {
 async function traerPedidos(n) {
   setLoader(true);
   try {
-    await fetch(ENDPOINT_PULL, {
+    const r = await fetch(ENDPOINT_PULL, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
       body: JSON.stringify({ count: n }),
-      credentials: "same-origin",
+      credentials: "same-origin"
     });
+
+    const d = await r.json().catch(() => null);
+
+    // Si asignó, recargar cola SIEMPRE
+    await cargarMiCola();
+
+    // Opcional: feedback
+    if (d?.ok) console.log("Assigned:", d.assigned);
   } catch (e) {
-    console.error("traerPedidos error:", e);
+    console.error("pull error", e);
+  } finally {
+    setLoader(false);
   }
-  await cargarMiCola();
-  setLoader(false);
 }
+
 
 async function devolverPedidos() {
   if (!confirm("¿Devolver todos los pedidos?")) return;
