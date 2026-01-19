@@ -227,41 +227,101 @@ function renderDetalles(order, imagenesLocales = {}) {
 
   setTextSafe("detTitulo", `Pedido #${order.numero || order.id}`);
 
-  const productos = items.map((item, i) => {
-    const requiere = requiereImagenModificada(item);
-    const imgLocal = imagenesLocales[i] || "";
+  if (!items.length) {
+    setHtmlSafe("detProductos", `
+      <div class="p-6 text-center text-slate-500">
+        Este pedido no tiene productos
+      </div>
+    `);
+    setHtmlSafe("detResumen", "");
+    return;
+  }
 
-    imagenesRequeridas[i] = requiere;
-    imagenesCargadas[i] = !!imgLocal;
+  const productosHtml = items.map((item, index) => {
+    const requiere = requiereImagenModificada(item);
+    const imgModificada = imagenesLocales[index] || "";
+
+    imagenesRequeridas[index] = requiere;
+    imagenesCargadas[index] = !!imgModificada;
+
+    const imgCliente = item.properties
+      ?.find(p => esImagenUrl(p.value))?.value || "";
+
+    const imgProducto = item.image || item.featured_image || "";
+
+    const estadoBadge = requiere
+      ? imgModificada
+        ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-100 text-emerald-800 font-bold">Listo</span>`
+        : `<span class="px-3 py-1 text-xs rounded-full bg-amber-100 text-amber-800 font-bold">Falta imagen</span>`
+      : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">No requiere</span>`;
 
     return `
-      <div class="rounded-3xl border bg-white p-5 shadow-sm space-y-3">
-        <div class="flex justify-between">
+      <div class="rounded-3xl border bg-white p-5 shadow-sm space-y-4">
+
+        <div class="flex justify-between items-start">
           <div>
-            <div class="font-extrabold">${escapeHtml(item.title)}</div>
+            <div class="font-extrabold text-lg">${escapeHtml(item.title)}</div>
             <div class="text-sm text-slate-600">
-              Cant: ${item.quantity} · Precio: ${item.price.toFixed(2)} €
+              Cant: ${item.quantity} · Precio: ${Number(item.price).toFixed(2)} €
             </div>
           </div>
-          ${
-            requiere
-              ? imgLocal
-                ? `<span class="text-xs bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full">Listo</span>`
-                : `<span class="text-xs bg-amber-100 text-amber-800 px-3 py-1 rounded-full">Falta imagen</span>`
-              : `<span class="text-xs bg-slate-100 px-3 py-1 rounded-full">Sin imagen</span>`
-          }
+          ${estadoBadge}
         </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+          ${
+            imgProducto
+              ? `<div>
+                  <div class="text-xs font-bold mb-1">Producto</div>
+                  <img src="${imgProducto}" class="rounded-xl border h-32 w-full object-cover">
+                </div>`
+              : ""
+          }
+
+          ${
+            imgCliente
+              ? `<div>
+                  <div class="text-xs font-bold mb-1">Imagen cliente</div>
+                  <a href="${imgCliente}" target="_blank">
+                    <img src="${imgCliente}" class="rounded-xl border h-32 w-full object-cover">
+                  </a>
+                </div>`
+              : ""
+          }
+
+          ${
+            imgModificada
+              ? `<div>
+                  <div class="text-xs font-bold mb-1">Imagen modificada</div>
+                  <img src="${imgModificada}" class="rounded-xl border h-32 w-full object-cover">
+                </div>`
+              : requiere
+                ? `<div>
+                    <div class="text-xs font-bold mb-1">Subir imagen modificada</div>
+                    <input type="file"
+                      class="text-sm"
+                      accept="image/*"
+                      onchange="subirImagenProducto('${order.id}', ${index}, this)">
+                  </div>`
+                : ""
+          }
+
+        </div>
+
       </div>
     `;
   }).join("");
 
   setHtmlSafe("detProductos", `
-    <div class="rounded-3xl border bg-white p-5 space-y-4">
-      <div class="flex justify-between">
-        <h3 class="font-extrabold">Productos</h3>
-        <span class="text-xs bg-slate-100 px-3 py-1 rounded-full">${items.length}</span>
+    <div class="space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-extrabold text-slate-900">Productos</h3>
+        <span class="px-3 py-1 rounded-full text-xs bg-slate-100 font-bold">
+          ${items.length}
+        </span>
       </div>
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">${productos}</div>
+      ${productosHtml}
     </div>
   `);
 
