@@ -216,213 +216,321 @@ window.verDetalles = async function (orderId) {
 /* =====================================================
    RENDER DETALLES COMPLETO
 ===================================================== */
-function renderDetalles(order, imagenesLocales = {}) {
+function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   const items = extraerLineItems(order);
 
   imagenesRequeridas = [];
   imagenesCargadas = [];
 
-  /* =========================
-     CABECERA PEDIDO
-  ========================= */
-  setTextSafe(
-    "detTitulo",
-    `Pedido ${order.name || order.numero || "#" + order.id}`
-  );
+  // Helpers seguros
+  const num = (v, d = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : d;
+  };
 
-  setHtmlSafe(
-    "detResumen",
-    `
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-      <div>
-        <div class="font-extrabold text-slate-900">${escapeHtml(
-          order.customer?.name ||
-          `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}` ||
-          order.cliente ||
-          "—"
-        )}</div>
-        <div class="text-slate-600">${escapeHtml(order.email || "—")}</div>
-        <div class="text-slate-600">${escapeHtml(order.phone || "—")}</div>
-      </div>
+  const normalizeId = (id) => {
+    if (id === null || id === undefined) return "";
+    const s = String(id);
+    const m = s.match(/(\d+)\s*$/); // gid://shopify/Product/123 -> 123
+    return m ? m[1] : s;
+  };
 
-      <div>
-        <div><b>Estado pago:</b> ${escapeHtml(order.financial_status || "—")}</div>
-        <div><b>Estado envío:</b> ${escapeHtml(order.fulfillment_status || "—")}</div>
-        <div><b>Fecha:</b> ${escapeHtml(
-          (order.created_at || "").slice(0, 10) || "—"
-        )}</div>
-      </div>
-    </div>
+  const extractImageUrls = (value) => {
+    // saca URLs de imagen aunque vengan incrustadas en texto/JSON
+    const s =
+      value === null || value === undefined
+        ? ""
+        : typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value);
 
-    <div class="mt-4 border-t pt-4 text-sm space-y-1">
-      <div><b>Subtotal:</b> ${escapeHtml(order.subtotal_price || "0")} €</div>
-      <div><b>Envío:</b> ${escapeHtml(
-        order.total_shipping_price_set?.shop_money?.amount ||
-        order.shipping_price ||
-        "0"
-      )} €</div>
-      <div><b>Impuestos:</b> ${escapeHtml(order.total_tax || "0")} €</div>
-      <div class="text-lg font-extrabold">
-        Total: ${escapeHtml(order.total_price || order.total || "0")} €
-      </div>
-    </div>
-    `
-  );
+    const re = /https?:\/\/[^\s"'<>]+?\.(?:jpg|jpeg|png|webp|gif|svg)(\?[^\s"'<>]*)?/gi;
+    const found = s.match(re) || [];
+    // únicos
+    return Array.from(new Set(found));
+  };
 
-  /* =========================
-     PRODUCTOS
-  ========================= */
-  if (!items.length) {
-    setHtmlSafe(
-      "detProductos",
-      `<div class="p-6 text-center text-slate-500">Este pedido no tiene productos</div>`
+  const splitProps = (propsRaw) => {
+    const props = Array.isArray(propsRaw) ? propsRaw : [];
+    const txt = [];
+    const imgs = [];
+
+    for (const p of props) {
+      const name = String(p?.name ?? "Campo").trim();
+      const value = p?.value;
+
+      const urls = extractImageUrls(value);
+      if (urls.length) {
+        urls.forEach((u) => imgs.push({ name, url: u }));
+      } else {
+        const safe =
+          value === null || value === undefined
+            ? ""
+            : typeof value === "object"
+            ? JSON.stringify(value)
+            : String(value);
+        if (safe.trim() !== "") txt.push({ name, value: safe });
+      }
+    }
+
+    return { txt, imgs };
+  };
+
+  const getProductImage = (item) => {
+    // 1) si ya viene en el item
+    const direct =
+      item?.image ||
+      item?.featured_image ||
+      item?.image_url ||
+      item?.product_image ||
+      "";
+
+    if (esImagenUrl(direct)) return direct;
+
+    // 2) desde el mapa del backend (mejor)
+    const pidRaw = item?.product_id;
+    const pid = normalizeId(pidRaw);
+
+    return (
+      productImages?.[String(pidRaw)] ||
+      productImages?.[String(pid)] ||
+      ""
     );
+  };
+
+  // =========================
+  // TITULO
+  // =========================
+  setTextSafe("detTitulo", `Pedido ${order.name || order.numero || "#" + (order.id || "")}`);
+
+  // =========================
+  // RESUMEN (como Shopify)
+  // =========================
+  const customerName =
+    order.customer?.name ||
+    `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() ||
+    order.cliente ||
+    "—";
+
+  const ship = order.shipping_address || {};
+  const shipLines = Array.isArray(order.shipping_lines) ? order.shipping_lines : [];
+
+  const subtotal = num(order.subtotal_price ?? order.subtotal ?? 0);
+  const taxes = num(order.total_tax ?? 0);
+
+  const shippingCost =
+    shipLines.length
+      ? shipLines.reduce((acc, l) => acc + num(l.price ?? l.cost ?? 0), 0)
+      : num(
+          order.total_shipping_price_set?.shop_money?.amount ??
+          order.total_shipping_price_set?.presentment_money?.amount ??
+          order.shipping_price ??
+          0
+        );
+
+  const total = num(order.total_price ?? order.total ?? 0);
+
+  const shippingMethod =
+    shipLines.map(l => l.title).filter(Boolean).join(" · ") ||
+    order.forma_envio ||
+    "—";
+
+  // Aquí pintamos cliente + envío + totales
+  setHtmlSafe("detResumen", `
+    <div class="space-y-4">
+      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 space-y-2">
+        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Cliente</div>
+        <div class="font-extrabold text-slate-900">${escapeHtml(customerName)}</div>
+        <div class="text-sm text-slate-600">${escapeHtml(order.email || "—")}</div>
+        <div class="text-sm text-slate-600">${escapeHtml(order.phone || "—")}</div>
+      </div>
+
+      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 space-y-2">
+        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Envío</div>
+        <div class="text-sm text-slate-800 font-semibold">${escapeHtml(ship.name || customerName)}</div>
+        <div class="text-sm text-slate-600">${escapeHtml(ship.address1 || "")}</div>
+        <div class="text-sm text-slate-600">${escapeHtml(ship.address2 || "")}</div>
+        <div class="text-sm text-slate-600">
+          ${escapeHtml([ship.zip, ship.city].filter(Boolean).join(" ") || "—")}
+        </div>
+        <div class="text-sm text-slate-600">${escapeHtml(ship.province || "")}</div>
+        <div class="text-sm text-slate-600">${escapeHtml(ship.country || "")}</div>
+        <div class="pt-2 text-sm">
+          <span class="text-slate-500 font-bold">Método:</span>
+          <span class="font-semibold">${escapeHtml(shippingMethod)}</span>
+        </div>
+      </div>
+
+      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 space-y-2">
+        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Totales</div>
+        <div class="text-sm"><b>Subtotal:</b> ${subtotal.toFixed(2)} €</div>
+        <div class="text-sm"><b>Envío:</b> ${shippingCost.toFixed(2)} €</div>
+        <div class="text-sm"><b>Impuestos:</b> ${taxes.toFixed(2)} €</div>
+        <div class="text-lg font-extrabold"><b>Total:</b> ${total.toFixed(2)} €</div>
+        <div class="pt-2 text-xs text-slate-500">
+          Pago: <b>${escapeHtml(order.financial_status || "—")}</b> ·
+          Entrega: <b>${escapeHtml(order.fulfillment_status || "—")}</b>
+        </div>
+      </div>
+    </div>
+  `);
+
+  // =========================
+  // PRODUCTOS
+  // =========================
+  if (!items.length) {
+    setHtmlSafe("detProductos", `
+      <div class="p-6 text-center text-slate-500">
+        ⚠️ Este pedido no tiene productos
+      </div>
+    `);
     return;
   }
 
-  const productosHtml = items
-    .map((item, i) => {
-      const props = Array.isArray(item.properties) ? item.properties : [];
+  const cards = items.map((item, i) => {
+    const requiere = requiereImagenModificada(item);
+    const imgMod = imagenesLocales?.[i] ? String(imagenesLocales[i]) : "";
 
-      const requiere = requiereImagenModificada(item);
+    imagenesRequeridas[i] = !!requiere;
+    imagenesCargadas[i] = !!imgMod;
 
-      const imgCliente =
-        props.find(p => esImagenUrl(p.value))?.value || "";
+    const propsRaw = Array.isArray(item?.properties) ? item.properties : [];
+    const { txt: propsTxt, imgs: propsImg } = splitProps(propsRaw);
 
-      const imgModificada = imagenesLocales[i] || "";
+    const imgProducto = getProductImage(item);
 
-      imagenesRequeridas[i] = !!requiere;
-      imagenesCargadas[i] = !!imgModificada;
+    const qty = num(item.quantity, 1);
+    const price = num(item.price, 0);
+    const lineTotal = (price * qty).toFixed(2);
 
-      /* === IMAGEN PRODUCTO (Shopify real) === */
-      const imgProducto =
-        item.image ||
-        item.featured_image ||
-        item.image_url ||
-        item.product_image ||
-        "";
-
-      const precio = Number(item.price || 0);
-      const qty = Number(item.quantity || 1);
-      const totalLinea = (precio * qty).toFixed(2);
-
-      const estadoBadge = requiere
-        ? imgModificada
+    const badge = requiere
+      ? (imgMod
           ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-100 text-emerald-800 font-bold">Listo</span>`
           : `<span class="px-3 py-1 text-xs rounded-full bg-amber-100 text-amber-800 font-bold">Falta imagen</span>`
-        : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">Sin imagen</span>`;
+        )
+      : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">Sin imagen</span>`;
 
-      return `
-        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 space-y-4">
+    const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
+    const sku = item.sku || "";
 
-          <!-- HEADER PRODUCTO -->
-          <div class="flex items-start gap-4">
-            ${
-              imgProducto
-                ? `
-                  <img
-                    src="${imgProducto}"
-                    class="h-20 w-20 rounded-2xl border object-cover flex-shrink-0"
-                  >
-                `
-                : `
-                  <div class="h-20 w-20 rounded-2xl border bg-slate-50 flex items-center justify-center text-slate-400">
-                    🧾
-                  </div>
-                `
-            }
+    return `
+      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 space-y-4">
 
-            <div class="flex-1 min-w-0">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <div class="font-extrabold text-slate-900 truncate">
-                    ${escapeHtml(item.title)}
-                  </div>
-                  <div class="text-sm text-slate-600 mt-1">
-                    Cant: <b>${qty}</b> · Precio: <b>${precio.toFixed(2)} €</b> ·
-                    Total: <b>${totalLinea} €</b>
-                  </div>
-                </div>
-                ${estadoBadge}
-              </div>
-
-              ${
-                item.variant_title
-                  ? `
-                    <div class="text-sm mt-2">
-                      <span class="text-slate-500 font-bold">Variante:</span>
-                      <span class="font-semibold">${escapeHtml(item.variant_title)}</span>
-                    </div>
-                  `
-                  : ""
-              }
-            </div>
-          </div>
-
-          <!-- IMAGEN CLIENTE -->
+        <div class="flex items-start gap-4">
           ${
-            imgCliente
+            imgProducto
               ? `
-                <div>
-                  <div class="text-xs font-extrabold text-slate-500 mb-2">
-                    Imagen original (cliente)
-                  </div>
-                  <a href="${imgCliente}" target="_blank">
-                    <img src="${imgCliente}" class="h-36 rounded-2xl border object-cover">
-                  </a>
+                <a href="${escapeHtml(imgProducto)}" target="_blank"
+                   class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
+                  <img src="${escapeHtml(imgProducto)}" class="h-full w-full object-cover">
+                </a>
+              `
+              : `
+                <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
+                  🧾
                 </div>
               `
-              : ""
           }
 
-          <!-- IMAGEN MODIFICADA -->
-          ${
-            imgModificada
-              ? `
-                <div>
-                  <div class="text-xs font-extrabold text-slate-500 mb-2">
-                    Imagen modificada
-                  </div>
-                  <a href="${imgModificada}" target="_blank">
-                    <img src="${imgModificada}" class="h-40 rounded-2xl border object-cover">
-                  </a>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || "Producto")}</div>
+                <div class="text-sm text-slate-600 mt-1">
+                  Cant: <b>${qty}</b> · Precio: <b>${price.toFixed(2)} €</b> · Total: <b>${lineTotal} €</b>
                 </div>
-              `
-              : requiere
+              </div>
+              ${badge}
+            </div>
+
+            <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+              ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
+              ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
+              ${item.product_id ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(item.product_id)}</span></div>` : ""}
+              ${item.variant_id ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(item.variant_id)}</span></div>` : ""}
+            </div>
+          </div>
+        </div>
+
+        ${
+          propsTxt.length
+            ? `
+              <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
+                <div class="space-y-1 text-sm">
+                  ${propsTxt.map(p => `
+                    <div class="flex gap-2">
+                      <div class="min-w-[140px] text-slate-500 font-bold">${escapeHtml(p.name)}:</div>
+                      <div class="flex-1 font-semibold text-slate-900 break-words">${escapeHtml(p.value || "—")}</div>
+                    </div>
+                  `).join("")}
+                </div>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          propsImg.length
+            ? `
+              <div>
+                <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
+                <div class="flex flex-wrap gap-3">
+                  ${propsImg.map(p => `
+                    <a href="${escapeHtml(p.url)}" target="_blank"
+                       class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm bg-white">
+                      <img src="${escapeHtml(p.url)}" class="h-28 w-28 object-cover">
+                      <div class="px-3 py-2 text-xs font-bold text-slate-700 border-t border-slate-200">
+                        ${escapeHtml(p.name)}
+                      </div>
+                    </a>
+                  `).join("")}
+                </div>
+              </div>
+            `
+            : ""
+        }
+
+        ${
+          imgMod
+            ? `
+              <div>
+                <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada</div>
+                <a href="${escapeHtml(imgMod)}" target="_blank"
+                   class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white">
+                  <img src="${escapeHtml(imgMod)}" class="h-40 w-40 object-cover">
+                </a>
+              </div>
+            `
+            : requiere
               ? `
                 <div>
-                  <div class="text-xs font-extrabold text-slate-500 mb-2">
-                    Subir imagen modificada
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    class="block w-full text-sm border border-slate-200 rounded-2xl p-2"
+                  <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
+                  <input type="file" accept="image/*"
+                    class="w-full border border-slate-200 rounded-2xl p-2"
                     onchange="subirImagenProducto('${order.id}', ${i}, this)">
                 </div>
               `
               : ""
-          }
+        }
+      </div>
+    `;
+  }).join("");
 
-        </div>
-      `;
-    })
-    .join("");
-
-  setHtmlSafe(
-    "detProductos",
-    `
-    <div class="space-y-5">
+  setHtmlSafe("detProductos", `
+    <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 space-y-5">
       <div class="flex items-center justify-between">
         <h3 class="font-extrabold text-slate-900">Productos</h3>
-        <span class="px-3 py-1 rounded-full text-xs bg-slate-100 font-bold">
+        <span class="text-xs font-extrabold px-3 py-1 rounded-full bg-slate-100">
           ${items.length}
         </span>
       </div>
-      ${productosHtml}
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        ${cards}
+      </div>
     </div>
-    `
-  );
+  `);
 
   actualizarResumenAuto(order.id);
 }
