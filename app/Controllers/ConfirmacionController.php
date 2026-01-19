@@ -11,7 +11,16 @@ class ConfirmacionController extends BaseController
     protected $orders;
     protected $shopify;
     protected $userId;
+    public function index()
+    {
+        if (!session()->get('logged_in')) {
+            return redirect()->to('/');
+        }
 
+        return view('confirmacion', [
+            'etiquetasPredeterminadas' => $this->getEtiquetasUsuario(),
+        ]);
+    }
     public function __construct()
     {
         $this->orders   = new OrderModel();
