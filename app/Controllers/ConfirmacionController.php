@@ -13,13 +13,7 @@ class ConfirmacionController extends BaseController
     protected $userId;
     public function index()
     {
-        if (!session()->get('logged_in')) {
-            return redirect()->to('/');
-        }
-
-        return view('confirmacion', [
-            'etiquetasPredeterminadas' => $this->getEtiquetasUsuario(),
-        ]);
+        return view('confirmacion');
     }
     public function __construct()
     {
