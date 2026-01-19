@@ -1,95 +1,126 @@
-<?php
-// confirmacion.php
-?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Confirmación · Panel</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <!-- CSRF (si tu backend lo usa) -->
-  <?php if (isset($csrfToken, $csrfHeader)): ?>
-    <meta name="csrf-token" content="<?= htmlspecialchars($csrfToken) ?>">
-    <meta name="csrf-header" content="<?= htmlspecialchars($csrfHeader) ?>">
-  <?php endif; ?>
+  <!-- CSRF -->
+  <meta name="csrf-token" content="<?= csrf_hash() ?>">
+  <meta name="csrf-header" content="<?= csrf_header() ?>">
 
-  <!-- Tailwind (CDN como el resto del panel) -->
+  <title>Confirmación · Panel</title>
+
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- API endpoints -->
-  <script>
-    window.API = {
-      myQueue: "/confirmacion/cola",
-      pull: "/confirmacion/pull",
-      returnAll: "/confirmacion/devolver",
-      detalles: "/dashboard/detalles"
-    };
-  </script>
+  <style>
+    body { background: #f3f4f6; }
+
+    .layout { padding-left: 16rem; transition: padding-left .2s ease; }
+    .layout.menu-collapsed { padding-left: 5.25rem; }
+    @media (max-width: 768px) {
+      .layout, .layout.menu-collapsed { padding-left: 0 !important; }
+    }
+
+    .orders-grid {
+      display: grid;
+      align-items: center;
+      gap: .65rem;
+      width: 100%;
+    }
+
+    .orders-grid.cols {
+      grid-template-columns:
+        140px
+        92px
+        minmax(170px, 1.2fr)
+        90px
+        160px
+        minmax(120px, 0.9fr)
+        minmax(160px, 1fr)
+        44px
+        140px
+        minmax(190px, 1fr)
+        130px;
+    }
+
+    .orders-grid > div { min-width: 0; }
+    .table-scroll { overflow-x: auto; }
+  </style>
 </head>
 
-<body class="bg-slate-100 text-slate-900">
+<body class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 overflow-x-hidden">
 
-<!-- LOADER GLOBAL -->
-<div id="globalLoader" class="hidden fixed inset-0 z-50 bg-black/30 flex items-center justify-center">
-  <div class="bg-white px-6 py-4 rounded-2xl shadow-xl font-extrabold">
-    Cargando…
-  </div>
-</div>
+<?= view('layouts/menu') ?>
 
-<!-- CONTENEDOR -->
-<div class="max-w-[1600px] mx-auto p-6">
+<main id="mainLayout" class="layout">
+  <div class="p-4 sm:p-6 lg:p-8">
+    <div class="mx-auto w-full max-w-[1600px]">
 
-  <!-- HEADER -->
-  <div class="flex items-center justify-between mb-6">
-    <div>
-      <h1 class="text-2xl font-extrabold">Confirmación</h1>
-      <p class="text-slate-500 text-sm">Pedidos asignados en estado <b>Por preparar</b></p>
+      <!-- HEADER -->
+      <section class="mb-6">
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex justify-between items-center gap-4">
+          <div>
+            <h1 class="text-3xl font-extrabold text-slate-900">Confirmación</h1>
+            <p class="text-slate-500 mt-1">
+              Pedidos asignados en estado <b>Por preparar</b>
+            </p>
+          </div>
+
+          <span class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
+            Pedidos: <span id="total-pedidos">0</span>
+          </span>
+        </div>
+      </section>
+
+      <!-- LISTADO -->
+      <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+          <div class="font-semibold text-slate-900">Listado de pedidos</div>
+
+          <div class="flex gap-2">
+            <button id="btnTraer5"
+              class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800">
+              Traer 5
+            </button>
+
+            <button id="btnTraer10"
+              class="px-4 py-2 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800">
+              Traer 10
+            </button>
+
+            <button id="btnDevolver"
+              class="px-4 py-2 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-700">
+              Devolver
+            </button>
+          </div>
+        </div>
+
+        <div class="table-scroll">
+          <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
+            <div>Pedido</div>
+            <div>Fecha</div>
+            <div>Cliente</div>
+            <div>Total</div>
+            <div>Estado</div>
+            <div>Último cambio</div>
+            <div>Etiquetas</div>
+            <div class="text-center">Art</div>
+            <div>Entrega</div>
+            <div>Método</div>
+            <div class="text-right">Ver</div>
+          </div>
+
+          <div id="tablaPedidos" class="divide-y"></div>
+        </div>
+      </section>
+
     </div>
-
-    <div class="flex gap-2">
-      <button id="btnTraer5"
-        class="px-4 py-2 rounded-xl bg-slate-900 text-white font-extrabold hover:bg-slate-800">
-        Traer 5
-      </button>
-      <button id="btnTraer10"
-        class="px-4 py-2 rounded-xl bg-slate-900 text-white font-extrabold hover:bg-slate-800">
-        Traer 10
-      </button>
-      <button id="btnDevolver"
-        class="px-4 py-2 rounded-xl bg-rose-600 text-white font-extrabold hover:bg-rose-700">
-        Devolver
-      </button>
-    </div>
   </div>
-
-  <!-- LISTADO -->
-  <div class="bg-white rounded-3xl shadow-sm overflow-hidden">
-    <div class="px-4 py-3 border-b bg-slate-50 text-xs font-extrabold uppercase grid grid-cols-11 gap-2">
-      <div>Pedido</div>
-      <div>Fecha</div>
-      <div>Cliente</div>
-      <div>Total</div>
-      <div>Estado</div>
-      <div>Últ. cambio</div>
-      <div>Etiquetas</div>
-      <div class="text-center">Art.</div>
-      <div>Entrega</div>
-      <div>Método</div>
-      <div class="text-right">Ver</div>
-    </div>
-
-    <div id="tablaPedidos"></div>
-  </div>
-
-  <!-- FOOTER -->
-  <div class="mt-4 text-sm text-slate-600">
-    Total pedidos: <b id="total-pedidos">0</b>
-  </div>
-</div>
+</main>
 
 <!-- =====================================================
-  MODAL DETALLES FULL
+     MODAL DETALLES FULL (MISMO QUE DASHBOARD)
 ===================================================== -->
 <div id="modalDetallesFull"
      class="hidden fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto">
@@ -118,10 +149,8 @@
     <!-- BODY -->
     <div class="p-6 space-y-6">
 
-      <!-- RESUMEN -->
       <div id="detResumen" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"></div>
 
-      <!-- CLIENTE / ENVÍO -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <h3 class="font-extrabold mb-2">Cliente</h3>
@@ -133,7 +162,6 @@
         </div>
       </div>
 
-      <!-- PRODUCTOS -->
       <div>
         <h3 class="font-extrabold mb-2">
           Productos (<span id="detItemsCount">0</span>)
@@ -141,21 +169,45 @@
         <div id="detItems" class="space-y-4"></div>
       </div>
 
-      <!-- TOTALES -->
       <div>
         <h3 class="font-extrabold mb-2">Totales</h3>
         <div id="detTotales"></div>
       </div>
 
-      <!-- JSON DEBUG -->
       <pre id="detJson"
            class="hidden bg-slate-900 text-emerald-200 text-xs p-4 rounded-2xl overflow-auto max-h-[400px]"></pre>
     </div>
   </div>
 </div>
 
-<!-- JS -->
-<script src="/assets/js/confirmacion.js?v=<?= time() ?>"></script>
+<!-- LOADER -->
+<div id="globalLoader" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-[100]">
+  <div class="bg-white p-6 rounded-3xl shadow-xl text-center">
+    <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+    <p class="mt-3 font-semibold">Cargando…</p>
+  </div>
+</div>
+
+<!-- API -->
+<script>
+window.API = {
+  myQueue: "<?= site_url('confirmacion/my-queue') ?>",
+  pull: "<?= site_url('confirmacion/pull') ?>",
+  returnAll: "<?= site_url('confirmacion/return-all') ?>",
+  detalles: "<?= site_url('dashboard/detalles') ?>"
+};
+</script>
+
+<script src="<?= base_url('js/confirmacion.js?v=' . time()) ?>"></script>
+
+<script>
+(function () {
+  const main = document.getElementById('mainLayout');
+  if (localStorage.getItem('menuCollapsed') === '1') {
+    main.classList.add('menu-collapsed');
+  }
+})();
+</script>
 
 </body>
 </html>
