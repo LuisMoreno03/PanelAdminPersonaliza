@@ -117,6 +117,7 @@ $routes->post('confirmacion/return-all', 'ConfirmacionController::returnAll');
 // subir imágenes (cuadros/llaveros) y auto-cambiar estado a Confirmado si corresponde
 $routes->post('confirmacion/upload', 'ConfirmacionController::uploadConfirmacion');
 $routes->get('confirmacion/list', 'ConfirmacionController::listFiles');
+$routes->get('confirmacion/detalles/(:any)', 'ConfirmacionController::detalles/$1');
 
 
 /*

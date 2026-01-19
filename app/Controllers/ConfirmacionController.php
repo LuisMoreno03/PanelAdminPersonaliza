@@ -235,4 +235,63 @@ class ConfirmacionController extends BaseController
             return $this->response->setJSON(['ok' => false]);
         }
     }
+    // =========================
+// GET /confirmacion/detalles/{id}
+// =========================
+public function detalles($orderId = null)
+{
+    if (!session()->get('logged_in')) {
+        return $this->response
+            ->setStatusCode(401)
+            ->setJSON(['success' => false, 'error' => 'No autenticado']);
+    }
+
+    if (!$orderId) {
+        return $this->response
+            ->setStatusCode(400)
+            ->setJSON(['success' => false, 'error' => 'ID inválido']);
+    }
+
+    try {
+        $db = \Config\Database::connect();
+
+        // 🔹 Pedido base
+        $pedido = $db->table('pedidos')
+            ->where('id', $orderId)
+            ->orWhere('shopify_order_id', $orderId)
+            ->get()
+            ->getRowArray();
+
+        if (!$pedido) {
+            return $this->response
+                ->setStatusCode(404)
+                ->setJSON(['success' => false, 'error' => 'Pedido no encontrado']);
+        }
+
+        // 🔹 Aquí reutilizas EXACTAMENTE la misma lógica
+        // que ya usabas en dashboard/detalles
+        // (Shopify, line_items, imágenes, etc.)
+
+        // ⚠️ EJEMPLO BÁSICO (ajústalo a tu implementación real)
+        $orderJson = json_decode($pedido['pedido_json'] ?? '{}', true);
+
+        return $this->response->setJSON([
+            'success' => true,
+            'order'   => $orderJson,
+            'imagenes_locales' => json_decode($pedido['imagenes_locales'] ?? '{}', true),
+            'product_images'   => json_decode($pedido['product_images'] ?? '{}', true),
+        ]);
+
+    } catch (\Throwable $e) {
+        log_message('error', 'Confirmacion detalles ERROR: ' . $e->getMessage());
+
+        return $this->response
+            ->setStatusCode(500)
+            ->setJSON([
+                'success' => false,
+                'error' => 'Error cargando detalles'
+            ]);
+    }
+}
+
 }

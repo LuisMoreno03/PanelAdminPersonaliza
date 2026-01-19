@@ -206,6 +206,7 @@ async function devolverPedidos() {
 /* =====================================================
    VER DETALLES (INDEPENDIENTE)
 ===================================================== */
+
 async function verDetalles(orderId) {
   if (!orderId) return;
 
