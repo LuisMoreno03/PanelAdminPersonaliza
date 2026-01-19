@@ -1,5 +1,5 @@
 /**
- * confirmacion.js — FINAL DEFINITIVO (FIX)
+ * confirmacion.js — FINAL DEFINITIVO (FIX REAL)
  * ✔ Render tipo Shopify (producto + ids + personalización + imágenes)
  * ✔ Imagen producto desde Shopify (product_images)
  * ✔ Imagen cliente desde properties (si existe)
@@ -25,7 +25,7 @@ let imagenesRequeridas = [];
 let imagenesCargadas = [];
 let pedidoActualId = null;
 
-// ✅ para que subirImagenProducto pueda actualizar sin perder contexto
+// para que subirImagenProducto pueda actualizar sin perder contexto
 let DET_IMAGENES_LOCALES = {};
 let DET_PRODUCT_IMAGES = {};
 let DET_ORDER = null;
@@ -75,7 +75,7 @@ function extraerLineItems(order) {
       variant_id: i.variant_id ?? null,
       variant_title: i.variant_title || "",
       sku: i.sku || "",
-      image: i.image?.src || i.featured_image?.src || "", // normalmente no viene en REST
+      image: i.image?.src || i.featured_image?.src || "",
       properties: Array.isArray(i.properties) ? i.properties : [],
     }));
   }
@@ -112,7 +112,6 @@ function isLlaveroItem(item) {
 function requiereImagenModificada(item) {
   const props = Array.isArray(item?.properties) ? item.properties : [];
   const tieneImagenCliente = props.some((p) => esImagenUrl(p?.value));
-  // ✅ llavero siempre requiere (aunque no haya imagen)
   return isLlaveroItem(item) || tieneImagenCliente;
 }
 
@@ -156,6 +155,8 @@ function renderPedidos(pedidos) {
         ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-100 border border-emerald-200 text-emerald-900 font-extrabold">Fulfilled</span>`
         : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100">Unfulfilled</span>`;
 
+    const oid = String(p.shopify_order_id || p.id || "");
+
     row.innerHTML = `
       <div class="font-extrabold">${escapeHtml(numero)}</div>
       <div>${escapeHtml(fecha || "—")}</div>
@@ -168,7 +169,7 @@ function renderPedidos(pedidos) {
       <div>${envioPill}</div>
       <div class="truncate">${escapeHtml(p.forma_envio || "-")}</div>
       <div class="text-right">
-        <button type="button" onclick="verDetalles('${escapeHtml(p.shopify_order_id || p.id)}')"
+        <button type="button" onclick="verDetalles('${escapeHtml(oid)}')"
           class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
           Ver detalles →
         </button>
@@ -211,23 +212,19 @@ async function traerPedidos(n) {
       method: "POST",
       headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
       body: JSON.stringify({ count: n }),
-      credentials: "same-origin"
+      credentials: "same-origin",
     });
 
-    const d = await r.json().catch(() => null);
+    await r.json().catch(() => null);
 
-    // Si asignó, recargar cola SIEMPRE
+    // ✅ pull NO devuelve pedidos: SIEMPRE recarga
     await cargarMiCola();
-
-    // Opcional: feedback
-    if (d?.ok) console.log("Assigned:", d.assigned);
   } catch (e) {
     console.error("pull error", e);
   } finally {
     setLoader(false);
   }
 }
-
 
 async function devolverPedidos() {
   if (!confirm("¿Devolver todos los pedidos?")) return;
@@ -273,7 +270,6 @@ window.verDetalles = async function (orderId) {
   setHtmlSafe("detProductos", `<div class="p-6 text-slate-500">Cargando productos…</div>`);
   setHtmlSafe("detResumen", `<div class="text-slate-500">Cargando…</div>`);
 
-  // reset globals
   imagenesRequeridas = [];
   imagenesCargadas = [];
   DET_IMAGENES_LOCALES = {};
@@ -316,7 +312,7 @@ window.verDetalles = async function (orderId) {
 function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   const items = extraerLineItems(order);
 
-  // ✅ importantísimo: guardar para que subirImagenProducto no pierda estado
+  // guardar contexto global
   DET_IMAGENES_LOCALES = imagenesLocales || {};
   DET_PRODUCT_IMAGES = productImages || {};
   DET_ORDER = order;
@@ -324,7 +320,8 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   imagenesRequeridas = [];
   imagenesCargadas = [];
 
-  // Header
+  const orderIdReal = String(order?.id || pedidoActualId || "");
+
   const titulo = order?.name || order?.numero || ("#" + (order?.order_number || order?.id || ""));
   setTextSafe("detTitulo", `Pedido ${titulo}`);
 
@@ -347,11 +344,9 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   };
 
   function getProductImg(item) {
-    // 1) si ya viene directo
     const direct = String(item?.image || item?.image_url || item?.featured_image || "").trim();
     if (direct) return direct;
 
-    // 2) map por product_id (lo que tú ya tienes en `product_images`)
     const pid = item?.product_id != null ? String(item.product_id) : "";
     if (pid && productImages && productImages[pid]) return String(productImages[pid]);
 
@@ -394,7 +389,7 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
       imagenesCargadas[i] = !!imgMod;
 
       const { imgs: propsImg, txt: propsTxt } = separarProps(item.properties);
-      const imgCliente = propsImg.length ? String(propsImg[0].value || "") : ""; // ✅ FIX: antes estabas usando imgCliente sin definir
+      const imgCliente = propsImg.length ? String(propsImg[0].value || "") : "";
 
       const imgProducto = getProductImg(item);
       const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
@@ -465,9 +460,9 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
           <div class="mt-4">
             <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
             <input type="file" accept="image/*"
-              onchange="subirImagenProducto('${String(order.id)}', ${i}, this)"
+              onchange="subirImagenProducto('${orderIdReal}', ${i}, this)"
               class="w-full border border-slate-200 rounded-2xl p-2">
-            <div id="preview_${String(order.id)}_${i}" class="mt-2"></div>
+            <div id="preview_${orderIdReal}_${i}" class="mt-2"></div>
           </div>
         `
         : "";
@@ -504,11 +499,11 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
                 <div class="min-w-0">
                   <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title)}</div>
                   <div class="text-sm text-slate-600 mt-1">
-                    Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price.toFixed(2))} €</b> · Total: <b>${escapeHtml(total.toFixed(2))} €</b>
+                    Cant: <b>${qty}</b> · Precio: <b>${price.toFixed(2)} €</b> · Total: <b>${total.toFixed(2)} €</b>
                   </div>
                 </div>
 
-                <div id="badge_item_${String(order.id)}_${i}">
+                <div id="badge_item_${orderIdReal}_${i}">
                   ${badgeHtml}
                 </div>
               </div>
@@ -517,9 +512,6 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
               ${propsTxtHtml}
               ${imgClienteHtml}
               ${imgModHtml}
-
-              <!-- ✅ Preview (cache-buster) -->
-              <div id="preview_${String(order.id)}_${i}" class="mt-2"></div>
 
               ${uploadHtml}
             </div>
@@ -583,11 +575,9 @@ window.subirImagenProducto = async function (orderId, index, input) {
         if (!ok) throw new Error(d?.message || `HTTP ${r.status}`);
 
         const urlFinal = String(d.url);
-
-        // ✅ cache-buster para que SIEMPRE se vea al instante
         const bust = urlFinal + (urlFinal.includes("?") ? "&" : "?") + "t=" + Date.now();
 
-        // ✅ 1) Preview inmediato
+        // ✅ Preview inmediato
         const prev = document.getElementById(`preview_${orderId}_${index}`);
         if (prev) {
           prev.innerHTML = `
@@ -601,27 +591,25 @@ window.subirImagenProducto = async function (orderId, index, input) {
           `;
         }
 
-        // ✅ 2) Marcar cargada
-        imagenesCargadas[index] = true;
-        imagenesRequeridas[index] = imagenesRequeridas[index] === true;
+        // ✅ Marcar cargada SOLO si era requerida
+        if (imagenesRequeridas[index] === true) {
+          imagenesCargadas[index] = true;
+        }
 
-        // ✅ 3) Guardar en locales (para re-render si hace falta)
+        // Guardar en memoria local
         if (!DET_IMAGENES_LOCALES || typeof DET_IMAGENES_LOCALES !== "object") DET_IMAGENES_LOCALES = {};
         DET_IMAGENES_LOCALES[index] = urlFinal;
 
-        // ✅ 4) Badge del item a "Listo"
+        // ✅ Badge a Listo
         const badge = document.getElementById(`badge_item_${orderId}_${index}`);
         if (badge) {
           badge.innerHTML = `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`;
         }
 
-        // ✅ 5) Resumen derecha
         actualizarResumenAuto();
 
-        // ✅ 6) Auto-estado (y si queda Confirmado => se quita)
         await window.validarEstadoAuto(String(orderId));
 
-        // limpiar input (UX)
         try { input.value = ""; } catch {}
 
         return;
@@ -638,11 +626,15 @@ window.subirImagenProducto = async function (orderId, index, input) {
 };
 
 /* =====================================================
-   RESUMEN
+   RESUMEN (CORRECTO: cuenta SOLO las requeridas)
 ===================================================== */
 function actualizarResumenAuto() {
-  const total = imagenesRequeridas.filter(Boolean).length;
-  const ok = imagenesCargadas.filter(Boolean).length;
+  const req = Array.isArray(imagenesRequeridas) ? imagenesRequeridas : [];
+  const okArr = Array.isArray(imagenesCargadas) ? imagenesCargadas : [];
+
+  const idxReq = req.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
+  const total = idxReq.length;
+  const ok = idxReq.filter((i) => okArr[i] === true).length;
 
   setHtmlSafe(
     "detResumen",
@@ -698,8 +690,6 @@ window.guardarEstado = async function (orderId, nuevoEstado) {
 
 /* =====================================================
    AUTO-ESTADO
-   - si falta alguna => "Faltan archivos" (se queda en la lista)
-   - si están todas => "Confirmado" (se quita de la lista)
 ===================================================== */
 window.validarEstadoAuto = async function (orderId) {
   try {
@@ -707,13 +697,13 @@ window.validarEstadoAuto = async function (orderId) {
     if (!oid) return;
 
     const req = Array.isArray(imagenesRequeridas) ? imagenesRequeridas : [];
-    const ok = Array.isArray(imagenesCargadas) ? imagenesCargadas : [];
+    const okArr = Array.isArray(imagenesCargadas) ? imagenesCargadas : [];
 
     const requiredIdx = req.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
     const requiredCount = requiredIdx.length;
-    if (requiredCount < 1) return; // no requiere -> no forzar estado
+    if (requiredCount < 1) return;
 
-    const uploadedCount = requiredIdx.filter((i) => ok[i] === true).length;
+    const uploadedCount = requiredIdx.filter((i) => okArr[i] === true).length;
     const faltaAlguna = uploadedCount < requiredCount;
 
     const nuevoEstado = faltaAlguna ? "Faltan archivos" : "Confirmado";
@@ -724,32 +714,16 @@ window.validarEstadoAuto = async function (orderId) {
       : null;
 
     const estadoActual = String(pedidoLocal?.estado || "").toLowerCase().trim();
-    if (nuevoEstado.toLowerCase().includes("faltan") && estadoActual.includes("faltan")) {
-      actualizarResumenAuto();
-      return;
-    }
-    if (nuevoEstado.toLowerCase().includes("confirm") && estadoActual.includes("confirm")) {
-      actualizarResumenAuto();
-      return;
-    }
+    if (nuevoEstado.toLowerCase().includes("faltan") && estadoActual.includes("faltan")) return;
+    if (nuevoEstado.toLowerCase().includes("confirm") && estadoActual.includes("confirm")) return;
 
     const saved = await window.guardarEstado(oid, nuevoEstado);
-
-    // actualiza cache local rápido
     if (pedidoLocal) pedidoLocal.estado = nuevoEstado;
 
-    actualizarResumenAuto();
+    await cargarMiCola();
 
-    // si falta, se queda
-    if (faltaAlguna) {
-      await cargarMiCola(); // refresca pills en la lista
-      return;
-    }
-
-    // si confirmado, quitar de la lista
-    if (saved && nuevoEstado === "Confirmado") {
-      await cargarMiCola();          // ✅ recarga cola (ya no debe venir)
-      cerrarModalDetalles();         // opcional (tú lo querías)
+    if (!faltaAlguna && saved) {
+      cerrarModalDetalles();
     }
   } catch (e) {
     console.error("validarEstadoAuto error:", e);

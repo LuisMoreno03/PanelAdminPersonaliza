@@ -6,9 +6,6 @@ use App\Controllers\BaseController;
 
 class ConfirmacionController extends BaseController
 {
-    /* =====================================================
-      INDEX
-    ===================================================== */
     public function index()
     {
         return view('confirmacion');
@@ -27,22 +24,19 @@ class ConfirmacionController extends BaseController
             $userId = (int) session('user_id');
             $db = \Config\Database::connect();
 
-            // ✅ Detectar columnas reales para no romper
-            $hasEstadoEnvio = $db->fieldExists('estado_envio', 'pedidos');
-            $hasFulfillment = $db->fieldExists('fulfillment_status', 'pedidos');
+            // columnas de pedidos
+            $pedidoFields = $db->getFieldNames('pedidos') ?? [];
+            $hasEstadoEnvio = in_array('estado_envio', $pedidoFields, true);
+            $hasFulfillment = in_array('fulfillment_status', $pedidoFields, true);
 
-            // pedidos_estado columnas posibles
-            $hasPeUserName = $db->fieldExists('user_name', 'pedidos_estado');
-            $hasPeUpdatedBy = $db->fieldExists('estado_updated_by_name', 'pedidos_estado');
+            // columnas de pedidos_estado
+            $peFields = $db->getFieldNames('pedidos_estado') ?? [];
+            $hasPeUserName = in_array('user_name', $peFields, true);
+            $hasPeUpdatedBy = in_array('estado_updated_by_name', $peFields, true);
 
-            // ✅ Elegir columna correcta para "estado_por"
-            if ($hasPeUpdatedBy) {
-                $estadoPorSelect = 'pe.estado_updated_by_name as estado_por';
-            } elseif ($hasPeUserName) {
-                $estadoPorSelect = 'pe.user_name as estado_por';
-            } else {
-                $estadoPorSelect = 'NULL as estado_por';
-            }
+            $estadoPorSelect = $hasPeUpdatedBy
+                ? 'pe.estado_updated_by_name as estado_por'
+                : ($hasPeUserName ? 'pe.user_name as estado_por' : 'NULL as estado_por');
 
             $q = $db->table('pedidos p')
                 ->select("p.*, COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect", false)
@@ -50,22 +44,22 @@ class ConfirmacionController extends BaseController
                 ->where('p.assigned_to_user_id', $userId)
                 ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar');
 
-            // ✅ FILTRO: SOLO UNFULFILLED (si existe la columna)
+            // ✅ FILTRO: SOLO UNFULFILLED (NULL / '' / unfulfilled)
             if ($hasEstadoEnvio) {
                 $q->groupStart()
                     ->where('p.estado_envio IS NULL', null, false)
-                    ->orWhere("LOWER(TRIM(p.estado_envio))", 'unfulfilled')
+                    ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
+                    ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
                 ->groupEnd();
             } elseif ($hasFulfillment) {
                 $q->groupStart()
                     ->where('p.fulfillment_status IS NULL', null, false)
-                    ->orWhere("LOWER(TRIM(p.fulfillment_status))", 'unfulfilled')
+                    ->orWhere("TRIM(COALESCE(p.fulfillment_status,'')) = ''", null, false)
+                    ->orWhere("LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'", null, false)
                 ->groupEnd();
             }
 
-            $rows = $q->orderBy('p.created_at', 'ASC')
-                ->get()
-                ->getResultArray();
+            $rows = $q->orderBy('p.created_at', 'ASC')->get()->getResultArray();
 
             return $this->response->setJSON([
                 'ok' => true,
@@ -73,9 +67,7 @@ class ConfirmacionController extends BaseController
             ]);
 
         } catch (\Throwable $e) {
-            log_message('error', 'myQueue() error: '.$e->getMessage());
-
-            // ✅ para que lo veas en Network > Response
+            log_message('error', 'myQueue() error: '.$e->getMessage().' in '.$e->getFile().':'.$e->getLine());
             return $this->response->setStatusCode(500)->setJSON([
                 'ok' => false,
                 'message' => $e->getMessage(),
@@ -108,29 +100,28 @@ class ConfirmacionController extends BaseController
             $db  = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // ✅ detectar columnas SIN fieldExists (más estable)
-            $fields = $db->getFieldNames('pedidos') ?? [];
-            $hasFulfillment = in_array('fulfillment_status', $fields, true);
-            $hasEstadoEnvio = in_array('estado_envio', $fields, true);
+            $pedidoFields = $db->getFieldNames('pedidos') ?? [];
+            $hasFulfillment = in_array('fulfillment_status', $pedidoFields, true);
+            $hasEstadoEnvio = in_array('estado_envio', $pedidoFields, true);
 
             $q = $db->table('pedidos p')
                 ->select('p.id, p.shopify_order_id')
                 ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
                 ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
-                ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)');
+                ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)', null, false);
 
-            // ✅ SOLO pedidos NO enviados (Shopify: NULL / '' / unfulfilled)
+            // ✅ SOLO NO ENVIADOS (NULL / '' / unfulfilled)
             if ($hasFulfillment) {
                 $q->groupStart()
-                        ->where('p.fulfillment_status IS NULL', null, false)
-                        ->orWhere("TRIM(COALESCE(p.fulfillment_status,'')) = ''", null, false)
-                        ->orWhere("LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'", null, false)
+                    ->where('p.fulfillment_status IS NULL', null, false)
+                    ->orWhere("TRIM(COALESCE(p.fulfillment_status,'')) = ''", null, false)
+                    ->orWhere("LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'", null, false)
                 ->groupEnd();
             } elseif ($hasEstadoEnvio) {
                 $q->groupStart()
-                        ->where('p.estado_envio IS NULL', null, false)
-                        ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
-                        ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
+                    ->where('p.estado_envio IS NULL', null, false)
+                    ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
+                    ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
                 ->groupEnd();
             } else {
                 log_message('warning', 'pull(): no existe fulfillment_status ni estado_envio en pedidos');
@@ -175,19 +166,15 @@ class ConfirmacionController extends BaseController
             ]);
 
         } catch (\Throwable $e) {
-            log_message('error', 'pull() error: {msg} in {file}:{line}', [
-                'msg'  => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ]);
-
+            log_message('error', 'pull() error: '.$e->getMessage().' in '.$e->getFile().':'.$e->getLine());
             return $this->response->setStatusCode(500)->setJSON([
                 'ok' => false,
                 'message' => $e->getMessage(),
+                'file' => basename($e->getFile()),
+                'line' => $e->getLine(),
             ]);
         }
     }
-
 
     /* =====================================================
       POST /confirmacion/return-all
@@ -199,9 +186,7 @@ class ConfirmacionController extends BaseController
         }
 
         $userId = (int) session('user_id');
-        if ($userId <= 0) {
-            return $this->response->setJSON(['ok' => false]);
-        }
+        if ($userId <= 0) return $this->response->setJSON(['ok' => false]);
 
         \Config\Database::connect()
             ->table('pedidos')
@@ -218,81 +203,69 @@ class ConfirmacionController extends BaseController
       GET /confirmacion/detalles/{id}
     ===================================================== */
     public function detalles($id = null)
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setStatusCode(401)->setJSON([
-            'success' => false,
-            'message' => 'No autenticado'
-        ]);
-    }
-
-    if (!$id) {
-        return $this->response->setStatusCode(400)->setJSON([
-            'success' => false,
-            'message' => 'ID inválido'
-        ]);
-    }
-
-    try {
-        $db = \Config\Database::connect();
-
-        // 1️⃣ Buscar pedido por ID interno o Shopify ID
-        $pedido = $db->table('pedidos')
-            ->groupStart()
-                ->where('id', $id)
-                ->orWhere('shopify_order_id', $id)
-            ->groupEnd()
-            ->get()
-            ->getRowArray();
-
-        if (!$pedido) {
-            return $this->response->setStatusCode(404)->setJSON([
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
                 'success' => false,
-                'message' => 'Pedido no encontrado'
+                'message' => 'No autenticado'
             ]);
         }
 
-        // 2️⃣ Usar SIEMPRE el JSON guardado (el mismo del dashboard)
-        $orderJson = json_decode($pedido['pedido_json'] ?? '', true);
+        if (!$id) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'success' => false,
+                'message' => 'ID inválido'
+            ]);
+        }
 
-        if (
-            empty($orderJson) ||
-            (
-                empty($orderJson['line_items']) &&
-                empty($orderJson['lineItems'])
-            )
-        ) {
+        try {
+            $db = \Config\Database::connect();
+
+            $pedido = $db->table('pedidos')
+                ->groupStart()
+                    ->where('id', $id)
+                    ->orWhere('shopify_order_id', $id)
+                ->groupEnd()
+                ->get()
+                ->getRowArray();
+
+            if (!$pedido) {
+                return $this->response->setStatusCode(404)->setJSON([
+                    'success' => false,
+                    'message' => 'Pedido no encontrado'
+                ]);
+            }
+
+            $orderJson = json_decode($pedido['pedido_json'] ?? '', true);
+
+            if (empty($orderJson)) {
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Pedido sin JSON guardado'
+                ]);
+            }
+
+            $imagenesLocales = json_decode($pedido['imagenes_locales'] ?? '[]', true);
+            $productImages   = json_decode($pedido['product_images'] ?? '{}', true);
+
             return $this->response->setJSON([
+                'success' => true,
+                'order' => $orderJson,
+                'imagenes_locales' => is_array($imagenesLocales) ? $imagenesLocales : [],
+                'product_images' => is_array($productImages) ? $productImages : [],
+            ]);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'Confirmacion detalles ERROR: '.$e->getMessage().' in '.$e->getFile().':'.$e->getLine());
+            return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
-                'message' => 'Pedido sin productos'
+                'message' => $e->getMessage()
             ]);
         }
-
-        // 3️⃣ Cargar imágenes locales y de producto
-        $imagenesLocales = json_decode($pedido['imagenes_locales'] ?? '[]', true);
-        $productImages  = json_decode($pedido['product_images'] ?? '{}', true);
-
-        return $this->response->setJSON([
-            'success' => true,
-            'order' => $orderJson,              // 👈 PEDIDO COMPLETO
-            'imagenes_locales' => is_array($imagenesLocales) ? $imagenesLocales : [],
-            'product_images' => is_array($productImages) ? $productImages : [],
-        ]);
-
-    } catch (\Throwable $e) {
-        log_message('error', 'Confirmacion detalles ERROR: ' . $e->getMessage());
-
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'message' => 'Error interno cargando detalles'
-        ]);
     }
-}
-
 
     /* =====================================================
-      🔥 POST /api/pedidos/imagenes/subir
-      (USADO POR CONFIRMACIÓN)
+      POST /api/pedidos/imagenes/subir
     ===================================================== */
     public function subirImagen()
     {
@@ -305,7 +278,7 @@ class ConfirmacionController extends BaseController
         $file    = $this->request->getFile('file');
 
         if (!$orderId || !$file || !$file->isValid()) {
-            return $this->response->setJSON(['success' => false]);
+            return $this->response->setJSON(['success' => false, 'message' => 'Archivo inválido']);
         }
 
         $name = $file->getRandomName();
@@ -320,18 +293,18 @@ class ConfirmacionController extends BaseController
             ->getRowArray();
 
         if (!$pedido) {
-            return $this->response->setJSON(['success' => false]);
+            return $this->response->setJSON(['success' => false, 'message' => 'Pedido no encontrado']);
         }
 
-        $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
+        $imagenes = json_decode($pedido['imagenes_locales'] ?? '[]', true);
+        if (!is_array($imagenes)) $imagenes = [];
         $imagenes[$index] = $url;
 
         $db->table('pedidos')
             ->where('shopify_order_id', $orderId)
             ->update(['imagenes_locales' => json_encode($imagenes)]);
 
-        // 🔁 VALIDAR ESTADO AUTOMÁTICO
-        $this->validarEstadoAutomatico($pedido['id'], $pedido['shopify_order_id']);
+        $this->validarEstadoAutomatico((int)$pedido['id'], (string)$pedido['shopify_order_id']);
 
         return $this->response->setJSON([
             'success' => true,
@@ -340,31 +313,39 @@ class ConfirmacionController extends BaseController
     }
 
     /* =====================================================
-      🧠 ESTADO AUTOMÁTICO REAL
+      ESTADO AUTOMÁTICO (con UPSERT + soporta REST/GraphQL)
     ===================================================== */
-    private function validarEstadoAutomatico($pedidoId, $shopifyId)
+    private function validarEstadoAutomatico(int $pedidoId, string $shopifyId)
     {
         $db = \Config\Database::connect();
 
-        $pedido = $db->table('pedidos')
-            ->where('id', $pedidoId)
-            ->get()
-            ->getRowArray();
-
+        $pedido = $db->table('pedidos')->where('id', $pedidoId)->get()->getRowArray();
         if (!$pedido) return;
 
-        $order = json_decode($pedido['pedido_json'], true);
-        $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
+        $order = json_decode($pedido['pedido_json'] ?? '', true);
+        $imagenes = json_decode($pedido['imagenes_locales'] ?? '[]', true);
+        if (!is_array($imagenes)) $imagenes = [];
+
+        $items = [];
+
+        // REST
+        if (!empty($order['line_items']) && is_array($order['line_items'])) {
+            $items = $order['line_items'];
+        }
+        // GraphQL
+        elseif (!empty($order['lineItems']['edges']) && is_array($order['lineItems']['edges'])) {
+            foreach ($order['lineItems']['edges'] as $edge) {
+                if (!empty($edge['node'])) $items[] = $edge['node'];
+            }
+        }
 
         $requeridas = 0;
         $cargadas   = 0;
 
-        foreach ($order['line_items'] as $i => $item) {
+        foreach ($items as $i => $item) {
             if ($this->requiereImagen($item)) {
                 $requeridas++;
-                if (!empty($imagenes[$i])) {
-                    $cargadas++;
-                }
+                if (!empty($imagenes[$i])) $cargadas++;
             }
         }
 
@@ -372,14 +353,24 @@ class ConfirmacionController extends BaseController
             ? 'Confirmado'
             : 'Faltan archivos';
 
-        // Guardar estado
-        $db->table('pedidos_estado')
+        // ✅ UPSERT en pedidos_estado (si no existe fila, la crea)
+        $existe = $db->table('pedidos_estado')
             ->where('order_id', $shopifyId)
-            ->update([
-                'estado' => $nuevoEstado,
-                'estado_updated_at' => date('Y-m-d H:i:s'),
-                'estado_updated_by_name' => session('nombre') ?? 'Sistema'
-            ]);
+            ->countAllResults();
+
+        $dataEstado = [
+            'order_id' => $shopifyId,
+            'estado' => $nuevoEstado,
+            'estado_updated_at' => date('Y-m-d H:i:s'),
+            'estado_updated_by_name' => session('nombre') ?? 'Sistema'
+        ];
+
+        if ($existe) {
+            $db->table('pedidos_estado')->where('order_id', $shopifyId)->update($dataEstado);
+        } else {
+            // si tu tabla NO tiene estas columnas extra, quítalas aquí.
+            $db->table('pedidos_estado')->insert($dataEstado);
+        }
 
         // Confirmado → liberar pedido
         if ($nuevoEstado === 'Confirmado') {
@@ -393,20 +384,30 @@ class ConfirmacionController extends BaseController
     }
 
     /* =====================================================
-      REGLAS IMAGEN
+      REGLAS IMAGEN (soporta REST + GraphQL)
     ===================================================== */
     private function requiereImagen(array $item): bool
     {
-        $title = strtolower($item['title'] ?? '');
-        $sku   = strtolower($item['sku'] ?? '');
+        $title = strtolower((string)($item['title'] ?? ''));
+        $sku   = strtolower((string)($item['sku'] ?? ''));
 
         if (str_contains($title, 'llavero') || str_contains($sku, 'llav')) {
             return true;
         }
 
-        foreach ($item['properties'] ?? [] as $p) {
-            if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', (string)($p['value'] ?? ''))) {
-                return true;
+        // REST: properties = array de ['name','value']
+        if (!empty($item['properties']) && is_array($item['properties'])) {
+            foreach ($item['properties'] as $p) {
+                $val = (string)($p['value'] ?? '');
+                if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', $val)) return true;
+            }
+        }
+
+        // GraphQL: customAttributes = array de ['key','value']
+        if (!empty($item['customAttributes']) && is_array($item['customAttributes'])) {
+            foreach ($item['customAttributes'] as $p) {
+                $val = (string)($p['value'] ?? '');
+                if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', $val)) return true;
             }
         }
 
