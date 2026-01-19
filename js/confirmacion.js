@@ -148,6 +148,30 @@ function renderPedidos(pedidos) {
 }
 
 /* =====================================================
+   DEVOLVER PEDIDOS (FIX)
+===================================================== */
+async function devolverPedidos() {
+  if (!confirm("¿Devolver todos los pedidos asignados?")) return;
+
+  setLoader(true);
+
+  try {
+    await fetch(ENDPOINT_RETURN_ALL, {
+      method: "POST",
+      headers: getCsrfHeaders(),
+      credentials: "same-origin"
+    });
+
+    await cargarMiCola();
+  } catch (e) {
+    console.error("Error devolviendo pedidos", e);
+    alert("Error devolviendo pedidos");
+  } finally {
+    setLoader(false);
+  }
+}
+
+/* =====================================================
    CARGAR COLA
 ===================================================== */
 async function cargarMiCola() {
