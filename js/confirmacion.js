@@ -198,20 +198,141 @@ window.cerrarModalDetalles = cerrarModalDetalles;
    DETALLES
 ===================================================== */
 window.verDetalles = async function (orderId) {
-  pedidoActualId = orderId;
+  const id = String(orderId || "");
+  if (!id) return;
+
+  function $(x) { return document.getElementById(x); }
+  function setHtml(id, html) { const el = $(id); if (el) el.innerHTML = html; }
+  function setText(id, txt) { const el = $(id); if (el) el.textContent = txt ?? ""; }
+
   abrirDetallesFull();
-  setTextSafe("detTitulo", "Cargando pedido…");
+
+  setText("detTitle", "Cargando…");
+  setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
+  setText("detItemsCount", "0");
 
   try {
-    const r = await fetch(`${ENDPOINT_DETALLES}/${orderId}`, { credentials: "same-origin" });
+    const r = await fetch(`/dashboard/detalles/${encodeURIComponent(id)}`, {
+      headers: { Accept: "application/json" },
+      credentials: "same-origin"
+    });
+
     const d = await r.json();
-    if (!d?.success) throw "fallback";
-    renderDetalles(d.order, d.imagenes_locales || {});
-  } catch {
-    const pedido = pedidosCache.find(p => String(p.shopify_order_id) === String(orderId));
-    if (pedido) renderDetalles(pedido, {});
+    if (!r.ok || !d?.success) throw d;
+
+    const o = d.order || {};
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+    const imagenesLocales = d.imagenes_locales || {};
+    const productImages = d.product_images || {};
+
+    // HEADER
+    setText("detTitle", `Pedido ${o.name || "#" + id}`);
+    setText(
+      "detSubtitle",
+      o.customer
+        ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
+        : (o.email || "—")
+    );
+
+    // CLIENTE
+    setHtml("detCliente", `
+      <div>
+        <b>${o.customer?.first_name || ""} ${o.customer?.last_name || ""}</b><br>
+        ${o.email || "—"}<br>
+        ${o.phone || "—"}
+      </div>
+    `);
+
+    // ENVÍO
+    const a = o.shipping_address || {};
+    setHtml("detEnvio", `
+      <div>
+        ${a.name || ""}<br>
+        ${a.address1 || ""} ${a.address2 || ""}<br>
+        ${a.zip || ""} ${a.city || ""}<br>
+        ${a.country || ""}
+      </div>
+    `);
+
+    // TOTALES
+    setHtml("detTotales", `
+      <div>
+        Subtotal: ${o.subtotal_price || "0"} €<br>
+        Envío: ${o.total_shipping_price_set?.shop_money?.amount || "0"} €<br>
+        <b>Total: ${o.total_price || "0"} €</b>
+      </div>
+    `);
+
+    // PRODUCTOS
+    window.imagenesLocales = imagenesLocales;
+    window.imagenesRequeridas = [];
+    window.imagenesCargadas = [];
+
+    setText("detItemsCount", lineItems.length);
+
+    const html = lineItems.map((item, index) => {
+      const requiere = requiereImagenModificada(item);
+      const localUrl = imagenesLocales[index] || "";
+
+      window.imagenesRequeridas[index] = requiere;
+      window.imagenesCargadas[index] = !!localUrl;
+
+      const productImg = productImages[item.product_id] || "";
+      const imgCliente = (item.properties || []).find(p => esImagenUrl(p.value))?.value || "";
+
+      return `
+        <div class="rounded-2xl border p-4 mb-3">
+          <div class="flex gap-4">
+            <img src="${productImg}" class="h-16 w-16 object-cover rounded-xl border">
+
+            <div class="flex-1">
+              <div class="flex justify-between">
+                <b>${item.title}</b>
+                <span class="text-xs px-3 py-1 rounded-full ${
+                  requiere
+                    ? localUrl
+                      ? "bg-emerald-100 text-emerald-900"
+                      : "bg-amber-100 text-amber-900"
+                    : "bg-slate-100"
+                }">
+                  ${
+                    requiere
+                      ? localUrl ? "Listo" : "Falta imagen"
+                      : "No requiere"
+                  }
+                </span>
+              </div>
+
+              ${imgCliente ? `
+                <img src="${imgCliente}" class="mt-2 h-28 rounded-xl border">
+              ` : ""}
+
+              ${localUrl ? `
+                <img src="${localUrl}" class="mt-2 h-32 rounded-xl border">
+              ` : requiere ? `
+                <input type="file"
+                  class="mt-2"
+                  accept="image/*"
+                  onchange="subirImagenProducto('${id}', ${index}, this)">
+              ` : ""}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    setHtml("detItems", html);
+
+    if (typeof validarEstadoAuto === "function") {
+      validarEstadoAuto(id);
+    }
+
+  } catch (e) {
+    console.error(e);
+    setHtml("detItems", `<div class="text-red-600">Error cargando detalles</div>`);
   }
 };
+
 
 /* =====================================================
    RENDER DETALLES COMPLETO
