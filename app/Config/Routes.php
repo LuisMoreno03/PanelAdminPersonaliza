@@ -106,13 +106,18 @@ $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection
 
 /*
 |--------------------------------------------------------------------------
-| CONFIRMADOS (VISTA)
+| CONFIRMACIÓN (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->group('confirmados', ['filter' => 'auth'], static function (RouteCollection $routes) {
-    $routes->get('/', 'Confirmados::index');
-    $routes->get('filter', 'Confirmados::filter');
-});
+$routes->get('confirmacion', 'ConfirmacionController::index');
+$routes->get('confirmacion/my-queue', 'ConfirmacionController::myQueue');
+$routes->post('confirmacion/pull', 'ConfirmacionController::pull');
+$routes->post('confirmacion/return-all', 'ConfirmacionController::returnAll');
+
+// subir imágenes (cuadros/llaveros) y auto-cambiar estado a Confirmado si corresponde
+$routes->post('confirmacion/upload', 'ConfirmacionController::uploadConfirmacion');
+$routes->get('confirmacion/list', 'ConfirmacionController::listFiles');
+
 
 /*
 |--------------------------------------------------------------------------
