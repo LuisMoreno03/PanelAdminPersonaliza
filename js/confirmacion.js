@@ -1,14 +1,12 @@
 /**
- * confirmacion.js — FINAL ABSOLUTO (FIXED)
- * - Sin errores null
- * - IDs correctos
- * - Subida imágenes por producto
- * - Llaveros siempre requieren imagen
- * - Estado automático real
+ * confirmacion.js — FINAL ESTABLE FIXED
+ * Compatible con EstadoController.php
+ * Sin null errors
+ * Cierre modal completo
  */
 
 /* =====================================================
-  CONFIG
+   CONFIG
 ===================================================== */
 const API = window.API || {};
 const ENDPOINT_QUEUE = API.myQueue;
@@ -19,10 +17,16 @@ const ENDPOINT_DETALLES = API.detalles;
 let pedidosCache = [];
 let loading = false;
 
+let imagenesRequeridas = [];
+let imagenesCargadas = [];
+let pedidoActualId = null;
+
 /* =====================================================
-  HELPERS
+   HELPERS
 ===================================================== */
-function $(id) { return document.getElementById(id); }
+function $(id) {
+  return document.getElementById(id);
+}
 
 function escapeHtml(str) {
   return String(str ?? "")
@@ -34,40 +38,36 @@ function escapeHtml(str) {
 }
 
 function esImagenUrl(url) {
-  if (!url) return false;
-  return /https?:\/\/.*\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i.test(String(url));
+  return /https?:\/\/.*\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i.test(String(url || ""));
 }
 
 function setLoader(show) {
-  const el = $("globalLoader");
-  if (el) el.classList.toggle("hidden", !show);
+  $("globalLoader")?.classList.toggle("hidden", !show);
 }
 
 function setTextSafe(id, value) {
   const el = $(id);
-  if (!el) return false;
+  if (!el) return;
   el.textContent = value ?? "";
-  return true;
 }
 
 function setHtmlSafe(id, html) {
   const el = $(id);
-  if (!el) return false;
+  if (!el) return;
   el.innerHTML = html ?? "";
-  return true;
 }
 
 /* =====================================================
-  CSRF
+   CSRF
 ===================================================== */
 function getCsrfHeaders() {
-  const token  = document.querySelector('meta[name="csrf-token"]')?.content;
+  const token = document.querySelector('meta[name="csrf-token"]')?.content;
   const header = document.querySelector('meta[name="csrf-header"]')?.content;
   return token && header ? { [header]: token } : {};
 }
 
 /* =====================================================
-  LISTADO
+   LISTADO
 ===================================================== */
 function renderPedidos(pedidos) {
   const wrap = $("tablaPedidos");
@@ -87,7 +87,7 @@ function renderPedidos(pedidos) {
 
     row.innerHTML = `
       <div class="font-extrabold">${escapeHtml(p.numero)}</div>
-      <div>${escapeHtml((p.created_at || "").slice(0,10))}</div>
+      <div>${escapeHtml((p.created_at || "").slice(0, 10))}</div>
       <div class="truncate">${escapeHtml(p.cliente)}</div>
       <div class="font-bold">${Number(p.total).toFixed(2)} €</div>
 
@@ -124,7 +124,7 @@ function renderPedidos(pedidos) {
 }
 
 /* =====================================================
-  CARGAR COLA
+   CARGAR COLA
 ===================================================== */
 async function cargarMiCola() {
   if (loading) return;
@@ -135,15 +135,8 @@ async function cargarMiCola() {
     const r = await fetch(ENDPOINT_QUEUE, { credentials: "same-origin" });
     const d = await r.json();
 
-    if (!r.ok || d.ok !== true) {
-      pedidosCache = [];
-      renderPedidos([]);
-      return;
-    }
-
-    pedidosCache = d.data || [];
+    pedidosCache = (r.ok && d.ok) ? d.data : [];
     renderPedidos(pedidosCache);
-
   } catch (e) {
     console.error(e);
     renderPedidos([]);
@@ -154,43 +147,34 @@ async function cargarMiCola() {
 }
 
 /* =====================================================
-  ACCIONES
+   ACCIONES
 ===================================================== */
 async function traerPedidos(n) {
   setLoader(true);
-  try {
-    await fetch(ENDPOINT_PULL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...getCsrfHeaders()
-      },
-      body: JSON.stringify({ count: n }),
-      credentials: "same-origin"
-    });
-    await cargarMiCola();
-  } finally {
-    setLoader(false);
-  }
+  await fetch(ENDPOINT_PULL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
+    body: JSON.stringify({ count: n }),
+    credentials: "same-origin"
+  });
+  await cargarMiCola();
+  setLoader(false);
 }
 
 async function devolverPedidos() {
   if (!confirm("¿Devolver todos los pedidos asignados?")) return;
   setLoader(true);
-  try {
-    await fetch(ENDPOINT_RETURN_ALL, {
-      method: "POST",
-      headers: getCsrfHeaders(),
-      credentials: "same-origin"
-    });
-    await cargarMiCola();
-  } finally {
-    setLoader(false);
-  }
+  await fetch(ENDPOINT_RETURN_ALL, {
+    method: "POST",
+    headers: getCsrfHeaders(),
+    credentials: "same-origin"
+  });
+  await cargarMiCola();
+  setLoader(false);
 }
 
 /* =====================================================
-  MODAL
+   MODAL
 ===================================================== */
 function abrirDetallesFull() {
   const modal = $("modalDetallesFull");
@@ -206,15 +190,18 @@ function cerrarModalDetalles() {
   document.body.classList.remove("overflow-hidden");
 }
 
+window.cerrarModalDetalles = cerrarModalDetalles;
+
 /* =====================================================
-  DETALLES
+   DETALLES
 ===================================================== */
-window.verDetalles = async function (shopifyOrderId) {
+window.verDetalles = async function (orderId) {
+  pedidoActualId = orderId;
   abrirDetallesFull();
   pintarCargandoDetalles();
 
   try {
-    const r = await fetch(`${ENDPOINT_DETALLES}/${shopifyOrderId}`, {
+    const r = await fetch(`${ENDPOINT_DETALLES}/${orderId}`, {
       headers: { Accept: "application/json" },
       credentials: "same-origin"
     });
@@ -223,7 +210,6 @@ window.verDetalles = async function (shopifyOrderId) {
     if (!r.ok || !d.success) throw new Error(d.message || "Error");
 
     pintarDetallesPedido(d.order, d.imagenes_locales || {});
-
   } catch (e) {
     pintarErrorDetalles(e.message);
   }
@@ -236,19 +222,14 @@ function pintarCargandoDetalles() {
 }
 
 function pintarErrorDetalles(msg) {
-  setHtmlSafe(
-    "detProductos",
-    `<div class="text-rose-600 font-extrabold">${escapeHtml(msg)}</div>`
-  );
+  setHtmlSafe("detProductos", `<div class="text-rose-600 font-extrabold">${escapeHtml(msg)}</div>`);
 }
 
 /* =====================================================
-  REGLAS IMÁGENES
+   REGLAS IMÁGENES
 ===================================================== */
 function isLlaveroItem(item) {
-  const t = String(item?.title || "").toLowerCase();
-  const sku = String(item?.sku || "").toLowerCase();
-  return t.includes("llavero") || sku.includes("llav");
+  return String(item?.title || "").toLowerCase().includes("llavero");
 }
 
 function requiereImagenModificada(item) {
@@ -258,13 +239,13 @@ function requiereImagenModificada(item) {
 }
 
 /* =====================================================
-  PINTAR DETALLE
+   PINTAR PRODUCTOS
 ===================================================== */
 function pintarDetallesPedido(order, imagenesLocales) {
   const items = order.line_items || [];
 
-  window.imagenesRequeridas = [];
-  window.imagenesCargadas = [];
+  imagenesRequeridas = [];
+  imagenesCargadas = [];
 
   setTextSafe("detTitulo", `Pedido ${order.name}`);
 
@@ -272,8 +253,8 @@ function pintarDetallesPedido(order, imagenesLocales) {
     const requiere = requiereImagenModificada(item);
     const localImg = imagenesLocales[index] || "";
 
-    window.imagenesRequeridas[index] = requiere;
-    window.imagenesCargadas[index] = !!localImg;
+    imagenesRequeridas[index] = requiere;
+    imagenesCargadas[index] = !!localImg;
 
     return `
       <div class="border rounded-2xl p-4 bg-white">
@@ -286,8 +267,7 @@ function pintarDetallesPedido(order, imagenesLocales) {
         ` : ""}
 
         ${localImg ? `
-          <img src="${escapeHtml(localImg)}"
-            class="mt-3 h-32 rounded-xl border">
+          <img src="${escapeHtml(localImg)}" class="mt-3 h-32 rounded-xl border">
         ` : ""}
       </div>
     `;
@@ -297,11 +277,11 @@ function pintarDetallesPedido(order, imagenesLocales) {
 }
 
 /* =====================================================
-  RESUMEN + AUTO ESTADO
+   RESUMEN + AUTO ESTADO
 ===================================================== */
 function actualizarResumenAuto(orderId) {
-  const total = window.imagenesRequeridas.filter(Boolean).length;
-  const ok = window.imagenesRequeridas.filter((v,i)=>v && window.imagenesCargadas[i]).length;
+  const total = imagenesRequeridas.filter(Boolean).length;
+  const ok = imagenesRequeridas.filter((v, i) => v && imagenesCargadas[i]).length;
   const falta = total - ok;
 
   setHtmlSafe("detResumen", `
@@ -317,7 +297,7 @@ function actualizarResumenAuto(orderId) {
 }
 
 /* =====================================================
-  SUBIR IMAGEN
+   SUBIR IMAGEN
 ===================================================== */
 window.subirImagenProducto = async function (orderId, index, input) {
   const file = input.files[0];
@@ -341,21 +321,18 @@ window.subirImagenProducto = async function (orderId, index, input) {
     return;
   }
 
-  window.imagenesCargadas[index] = true;
+  imagenesCargadas[index] = true;
   actualizarResumenAuto(orderId);
 };
 
 /* =====================================================
-  AUTO ESTADO
+   AUTO ESTADO (FIX PAYLOAD)
 ===================================================== */
 async function guardarEstadoAuto(orderId, estado) {
   await fetch("/api/estado/guardar", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...getCsrfHeaders()
-    },
-    body: JSON.stringify({ order_id: orderId, estado }),
+    headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
+    body: JSON.stringify({ id: orderId, estado }),
     credentials: "same-origin"
   });
 
@@ -368,7 +345,18 @@ async function guardarEstadoAuto(orderId, estado) {
 }
 
 /* =====================================================
-  INIT
+   EVENTOS GLOBALES
+===================================================== */
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") cerrarModalDetalles();
+});
+
+$("modalDetallesFull")?.addEventListener("click", e => {
+  if (e.target.id === "modalDetallesFull") cerrarModalDetalles();
+});
+
+/* =====================================================
+   INIT
 ===================================================== */
 document.addEventListener("DOMContentLoaded", () => {
   $("btnTraer5")?.addEventListener("click", () => traerPedidos(5));
