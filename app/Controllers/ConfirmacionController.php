@@ -236,144 +236,84 @@ class ConfirmacionController extends BaseController
         }
     }
     // =========================
-// GET /confirmacion/detalles/{id}
-// =========================
-public function detalles($orderId)
+    // GET /confirmacion/detalles/{id}
+    // =========================
+    public function detalles($id = null)
     {
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
                 'success' => false,
-                'message' => 'No autenticado',
+                'message' => 'No autenticado'
             ]);
         }
 
-        $orderId = trim((string)$orderId);
-        if ($orderId === '' || $orderId === '0') {
-            return $this->response->setStatusCode(422)->setJSON([
+        if (!$id) {
+            return $this->response->setStatusCode(400)->setJSON([
                 'success' => false,
-                'message' => 'ID inválido',
+                'message' => 'ID inválido'
             ]);
         }
 
         try {
-            if (!$this->shop || !$this->token) {
+            $db = \Config\Database::connect();
+
+            // 1️⃣ Resolver pedido por ID interno O Shopify ID
+            $pedido = $db->table('pedidos')
+                ->groupStart()
+                    ->where('id', $id)
+                    ->orWhere('shopify_order_id', $id)
+                ->groupEnd()
+                ->get()
+                ->getRowArray();
+
+            if (!$pedido) {
+                return $this->response->setStatusCode(404)->setJSON([
+                    'success' => false,
+                    'message' => 'Pedido no encontrado'
+                ]);
+            }
+
+            // 2️⃣ ESTE ES EL ID REAL QUE IMPORTA
+            $shopifyOrderId = $pedido['shopify_order_id'] ?? null;
+
+            if (!$shopifyOrderId) {
                 return $this->response->setJSON([
                     'success' => false,
-                    'message' => 'Faltan credenciales Shopify',
-                ])->setStatusCode(200);
+                    'message' => 'Pedido sin Shopify ID'
+                ]);
             }
 
-            // 1) Traer pedido desde Shopify
-            $urlOrder = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/" . urlencode($orderId) . ".json";
-            $resp = $this->curlShopify($urlOrder, 'GET');
+            // 3️⃣ Cargar JSON COMPLETO (el mismo que usa dashboard)
+            $orderJson = json_decode($pedido['pedido_json'] ?? '{}', true);
 
-            if ($resp['status'] >= 400 || $resp['status'] === 0) {
-                log_message('error', 'DETALLES ORDER HTTP ' . $resp['status'] . ': ' . ($resp['body'] ?? ''));
+            if (empty($orderJson) || empty($orderJson['line_items'])) {
                 return $this->response->setJSON([
                     'success' => false,
-                    'message' => 'Error consultando pedido en Shopify',
-                    'status'  => $resp['status'],
-                ])->setStatusCode(200);
+                    'message' => 'Pedido sin información Shopify'
+                ]);
             }
 
-            $json  = json_decode($resp['body'], true) ?: [];
-            $order = $json['order'] ?? null;
+            // 4️⃣ Cargar imágenes EXACTAMENTE como dashboard
+            $imagenesLocales = json_decode($pedido['imagenes_locales'] ?? '{}', true);
+            $productImages  = json_decode($pedido['product_images'] ?? '{}', true);
 
-            if (!$order) {
-                return $this->response->setJSON([
-                    'success' => false,
-                    'message' => 'Pedido no encontrado',
-                ])->setStatusCode(200);
-            }
-
-            // ✅ 2) OVERRIDE ESTADO desde BD (pedidos_estado)
-            // Shopify no tiene tu "Por producir", esto es interno.
-            try {
-                $estadoModel = new \App\Models\PedidosEstadoModel();
-                $rowEstado   = $estadoModel->getEstadoPedido((string)$orderId);
-
-                if (!empty($rowEstado) && !empty($rowEstado['estado'])) {
-                    $order['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
-
-                    $changedAt = $rowEstado['estado_updated_at'] ?? null;
-                    if (!$changedAt && !empty($rowEstado['actualizado'])) {
-                        $changedAt = $rowEstado['actualizado'];
-                    }
-
-                    $order['last_status_change'] = [
-                        'user_name'  => $rowEstado['estado_updated_by_name'] ?? 'Sistema',
-                        'changed_at' => $changedAt,
-                    ];
-                }
-            } catch (\Throwable $e) {
-                log_message('error', 'DETALLES override estado ERROR: ' . $e->getMessage());
-            }
-
-            // 3) Product images
-            $lineItems  = $order['line_items'] ?? [];
-            $productIds = [];
-
-            foreach ($lineItems as $li) {
-                if (!empty($li['product_id'])) {
-                    $productIds[(string)$li['product_id']] = true;
-                }
-            }
-            $productIds = array_keys($productIds);
-
-            $productImages = [];
-            foreach ($productIds as $pid) {
-                $urlProd = "https://{$this->shop}/admin/api/{$this->apiVersion}/products/{$pid}.json?fields=id,image,images";
-                $rP = $this->curlShopify($urlProd, 'GET');
-                if ($rP['status'] >= 400 || $rP['status'] === 0) continue;
-
-                $jP = json_decode($rP['body'], true) ?: [];
-                $p  = $jP['product'] ?? null;
-                if (!$p) continue;
-
-                $img = '';
-                if (!empty($p['image']['src'])) $img = $p['image']['src'];
-                elseif (!empty($p['images'][0]['src'])) $img = $p['images'][0]['src'];
-
-                if ($img) $productImages[(string)$pid] = $img;
-            }
-
-            // 4) Imágenes locales
-            $imagenesLocales = [];
-            try {
-                $db = \Config\Database::connect();
-
-                $rows = $db->table('pedido_imagenes')
-                    ->select('line_index, local_url')
-                    ->where('order_id', (string)$orderId)
-                    ->get()
-                    ->getResultArray();
-
-                foreach ($rows as $r) {
-                    $idx = (int)($r['line_index'] ?? -1);
-                    $url = trim((string)($r['local_url'] ?? ''));
-                    if ($idx >= 0 && $url !== '') {
-                        $imagenesLocales[$idx] = $url;
-                    }
-                }
-            } catch (\Throwable $e) {
-                log_message('error', 'DETALLES imagenesLocales ERROR: ' . $e->getMessage());
-            }
-
+            // 5️⃣ RESPUESTA IDÉNTICA A DASHBOARD
             return $this->response->setJSON([
-                'success'          => true,
-                'order'            => $order, // ✅ ahora viene con estado override si existe
-                'product_images'   => $productImages,
-                'imagenes_locales' => $imagenesLocales,
+                'success' => true,
+                'order' => $orderJson,
+                'imagenes_locales' => is_array($imagenesLocales) ? $imagenesLocales : [],
+                'product_images' => is_array($productImages) ? $productImages : [],
             ]);
 
         } catch (\Throwable $e) {
-            log_message('error', 'DETALLES ERROR: ' . $e->getMessage() . ' :: ' . $e->getFile() . ':' . $e->getLine());
+            log_message('error', 'Confirmacion detalles ERROR: ' . $e->getMessage());
 
-            return $this->response->setJSON([
+            return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
-                'message' => 'Error interno cargando detalles',
-            ])->setStatusCode(200);
+                'message' => 'Error interno cargando detalles'
+            ]);
         }
     }
+
 
 }
