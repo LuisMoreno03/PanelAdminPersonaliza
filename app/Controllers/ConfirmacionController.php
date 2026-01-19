@@ -126,36 +126,70 @@ class ConfirmacionController extends BaseController
     public function pull()
     {
         if (!session()->get('logged_in')) {
-            return $this->response
-                ->setStatusCode(401)
-                ->setJSON(['ok' => false, 'error' => 'No autenticado']);
+            return $this->response->setStatusCode(401)->setJSON([
+                'ok' => false,
+                'error' => 'No autenticado'
+            ]);
         }
 
-        $userId   = (int) (session('user_id') ?? 0);
-        $userName = (string) (session('nombre') ?? 'Usuario');
+        $userId   = (int)(session('user_id') ?? 0);
+        $userName = (string)(session('nombre') ?? 'Usuario');
 
         if ($userId <= 0) {
-            return $this->response->setJSON(['ok' => false, 'error' => 'Usuario inválido']);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Usuario inválido'
+            ]);
         }
 
-        $payload = $this->request->getJSON(true);
-        $count   = (int) ($payload['count'] ?? 5);
+        $payload = $this->request->getJSON(true) ?? [];
+        $count   = (int)($payload['count'] ?? 5);
         if (!in_array($count, [5, 10], true)) $count = 5;
 
         try {
             $db  = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // pedidos disponibles en "Por preparar"
+            // ✅ QUERY PROBADA EN BD
             $candidatos = $db->query("
-                SELECT DISTINCT p.id, p.shopify_order_id
+                SELECT
+                    p.id,
+                    p.shopify_order_id
                 FROM pedidos p
-                INNER JOIN pedidos_estado_historial h
-                    ON h.order_id = p.id
-                    OR h.order_id = p.shopify_order_id
-                WHERE LOWER(TRIM(h.estado)) = 'por preparar'
+
+                LEFT JOIN pedidos_estado pe
+                    ON pe.order_id = p.id
+                    OR pe.order_id = p.shopify_order_id
+
+                LEFT JOIN (
+                    SELECT h1.*
+                    FROM pedidos_estado_historial h1
+                    INNER JOIN (
+                        SELECT order_id, MAX(created_at) AS max_created
+                        FROM pedidos_estado_historial
+                        GROUP BY order_id
+                    ) x
+                        ON x.order_id = h1.order_id
+                    AND x.max_created = h1.created_at
+                ) h
+                ON (
+                    h.order_id = p.id
+                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
+                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                )
+
+                WHERE LOWER(TRIM(
+                    COALESCE(h.estado, pe.estado, 'por preparar')
+                )) = 'por preparar'
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-                ORDER BY h.created_at ASC
+
+                ORDER BY
+                    CASE
+                        WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
+                        ELSE 1
+                    END,
+                    COALESCE(h.created_at, p.created_at) ASC
+
                 LIMIT {$count}
             ")->getResultArray();
 
@@ -168,14 +202,16 @@ class ConfirmacionController extends BaseController
 
             $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
 
+            // ✅ ASIGNAR PEDIDOS
             $db->table('pedidos')
                 ->whereIn('id', $ids)
+                ->where('(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)', null, false)
                 ->update([
                     'assigned_to_user_id' => $userId,
                     'assigned_at' => $now
                 ]);
 
-            // solo auditoría (NO cambia estado aquí)
+            // ✅ HISTORIAL (opcional, solo auditoría)
             foreach ($candidatos as $c) {
                 if (empty($c['shopify_order_id'])) continue;
 
@@ -184,13 +220,15 @@ class ConfirmacionController extends BaseController
                     'estado'     => 'Por preparar',
                     'user_id'    => $userId,
                     'user_name'  => $userName,
-                    'created_at' => $now
+                    'created_at' => $now,
+                    'pedido_json'=> null
                 ]);
             }
 
             return $this->response->setJSON([
                 'ok' => true,
-                'assigned' => count($ids)
+                'assigned' => count($ids),
+                'ids' => $ids
             ]);
 
         } catch (\Throwable $e) {
@@ -202,6 +240,7 @@ class ConfirmacionController extends BaseController
             ]);
         }
     }
+
 
     // =========================
     // POST /confirmacion/return-all
