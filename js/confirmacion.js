@@ -48,6 +48,15 @@ function setLoader(show) {
 }
 
 /* =====================================================
+  CSRF
+===================================================== */
+function getCsrfHeaders() {
+  const token  = document.querySelector('meta[name="csrf-token"]')?.content;
+  const header = document.querySelector('meta[name="csrf-header"]')?.content;
+  return token && header ? { [header]: token } : {};
+}
+
+/* =====================================================
   LISTADO PEDIDOS
 ===================================================== */
 function renderPedidos(pedidos) {
@@ -313,14 +322,6 @@ window.verDetalles = async function (orderId) {
     if (isNaN(p) || isNaN(q)) return null;
     return (p * q).toFixed(2);
   }
-/* =====================================================
-  CSRF
-===================================================== */
-function getCsrfHeaders() {
-  const token  = document.querySelector('meta[name="csrf-token"]')?.content;
-  const header = document.querySelector('meta[name="csrf-header"]')?.content;
-  return token && header ? { [header]: token } : {};
-}
 
   // -----------------------------
   // Open modal + placeholders
@@ -1019,58 +1020,54 @@ window.subirImagenProducto = async function (orderId, index, input) {
 // - si falta alguna => "Faltan archivos"
 // - si están todas => "Confirmado"
 // =====================================
-// =====================================
-// AUTO-ESTADO (Confirmación)
-// =====================================
-window.validarEstadoAuto = async function (shopifyOrderId) {
+
+window.validarEstadoAuto = async function (orderId) {
   try {
+    const oid = String(orderId || "");
+    if (!oid) return;
+
     const req = Array.isArray(window.imagenesRequeridas) ? window.imagenesRequeridas : [];
     const ok  = Array.isArray(window.imagenesCargadas) ? window.imagenesCargadas : [];
 
-    // solo índices que requieren imagen
     const requiredIdx = req.map((v, i) => (v ? i : -1)).filter(i => i >= 0);
-    if (!requiredIdx.length) return;
+    const requiredCount = requiredIdx.length;
 
-    const faltaAlguna = requiredIdx.some(i => ok[i] !== true);
-    const nuevoEstado = faltaAlguna ? "Faltan imágenes" : "Confirmado";
+    // Solo aplica regla automática si requiere 2 o más imágenes
+    if (requiredCount < 1) return;
 
-    const r = await fetch("/confirmacion/guardar-estado", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...getCsrfHeaders()
-      },
-      credentials: "same-origin",
-      body: JSON.stringify({
-        shopify_order_id: String(shopifyOrderId),
-        estado: nuevoEstado
-      })
-    });
+    const uploadedCount = requiredIdx.filter(i => ok[i] === true).length;
+    const faltaAlguna = uploadedCount < requiredCount;
 
-    const d = await r.json();
-    if (!r.ok || !d.success) {
-      console.error("❌ Error guardando estado automático:", d);
-      return;
+    const nuevoEstado = faltaAlguna ? "Faltan archivos" : "Confirmado";
+
+    // Si ya está en el mismo estado, no hagas nada
+    const order =
+      (window.ordersById && window.ordersById.get && window.ordersById.get(oid)) ||
+      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === oid) : null);
+
+    const estadoActual = String(order?.estado || "").toLowerCase().trim();
+    const nuevoLower = nuevoEstado.toLowerCase();
+
+    if (
+      (nuevoLower.includes("faltan") && (estadoActual.includes("faltan archivos") || estadoActual.includes("faltan_archivos"))) ||
+      (nuevoLower.includes("confirmado") && estadoActual.includes("confirmado"))
+    ) return;
+
+    // asegurar que guardarEstado encuentre el input
+    let idInput = document.getElementById("modalOrderId");
+    if (!idInput) {
+      idInput = document.createElement("input");
+      idInput.type = "hidden";
+      idInput.id = "modalOrderId";
+      document.body.appendChild(idInput);
     }
+    idInput.value = oid;
 
-    // ✅ SOLO si está confirmado → quitar de la cola
-    if (nuevoEstado === "Confirmado") {
-      pedidosCache = pedidosCache.filter(
-        p => String(p.shopify_order_id) !== String(shopifyOrderId)
-      );
-      renderPedidos(pedidosCache);
-
-      if (typeof cerrarDetallesFull === "function") {
-        cerrarDetallesFull();
-      }
-    }
-
+    await window.guardarEstado(nuevoEstado);
   } catch (e) {
     console.error("validarEstadoAuto error:", e);
   }
 };
-
-
 
 /* =====================================================
   INIT
