@@ -170,24 +170,158 @@ async function devolverPedidos() {
   }
 }
 
-/* =====================================================
-  MODAL DETALLES (FULL - CLON DASHBOARD)
-===================================================== */
+// ===============================
+// DETALLES (FULL SCREEN) - FIX IDs
+// ===============================
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function setHtml(id, html) {
+  const el = $(id);
+  if (!el) {
+    console.warn("Falta en el DOM:", id);
+    return false;
+  }
+  el.innerHTML = html;
+  return true;
+}
+
+function setText(id, txt) {
+  const el = $(id);
+  if (!el) {
+    console.warn("Falta en el DOM:", id);
+    return false;
+  }
+  el.textContent = txt ?? "";
+  return true;
+}
+
+function abrirDetallesFull() {
+  const modal = $("modalDetallesFull");
+  if (modal) modal.classList.remove("hidden");
+  document.documentElement.classList.add("overflow-hidden");
+  document.body.classList.add("overflow-hidden");
+}
+
+function cerrarDetallesFull() {
+  const modal = $("modalDetallesFull");
+  if (modal) modal.classList.add("hidden");
+  document.documentElement.classList.remove("overflow-hidden");
+  document.body.classList.remove("overflow-hidden");
+}
+
+function toggleJsonDetalles() {
+  const pre = $("detJson");
+  if (!pre) return;
+  pre.classList.toggle("hidden");
+}
+
+function copiarDetallesJson() {
+  const pre = $("detJson");
+  if (!pre) return;
+  const text = pre.textContent || "";
+  navigator.clipboard?.writeText(text).then(
+    () => alert("JSON copiado ✅"),
+    () => alert("No se pudo copiar ❌")
+  );
+}
+
+// Helpers imagen
+function esImagen(url) {
+  if (!url) return false;
+  return /\.(jpeg|jpg|png|gif|webp|svg)$/i.test(String(url));
+}
+
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+// =====================================================
+// DETALLES: TAGS visibles + repintado al guardar
+// (reemplaza tu window.verDetalles actual por este)
+// =====================================================
 window.verDetalles = async function (orderId) {
   const id = String(orderId || "");
   if (!id) return;
 
-  const modal = $("modalDetallesFull");
-  modal?.classList.remove("hidden");
-  document.body.classList.add("overflow-hidden");
+  // -----------------------------
+  // Helpers DOM
+  // -----------------------------
+  function $(x) { return document.getElementById(x); }
 
-  const setHtml = (id, html) => $(id) && ($(id).innerHTML = html);
-  const setText = (id, txt) => $(id) && ($(id).textContent = txt ?? "");
+  function setHtml(elId, html) {
+    const el = $(elId);
+    if (!el) return false;
+    el.innerHTML = html;
+    return true;
+  }
+
+  function setText(elId, txt) {
+    const el = $(elId);
+    if (!el) return false;
+    el.textContent = txt ?? "";
+    return true;
+  }
+
+  function abrirDetallesFull() {
+    const modal = $("modalDetallesFull");
+    if (modal) modal.classList.remove("hidden");
+    document.documentElement.classList.add("overflow-hidden");
+    document.body.classList.add("overflow-hidden");
+  }
+
+  // -----------------------------
+  // Helpers sanitize
+  // -----------------------------
+  function escapeHtml(str) {
+    return String(str ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function escapeAttr(str) {
+    return String(str ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function esUrl(u) {
+    return /^https?:\/\//i.test(String(u || "").trim());
+  }
+
+  function esImagenUrl(url) {
+    if (!url) return false;
+    const u = String(url).trim();
+    return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
+  }
+
+  function totalLinea(price, qty) {
+    const p = Number(price);
+    const q = Number(qty);
+    if (isNaN(p) || isNaN(q)) return null;
+    return (p * q).toFixed(2);
+  }
+
+  // -----------------------------
+  // Open modal + placeholders
+  // -----------------------------
+  abrirDetallesFull();
 
   setText("detTitle", "Cargando…");
   setText("detSubtitle", "—");
   setText("detItemsCount", "0");
-
   setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
   setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
@@ -197,117 +331,538 @@ window.verDetalles = async function (orderId) {
   const pre = $("detJson");
   if (pre) pre.textContent = "";
 
+  // -----------------------------
+  // Fetch detalles
+  // -----------------------------
   try {
-    const r = await fetch(`${ENDPOINT_DETALLES}/${encodeURIComponent(id)}`, {
-      headers: { Accept: "application/json" }
-    });
-    const d = await r.json();
+    const url =
+      typeof apiUrl === "function"
+        ? apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`)
+        : `/index.php/dashboard/detalles/${encodeURIComponent(id)}`;
+
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    const d = await r.json().catch(() => null);
 
     if (!r.ok || !d || d.success !== true) {
-      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Pedido sin información Shopify</div>`);
-      if (pre) pre.textContent = JSON.stringify(d, null, 2);
+      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa endpoint.</div>`);
+      if (pre) pre.textContent = JSON.stringify({ http: r.status, payload: d }, null, 2);
       return;
     }
 
     if (pre) pre.textContent = JSON.stringify(d, null, 2);
 
     const o = d.order || {};
-    const items = Array.isArray(o.line_items) ? o.line_items : [];
+    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
 
-    setText("detTitle", `Pedido ${o.name || "#" + id}`);
+    const imagenesLocales = d.imagenes_locales || {};
+    const productImages = d.product_images || {};
+
+    // -----------------------------
+    // Header
+    // -----------------------------
+    setText("detTitle", `Pedido ${o.name || ("#" + id)}`);
 
     const clienteNombre = o.customer
       ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
       : "";
 
-    setText("detSubtitle", clienteNombre || o.email || "—");
+    setText("detSubtitle", clienteNombre ? clienteNombre : (o.email || "—"));
 
+    // -----------------------------
+    // Cliente
+    // -----------------------------
     setHtml("detCliente", `
       <div class="space-y-2">
-        <div class="font-extrabold">${escapeHtml(clienteNombre || "—")}</div>
-        <div>Email: ${escapeHtml(o.email || "—")}</div>
-        <div>Tel: ${escapeHtml(o.phone || "—")}</div>
+        <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre || "—")}</div>
+        <div><span class="text-slate-500">Email:</span> ${escapeHtml(o.email || "—")}</div>
+        <div><span class="text-slate-500">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
+        <div><span class="text-slate-500">ID:</span> ${escapeHtml(o.customer?.id || "—")}</div>
       </div>
     `);
 
+    // -----------------------------
+    // Envío
+    // -----------------------------
     const a = o.shipping_address || {};
     setHtml("detEnvio", `
       <div class="space-y-1">
-        <div class="font-extrabold">${escapeHtml(a.name || "—")}</div>
+        <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
         <div>${escapeHtml(a.address1 || "")}</div>
-        <div>${escapeHtml(a.zip || "")} ${escapeHtml(a.city || "")}</div>
+        <div>${escapeHtml(a.address2 || "")}</div>
+        <div>${escapeHtml((a.zip || "") + " " + (a.city || ""))}</div>
+        <div>${escapeHtml(a.province || "")}</div>
         <div>${escapeHtml(a.country || "")}</div>
+        <div class="pt-2"><span class="text-slate-500">Tel envío:</span> ${escapeHtml(a.phone || "—")}</div>
       </div>
     `);
+
+    // -----------------------------
+    // Totales
+    // -----------------------------
+    const envio =
+      o.total_shipping_price_set?.shop_money?.amount ??
+      o.total_shipping_price_set?.presentment_money?.amount ??
+      "0";
+    const impuestos = o.total_tax ?? "0";
 
     setHtml("detTotales", `
-      <div>
-        <div>Subtotal: ${escapeHtml(o.subtotal_price)} €</div>
-        <div>Envío: ${escapeHtml(o.total_shipping_price_set?.shop_money?.amount || "0")} €</div>
-        <div class="font-extrabold text-lg">Total: ${escapeHtml(o.total_price)} €</div>
+      <div class="space-y-1">
+        <div><b>Subtotal:</b> ${escapeHtml(o.subtotal_price || "0")} €</div>
+        <div><b>Envío:</b> ${escapeHtml(envio)} €</div>
+        <div><b>Impuestos:</b> ${escapeHtml(impuestos)} €</div>
+        <div class="text-lg font-extrabold"><b>Total:</b> ${escapeHtml(o.total_price || "0")} €</div>
       </div>
     `);
 
-    setText("detItemsCount", items.length);
+    // -----------------------------
+    // ✅ TAGS: fuente robusta
+    // -----------------------------
+    const fromDetalles = String(o.tags ?? o.etiquetas ?? "").trim();
+    const fromCache =
+      String(
+        (window.ordersById?.get(String(o.id))?.etiquetas) ??
+        (window.ordersById?.get(String(id))?.etiquetas) ??
+        ""
+      ).trim();
 
-    const productImages = d.product_images || {};
-    const imagenesLocales = d.imagenes_locales || {};
+    const tagsActuales = (fromDetalles || fromCache || "").trim();
 
-    const html = items.map((item, index) => {
+    // ✅ repintado global (se usa cuando guardas en el modal)
+    window.__pintarTagsEnDetalle = function (tagsStr) {
+      const wrap = document.getElementById("det-tags-view");
+      if (!wrap) return;
+
+      const clean = String(tagsStr || "").trim();
+      wrap.innerHTML = clean
+        ? clean.split(",").map(t => `
+            <span class="px-3 py-1 rounded-full text-xs font-semibold border bg-white">
+              ${escapeHtml(t.trim())}
+            </span>
+          `).join("")
+        : `<span class="text-xs text-slate-400">—</span>`;
+
+      const btn = document.getElementById("btnEtiquetasDetalle");
+      if (btn) btn.dataset.orderTags = clean;
+    };
+
+    // -----------------------------
+    // Resumen
+    // -----------------------------
+    setHtml("detResumen", `
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="flex items-center justify-between">
+            <div class="text-xs text-slate-500 font-extrabold uppercase">Etiquetas</div>
+
+            <button
+              id="btnEtiquetasDetalle"
+              type="button"
+              class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
+              data-order-id="${escapeAttr(o.id || id)}"
+              data-order-label="${escapeAttr(o.name || ('#' + (o.id || id)))}"
+              data-order-tags="${escapeAttr(tagsActuales)}"
+              onclick="abrirEtiquetasDesdeDetalle(this)"
+            >
+              ETIQUETAS <span class="ml-1 font-black">+</span>
+            </button>
+          </div>
+
+          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2"></div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
+          <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Entrega</div>
+          <div class="mt-1 font-semibold">${escapeHtml(o.fulfillment_status || "—")}</div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Creado</div>
+          <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
+        </div>
+      </div>
+    `);
+
+    // ✅ pintar tags DESPUÉS de insertar el HTML (esto era lo que faltaba)
+    window.__pintarTagsEnDetalle(tagsActuales);
+
+    // ✅ Detalles -> abre el MISMO modal del dashboard y marca "viene de detalles"
+    window.abrirEtiquetasDesdeDetalle = function (btn) {
+      try {
+        const orderId = btn?.dataset?.orderId;
+        const label = btn?.dataset?.orderLabel || ("#" + orderId);
+        const tagsStr = btn?.dataset?.orderTags || "";
+
+        // marca para que guardarEtiquetasModal repinte detalles al guardar
+        window.__ETQ_DETALLE_ORDER_ID = Number(orderId) || null;
+
+        if (typeof window.abrirModalEtiquetas === "function") {
+          window.abrirModalEtiquetas(orderId, tagsStr, label);
+          return;
+        }
+
+        const modal = document.getElementById("modalEtiquetas");
+        if (modal) modal.classList.remove("hidden");
+      } catch (e) {
+        console.error("abrirEtiquetasDesdeDetalle error:", e);
+      }
+    };
+
+    // -----------------------------
+    // Productos
+    // -----------------------------
+    setText("detItemsCount", String(lineItems.length));
+
+    if (!lineItems.length) {
+      setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
+      return;
+    }
+
+    window.imagenesLocales = imagenesLocales || {};
+    window.imagenesCargadas = new Array(lineItems.length).fill(false);
+    window.imagenesRequeridas = new Array(lineItems.length).fill(false);
+
+    const itemsHtml = lineItems.map((item, index) => {
       const props = Array.isArray(item.properties) ? item.properties : [];
-      const imgs = props.filter(p => esImagenUrl(p.value));
-      const textos = props.filter(p => !esImagenUrl(p.value));
 
-      const pid = item.product_id;
-      const prodImg = productImages?.[pid] || "";
+      const propsImg = [];
+      const propsTxt = [];
+
+      for (const p of props) {
+        const name = String(p?.name ?? "").trim() || "Campo";
+        const value = p?.value;
+
+        const v =
+          value === null || value === undefined
+            ? ""
+            : typeof value === "object"
+            ? JSON.stringify(value)
+            : String(value);
+
+        if (esImagenUrl(v)) propsImg.push({ name, value: v });
+        else propsTxt.push({ name, value: v });
+      }
+
+      const requiere = requiereImagenModificada(item);
+
+
+      const pid = String(item.product_id || "");
+      const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
+
+      const productImgHtml = productImg
+        ? `
+          <a href="${escapeHtml(productImg)}" target="_blank"
+            class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
+            <img src="${escapeHtml(productImg)}" class="h-full w-full object-cover">
+          </a>
+        `
+        : `
+          <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
+            🧾
+          </div>
+        `;
+
+      const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
+
+      window.imagenesRequeridas[index] = !!requiere;
+      window.imagenesCargadas[index] = !!localUrl;
+
+      const estadoItem = requiere ? (localUrl ? "LISTO" : "FALTA") : "NO REQUIERE";
+      const badgeCls =
+        estadoItem === "LISTO"
+          ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+          : estadoItem === "FALTA"
+          ? "bg-amber-50 border-amber-200 text-amber-900"
+          : "bg-slate-50 border-slate-200 text-slate-700";
+      const badgeText =
+        estadoItem === "LISTO" ? "Listo" : estadoItem === "FALTA" ? "Falta imagen" : "Sin imagen";
+
+      const propsTxtHtml = propsTxt.length
+        ? `
+          <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
+            <div class="space-y-1 text-sm">
+              ${propsTxt.map(({ name, value }) => {
+                const safeV = escapeHtml(value || "—");
+                const safeName = escapeHtml(name);
+
+                const val = esUrl(value)
+                  ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                  : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
+
+                return `
+                  <div class="flex gap-2">
+                    <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
+                    <div class="flex-1">${val}</div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </div>
+        `
+        : "";
+
+      const propsImgsHtml = propsImg.length
+        ? `
+          <div class="mt-3">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
+            <div class="flex flex-wrap gap-3">
+              ${propsImg.map(({ name, value }) => `
+                <a href="${escapeHtml(value)}" target="_blank"
+                  class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                  <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
+                  <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
+                    ${escapeHtml(name)}
+                  </div>
+                </a>
+              `).join("")}
+            </div>
+          </div>
+        `
+        : "";
+
+      const modificadaHtml = localUrl
+        ? `
+          <div class="mt-3">
+            <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
+            <a href="${escapeHtml(localUrl)}" target="_blank"
+              class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+              <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
+            </a>
+          </div>
+        `
+        : requiere
+        ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+        : "";
+
+      const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
+      const sku = item.sku || "";
+      const qty = item.quantity ?? 1;
+      const price = item.price ?? "0";
+      const tot = totalLinea(price, qty);
+
+      const datosProductoHtml = `
+        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+          ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
+          ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
+          ${item.product_id ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(item.product_id)}</span></div>` : ""}
+          ${item.variant_id ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(item.variant_id)}</span></div>` : ""}
+        </div>
+      `;
+
+      const uploadHtml = requiere
+        ? `
+          <div class="mt-4">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
+            <input type="file" accept="image/*"
+              onchange="subirImagenProducto(${Number(orderId)}, ${index}, this)"
+              class="w-full border border-slate-200 rounded-2xl p-2">
+            <div id="preview_${id}_${index}" class="mt-2"></div>
+          </div>
+        `
+        : "";
 
       return `
-        <div class="rounded-3xl border bg-white shadow-sm p-4">
-          <div class="flex gap-4">
-            ${
-              prodImg
-                ? `<img src="${escapeHtml(prodImg)}" class="h-16 w-16 rounded-xl object-cover">`
-                : `<div class="h-16 w-16 bg-slate-100 rounded-xl flex items-center justify-center">🧾</div>`
-            }
-            <div class="flex-1">
-              <div class="font-extrabold">${escapeHtml(item.title)}</div>
-              <div class="text-sm">Cant: ${item.quantity} · ${item.price} €</div>
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+          <div class="flex items-start gap-4">
+            ${productImgHtml}
 
-              ${
-                textos.length
-                  ? `<div class="mt-2 text-sm">
-                      ${textos.map(p => `<div><b>${escapeHtml(p.name)}:</b> ${escapeHtml(p.value)}</div>`).join("")}
-                    </div>`
-                  : ""
-              }
+            <div class="min-w-0 flex-1">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || item.name || "Producto")}</div>
+                  <div class="text-sm text-slate-600 mt-1">
+                    Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
+                    ${tot ? ` · Total: <b>${escapeHtml(tot)} €</b>` : ""}
+                  </div>
+                </div>
 
-              ${
-                imgs.length
-                  ? `<div class="mt-3 flex gap-2">
-                      ${imgs.map(p => `<img src="${escapeHtml(p.value)}" class="h-24 rounded-xl">`).join("")}
-                    </div>`
-                  : ""
-              }
+                <span class="text-xs font-extrabold px-3 py-1 rounded-full border ${badgeCls}">
+                  ${badgeText}
+                </span>
+              </div>
 
-              ${
-                imagenesLocales[index]
-                  ? `<div class="mt-3">
-                      <div class="text-xs font-bold">Imagen modificada</div>
-                      <img src="${escapeHtml(imagenesLocales[index])}" class="h-32 rounded-xl">
-                    </div>`
-                  : ""
-              }
+              ${datosProductoHtml}
+              ${propsTxtHtml}
+              ${propsImgsHtml}
+              ${modificadaHtml}
+              ${uploadHtml}
             </div>
           </div>
         </div>
       `;
     }).join("");
 
-    setHtml("detItems", html);
-
+    setHtml("detItems", itemsHtml);
   } catch (e) {
-    console.error(e);
-    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles</div>`);
+    console.error("verDetalles error:", e);
+    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
+  }
+};
+
+// ===============================
+// SUBIR IMAGEN MODIFICADA (ROBUSTO)
+// ===============================
+window.subirImagenProducto = async function (orderId, index, input) {
+  try {
+    const file = input?.files?.[0];
+    if (!file) return;
+
+    const fd = new FormData();
+    fd.append("order_id", String(orderId));
+    fd.append("line_index", String(index));
+    fd.append("file", file);
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
+    const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
+
+    const endpoints = [
+      (typeof apiUrl === "function" ? apiUrl("/api/pedidos/imagenes/subir") : "/index.php/api/pedidos/imagenes/subir"),
+      "/api/pedidos/imagenes/subir",
+      "/index.php/api/pedidos/imagenes/subir",
+      "/index.php/index.php/api/pedidos/imagenes/subir",
+    ];
+
+    let lastErr = null;
+
+    for (const url of endpoints) {
+      try {
+        const headers = {};
+        if (csrfToken) headers[csrfHeader] = csrfToken;
+
+        const r = await fetch(url, {
+          method: "POST",
+          headers,
+          body: fd,
+          credentials: "same-origin", // ✅ CLAVE: manda cookies de sesión
+        });
+
+        if (r.status === 404) continue;
+
+        // ✅ si el server devolvió 401/403: sesión muerta
+        if (r.status === 401 || r.status === 403) {
+          throw new Error("No autenticado. Tu sesión venció (401/403). Recarga el panel y vuelve a iniciar sesión.");
+        }
+
+        // ✅ parse inteligente (JSON o texto)
+        const ct = (r.headers.get("content-type") || "").toLowerCase();
+        let d = null;
+        let rawText = "";
+
+        if (ct.includes("application/json")) {
+          d = await r.json().catch(() => null);
+        } else {
+          rawText = await r.text().catch(() => "");
+          // si parece HTML (login / error page), lo marcamos
+          if (rawText.trim().startsWith("<!doctype") || rawText.trim().startsWith("<html")) {
+            throw new Error("El servidor devolvió HTML (probable login / sesión expirada). Recarga el panel.");
+          }
+          // si es texto, intentamos convertirlo
+          d = { success: true, url: rawText.trim() };
+        }
+
+        // ✅ acepta varias formas
+        const success = (d && (d.success === true || typeof d.url === "string"));
+        const urlFinal = d?.url ? String(d.url) : "";
+
+        if (!r.ok || !success || !urlFinal) {
+          throw new Error(d?.message || `Respuesta inválida del servidor (HTTP ${r.status}).`);
+        }
+
+        // ✅ pintar preview
+        const previewId = `preview_${orderId}_${index}`;
+        const prev = document.getElementById(previewId);
+        if (prev) {
+          prev.innerHTML = `
+            <div class="mt-2">
+              <div class="text-xs font-extrabold text-slate-500">Imagen modificada subida ✅</div>
+              <img src="${urlFinal}" class="mt-2 w-44 rounded-2xl border border-slate-200 shadow-sm object-cover">
+            </div>
+          `;
+        }
+
+        // ✅ marcar como cargada
+        if (!Array.isArray(window.imagenesCargadas)) window.imagenesCargadas = [];
+        if (!Array.isArray(window.imagenesRequeridas)) window.imagenesRequeridas = [];
+
+        window.imagenesCargadas[index] = true;
+
+        if (window.imagenesLocales && typeof window.imagenesLocales === "object") {
+          window.imagenesLocales[index] = urlFinal;
+        }
+
+        // ✅ recalcular estado automático
+        if (typeof window.validarEstadoAuto === "function") {
+          window.validarEstadoAuto(orderId);
+        }
+
+        return; // ✅ éxito
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    throw lastErr || new Error("No se encontró endpoint para subir imagen (404).");
+  } catch (e) {
+    console.error("subirImagenProducto error:", e);
+    alert("Error subiendo imagen: " + (e?.message || e));
+  }
+};
+
+// =====================================
+// AUTO-ESTADO (2+ imágenes requeridas)
+// - si falta alguna => "Faltan archivos"
+// - si están todas => "Confirmado"
+// =====================================
+window.validarEstadoAuto = async function (orderId) {
+  try {
+    const oid = String(orderId || "");
+    if (!oid) return;
+
+    const req = Array.isArray(window.imagenesRequeridas) ? window.imagenesRequeridas : [];
+    const ok  = Array.isArray(window.imagenesCargadas) ? window.imagenesCargadas : [];
+
+    const requiredIdx = req.map((v, i) => (v ? i : -1)).filter(i => i >= 0);
+    const requiredCount = requiredIdx.length;
+
+    // Solo aplica regla automática si requiere 2 o más imágenes
+    if (requiredCount < 1) return;
+
+    const uploadedCount = requiredIdx.filter(i => ok[i] === true).length;
+    const faltaAlguna = uploadedCount < requiredCount;
+
+    const nuevoEstado = faltaAlguna ? "Faltan archivos" : "Confirmado";
+
+    // Si ya está en el mismo estado, no hagas nada
+    const order =
+      (window.ordersById && window.ordersById.get && window.ordersById.get(oid)) ||
+      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === oid) : null);
+
+    const estadoActual = String(order?.estado || "").toLowerCase().trim();
+    const nuevoLower = nuevoEstado.toLowerCase();
+
+    if (
+      (nuevoLower.includes("faltan") && (estadoActual.includes("faltan archivos") || estadoActual.includes("faltan_archivos"))) ||
+      (nuevoLower.includes("confirmado") && estadoActual.includes("confirmado"))
+    ) return;
+
+    // asegurar que guardarEstado encuentre el input
+    let idInput = document.getElementById("modalOrderId");
+    if (!idInput) {
+      idInput = document.createElement("input");
+      idInput.type = "hidden";
+      idInput.id = "modalOrderId";
+      document.body.appendChild(idInput);
+    }
+    idInput.value = oid;
+
+    await window.guardarEstado(nuevoEstado);
+  } catch (e) {
+    console.error("validarEstadoAuto error:", e);
   }
 };
 
