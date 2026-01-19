@@ -7,9 +7,12 @@ use App\Controllers\BaseController;
 class ConfirmacionController extends BaseController
 {
     public function index()
-    {
-        return view('confirmacion');
-    }
+{
+    return view('confirmacion', [
+        'etiquetasPredeterminadas' => []
+    ]);
+}
+
 
     // =========================
     // GET /confirmacion/my-queue
