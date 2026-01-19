@@ -1,10 +1,10 @@
 /**
- * confirmacion.js — FINAL ABSOLUTO
+ * confirmacion.js — FINAL ABSOLUTO (FIXED)
+ * - Sin errores null
+ * - IDs correctos
  * - Subida imágenes por producto
  * - Llaveros siempre requieren imagen
  * - Estado automático real
- * - UX clara (contador + badge)
- * - Backend como fuente de verdad
  */
 
 /* =====================================================
@@ -44,14 +44,14 @@ function setLoader(show) {
 }
 
 function setTextSafe(id, value) {
-  const el = document.getElementById(id);
+  const el = $(id);
   if (!el) return false;
   el.textContent = value ?? "";
   return true;
 }
 
 function setHtmlSafe(id, html) {
-  const el = document.getElementById(id);
+  const el = $(id);
   if (!el) return false;
   el.innerHTML = html ?? "";
   return true;
@@ -71,11 +71,13 @@ function getCsrfHeaders() {
 ===================================================== */
 function renderPedidos(pedidos) {
   const wrap = $("tablaPedidos");
+  if (!wrap) return;
+
   wrap.innerHTML = "";
 
   if (!pedidos.length) {
     wrap.innerHTML = `<div class="p-8 text-center text-slate-500">No hay pedidos asignados</div>`;
-    $("total-pedidos").textContent = "0";
+    setTextSafe("total-pedidos", "0");
     return;
   }
 
@@ -96,9 +98,7 @@ function renderPedidos(pedidos) {
       </div>
 
       <div>${escapeHtml(p.estado_por || "—")}</div>
-
       <div>—</div>
-
       <div class="text-center">${p.articulos || 1}</div>
 
       <div>
@@ -117,11 +117,10 @@ function renderPedidos(pedidos) {
         </button>
       </div>
     `;
-
     wrap.appendChild(row);
   });
 
-  $("total-pedidos").textContent = pedidos.length;
+  setTextSafe("total-pedidos", pedidos.length);
 }
 
 /* =====================================================
@@ -191,6 +190,23 @@ async function devolverPedidos() {
 }
 
 /* =====================================================
+  MODAL
+===================================================== */
+function abrirDetallesFull() {
+  const modal = $("modalDetallesFull");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  document.body.classList.add("overflow-hidden");
+}
+
+function cerrarModalDetalles() {
+  const modal = $("modalDetallesFull");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  document.body.classList.remove("overflow-hidden");
+}
+
+/* =====================================================
   DETALLES
 ===================================================== */
 window.verDetalles = async function (shopifyOrderId) {
@@ -206,47 +222,24 @@ window.verDetalles = async function (shopifyOrderId) {
     const d = await r.json();
     if (!r.ok || !d.success) throw new Error(d.message || "Error");
 
-    pintarDetallesPedido(d.order, d.imagenes_locales || {}, d.product_images || {});
+    pintarDetallesPedido(d.order, d.imagenes_locales || {});
 
   } catch (e) {
     pintarErrorDetalles(e.message);
   }
 };
 
-/* =====================================================
-  UI MODAL
-===================================================== */
-function abrirDetallesFull() {
-  const modal = document.getElementById("modalDetallesFull");
-  if (!modal) {
-    console.error("❌ No existe #modalDetallesFull en el DOM");
-    return;
-  }
-
-  modal.classList.remove("hidden");
-  document.documentElement.classList.add("overflow-hidden");
-  document.body.classList.add("overflow-hidden");
-}
-
-
-function cerrarModalDetalles() {
-  $("modalDetalles").classList.add("hidden");
-  document.body.classList.remove("overflow-hidden");
-}
-
 function pintarCargandoDetalles() {
-  const titulo = document.getElementById("detTitulo");
-  const productos = document.getElementById("detProductos");
-  const resumen = document.getElementById("detResumen");
-
-  if (titulo) titulo.textContent = "Cargando pedido…";
-  if (productos) productos.innerHTML = `<div class="text-slate-500">Cargando productos…</div>`;
-  if (resumen) resumen.innerHTML = `<div class="text-slate-500">Cargando resumen…</div>`;
+  setTextSafe("detTitulo", "Cargando pedido…");
+  setHtmlSafe("detProductos", `<div class="text-slate-500">Cargando productos…</div>`);
+  setHtmlSafe("detResumen", `<div class="text-slate-500">Cargando resumen…</div>`);
 }
-
 
 function pintarErrorDetalles(msg) {
-  $("detProductos").innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(msg)}</span>`;
+  setHtmlSafe(
+    "detProductos",
+    `<div class="text-rose-600 font-extrabold">${escapeHtml(msg)}</div>`
+  );
 }
 
 /* =====================================================
@@ -260,85 +253,66 @@ function isLlaveroItem(item) {
 
 function requiereImagenModificada(item) {
   const props = Array.isArray(item?.properties) ? item.properties : [];
-
   const tieneImagen = props.some(p => esImagenUrl(p?.value));
-  if (isLlaveroItem(item)) return true;
-
-  return tieneImagen;
+  return isLlaveroItem(item) || tieneImagen;
 }
 
 /* =====================================================
   PINTAR DETALLE
 ===================================================== */
-function pintarDetallesPedido(order, imagenesLocales, productImages) {
+function pintarDetallesPedido(order, imagenesLocales) {
   const items = order.line_items || [];
 
   window.imagenesRequeridas = [];
   window.imagenesCargadas = [];
 
-  $("detTitulo").textContent = `Pedido ${order.name}`;
+  setTextSafe("detTitulo", `Pedido ${order.name}`);
 
-  $("detProductos").innerHTML = items.map((item, index) => {
+  setHtmlSafe("detProductos", items.map((item, index) => {
     const requiere = requiereImagenModificada(item);
     const localImg = imagenesLocales[index] || "";
 
     window.imagenesRequeridas[index] = requiere;
     window.imagenesCargadas[index] = !!localImg;
 
-    const estado = requiere
-      ? localImg ? "🟢 Listo" : "🟡 Falta imagen"
-      : "—";
-
     return `
       <div class="border rounded-2xl p-4 bg-white">
         <div class="font-extrabold">${escapeHtml(item.title)}</div>
-        <div class="text-sm mt-1">Estado: ${estado}</div>
 
-        ${
-          requiere ? `
-            <input type="file" accept="image/*"
-              onchange="subirImagenProducto('${order.id}', ${index}, this)"
-              class="mt-3">
-          ` : ""
-        }
+        ${requiere ? `
+          <input type="file" accept="image/*"
+            onchange="subirImagenProducto('${order.id}', ${index}, this)"
+            class="mt-3">
+        ` : ""}
 
-        ${
-          localImg ? `
-            <img src="${escapeHtml(localImg)}"
-              class="mt-3 h-32 rounded-xl border">
-          ` : ""
-        }
+        ${localImg ? `
+          <img src="${escapeHtml(localImg)}"
+            class="mt-3 h-32 rounded-xl border">
+        ` : ""}
       </div>
     `;
-  }).join("");
+  }).join(""));
 
   actualizarResumenAuto(order.id);
 }
 
 /* =====================================================
-  CONTADOR + BADGE
+  RESUMEN + AUTO ESTADO
 ===================================================== */
 function actualizarResumenAuto(orderId) {
   const total = window.imagenesRequeridas.filter(Boolean).length;
   const ok = window.imagenesRequeridas.filter((v,i)=>v && window.imagenesCargadas[i]).length;
-
   const falta = total - ok;
 
-  $("detResumen").innerHTML = `
-    <div class="font-extrabold">
-      ${ok} / ${total} imágenes cargadas
-    </div>
-    <div class="mt-2 text-sm font-bold ${
-      falta ? "text-amber-600" : "text-emerald-600"
-    }">
+  setHtmlSafe("detResumen", `
+    <div class="font-extrabold">${ok} / ${total} imágenes cargadas</div>
+    <div class="mt-2 font-bold ${falta ? "text-amber-600" : "text-emerald-600"}">
       ${falta ? `🟡 Faltan ${falta} imágenes` : "🟢 Todo listo"}
     </div>
-  `;
+  `);
 
-  if (falta === 0 && total > 0) {
-    guardarEstadoAuto(orderId, "Confirmado");
-  } else {
-    guardarEstadoAuto(orderId, "Faltan archivos");
+  if (total > 0) {
+    guardarEstadoAuto(orderId, falta === 0 ? "Confirmado" : "Faltan archivos");
   }
 }
 
