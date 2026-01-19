@@ -272,3 +272,91 @@ function cerrarDetallesFull() {
   document.documentElement.classList.remove("overflow-hidden");
   document.body.classList.remove("overflow-hidden");
 }
+// ===============================
+// PINTAR DETALLES DEL PEDIDO
+// ===============================
+function pintarDetallesPedido(data) {
+  if (!data || !data.order) {
+    console.error("Datos de pedido inválidos", data);
+    mostrarErrorDetalles("Pedido sin información");
+    return;
+  }
+
+  const order = data.order;
+  const items = Array.isArray(order.line_items) ? order.line_items : [];
+
+  // HEADER
+  document.getElementById("detTitle").textContent = order.name || "Pedido";
+  document.getElementById("detSubtitle").textContent =
+    order.customer
+      ? `${order.customer.first_name || ""} ${order.customer.last_name || ""}`.trim()
+      : order.email || "—";
+
+  // =====================
+  // PRODUCTOS
+  // =====================
+  document.getElementById("detItemsCount").textContent = items.length;
+
+  if (!items.length) {
+    document.getElementById("detItems").innerHTML =
+      `<div class="text-slate-500">Sin productos</div>`;
+  } else {
+    document.getElementById("detItems").innerHTML = items.map(item => `
+      <div class="rounded-2xl border p-4 bg-white shadow-sm">
+        <div class="font-extrabold">${item.title}</div>
+        <div class="text-sm text-slate-600">
+          Cantidad: <b>${item.quantity}</b> · Precio: <b>${item.price} €</b>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  // =====================
+  // CLIENTE
+  // =====================
+  document.getElementById("detCliente").innerHTML = `
+    <div class="space-y-1">
+      <div><b>${order.customer?.first_name || ""} ${order.customer?.last_name || ""}</b></div>
+      <div>${order.email || "—"}</div>
+      <div>${order.phone || "—"}</div>
+    </div>
+  `;
+
+  // =====================
+  // ENVÍO
+  // =====================
+  const a = order.shipping_address || {};
+  document.getElementById("detEnvio").innerHTML = `
+    <div class="space-y-1">
+      <div>${a.name || "—"}</div>
+      <div>${a.address1 || ""}</div>
+      <div>${a.zip || ""} ${a.city || ""}</div>
+      <div>${a.country || ""}</div>
+    </div>
+  `;
+
+  // =====================
+  // TOTALES
+  // =====================
+  document.getElementById("detTotales").innerHTML = `
+    <div>
+      <div>Subtotal: <b>${order.subtotal_price} €</b></div>
+      <div>Envío: <b>${order.total_shipping_price_set?.shop_money?.amount || "0"} €</b></div>
+      <div class="text-lg font-extrabold mt-1">
+        Total: ${order.total_price} €
+      </div>
+    </div>
+  `;
+
+  // JSON DEBUG
+  const pre = document.getElementById("detJson");
+  if (pre) pre.textContent = JSON.stringify(data, null, 2);
+}
+
+// ===============================
+// ERROR UI
+// ===============================
+function mostrarErrorDetalles(msg) {
+  document.getElementById("detItems").innerHTML =
+    `<div class="text-rose-600 font-extrabold">${msg}</div>`;
+}
