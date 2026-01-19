@@ -893,6 +893,10 @@ async function guardarEstado(nuevoEstado) {
 // ✅ asegurar funciones globales para onclick=""
 window.guardarEstado = guardarEstado;
 
+
+function pauseLive() {
+  liveMode = false;
+}
 // ===============================
 // SUBIR IMAGEN MODIFICADA (ROBUSTO)
 // ===============================
