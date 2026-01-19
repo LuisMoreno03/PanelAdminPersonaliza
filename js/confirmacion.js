@@ -745,6 +745,154 @@ function isLlaveroItem(item) {
 
   return hayLlavero;
 }
+/* =====================================================
+  ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
+  + pause live + dirty TTL
+  + FIX endpoints (incluye /index.php/index.php)
+===================================================== */
+async function guardarEstado(nuevoEstado) {
+  // ✅ intenta varios inputs por si cambió el modal
+  const idInput =
+    document.getElementById("modalOrderId") ||
+    document.getElementById("modalEstadoOrderId") ||
+    document.getElementById("estadoOrderId") ||
+    document.querySelector('input[name="order_id"]');
+
+  const id = String(idInput?.value || "");
+  if (!id) {
+    alert("No se encontró el ID del pedido en el modal (input). Revisa layouts/modales_estados.");
+    return;
+  }
+
+  pauseLive();
+
+  const order = ordersById.get(id);
+  const prevEstado = order?.estado ?? null;
+  const prevLast = order?.last_status_change ?? null;
+
+  // 1) UI instantánea + dirty
+  const userName = window.CURRENT_USER || "Sistema";
+  const now = new Date();
+  const nowStr = now.toISOString().slice(0, 19).replace("T", " ");
+  const optimisticLast = { user_name: userName, changed_at: nowStr };
+
+  if (order) {
+    order.estado = nuevoEstado;
+    order.last_status_change = optimisticLast;
+    actualizarTabla(ordersCache);
+  }
+
+  dirtyOrders.set(id, {
+    until: Date.now() + DIRTY_TTL_MS,
+    estado: nuevoEstado,
+    last_status_change: optimisticLast,
+  });
+  saveEstadoLS(id, nuevoEstado, optimisticLast);
+
+
+  cerrarModal();
+
+  // 2) Guardar backend
+  try {
+    // ✅ endpoints ampliados (incluye doble index.php)
+    const endpoints = [
+      window.API?.guardarEstado,   // ✅ este primero
+      apiUrl("/api/estado/guardar"),
+      "/api/estado/guardar",
+      "/index.php/api/estado/guardar",
+      "/index.php/index.php/api/estado/guardar",
+      apiUrl("/index.php/api/estado/guardar"),
+      apiUrl("/index.php/index.php/api/estado/guardar"),
+    ];
+
+    let lastErr = null;
+
+    for (const url of endpoints) {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: jsonHeaders(),
+          credentials: "same-origin",
+          // ✅ manda id numérico (tu backend suele esperar num)
+          body: JSON.stringify({
+            order_id: String(id),   // ✅ clave correcta para tu DB/modelo
+            id: String(id),         // ✅ por si tu controller aún usa "id"
+            estado: String(nuevoEstado),
+          }),
+          
+        });
+
+        if (r.status === 404) continue;
+
+        const d = await r.json().catch(() => null);
+
+        if (!r.ok || !d?.success) {
+          throw new Error(d?.message || `HTTP ${r.status}`);
+        }
+
+        // 3) Sync desde backend
+        if (d?.order && order) {
+          order.estado = d.order.estado ?? order.estado;
+          order.last_status_change = d.order.last_status_change ?? order.last_status_change;
+          actualizarTabla(ordersCache);
+
+          dirtyOrders.set(id, {
+            until: Date.now() + DIRTY_TTL_MS,
+            estado: order.estado,
+            last_status_change: order.last_status_change,
+          });
+          saveEstadoLS(id, order.estado, order.last_status_change);
+
+        }
+
+        // refresca si estás en pág 1
+        if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
+        // ✅ NOTIFICAR a otras pestañas (Repetir Pedidos) en tiempo real
+
+        try {
+  const msg = { type: "estado_changed", order_id: String(id), estado: String(nuevoEstado), ts: Date.now() };
+
+  // BroadcastChannel (Chrome/Edge/Firefox)
+  if ("BroadcastChannel" in window) {
+    const bc = new BroadcastChannel("panel_pedidos");
+    bc.postMessage(msg);
+    bc.close();
+  }
+
+  // Fallback: dispara evento cross-tab
+  localStorage.setItem("pedido_estado_changed", JSON.stringify(msg));
+} catch (e) {
+  console.warn("No se pudo notificar a otras pestañas:", e);
+}
+
+        resumeLiveIfOnFirstPage();
+        return;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    throw lastErr || new Error("No se encontró un endpoint válido (404).");
+  } catch (e) {
+    console.error("guardarEstado error:", e);
+
+    // Revert
+    dirtyOrders.delete(id);
+
+    if (order) {
+      order.estado = prevEstado;
+      order.last_status_change = prevLast;
+      actualizarTabla(ordersCache);
+    }
+
+    alert("No se pudo guardar el estado. Se revirtió el cambio.");
+    resumeLiveIfOnFirstPage();
+  }
+}
+
+// ✅ asegurar funciones globales para onclick=""
+window.guardarEstado = guardarEstado;
+
 // ===============================
 // SUBIR IMAGEN MODIFICADA (ROBUSTO)
 // ===============================
