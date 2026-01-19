@@ -176,13 +176,26 @@ window.API = {
 
 <!-- ================= MENU COLLAPSE ================= -->
 <script>
-(function () {
-  const main = document.getElementById('mainLayout');
-  if (localStorage.getItem('menuCollapsed') === '1') {
-    main.classList.add('menu-collapsed');
-  }
-})();
+  // 🔁 Sincroniza el layout con el menú lateral
+  document.addEventListener("menu:toggle", () => {
+    const main = document.getElementById("mainLayout");
+    if (!main) return;
+
+    const collapsed = localStorage.getItem("menuCollapsed") === "1";
+    main.classList.toggle("menu-collapsed", collapsed);
+  });
+
+  // Estado inicial
+  document.addEventListener("DOMContentLoaded", () => {
+    const main = document.getElementById("mainLayout");
+    if (!main) return;
+
+    if (localStorage.getItem("menuCollapsed") === "1") {
+      main.classList.add("menu-collapsed");
+    }
+  });
 </script>
+
 
 </body>
 </html>

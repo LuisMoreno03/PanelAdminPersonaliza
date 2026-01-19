@@ -180,7 +180,7 @@ async function devolverPedidos() {
   DETALLES
 ===================================================== */
 window.verDetalles = async function (shopifyOrderId) {
-  abrirModalDetalles();
+  abrirDetallesFull();
   pintarCargandoDetalles();
 
   try {
@@ -202,10 +202,18 @@ window.verDetalles = async function (shopifyOrderId) {
 /* =====================================================
   UI MODAL
 ===================================================== */
-function abrirModalDetalles() {
-  $("modalDetalles").classList.remove("hidden");
+function abrirDetallesFull() {
+  const modal = document.getElementById("modalDetallesFull");
+  if (!modal) {
+    console.error("❌ No existe #modalDetallesFull en el DOM");
+    return;
+  }
+
+  modal.classList.remove("hidden");
+  document.documentElement.classList.add("overflow-hidden");
   document.body.classList.add("overflow-hidden");
 }
+
 
 function cerrarModalDetalles() {
   $("modalDetalles").classList.add("hidden");
