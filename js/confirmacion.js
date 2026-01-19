@@ -267,65 +267,63 @@ function requiereImagenModificada(item) {
 }
 
 function extraerLineItems(order) {
-  // Shopify REST / pedido_json antiguo
+  // Shopify REST
   if (Array.isArray(order?.line_items)) {
     return order.line_items;
   }
 
-  // Shopify GraphQL
+  // Shopify GraphQL Admin API
   if (order?.lineItems?.edges) {
-    return order.lineItems.edges.map(e => e.node);
+    return order.lineItems.edges.map(({ node }) => {
+      return {
+        title: node.title,
+        quantity: node.quantity || 1,
+        price: Number(node.originalUnitPrice?.amount || 0),
+        product_id: node.product?.id || null,
+        variant_id: node.variant?.id || null,
+        variant_title: node.variant?.title || "",
+        sku: node.variant?.sku || "",
+        properties: Array.isArray(node.customAttributes)
+          ? node.customAttributes.map(p => ({
+              name: p.key,
+              value: p.value
+            }))
+          : []
+      };
+    });
   }
 
   return [];
 }
 
+
 /* =====================================================
    PINTAR PRODUCTOS
 ===================================================== */
-function pintarDetallesPedido(order, imagenesLocales = {}, productImages = {}) {
+function pintarDetallesPedido(order, imagenesLocales = {}) {
   const items = extraerLineItems(order);
 
   imagenesRequeridas = [];
-  imagenesCargadas   = [];
+  imagenesCargadas = [];
 
   setTextSafe("detTitulo", `Pedido ${order.name || order.id}`);
 
   if (!items.length) {
-    setHtmlSafe(
-      "detProductos",
-      `<div class="text-slate-500">Este pedido no tiene productos</div>`
-    );
+    setHtmlSafe("detProductos", `
+      <div class="text-slate-500 p-6 text-center">
+        ⚠️ Este pedido no tiene productos detectables
+      </div>
+    `);
     setHtmlSafe("detResumen", "");
     return;
   }
 
   const html = items.map((item, index) => {
-    const title = item.title || "Producto";
-    const qty   = Number(item.quantity || 1);
-    const price = Number(item.price || 0);
-    const total = (qty * price).toFixed(2);
-
-    const variant = item.variantTitle || item.variant_title || "";
-    const productId = item.productId || item.product_id || "—";
-    const variantId = item.variantId || item.variant_id || "—";
-
-    const props = Array.isArray(item.properties) ? item.properties : [];
-
-    const propsImg = [];
-    const propsTxt = [];
-
-    props.forEach(p => {
-      const val = String(p?.value || "");
-      if (esImagenUrl(val)) propsImg.push({ name: p.name, value: val });
-      else propsTxt.push({ name: p.name, value: val });
-    });
-
     const requiere = requiereImagenModificada(item);
     const imgLocal = imagenesLocales[index] || "";
 
     imagenesRequeridas[index] = requiere;
-    imagenesCargadas[index]   = !!imgLocal;
+    imagenesCargadas[index] = !!imgLocal;
 
     const estadoBadge = requiere
       ? imgLocal
@@ -333,72 +331,73 @@ function pintarDetallesPedido(order, imagenesLocales = {}, productImages = {}) {
         : `<span class="px-3 py-1 text-xs rounded-full bg-amber-100 text-amber-800 font-bold">Falta imagen</span>`
       : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">No requiere</span>`;
 
-    return `
-      <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+    const propsImg = item.properties.filter(p => esImagenUrl(p.value));
+    const propsTxt = item.properties.filter(p => !esImagenUrl(p.value));
 
-        <div class="flex justify-between items-start gap-3">
+    return `
+      <div class="rounded-3xl border bg-white p-5 shadow-sm space-y-4">
+
+        <div class="flex justify-between items-start">
           <div>
-            <div class="font-extrabold text-slate-900">${escapeHtml(title)}</div>
-            <div class="text-sm text-slate-600 mt-1">
-              Cant: <b>${qty}</b> · Precio: <b>${price.toFixed(2)} €</b> · Total: <b>${total} €</b>
+            <div class="font-extrabold">${escapeHtml(item.title)}</div>
+            <div class="text-sm text-slate-600">
+              Cant: <b>${item.quantity}</b> · 
+              Precio: <b>${item.price.toFixed(2)} €</b> · 
+              Total: <b>${(item.price * item.quantity).toFixed(2)} €</b>
             </div>
           </div>
           ${estadoBadge}
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-          ${variant ? `<div><b>Variante:</b> ${escapeHtml(variant)}</div>` : ""}
-          <div><b>Product ID:</b> ${escapeHtml(productId)}</div>
-          <div><b>Variant ID:</b> ${escapeHtml(variantId)}</div>
-        </div>
+        ${
+          item.variant_title ? `
+            <div class="text-sm"><b>Variante:</b> ${escapeHtml(item.variant_title)}</div>
+          ` : ""
+        }
 
         ${
           propsTxt.length ? `
-          <div class="rounded-2xl border bg-slate-50 p-3">
-            <div class="text-xs font-extrabold uppercase text-slate-500 mb-2">Personalización</div>
-            ${propsTxt.map(p => `
-              <div class="text-sm">
-                <b>${escapeHtml(p.name)}:</b> ${escapeHtml(p.value || "—")}
-              </div>
-            `).join("")}
-          </div>
+            <div class="bg-slate-50 rounded-xl p-3 text-sm">
+              <div class="font-bold mb-1">Personalización</div>
+              ${propsTxt.map(p => `
+                <div><b>${escapeHtml(p.name)}:</b> ${escapeHtml(p.value)}</div>
+              `).join("")}
+            </div>
           ` : ""
         }
 
         ${
           propsImg.length ? `
-          <div>
-            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
-            <div class="flex gap-3 flex-wrap">
-              ${propsImg.map(img => `
-                <a href="${escapeHtml(img.value)}" target="_blank"
-                   class="block border rounded-2xl overflow-hidden">
-                  <img src="${escapeHtml(img.value)}" class="h-28 w-28 object-cover">
-                </a>
-              `).join("")}
+            <div>
+              <div class="text-sm font-bold mb-2">Imagen original (cliente)</div>
+              <div class="flex gap-3 flex-wrap">
+                ${propsImg.map(p => `
+                  <a href="${escapeHtml(p.value)}" target="_blank">
+                    <img src="${escapeHtml(p.value)}" class="h-28 w-28 rounded-xl object-cover border">
+                  </a>
+                `).join("")}
+              </div>
             </div>
-          </div>
           ` : ""
         }
 
         ${
           imgLocal ? `
-          <div>
-            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
-            <img src="${escapeHtml(imgLocal)}"
-                 class="h-40 rounded-2xl border shadow-sm object-cover">
-          </div>
+            <div>
+              <div class="text-sm font-bold mb-2">Imagen modificada</div>
+              <img src="${escapeHtml(imgLocal)}"
+                   class="h-40 rounded-xl border object-cover">
+            </div>
           ` : ""
         }
 
         ${
           requiere ? `
-          <div>
-            <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
-            <input type="file" accept="image/*"
-              onchange="subirImagenProducto('${order.id}', ${index}, this)"
-              class="block w-full text-sm">
-          </div>
+            <div>
+              <div class="text-sm font-bold mb-2">Subir imagen modificada</div>
+              <input type="file" accept="image/*"
+                onchange="subirImagenProducto('${order.id}', ${index}, this)">
+            </div>
           ` : ""
         }
 
@@ -409,6 +408,7 @@ function pintarDetallesPedido(order, imagenesLocales = {}, productImages = {}) {
   setHtmlSafe("detProductos", html);
   actualizarResumenAuto(order.id);
 }
+
 
 
 
