@@ -310,120 +310,74 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
       : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-slate-50 border border-slate-200 text-slate-700">Sin imagen</span>`;
 
     return `
-      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
-        <div class="flex items-start gap-4">
-          
-          <!-- Imagen Producto Shopify -->
-          ${
-            imgProducto
-              ? `<a href="${imgProducto}" target="_blank"
-                   class="h-20 w-20 rounded-2xl overflow-hidden border border-slate-200 bg-white flex-shrink-0">
-                   <img src="${imgProducto}" class="h-full w-full object-cover" />
-                 </a>`
-              : `<div class="h-20 w-20 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
-                   🧾
-                 </div>`
-          }
+  <div class="rounded-3xl border bg-white p-5 shadow-sm space-y-4">
+    <div class="flex gap-4">
+      ${imgProducto ? `
+        <a href="${imgProducto}" target="_blank">
+          <img src="${imgProducto}" class="h-20 w-20 rounded-xl border object-cover">
+        </a>
+      ` : ""}
 
-          <div class="min-w-0 flex-1">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || "Producto")}</div>
-                <div class="text-sm text-slate-600 mt-1">
-                  Cant: <b>${qty}</b> · Precio: <b>${price.toFixed(2)} €</b> · Total: <b>${total.toFixed(2)} €</b>
-                </div>
-
-                ${
-                  variant
-                    ? `<div class="text-sm mt-1"><b>Variante:</b> ${escapeHtml(variant)}</div>`
-                    : ""
-                }
-
-                <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600">
-                  ${pid ? `<div><b>Product ID:</b> ${escapeHtml(pid)}</div>` : ""}
-                  ${vid ? `<div><b>Variant ID:</b> ${escapeHtml(vid)}</div>` : ""}
-                </div>
-              </div>
-
-              ${badge}
+      <div class="flex-1">
+        <div class="flex justify-between">
+          <div>
+            <div class="font-extrabold">${escapeHtml(item.title)}</div>
+            <div class="text-sm text-slate-600">
+              Cant: ${item.quantity} · ${Number(item.price).toFixed(2)} € · ${(Number(item.price) * Number(item.quantity)).toFixed(2)} €
             </div>
+          </div>
 
-            <!-- Personalización (texto) -->
-            ${
-              propsTxt.length
-                ? `
-                  <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                    <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
-                    <div class="space-y-1 text-sm">
-                      ${propsTxt.map(p => `
-                        <div class="flex gap-2">
-                          <div class="min-w-[140px] text-slate-500 font-bold">${escapeHtml(p.name)}:</div>
-                          <div class="flex-1 font-semibold text-slate-900 break-words">${escapeHtml(p.value || "—")}</div>
-                        </div>
-                      `).join("")}
-                    </div>
-                  </div>
-                `
-                : ""
-            }
-
-            <!-- Imágenes cliente -->
-            ${
-              propsImg.length
-                ? `
-                  <div class="mt-4">
-                    <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
-                    <div class="flex flex-wrap gap-3">
-                      ${propsImg.map(p => `
-                        <a href="${p.value}" target="_blank"
-                          class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm bg-white">
-                          <img src="${p.value}" class="h-28 w-28 object-cover">
-                          <div class="px-3 py-2 text-xs font-bold text-slate-700 border-t border-slate-200">
-                            ${escapeHtml(p.name)}
-                          </div>
-                        </a>
-                      `).join("")}
-                    </div>
-                  </div>
-                `
-                : ""
-            }
-
-            <!-- Imagen modificada -->
-            ${
-              imgMod
-                ? `
-                  <div class="mt-4">
-                    <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
-                    <a href="${imgMod}" target="_blank"
-                      class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-                      <img src="${imgMod}" class="h-40 w-40 object-cover">
-                    </a>
-                  </div>
-                `
-                : requiere
-                  ? `<div class="mt-4 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
-                  : ""
-            }
-
-            <!-- Upload -->
+          <div id="badge_item_${order.id}_${i}">
             ${
               requiere
-                ? `
-                  <div class="mt-4">
-                    <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
-                    <input type="file" accept="image/*"
-                      class="w-full border border-slate-200 rounded-2xl p-2"
-                      onchange="subirImagenProducto('${order.id}', ${i}, this)">
-                    <div id="preview_${order.id}_${i}" class="mt-2"></div>
-                  </div>
-                `
-                : ""
+                ? imgMod
+                  ? `<span class="text-emerald-600 font-bold">Listo</span>`
+                  : `<span class="text-amber-600 font-bold">Falta imagen</span>`
+                : `<span class="text-slate-400">Sin imagen</span>`
             }
           </div>
         </div>
+
+        ${item.variant_title ? `<div class="text-sm"><b>Variante:</b> ${escapeHtml(item.variant_title)}</div>` : ""}
+        ${item.product_id ? `<div class="text-xs text-slate-500"><b>Product ID:</b> ${escapeHtml(item.product_id)}</div>` : ""}
+        ${item.variant_id ? `<div class="text-xs text-slate-500"><b>Variant ID:</b> ${escapeHtml(item.variant_id)}</div>` : ""}
+
+        ${imgCliente ? `
+          <div class="mt-3">
+            <div class="text-xs font-bold mb-1">Imagen original (cliente)</div>
+            <a href="${imgCliente}" target="_blank">
+              <img src="${imgCliente}" class="h-32 rounded-xl border object-cover">
+            </a>
+          </div>
+        ` : ""}
+
+        <!-- ✅ Imagen modificada actual (si existe) -->
+        ${imgMod ? `
+          <div class="mt-3">
+            <div class="text-xs font-bold mb-1">Imagen modificada (subida)</div>
+            <a href="${imgMod}" target="_blank">
+              <img src="${imgMod}" class="h-32 rounded-xl border object-cover">
+            </a>
+          </div>
+        ` : ""}
+
+        <!-- ✅ Preview SIEMPRE existe (aquí pintamos al subir) -->
+        <div id="preview_${order.id}_${i}" class="mt-3"></div>
+
+        ${
+          requiere
+            ? `<div class="mt-3">
+                <div class="text-xs font-bold mb-1">Subir imagen modificada</div>
+                <input type="file" class="mt-1" accept="image/*"
+                  onchange="subirImagenProducto('${order.id}', ${i}, this)">
+              </div>`
+            : ""
+        }
       </div>
-    `;
+    </div>
+  </div>
+`;
+
   }).join("");
 
   setHtmlSafe("detProductos", `
@@ -446,31 +400,90 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
    SUBIR IMAGEN MODIFICADA
 ===================================================== */
 window.subirImagenProducto = async function (orderId, index, input) {
-  const file = input.files?.[0];
-  if (!file) return;
+  try {
+    const file = input?.files?.[0];
+    if (!file) return;
 
-  const fd = new FormData();
-  fd.append("order_id", orderId);
-  fd.append("line_index", index);
-  fd.append("file", file);
+    const fd = new FormData();
+    fd.append("order_id", String(orderId));
+    fd.append("line_index", String(index));
+    fd.append("file", file);
 
-  setLoader(true);
+    const endpoints = [
+      window.API?.subirImagen,
+      "/api/pedidos/imagenes/subir",
+      "/index.php/api/pedidos/imagenes/subir",
+      "/index.php/index.php/api/pedidos/imagenes/subir",
+    ].filter(Boolean);
 
-  const r = await fetch("/api/pedidos/imagenes/subir", {
-    method: "POST",
-    body: fd,
-    headers: getCsrfHeaders(),
-    credentials: "same-origin"
-  });
+    let lastErr = null;
 
-  const d = await r.json();
-  if (d?.url) {
-    imagenesCargadas[index] = true;
-    actualizarResumenAuto(orderId);
+    for (const url of endpoints) {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { ...getCsrfHeaders() },
+          body: fd,
+          credentials: "same-origin",
+        });
+
+        if (r.status === 404) continue;
+
+        const d = await r.json().catch(() => null);
+        const ok = r.ok && (d?.success === true) && d?.url;
+        if (!ok) throw new Error(d?.message || `HTTP ${r.status}`);
+
+        const urlFinal = String(d.url);
+
+        // ✅ 1) Preview inmediato
+        const prev = document.getElementById(`preview_${orderId}_${index}`);
+        if (prev) {
+          prev.innerHTML = `
+            <div>
+              <div class="text-xs font-bold mb-1">Vista previa (subida ✅)</div>
+              <a href="${urlFinal}" target="_blank">
+                <img src="${urlFinal}" class="h-32 rounded-xl border object-cover">
+              </a>
+            </div>
+          `;
+        }
+
+        // ✅ 2) Marcar cargada
+        if (!Array.isArray(window.imagenesCargadas)) window.imagenesCargadas = [];
+        if (!Array.isArray(window.imagenesRequeridas)) window.imagenesRequeridas = [];
+        window.imagenesCargadas[index] = true;
+
+        // ✅ 3) Guardar en imagenesLocales local
+        if (typeof window.imagenesLocales !== "object" || window.imagenesLocales === null) {
+          window.imagenesLocales = {};
+        }
+        window.imagenesLocales[index] = urlFinal;
+
+        // ✅ 4) Badge del item a "Listo"
+        const badge = document.getElementById(`badge_item_${orderId}_${index}`);
+        if (badge) badge.innerHTML = `<span class="text-emerald-600 font-bold">Listo</span>`;
+
+        // ✅ 5) Resumen derecha (2/2 etc.)
+        if (typeof actualizarResumenAuto === "function") actualizarResumenAuto(orderId);
+
+        // ✅ 6) Auto-estado + refrescar lista si queda confirmado
+        if (typeof window.validarEstadoAuto === "function") {
+          await window.validarEstadoAuto(orderId);
+        }
+
+        return; // ✅ éxito
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    throw lastErr || new Error("No se encontró endpoint válido para subir imagen.");
+  } catch (e) {
+    console.error("subirImagenProducto error:", e);
+    alert("Error subiendo imagen: " + (e?.message || e));
   }
-
-  setLoader(false);
 };
+
 
 /* =====================================================
    RESUMEN
@@ -496,3 +509,97 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btnDevolver")?.addEventListener("click", devolverPedidos);
   cargarMiCola();
 });
+
+
+window.guardarEstado = async function (orderId, nuevoEstado) {
+  const endpoints = [
+    window.API?.guardarEstado,
+    "/api/estado/guardar",
+    "/index.php/api/estado/guardar",
+    "/index.php/index.php/api/estado/guardar",
+  ].filter(Boolean);
+
+  let lastErr = null;
+
+  for (const url of endpoints) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          order_id: String(orderId),
+          id: String(orderId),
+          estado: String(nuevoEstado),
+        }),
+      });
+
+      if (r.status === 404) continue;
+
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !(d?.success || d?.ok)) {
+        throw new Error(d?.message || `HTTP ${r.status}`);
+      }
+
+      return true;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  console.error("guardarEstado failed:", lastErr);
+  return false;
+};
+window.validarEstadoAuto = async function (orderId) {
+  try {
+    const oid = String(orderId || "");
+    if (!oid) return;
+
+    const req = Array.isArray(window.imagenesRequeridas) ? window.imagenesRequeridas : [];
+    const ok  = Array.isArray(window.imagenesCargadas) ? window.imagenesCargadas : [];
+
+    const requiredIdx = req.map((v, i) => (v ? i : -1)).filter(i => i >= 0);
+    const requiredCount = requiredIdx.length;
+
+    // si no requiere imágenes, no forzamos estado
+    if (requiredCount < 1) return;
+
+    const uploadedCount = requiredIdx.filter(i => ok[i] === true).length;
+    const faltaAlguna = uploadedCount < requiredCount;
+
+    // ✅ estados que quieres
+    const nuevoEstado = faltaAlguna ? "Faltan archivos" : "Confirmado";
+
+    // ✅ si ya está en ese estado, no repitas
+    const pedidoLocal = Array.isArray(pedidosCache)
+      ? pedidosCache.find(p => String(p.shopify_order_id) === oid || String(p.id) === oid)
+      : null;
+
+    const estadoActual = String(pedidoLocal?.estado || "").toLowerCase().trim();
+    if (nuevoEstado.toLowerCase().includes("faltan") && estadoActual.includes("faltan")) return;
+    if (nuevoEstado.toLowerCase().includes("confirm") && estadoActual.includes("confirm")) return;
+
+    // ✅ guardar en backend
+    const saved = await window.guardarEstado(oid, nuevoEstado);
+
+    // ✅ actualizar cache local (para que la lista cambie)
+    if (pedidoLocal) pedidoLocal.estado = nuevoEstado;
+
+    // ✅ si falta => se queda en confirmación y el resumen debe decir faltan
+    if (faltaAlguna) {
+      if (typeof cargarMiCola === "function") await cargarMiCola();
+      return;
+    }
+
+    // ✅ si ya quedó confirmado => quitar de la lista
+    if (saved && nuevoEstado === "Confirmado") {
+      // refresca lista desde backend (lo ideal)
+      if (typeof cargarMiCola === "function") await cargarMiCola();
+
+      // opcional: cerrar modal automáticamente
+      if (typeof cerrarModalDetalles === "function") cerrarModalDetalles();
+    }
+  } catch (e) {
+    console.error("validarEstadoAuto error:", e);
+  }
+};
