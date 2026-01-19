@@ -3,238 +3,199 @@
 namespace App\Controllers;
 
 use CodeIgniter\Controller;
-use App\Models\PedidosEstadoModel;
 
 class ConfirmacionController extends Controller
 {
+    protected $db;
+
+    public function __construct()
+    {
+        $this->db = \Config\Database::connect();
+    }
+
     public function index()
     {
-        if (!session()->get('logged_in')) return redirect()->to('/');
-        return view('confirmacion'); // tu vista parecida a produccion
+        if (!session()->get('logged_in')) {
+            return redirect()->to(site_url('login'));
+        }
+
+        // Renderiza vista (tu layout + scripts)
+        return view('confirmacion/index');
     }
 
     /**
-     * Cola general de confirmación:
-     * - Solo estado: "Por preparar"
-     * - Prioridad Express primero
+     * Cola del usuario (solo "Por preparar" + entrega sin preparar)
+     * GET /confirmacion/my-queue?limit=10
      */
     public function myQueue()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No autenticado']);
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
         }
 
-        $db = \Config\Database::connect();
+        $userId = (int)(session('user_id') ?? 0);
+        $limit  = (int)($this->request->getGet('limit') ?? 10);
+        $limit  = max(1, min(50, $limit));
 
-        // 1) Order IDs por estado (de tu tabla pedidos_estado)
-        $estadoModel = new PedidosEstadoModel();
-        $orderIds = $estadoModel->getOrderIdsByEstado('Por preparar', 500, 0); // ajusta
+        // ✅ IMPORTANTÍSIMO:
+        // - order_id en pedidos_estado es el shopify_order_id (string)
+        // - pedidos.shopify_order_id también es ese string
+        // - pedidos.assigned_to_user_id controla la “cola” (igual que producción)
 
-        if (!$orderIds) {
-            return $this->response->setJSON(['success' => true, 'orders' => []]);
-        }
-
-        // 2) Traer pedidos desde tabla pedidos con prioridad express
-        $rows = $db->table('pedidos p')
-            ->select('p.id, p.shopify_order_id, p.numero, p.cliente, p.total, p.etiquetas, p.forma_envio, p.created_at, p.assigned_to_user_id')
-            ->whereIn('p.shopify_order_id', $orderIds)
-            ->orderBy("
-                CASE
-                  WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
-                  WHEN LOWER(p.etiquetas) LIKE '%express%' THEN 0
-                  ELSE 1
-                END
-            ", '', false)
-            ->orderBy('p.created_at', 'ASC')
+        $rows = $this->db->table('pedidos p')
+            ->select([
+                'p.id',
+                'p.shopify_order_id',
+                'p.numero',
+                'p.fecha',
+                'p.cliente',
+                'p.total',
+                'p.estado_envio',         // si ya lo guardas en tu tabla
+                'p.forma_envio',          // aquí detectamos express
+                'p.etiquetas',
+                'p.articulos',
+                'pe.estado as estado',
+                'pe.estado_updated_at',
+                'pe.estado_updated_by_name',
+            ])
+            ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+            ->where('p.assigned_to_user_id', $userId)
+            ->where('LOWER(TRIM(pe.estado))', 'por preparar')
+            // ✅ entrega "Sin preparar"
+            ->groupStart()
+                ->where('p.estado_envio IS NULL')
+                ->orWhere('LOWER(TRIM(p.estado_envio))', 'unfulfilled')
+                ->orWhere('LOWER(TRIM(p.estado_envio))', '')  // por si guardas vacío
+            ->groupEnd()
+            ->orderBy("CASE 
+                WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
+                WHEN LOWER(p.etiquetas) LIKE '%express%' THEN 1
+                WHEN LOWER(p.etiquetas) LIKE '%urgente%' THEN 1
+                ELSE 2
+            END", '', false)
+            ->orderBy('p.fecha', 'ASC')
+            ->limit($limit)
             ->get()
             ->getResultArray();
 
+        // normaliza last_status_change como en dashboard
+        $orders = array_map(function ($r) {
+            return [
+                'id'       => (string)($r['shopify_order_id'] ?? $r['id']),
+                'numero'   => $r['numero'] ?? ('#' . ($r['shopify_order_id'] ?? $r['id'])),
+                'fecha'    => $r['fecha'] ?? '-',
+                'cliente'  => $r['cliente'] ?? '-',
+                'total'    => $r['total'] ?? '-',
+                'estado'   => $r['estado'] ?? 'Por preparar',
+                'etiquetas'=> $r['etiquetas'] ?? '',
+                'articulos'=> $r['articulos'] ?? '-',
+                'estado_envio' => $r['estado_envio'] ?? null,
+                'forma_envio'  => $r['forma_envio'] ?? '',
+                'last_status_change' => [
+                    'user_name'  => $r['estado_updated_by_name'] ?? null,
+                    'changed_at' => $r['estado_updated_at'] ?? null,
+                ],
+            ];
+        }, $rows);
+
         return $this->response->setJSON([
             'success' => true,
-            'orders'  => $rows,
+            'orders'  => $orders,
+            'count'   => count($orders),
         ]);
     }
 
     /**
-     * Pull: asigna el siguiente pedido al usuario (opcional, igual que Producción)
+     * Pull: asigna 1 pedido "Por preparar" (y sin preparar) al usuario.
+     * POST /confirmacion/pull
      */
     public function pull()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No autenticado']);
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
         }
 
-        $db = \Config\Database::connect();
         $userId = (int)(session('user_id') ?? 0);
-
-        $estadoModel = new PedidosEstadoModel();
-        $orderIds = $estadoModel->getOrderIdsByEstado('Por preparar', 500, 0);
-
-        if (!$orderIds) {
-            return $this->response->setJSON(['success' => true, 'message' => 'No hay pedidos', 'order' => null]);
+        if (!$userId) {
+            return $this->response->setStatusCode(200)->setJSON([
+                'success' => false,
+                'message' => 'Usuario inválido',
+            ]);
         }
 
-        // Busca el mejor candidato sin asignación
-        $pedido = $db->table('pedidos p')
-            ->select('p.id, p.shopify_order_id, p.numero, p.cliente, p.total, p.etiquetas, p.forma_envio, p.created_at')
-            ->whereIn('p.shopify_order_id', $orderIds)
-            ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)', null, false)
-            ->orderBy("
-                CASE
-                  WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
-                  WHEN LOWER(p.etiquetas) LIKE '%express%' THEN 0
-                  ELSE 1
-                END
-            ", '', false)
-            ->orderBy('p.created_at', 'ASC')
-            ->get()
+        // Busca candidato (NO asignado)
+        $candidate = $this->db->table('pedidos p')
+            ->select('p.id')
+            ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+            ->where('p.assigned_to_user_id IS NULL', null, false)
+            ->where('LOWER(TRIM(pe.estado))', 'por preparar')
+            ->groupStart()
+                ->where('p.estado_envio IS NULL')
+                ->orWhere('LOWER(TRIM(p.estado_envio))', 'unfulfilled')
+                ->orWhere('LOWER(TRIM(p.estado_envio))', '')
+            ->groupEnd()
+            ->orderBy("CASE 
+                WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
+                WHEN LOWER(p.etiquetas) LIKE '%express%' THEN 1
+                WHEN LOWER(p.etiquetas) LIKE '%urgente%' THEN 1
+                ELSE 2
+            END", '', false)
+            ->orderBy('p.fecha', 'ASC')
+            ->get(1)
             ->getRowArray();
 
-        if (!$pedido) {
-            return $this->response->setJSON(['success' => true, 'message' => 'No hay pedidos libres', 'order' => null]);
+        if (!$candidate) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'No hay pedidos disponibles',
+            ]);
         }
 
-        // Asignar
-        $db->table('pedidos')->where('id', (int)$pedido['id'])->update([
-            'assigned_to_user_id' => $userId,
-            'assigned_at' => date('Y-m-d H:i:s'),
-        ]);
-
-        return $this->response->setJSON(['success' => true, 'order' => $pedido]);
-    }
-
-    /**
-     * Subir archivos de confirmación (cuadros/llaveros) y auto-estado -> Confirmado
-     * REGLA: si hay al menos 1 archivo válido subido, cambiamos a Confirmado
-     * (Si quieres regla más estricta por item, te la ajusto abajo)
-     */
-    public function uploadConfirmacion()
-    {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No autenticado']);
-        }
-
-        $orderId = trim((string)($this->request->getPost('order_id') ?? ''));
-        if ($orderId === '' || $orderId === '0') {
-            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'order_id requerido']);
-        }
-
-        $files = $this->request->getFiles();
-        if (!isset($files['files'])) {
-            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'Sin archivos']);
-        }
-
-        $db = \Config\Database::connect();
         $now = date('Y-m-d H:i:s');
 
-        // Guardar en carpeta
-        $dir = WRITEPATH . "uploads/confirmacion/" . $orderId;
-        if (!is_dir($dir)) mkdir($dir, 0777, true);
-
-        $saved = 0;
-        $out = [];
-
-        foreach ($files['files'] as $f) {
-            if (!$f || !$f->isValid()) continue;
-
-            $newName  = $f->getRandomName();
-            $original = $f->getName();
-            $mime     = $f->getClientMimeType();
-
-            $f->move($dir, $newName);
-
-            $saved++;
-            $url = site_url("confirmacion/file/{$orderId}/{$newName}");
-
-            // Opcional: guardar referencia en DB (recomendado)
-            $db->table('pedido_archivos_confirmacion')->insert([
-                'order_id' => (string)$orderId,
-                'line_index' => null,
-                'filename' => $newName,
-                'original_name' => $original,
-                'mime' => $mime,
-                'size' => $f->getSize(),
-                'created_at' => $now,
-                'created_by' => (int)(session('user_id') ?? 0),
-                'created_by_name' => (string)(session('nombre') ?? session('user_name') ?? 'Sistema'),
+        $this->db->table('pedidos')
+            ->where('id', (int)$candidate['id'])
+            ->update([
+                'assigned_to_user_id' => $userId,
+                'assigned_at' => $now,
             ]);
-
-            $out[] = [
-                'original_name' => $original,
-                'filename' => $newName,
-                'mime' => $mime,
-                'size' => $f->getSize(),
-                'created_at' => $now,
-                'url' => $url,
-            ];
-        }
-
-        if ($saved <= 0) {
-            return $this->response->setJSON(['success' => false, 'message' => 'No se subió ningún archivo válido']);
-        }
-
-        // ✅ Auto-cambiar estado a "Confirmado"
-        $estadoModel = new \App\Models\PedidosEstadoModel();
-        $userId   = (int)(session('user_id') ?? 0);
-        $userName = (string)(session('nombre') ?? session('user_name') ?? 'Sistema');
-
-        $okEstado = (bool)$estadoModel->setEstadoPedido((string)$orderId, 'Confirmado', $userId ?: null, $userName);
-
-        // Historial (siempre que quieras)
-        $db->table('pedidos_estado_historial')->insert([
-            'order_id'   => (string)$orderId,
-            'estado'     => 'Confirmado',
-            'user_id'    => $userId ?: null,
-            'user_name'  => $userName,
-            'created_at' => $now,
-            'pedido_json'=> null,
-        ]);
-
-        // Opcional: desasignar para que desaparezca de “mi cola”
-        $db->table('pedidos')
-            ->where('shopify_order_id', (string)$orderId)
-            ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
 
         return $this->response->setJSON([
             'success' => true,
-            'saved' => $saved,
-            'files' => $out,
-            'estado_set' => $okEstado,
-            'new_estado' => 'Confirmado',
+            'message' => 'Pedido asignado a tu cola',
         ]);
     }
 
-    public function listFiles()
+    /**
+     * Devuelve todos los pedidos de tu cola (opcional)
+     */
+    public function returnAll()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No autenticado']);
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
         }
 
-        $orderId = trim((string)($this->request->getGet('order_id') ?? ''));
-        if ($orderId === '') {
-            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'order_id requerido']);
-        }
+        $userId = (int)(session('user_id') ?? 0);
 
-        $db = \Config\Database::connect();
+        $this->db->table('pedidos')
+            ->where('assigned_to_user_id', $userId)
+            ->update([
+                'assigned_to_user_id' => null,
+                'assigned_at' => null,
+            ]);
 
-        $rows = $db->table('pedido_archivos_confirmacion')
-            ->select('filename, original_name, mime, size, created_at')
-            ->where('order_id', (string)$orderId)
-            ->orderBy('id', 'DESC')
-            ->get()
-            ->getResultArray();
-
-        $out = array_map(function($r) use ($orderId) {
-            return [
-                'filename' => $r['filename'],
-                'original_name' => $r['original_name'],
-                'mime' => $r['mime'],
-                'size' => $r['size'],
-                'created_at' => $r['created_at'],
-                'url' => site_url("confirmacion/file/{$orderId}/{$r['filename']}"),
-            ];
-        }, $rows);
-
-        return $this->response->setJSON(['success' => true, 'files' => $out]);
+        return $this->response->setJSON([
+            'success' => true,
+            'message' => 'Pedidos devueltos',
+        ]);
     }
 }
