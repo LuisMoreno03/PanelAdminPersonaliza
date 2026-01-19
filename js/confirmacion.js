@@ -1,10 +1,7 @@
 /**
  * confirmacion.js — FINAL DEFINITIVO
- * ✔ Backend + fallback unificados
- * ✔ Sin ReferenceError
- * ✔ Sin toFixed errors
- * ✔ Render único de productos
- * ✔ Modal estable
+ * Backend + fallback manual
+ * Sin errores, sin duplicados
  */
 
 /* =====================================================
@@ -18,7 +15,6 @@ const ENDPOINT_DETALLES = API.detalles;
 
 let pedidosCache = [];
 let loading = false;
-
 let imagenesRequeridas = [];
 let imagenesCargadas = [];
 let pedidoActualId = null;
@@ -37,38 +33,26 @@ const escapeHtml = str =>
     .replaceAll("'", "&#039;");
 
 const esImagenUrl = url =>
-  /https?:\/\/.*\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i.test(String(url || ""));
+  /^https?:\/\/.*\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i.test(String(url || ""));
 
-const setLoader = show =>
-  $("globalLoader")?.classList.toggle("hidden", !show);
-
+const setLoader = v => $("globalLoader")?.classList.toggle("hidden", !v);
 const setTextSafe = (id, v) => $(id) && ($(id).textContent = v ?? "");
-const setHtmlSafe = (id, h) => $(id) && ($(id).innerHTML = h ?? "");
+const setHtmlSafe = (id, v) => $(id) && ($(id).innerHTML = v ?? "");
 
 /* =====================================================
    CSRF
 ===================================================== */
 function getCsrfHeaders() {
-  const t = document.querySelector('meta[name="csrf-token"]')?.content;
-  const h = document.querySelector('meta[name="csrf-header"]')?.content;
-  return t && h ? { [h]: t } : {};
+  const token = document.querySelector('meta[name="csrf-token"]')?.content;
+  const header = document.querySelector('meta[name="csrf-header"]')?.content;
+  return token && header ? { [header]: token } : {};
 }
 
 /* =====================================================
-   NORMALIZAR LINE ITEMS (CLAVE)
+   LINE ITEMS NORMALIZADOS
 ===================================================== */
 function extraerLineItems(order) {
-  if (Array.isArray(order?.line_items)) {
-    return order.line_items.map(i => ({
-      title: i.title,
-      quantity: Number(i.quantity || 1),
-      price: Number(i.price || 0),
-      product_id: i.product_id,
-      variant_id: i.variant_id,
-      variant_title: i.variant_title || "",
-      properties: Array.isArray(i.properties) ? i.properties : []
-    }));
-  }
+  if (Array.isArray(order?.line_items)) return order.line_items;
 
   if (order?.lineItems?.edges) {
     return order.lineItems.edges.map(({ node }) => ({
@@ -80,11 +64,12 @@ function extraerLineItems(order) {
       variant_title: node.variant?.title || "",
       properties: Array.isArray(node.customAttributes)
         ? node.customAttributes.map(p => ({ name: p.key, value: p.value }))
-        : []
+        : [],
+      image: node.product?.featuredImage?.url || ""
     }));
   }
 
-  return [];
+  return Array.isArray(order?.lineItems) ? order.lineItems : [];
 }
 
 /* =====================================================
@@ -93,21 +78,23 @@ function extraerLineItems(order) {
 const isLlaveroItem = item =>
   String(item?.title || "").toLowerCase().includes("llavero");
 
-const requiereImagenModificada = item =>
-  isLlaveroItem(item) ||
-  (Array.isArray(item.properties) &&
-    item.properties.some(p => esImagenUrl(p.value)));
+const requiereImagenModificada = item => {
+  const props = Array.isArray(item?.properties) ? item.properties : [];
+  return isLlaveroItem(item) || props.some(p => esImagenUrl(p.value));
+};
 
 /* =====================================================
    LISTADO
 ===================================================== */
 function renderPedidos(pedidos) {
   const wrap = $("tablaPedidos");
+  if (!wrap) return;
+
   wrap.innerHTML = "";
 
   if (!pedidos.length) {
-    wrap.innerHTML = `<div class="p-8 text-center text-slate-500">No hay pedidos asignados</div>`;
-    setTextSafe("total-pedidos", 0);
+    wrap.innerHTML = `<div class="p-8 text-center text-slate-500">No hay pedidos</div>`;
+    setTextSafe("total-pedidos", "0");
     return;
   }
 
@@ -117,20 +104,18 @@ function renderPedidos(pedidos) {
 
     row.innerHTML = `
       <div class="font-extrabold">${escapeHtml(p.numero)}</div>
-      <div>${(p.created_at || "").slice(0,10)}</div>
+      <div>${(p.created_at || "").slice(0, 10)}</div>
       <div class="truncate">${escapeHtml(p.cliente)}</div>
-      <div class="font-bold">${Number(p.total).toFixed(2)} €</div>
-      <div><span class="px-3 py-1 text-xs rounded-full bg-blue-600 text-white">POR PREPARAR</span></div>
+      <div class="font-bold">${Number(p.total || 0).toFixed(2)} €</div>
+      <div><span class="badge-blue">POR PREPARAR</span></div>
       <div>${escapeHtml(p.estado_por || "—")}</div>
       <div>—</div>
       <div class="text-center">${p.articulos || 1}</div>
-      <div><span class="px-3 py-1 text-xs rounded-full bg-slate-100">Sin preparar</span></div>
-      <div class="truncate">${escapeHtml(p.forma_envio || "-")}</div>
+      <div><span class="badge-gray">Sin preparar</span></div>
+      <div>${escapeHtml(p.forma_envio || "-")}</div>
       <div class="text-right">
         <button onclick="verDetalles('${p.shopify_order_id}')"
-          class="px-3 py-1 rounded-2xl bg-blue-600 text-white font-extrabold">
-          VER DETALLES →
-        </button>
+          class="btn-primary">VER DETALLES →</button>
       </div>
     `;
     wrap.appendChild(row);
@@ -140,7 +125,7 @@ function renderPedidos(pedidos) {
 }
 
 /* =====================================================
-   CARGA / ACCIONES
+   CARGA COLA
 ===================================================== */
 async function cargarMiCola() {
   if (loading) return;
@@ -158,173 +143,106 @@ async function cargarMiCola() {
   }
 }
 
-async function traerPedidos(n) {
-  setLoader(true);
-  await fetch(ENDPOINT_PULL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
-    body: JSON.stringify({ count: n }),
-    credentials: "same-origin"
-  });
-  await cargarMiCola();
-  setLoader(false);
-}
-
-async function devolverPedidos() {
-  if (!confirm("¿Devolver todos los pedidos?")) return;
-  setLoader(true);
-  await fetch(ENDPOINT_RETURN_ALL, {
-    method: "POST",
-    headers: getCsrfHeaders(),
-    credentials: "same-origin"
-  });
-  await cargarMiCola();
-  setLoader(false);
-}
-
 /* =====================================================
    MODAL
 ===================================================== */
-const abrirDetallesFull = () => {
+function abrirDetallesFull() {
   $("modalDetallesFull")?.classList.remove("hidden");
   document.body.classList.add("overflow-hidden");
-};
+}
 
-const cerrarModalDetalles = () => {
+function cerrarModalDetalles() {
   $("modalDetallesFull")?.classList.add("hidden");
   document.body.classList.remove("overflow-hidden");
-};
-
+}
 window.cerrarModalDetalles = cerrarModalDetalles;
 
 /* =====================================================
-   DETALLES (BACKEND + FALLBACK UNIFICADO)
+   DETALLES (BACKEND + FALLBACK)
 ===================================================== */
 window.verDetalles = async function (orderId) {
   pedidoActualId = orderId;
   abrirDetallesFull();
   setTextSafe("detTitulo", "Cargando pedido…");
+  setHtmlSafe("detProductos", "Cargando productos…");
+  setHtmlSafe("detResumen", "Cargando resumen…");
 
   try {
-    const r = await fetch(`${ENDPOINT_DETALLES}/${orderId}`, { credentials: "same-origin" });
+    const r = await fetch(`${ENDPOINT_DETALLES}/${orderId}`, {
+      headers: { Accept: "application/json" },
+      credentials: "same-origin"
+    });
     const d = await r.json();
-    if (!d?.success) throw "fallback";
-    renderDetalles(d.order, d.imagenes_locales || {});
+    if (!r.ok || !d?.success) throw new Error();
+    renderDetallesPedido(d.order, d.imagenes_locales || {});
   } catch {
     const pedido = pedidosCache.find(p => String(p.shopify_order_id) === String(orderId));
-    if (pedido) renderDetalles(pedido, {});
+    if (pedido) renderDetallesPedido(pedido, {});
+    else setHtmlSafe("detProductos", "Error cargando pedido");
   }
 };
 
 /* =====================================================
-   RENDER ÚNICO DE DETALLES
+   RENDER DETALLES (ÚNICO)
 ===================================================== */
-function renderDetalles(order, imagenesLocales = {}) {
+function renderDetallesPedido(order, imagenesLocales = {}) {
   const items = extraerLineItems(order);
-
   imagenesRequeridas = [];
   imagenesCargadas = [];
 
-  setTextSafe("detTitulo", `Pedido #${order.numero || order.id}`);
+  setTextSafe("detTitulo", `Pedido #${order.numero || order.name || order.id}`);
 
-  if (!items.length) {
-    setHtmlSafe("detProductos", `
-      <div class="p-6 text-center text-slate-500">
-        Este pedido no tiene productos
-      </div>
-    `);
-    setHtmlSafe("detResumen", "");
-    return;
-  }
+  const html = items.map((item, i) => {
+    const qty = Number(item.quantity || 1);
+    const price = Number(item.price || 0);
+    const total = qty * price;
 
-  const productosHtml = items.map((item, index) => {
     const requiere = requiereImagenModificada(item);
-    const imgModificada = imagenesLocales[index] || "";
+    const imgCliente = item.properties?.find(p => esImagenUrl(p.value))?.value || "";
+    const imgMod = imagenesLocales[i] || "";
 
-    imagenesRequeridas[index] = requiere;
-    imagenesCargadas[index] = !!imgModificada;
-
-    const imgCliente = item.properties
-      ?.find(p => esImagenUrl(p.value))?.value || "";
-
-    const imgProducto = item.image || item.featured_image || "";
-
-    const estadoBadge = requiere
-      ? imgModificada
-        ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-100 text-emerald-800 font-bold">Listo</span>`
-        : `<span class="px-3 py-1 text-xs rounded-full bg-amber-100 text-amber-800 font-bold">Falta imagen</span>`
-      : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">No requiere</span>`;
+    imagenesRequeridas[i] = requiere;
+    imagenesCargadas[i] = !!imgMod;
 
     return `
-      <div class="rounded-3xl border bg-white p-5 shadow-sm space-y-4">
-
-        <div class="flex justify-between items-start">
-          <div>
-            <div class="font-extrabold text-lg">${escapeHtml(item.title)}</div>
-            <div class="text-sm text-slate-600">
-              Cant: ${item.quantity} · Precio: ${Number(item.price).toFixed(2)} €
+      <div class="card">
+        <div class="flex gap-4">
+          ${item.image ? `<img src="${item.image}" class="thumb">` : ""}
+          <div class="flex-1">
+            <div class="flex justify-between">
+              <div>
+                <b>${escapeHtml(item.title)}</b>
+                <div class="text-sm">Cant: ${qty} · ${price.toFixed(2)} € · ${total.toFixed(2)} €</div>
+              </div>
+              ${
+                requiere
+                  ? imgMod ? `<span class="ok">Listo</span>` : `<span class="warn">Falta imagen</span>`
+                  : `<span class="muted">Sin imagen</span>`
+              }
             </div>
-          </div>
-          ${estadoBadge}
-        </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            ${item.variant_title ? `<div class="text-sm"><b>Variante:</b> ${escapeHtml(item.variant_title)}</div>` : ""}
 
-          ${
-            imgProducto
-              ? `<div>
-                  <div class="text-xs font-bold mb-1">Producto</div>
-                  <img src="${imgProducto}" class="rounded-xl border h-32 w-full object-cover">
-                </div>`
-              : ""
-          }
-
-          ${
-            imgCliente
-              ? `<div>
-                  <div class="text-xs font-bold mb-1">Imagen cliente</div>
-                  <a href="${imgCliente}" target="_blank">
-                    <img src="${imgCliente}" class="rounded-xl border h-32 w-full object-cover">
-                  </a>
-                </div>`
-              : ""
-          }
-
-          ${
-            imgModificada
-              ? `<div>
-                  <div class="text-xs font-bold mb-1">Imagen modificada</div>
-                  <img src="${imgModificada}" class="rounded-xl border h-32 w-full object-cover">
-                </div>`
-              : requiere
-                ? `<div>
-                    <div class="text-xs font-bold mb-1">Subir imagen modificada</div>
-                    <input type="file"
-                      class="text-sm"
-                      accept="image/*"
-                      onchange="subirImagenProducto('${order.id}', ${index}, this)">
-                  </div>`
+            ${
+              imgCliente
+                ? `<img src="${imgCliente}" class="img-cliente">`
                 : ""
-          }
+            }
 
+            ${
+              imgMod
+                ? `<img src="${imgMod}" class="img-modificada">`
+                : requiere
+                ? `<input type="file" onchange="subirImagenProducto('${order.id}', ${i}, this)">`
+                : ""
+            }
+          </div>
         </div>
-
       </div>
     `;
   }).join("");
 
-  setHtmlSafe("detProductos", `
-    <div class="space-y-4">
-      <div class="flex items-center justify-between">
-        <h3 class="font-extrabold text-slate-900">Productos</h3>
-        <span class="px-3 py-1 rounded-full text-xs bg-slate-100 font-bold">
-          ${items.length}
-        </span>
-      </div>
-      ${productosHtml}
-    </div>
-  `);
-
+  setHtmlSafe("detProductos", html);
   actualizarResumenAuto(order.id);
 }
 
@@ -333,15 +251,37 @@ function renderDetalles(order, imagenesLocales = {}) {
 ===================================================== */
 function actualizarResumenAuto(orderId) {
   const total = imagenesRequeridas.filter(Boolean).length;
-  const ok = imagenesRequeridas.filter((v, i) => v && imagenesCargadas[i]).length;
-
+  const ok = imagenesCargadas.filter(Boolean).length;
   setHtmlSafe("detResumen", `
-    <div class="font-extrabold">${ok} / ${total} imágenes cargadas</div>
-    <div class="${ok === total ? "text-emerald-600" : "text-amber-600"} font-bold">
-      ${ok === total ? "🟢 Todo listo" : "🟡 Faltan imágenes"}
+    <b>${ok} / ${total} imágenes</b>
+    <div class="${ok === total ? "ok" : "warn"}">
+      ${ok === total ? "Todo listo" : "Faltan imágenes"}
     </div>
   `);
 }
+
+/* =====================================================
+   SUBIR IMAGEN
+===================================================== */
+window.subirImagenProducto = async function (orderId, index, input) {
+  const file = input.files?.[0];
+  if (!file) return;
+
+  const fd = new FormData();
+  fd.append("order_id", orderId);
+  fd.append("line_index", index);
+  fd.append("file", file);
+
+  await fetch("/api/pedidos/imagenes/subir", {
+    method: "POST",
+    body: fd,
+    headers: getCsrfHeaders(),
+    credentials: "same-origin"
+  });
+
+  imagenesCargadas[index] = true;
+  actualizarResumenAuto(orderId);
+};
 
 /* =====================================================
    INIT
