@@ -15,20 +15,50 @@
   <script src="https://unpkg.com/alpinejs" defer></script>
 
   <style>
-    .soft-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
-    .soft-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
-    .soft-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
+    body { background: #f3f4f6; }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(6px) scale(0.99); }
-      to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    .animate-fadeIn { animation: fadeIn .18s ease-out; }
-
-    /* Layout menú */
+    /* Layout */
+     /* Layout menú */
     .layout { transition: padding-left .2s ease; padding-left: 16rem; }
     .layout.menu-collapsed { padding-left: 5.25rem; }
     @media (max-width: 768px) { .layout, .layout.menu-collapsed { padding-left: 0 !important; } }
+
+    /* Orders grid (MISMO QUE PRODUCCIÓN) */
+    .orders-grid {
+      display: grid;
+      align-items: center;
+      gap: .65rem;
+      width: 100%;
+    }
+
+    .orders-grid.cols {
+      grid-template-columns:
+        140px
+        92px
+        minmax(170px, 1.2fr)
+        90px
+        160px
+        minmax(120px, 0.9fr)
+        minmax(160px, 1fr)
+        44px
+        140px
+        minmax(190px, 1fr)
+        130px;
+    }
+
+    .orders-grid > div { min-width: 0; }
+
+    .table-scroll {
+      overflow-x: auto;
+    }
+
+    /* Sticky header */
+    .table-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #f8fafc;
+    }
   </style>
 </head>
 
