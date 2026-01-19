@@ -121,22 +121,42 @@ class ConfirmacionController extends BaseController
             $candidatos = $db->table('pedidos p')
                 ->select('p.id, p.shopify_order_id')
                 ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+
+                // ✅ SOLO por preparar (fallback)
                 ->where("LOWER(COALESCE(pe.estado, 'por preparar')) = 'por preparar'", null, false)
 
+                // ❌ EXCLUIR fulfilled / enviados
+                ->groupStart()
+                    ->where('p.estado_envio IS NULL')
+                    ->orWhereNotIn('LOWER(p.estado_envio)', [
+                        'fulfilled',
+                        'entregado',
+                        'enviado',
+                        'complete'
+                    ])
+                ->groupEnd()
+
+                // ❌ NO asignados aún
                 ->groupStart()
                     ->where('p.assigned_to_user_id IS NULL')
                     ->orWhere('p.assigned_to_user_id', 0)
                 ->groupEnd()
+
+                // 🚀 PRIORIDAD ENVÍO EXPRESS
                 ->orderBy("
                     CASE
                         WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
+                        WHEN LOWER(p.forma_envio) LIKE '%urgente%' THEN 0
+                        WHEN LOWER(p.forma_envio) LIKE '%priority%' THEN 0
                         ELSE 1
                     END
                 ", '', false)
+
                 ->orderBy('p.created_at', 'ASC')
                 ->limit($count)
                 ->get()
                 ->getResultArray();
+
 
             if (!$candidatos) {
                 return $this->response->setJSON([
