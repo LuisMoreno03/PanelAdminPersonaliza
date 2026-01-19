@@ -243,10 +243,16 @@ window.verDetalles = async function (orderId) {
 
 function pintarCargandoDetalles() {
   setTextSafe("detTitulo", "Cargando pedido…");
-  setTextSafe("detItemsCount", "—");
-  setHtmlSafe("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
-  setHtmlSafe("detResumen", `<div class="text-slate-500">Cargando resumen…</div>`);
+  setHtmlSafe(
+    "detProductos",
+    `<div class="text-slate-500 p-6 text-center">Cargando productos…</div>`
+  );
+  setHtmlSafe(
+    "detResumen",
+    `<div class="text-slate-500 p-4">Cargando resumen…</div>`
+  );
 }
+
 
 
 function pintarErrorDetalles(msg) {
