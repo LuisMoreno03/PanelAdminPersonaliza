@@ -744,50 +744,6 @@ function fmtMoney(v) {
 }
 
 // ---- UI upload illustrator (inyectada en modal)
-function renderUploadBox(orderId) {
-  const oid = escapeHtml(String(orderId || ""));
-  return `
-    <div id="detUploadBox" class="mt-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Archivos Illustrator</div>
-          <div class="text-sm font-semibold text-slate-900 mt-1">Sube 1 o varios archivos para este pedido</div>
-          <div class="text-xs text-slate-500 mt-1">Acepta: .ai, .eps, .pdf, .svg</div>
-        </div>
-      </div>
-
-      <div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
-        <input
-          id="detIllustratorFiles"
-          type="file"
-          multiple
-          accept=".ai,.eps,.pdf,.svg"
-          class="block w-full text-sm text-slate-700
-                 file:mr-4 file:py-2 file:px-4
-                 file:rounded-2xl file:border-0
-                 file:text-sm file:font-extrabold
-                 file:bg-slate-200 file:text-slate-900
-                 hover:file:bg-slate-300"
-        />
-
-        <button
-          id="btnUploadIllustrator"
-          type="button"
-          class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition whitespace-nowrap"
-        >
-          Subir archivos
-        </button>
-      </div>
-
-      <div id="detUploadMsg" class="mt-3 text-sm text-slate-600"></div>
-      <div id="detUploadList" class="mt-3 space-y-2"></div>
-
-      <div class="mt-2 text-xs text-slate-500">
-        Pedido: <span class="font-bold text-slate-700">${oid}</span>
-      </div>
-    </div>
-  `;
-}
 
 // ---- subida (requiere endpoint backend; si no existe, mostrará error claro)
 function buildUploadEndpoints(orderId) {
@@ -801,6 +757,7 @@ function buildUploadEndpoints(orderId) {
     `/index.php/produccion/upload-illustrator`,
   ];
 }
+
 
 async function abrirDetallesPedido(orderId) {
   const id = String(orderId || "");
