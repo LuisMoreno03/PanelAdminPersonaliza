@@ -222,21 +222,84 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   imagenesRequeridas = [];
   imagenesCargadas = [];
 
-  // Helpers seguros
   const num = (v, d = 0) => {
     const n = Number(v);
     return Number.isFinite(n) ? n : d;
   };
 
+  const ensureHttps = (url) => String(url || "").replace(/^http:\/\//i, "https://");
+
   const normalizeId = (id) => {
     if (id === null || id === undefined) return "";
     const s = String(id);
-    const m = s.match(/(\d+)\s*$/); // gid://shopify/Product/123 -> 123
+    // gid://shopify/Product/123456 -> 123456
+    const m = s.match(/(\d+)\s*$/);
     return m ? m[1] : s;
   };
 
-  const extractImageUrls = (value) => {
-    // saca URLs de imagen aunque vengan incrustadas en texto/JSON
+  // Normaliza productImages para poder buscar por:
+  // - product_id numérico
+  // - gid
+  // - variant_id
+  function buildProductImageIndex(productImagesRaw) {
+    const map = new Map();
+
+    // Caso 1: objeto { "123": "url" }
+    if (productImagesRaw && typeof productImagesRaw === "object" && !Array.isArray(productImagesRaw)) {
+      for (const [k, v] of Object.entries(productImagesRaw)) {
+        const key = String(k);
+        const url = ensureHttps(v);
+        if (!url) continue;
+
+        map.set(key, url);
+        map.set(normalizeId(key), url);
+      }
+      return map;
+    }
+
+    // Caso 2: array [{product_id, url}] (por si alguna vez lo cambias)
+    if (Array.isArray(productImagesRaw)) {
+      for (const row of productImagesRaw) {
+        const pid = row?.product_id ?? row?.id ?? row?.productId;
+        const url = ensureHttps(row?.url ?? row?.src ?? row?.image);
+        if (!pid || !url) continue;
+
+        map.set(String(pid), url);
+        map.set(normalizeId(pid), url);
+      }
+    }
+
+    return map;
+  }
+
+  const productImageIndex = buildProductImageIndex(productImages);
+
+  function getProductImage(item) {
+    // 1) si el backend lo metió directo en el item (raro pero posible)
+    const direct =
+      item?.image ||
+      item?.featured_image ||
+      item?.image_url ||
+      item?.product_image ||
+      "";
+    if (direct && String(direct).startsWith("http")) return ensureHttps(direct);
+
+    // 2) buscar por product_id en el índice
+    const pidRaw = item?.product_id;
+    const pid = normalizeId(pidRaw);
+    if (pidRaw && productImageIndex.has(String(pidRaw))) return productImageIndex.get(String(pidRaw));
+    if (pid && productImageIndex.has(String(pid))) return productImageIndex.get(String(pid));
+
+    // 3) fallback por variant_id (por si tu backend indexa por variante)
+    const vidRaw = item?.variant_id;
+    const vid = normalizeId(vidRaw);
+    if (vidRaw && productImageIndex.has(String(vidRaw))) return productImageIndex.get(String(vidRaw));
+    if (vid && productImageIndex.has(String(vid))) return productImageIndex.get(String(vid));
+
+    return "";
+  }
+
+  function extractImageUrls(value) {
     const s =
       value === null || value === undefined
         ? ""
@@ -246,11 +309,10 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
 
     const re = /https?:\/\/[^\s"'<>]+?\.(?:jpg|jpeg|png|webp|gif|svg)(\?[^\s"'<>]*)?/gi;
     const found = s.match(re) || [];
-    // únicos
-    return Array.from(new Set(found));
-  };
+    return Array.from(new Set(found.map(ensureHttps)));
+  }
 
-  const splitProps = (propsRaw) => {
+  function splitProps(propsRaw) {
     const props = Array.isArray(propsRaw) ? propsRaw : [];
     const txt = [];
     const imgs = [];
@@ -269,121 +331,22 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
             : typeof value === "object"
             ? JSON.stringify(value)
             : String(value);
-        if (safe.trim() !== "") txt.push({ name, value: safe });
+        if (safe.trim()) txt.push({ name, value: safe });
       }
     }
 
     return { txt, imgs };
-  };
+  }
 
-  const getProductImage = (item) => {
-    // 1) si ya viene en el item
-    const direct =
-      item?.image ||
-      item?.featured_image ||
-      item?.image_url ||
-      item?.product_image ||
-      "";
-
-    if (esImagenUrl(direct)) return direct;
-
-    // 2) desde el mapa del backend (mejor)
-    const pidRaw = item?.product_id;
-    const pid = normalizeId(pidRaw);
-
-    return (
-      productImages?.[String(pidRaw)] ||
-      productImages?.[String(pid)] ||
-      ""
-    );
-  };
-
-  // =========================
-  // TITULO
-  // =========================
   setTextSafe("detTitulo", `Pedido ${order.name || order.numero || "#" + (order.id || "")}`);
 
-  // =========================
-  // RESUMEN (como Shopify)
-  // =========================
-  const customerName =
-    order.customer?.name ||
-    `${order.customer?.first_name || ""} ${order.customer?.last_name || ""}`.trim() ||
-    order.cliente ||
-    "—";
-
-  const ship = order.shipping_address || {};
-  const shipLines = Array.isArray(order.shipping_lines) ? order.shipping_lines : [];
-
-  const subtotal = num(order.subtotal_price ?? order.subtotal ?? 0);
-  const taxes = num(order.total_tax ?? 0);
-
-  const shippingCost =
-    shipLines.length
-      ? shipLines.reduce((acc, l) => acc + num(l.price ?? l.cost ?? 0), 0)
-      : num(
-          order.total_shipping_price_set?.shop_money?.amount ??
-          order.total_shipping_price_set?.presentment_money?.amount ??
-          order.shipping_price ??
-          0
-        );
-
-  const total = num(order.total_price ?? order.total ?? 0);
-
-  const shippingMethod =
-    shipLines.map(l => l.title).filter(Boolean).join(" · ") ||
-    order.forma_envio ||
-    "—";
-
-  // Aquí pintamos cliente + envío + totales
-  setHtmlSafe("detResumen", `
-    <div class="space-y-4">
-      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 space-y-2">
-        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Cliente</div>
-        <div class="font-extrabold text-slate-900">${escapeHtml(customerName)}</div>
-        <div class="text-sm text-slate-600">${escapeHtml(order.email || "—")}</div>
-        <div class="text-sm text-slate-600">${escapeHtml(order.phone || "—")}</div>
-      </div>
-
-      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 space-y-2">
-        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Envío</div>
-        <div class="text-sm text-slate-800 font-semibold">${escapeHtml(ship.name || customerName)}</div>
-        <div class="text-sm text-slate-600">${escapeHtml(ship.address1 || "")}</div>
-        <div class="text-sm text-slate-600">${escapeHtml(ship.address2 || "")}</div>
-        <div class="text-sm text-slate-600">
-          ${escapeHtml([ship.zip, ship.city].filter(Boolean).join(" ") || "—")}
-        </div>
-        <div class="text-sm text-slate-600">${escapeHtml(ship.province || "")}</div>
-        <div class="text-sm text-slate-600">${escapeHtml(ship.country || "")}</div>
-        <div class="pt-2 text-sm">
-          <span class="text-slate-500 font-bold">Método:</span>
-          <span class="font-semibold">${escapeHtml(shippingMethod)}</span>
-        </div>
-      </div>
-
-      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 space-y-2">
-        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Totales</div>
-        <div class="text-sm"><b>Subtotal:</b> ${subtotal.toFixed(2)} €</div>
-        <div class="text-sm"><b>Envío:</b> ${shippingCost.toFixed(2)} €</div>
-        <div class="text-sm"><b>Impuestos:</b> ${taxes.toFixed(2)} €</div>
-        <div class="text-lg font-extrabold"><b>Total:</b> ${total.toFixed(2)} €</div>
-        <div class="pt-2 text-xs text-slate-500">
-          Pago: <b>${escapeHtml(order.financial_status || "—")}</b> ·
-          Entrega: <b>${escapeHtml(order.fulfillment_status || "—")}</b>
-        </div>
-      </div>
-    </div>
-  `);
-
-  // =========================
-  // PRODUCTOS
-  // =========================
   if (!items.length) {
     setHtmlSafe("detProductos", `
       <div class="p-6 text-center text-slate-500">
         ⚠️ Este pedido no tiene productos
       </div>
     `);
+    setHtmlSafe("detResumen", "");
     return;
   }
 
@@ -398,6 +361,16 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
     const { txt: propsTxt, imgs: propsImg } = splitProps(propsRaw);
 
     const imgProducto = getProductImage(item);
+
+    // DEBUG útil si no aparece la imagen:
+    if (!imgProducto) {
+      console.log("SIN IMG PRODUCTO ->", {
+        title: item?.title,
+        product_id: item?.product_id,
+        variant_id: item?.variant_id,
+        productImagesKeys: Array.from(productImageIndex.keys()).slice(0, 10)
+      });
+    }
 
     const qty = num(item.quantity, 1);
     const price = num(item.price, 0);
@@ -422,7 +395,7 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
               ? `
                 <a href="${escapeHtml(imgProducto)}" target="_blank"
                    class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
-                  <img src="${escapeHtml(imgProducto)}" class="h-full w-full object-cover">
+                  <img src="${escapeHtml(imgProducto)}" class="h-full w-full object-cover" loading="lazy">
                 </a>
               `
               : `
@@ -479,7 +452,7 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
                   ${propsImg.map(p => `
                     <a href="${escapeHtml(p.url)}" target="_blank"
                        class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm bg-white">
-                      <img src="${escapeHtml(p.url)}" class="h-28 w-28 object-cover">
+                      <img src="${escapeHtml(p.url)}" class="h-28 w-28 object-cover" loading="lazy">
                       <div class="px-3 py-2 text-xs font-bold text-slate-700 border-t border-slate-200">
                         ${escapeHtml(p.name)}
                       </div>
@@ -498,7 +471,7 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
                 <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada</div>
                 <a href="${escapeHtml(imgMod)}" target="_blank"
                    class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white">
-                  <img src="${escapeHtml(imgMod)}" class="h-40 w-40 object-cover">
+                  <img src="${escapeHtml(imgMod)}" class="h-40 w-40 object-cover" loading="lazy">
                 </a>
               </div>
             `
