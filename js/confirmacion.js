@@ -266,6 +266,20 @@ function requiereImagenModificada(item) {
   return isLlaveroItem(item) || tieneImagen;
 }
 
+function extraerLineItems(order) {
+  // Shopify REST / pedido_json antiguo
+  if (Array.isArray(order?.line_items)) {
+    return order.line_items;
+  }
+
+  // Shopify GraphQL
+  if (order?.lineItems?.edges) {
+    return order.lineItems.edges.map(e => e.node);
+  }
+
+  return [];
+}
+
 /* =====================================================
    PINTAR PRODUCTOS
 ===================================================== */
