@@ -178,3 +178,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
   cargarMiCola();
 });
+
+// =========================
+// PUENTE AL MODAL DEL DASHBOARD
+// =========================
+function abrirModalPedido(pedidoId) {
+  if (typeof window.verDetalles === "function") {
+    // Si dashboard.js está cargado
+    window.verDetalles(pedidoId);
+    return;
+  }
+
+  if (typeof window.abrirModalDetalles === "function") {
+    // Variante de nombre usada en algunos dashboards
+    window.abrirModalDetalles(pedidoId);
+    return;
+  }
+
+  console.error("No existe función para abrir el modal de detalles");
+  alert("No se pudo abrir el detalle del pedido");
+}
+
