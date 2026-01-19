@@ -92,7 +92,10 @@ class ConfirmacionController extends BaseController
     {
         try {
             if (!session()->get('logged_in')) {
-                return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'message' => 'No auth']);
+                return $this->response->setStatusCode(401)->setJSON([
+                    'ok' => false,
+                    'message' => 'No auth'
+                ]);
             }
 
             $userId = (int) session('user_id');
@@ -102,7 +105,7 @@ class ConfirmacionController extends BaseController
             $count = (int) ($payload['count'] ?? 5);
             if ($count <= 0) $count = 5;
 
-            $db = \Config\Database::connect();
+            $db  = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
             $hasFulfillment = $db->fieldExists('fulfillment_status', 'pedidos');
@@ -114,17 +117,36 @@ class ConfirmacionController extends BaseController
                 ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
                 ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)');
 
-            // ✅ SOLO UNFULFILLED (null o unfulfilled)
+            // ✅ FILTRO ROBUSTO: solo pedidos NO enviados (unfulfilled)
+            // Acepta: NULL, '' (vacío), 'unfulfilled'
+            // Excluye: 'fulfilled', 'partial'
             if ($hasFulfillment) {
+
                 $q->groupStart()
-                    ->where('p.fulfillment_status IS NULL', null, false)
-                    ->orWhere("LOWER(TRIM(p.fulfillment_status))", 'unfulfilled')
+                        ->where('p.fulfillment_status IS NULL', null, false)
+                        ->orWhere("TRIM(COALESCE(p.fulfillment_status,'')) =", '', false)
+                        ->orWhere("LOWER(TRIM(p.fulfillment_status))", 'unfulfilled')
                 ->groupEnd();
+
+                // excluir estados ya enviados
+                $q->where("LOWER(TRIM(COALESCE(p.fulfillment_status,''))) !=", 'fulfilled')
+                ->where("LOWER(TRIM(COALESCE(p.fulfillment_status,''))) !=", 'partial');
+
             } elseif ($hasEstadoEnvio) {
+
                 $q->groupStart()
-                    ->where('p.estado_envio IS NULL', null, false)
-                    ->orWhere("LOWER(TRIM(p.estado_envio))", 'unfulfilled')
+                        ->where('p.estado_envio IS NULL', null, false)
+                        ->orWhere("TRIM(COALESCE(p.estado_envio,'')) =", '', false)
+                        ->orWhere("LOWER(TRIM(p.estado_envio))", 'unfulfilled')
                 ->groupEnd();
+
+                // excluir estados ya enviados
+                $q->where("LOWER(TRIM(COALESCE(p.estado_envio,''))) !=", 'fulfilled')
+                ->where("LOWER(TRIM(COALESCE(p.estado_envio,''))) !=", 'partial');
+
+            } else {
+                // Si no existe columna, no rompemos. Solo log.
+                log_message('warning', 'pull(): pedidos no tiene fulfillment_status ni estado_envio. No se puede filtrar unfulfilled.');
             }
 
             $candidatos = $q
@@ -174,6 +196,7 @@ class ConfirmacionController extends BaseController
             ]);
         }
     }
+
 
     /* =====================================================
       POST /confirmacion/return-all
