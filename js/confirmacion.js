@@ -75,7 +75,7 @@ function renderPedidos(pedidos) {
 
       <div class="text-right">
         <button
-          onclick="abrirModalPedido(${p.id})"
+          onclick="verDetalles(${p.id})"
           class="px-4 py-2 rounded-2xl bg-blue-600 text-white font-extrabold hover:bg-blue-700">
           VER DETALLES →
         </button>
