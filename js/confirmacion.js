@@ -494,3 +494,27 @@ async function guardarEstadoAuto(orderId, estado) {
     console.error("Error guardando estado", e);
   }
 }
+/* =====================================================
+   FIX DEFINITIVO: FUNCIONES FALTANTES
+===================================================== */
+
+/**
+ * Alias: backend y fallback usan la misma lógica visual
+ * Evita ReferenceError para siempre
+ */
+if (typeof pintarDetallesPedido !== "function") {
+  window.pintarDetallesPedido = function (order, imagenesLocales = {}) {
+    // Reutilizamos el render manual (es el bueno)
+    pintarDetallesManual(order, imagenesLocales);
+  };
+}
+
+/**
+ * Stub seguro para botón CLIENTE
+ * (no rompe aunque aún no esté implementado)
+ */
+if (typeof abrirClienteDetalle !== "function") {
+  window.abrirClienteDetalle = function () {
+    console.info("abrirClienteDetalle() aún no implementado");
+  };
+}
