@@ -207,96 +207,37 @@ async function devolverPedidos() {
    VER DETALLES (INDEPENDIENTE)
 ===================================================== */
 
-async function verDetalles(orderId) {
-  if (!orderId) return;
-
-  const modal = $("modalDetallesFull");
-  if (!modal) {
-    alert("Modal de detalles no encontrado");
+async function verDetalles(shopifyOrderId) {
+  if (!shopifyOrderId) {
+    alert("Pedido sin Shopify ID");
     return;
   }
 
-  modal.classList.remove("hidden");
-  document.documentElement.classList.add("overflow-hidden");
-  document.body.classList.add("overflow-hidden");
-
-  setText("detTitle", "Cargando…");
-  setText("detSubtitle", "—");
-  setHtml("detItems", "<div class='text-slate-500'>Cargando productos…</div>");
-  setHtml("detCliente", "<div class='text-slate-500'>Cargando…</div>");
-  setHtml("detEnvio", "<div class='text-slate-500'>Cargando…</div>");
-  setHtml("detTotales", "<div class='text-slate-500'>Cargando…</div>");
+  abrirDetallesFull();
 
   try {
-    const res = await fetch(`${ENDPOINT_DETALLES}/${orderId}`, {
-      credentials: "same-origin",
-    });
+    const res = await fetch(
+      `/index.php/dashboard/detalles/${encodeURIComponent(shopifyOrderId)}`,
+      { headers: { Accept: "application/json" } }
+    );
+
     const data = await res.json();
 
     if (!res.ok || data.success !== true) {
-      setHtml("detItems", "<div class='text-red-600 font-bold'>Error cargando detalles</div>");
+      document.getElementById("detItems").innerHTML =
+        `<div class="text-red-600 font-bold">Error cargando detalles</div>`;
       return;
     }
 
-    const o = data.order;
-
-    setText("detTitle", o.name || `Pedido #${orderId}`);
-    setText(
-      "detSubtitle",
-      o.customer
-        ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
-        : o.email || "—"
-    );
-
-    setHtml("detCliente", `
-      <div class="space-y-1">
-        <div class="font-extrabold">${escapeHtml(o.customer?.first_name || "")} ${escapeHtml(o.customer?.last_name || "")}</div>
-        <div>Email: ${escapeHtml(o.email || "—")}</div>
-        <div>Tel: ${escapeHtml(o.phone || "—")}</div>
-      </div>
-    `);
-
-    const a = o.shipping_address || {};
-    setHtml("detEnvio", `
-      <div class="space-y-1">
-        <div class="font-extrabold">${escapeHtml(a.name || "—")}</div>
-        <div>${escapeHtml(a.address1 || "")}</div>
-        <div>${escapeHtml(a.city || "")}</div>
-        <div>${escapeHtml(a.country || "")}</div>
-      </div>
-    `);
-
-    setHtml("detTotales", `
-      <div class="space-y-1">
-        <div>Subtotal: ${escapeHtml(o.subtotal_price)} €</div>
-        <div>Envío: ${escapeHtml(o.total_shipping_price_set?.shop_money?.amount || 0)} €</div>
-        <div class="text-lg font-extrabold">Total: ${escapeHtml(o.total_price)} €</div>
-      </div>
-    `);
-
-    const items = o.line_items || [];
-    setHtml(
-      "detItems",
-      items.length
-        ? items
-            .map(
-              item => `
-        <div class="rounded-2xl border bg-white p-4 shadow-sm">
-          <div class="font-extrabold">${escapeHtml(item.title)}</div>
-          <div class="text-sm text-slate-600">
-            Cant: ${item.quantity} · Precio: ${item.price} €
-          </div>
-        </div>`
-            )
-            .join("")
-        : "<div class='text-slate-500'>Sin productos</div>"
-    );
+    pintarDetallesPedido(data.order, data);
 
   } catch (e) {
     console.error(e);
-    setHtml("detItems", "<div class='text-red-600 font-bold'>Error de red</div>");
+    document.getElementById("detItems").innerHTML =
+      `<div class="text-red-600 font-bold">Error de red</div>`;
   }
 }
+
 
 /* =====================================================
    INIT
