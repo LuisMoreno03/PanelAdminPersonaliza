@@ -31,6 +31,7 @@ class ConfirmacionController extends BaseController
         $limit = (int) ($this->request->getGet('limit') ?? 10);
 
         $orders = $this->orders
+            ->select('id, shopify_order_id, numero, cliente, total, estado, created_at')
             ->where('estado', 'Por preparar')
             ->where('assigned_user_id', $this->userId)
             ->orderBy("prioridad = 'express'", 'DESC')
@@ -39,9 +40,10 @@ class ConfirmacionController extends BaseController
 
         return $this->response->setJSON([
             'success' => true,
-            'orders'  => $orders,
+            'orders'  => $orders
         ]);
     }
+
 
     /**
      * POST /confirmacion/pull
@@ -51,7 +53,6 @@ class ConfirmacionController extends BaseController
     {
         $limit = 10;
 
-        // 1️⃣ Obtener pedidos desde Shopify
         $shopifyOrders = $this->shopify->getOrders([
             'financial_status'   => 'paid',
             'fulfillment_status' => 'unfulfilled',
@@ -69,32 +70,37 @@ class ConfirmacionController extends BaseController
 
         foreach ($shopifyOrders as $o) {
 
-            // 2️⃣ Ya existe en BD?
-            $exists = $this->orders
-                ->where('shopify_order_id', $o['id'])
-                ->first();
-
-            if ($exists) continue;
-
-            // 3️⃣ Detectar prioridad EXPRESS
-            $isExpress = false;
-            if (!empty($o['tags'])) {
-                $tags = strtolower($o['tags']);
-                $isExpress = str_contains($tags, 'express');
+            // ⛔️ Evitar duplicados
+            if ($this->orders->where('shopify_order_id', $o['id'])->first()) {
+                continue;
             }
 
-            // 4️⃣ Insertar pedido
+            // ✅ Cliente seguro
+            $cliente = '—';
+            if (!empty($o['customer'])) {
+                $cliente = trim(
+                    ($o['customer']['first_name'] ?? '') . ' ' .
+                    ($o['customer']['last_name'] ?? '')
+                );
+            }
+
+            // ✅ Prioridad EXPRESS
+            $prioridad = 'normal';
+            if (!empty($o['tags']) && stripos($o['tags'], 'express') !== false) {
+                $prioridad = 'express';
+            }
+
+            // ✅ Insert LIMPIO (solo strings / números)
             $this->orders->insert([
-                'shopify_order_id'  => $o['id'],
-                'numero'            => $o['name'],
-                'cliente'           => trim(($o['customer']['first_name'] ?? '') . ' ' . ($o['customer']['last_name'] ?? '')),
-                'total'             => $o['total_price'],
-                'estado'            => 'Por preparar',
-                'envio_estado'      => 'Sin preparar',
-                'fulfillment_status'=> null,
-                'prioridad'         => $isExpress ? 'express' : 'normal',
-                'assigned_user_id'  => $this->userId,
-                'created_at'        => date('Y-m-d H:i:s'),
+                'shopify_order_id'   => (string) $o['id'],
+                'numero'             => (string) ($o['name'] ?? ''),
+                'cliente'            => $cliente,
+                'total'              => (float) ($o['total_price'] ?? 0),
+                'estado'             => 'Por preparar',
+                'envio_estado'       => 'Sin preparar',
+                'prioridad'          => $prioridad,
+                'assigned_user_id'   => $this->userId,
+                'created_at'         => date('Y-m-d H:i:s'),
             ]);
 
             $inserted++;
@@ -103,7 +109,8 @@ class ConfirmacionController extends BaseController
 
         return $this->response->setJSON([
             'success'  => true,
-            'inserted' => $inserted,
+            'inserted' => $inserted
         ]);
     }
+
 }
