@@ -28,6 +28,28 @@ function $(id) {
   return document.getElementById(id);
 }
 
+/* =====================================================
+   NORMALIZAR LINE ITEMS (REST + GRAPHQL)
+===================================================== */
+function extraerLineItems(order) {
+  // REST clásico
+  if (Array.isArray(order?.line_items)) {
+    return order.line_items;
+  }
+
+  // GraphQL Admin API (edges/node)
+  if (order?.lineItems?.edges) {
+    return order.lineItems.edges.map(e => e.node);
+  }
+
+  // GraphQL plano (por si acaso)
+  if (Array.isArray(order?.lineItems)) {
+    return order.lineItems;
+  }
+
+  return [];
+}
+
 function escapeHtml(str) {
   return String(str ?? "")
     .replaceAll("&", "&amp;")
@@ -40,7 +62,6 @@ function escapeHtml(str) {
 function esUrl(str) {
   return /^https?:\/\//i.test(String(str || ""));
 }
-
 function esImagenUrl(url) {
   return /https?:\/\/.*\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i.test(String(url || ""));
 }
@@ -68,25 +89,6 @@ function getCsrfHeaders() {
   const token = document.querySelector('meta[name="csrf-token"]')?.content;
   const header = document.querySelector('meta[name="csrf-header"]')?.content;
   return token && header ? { [header]: token } : {};
-}
-
-/* =====================================================
-   NORMALIZAR LINE ITEMS (VERSIÓN 1)
-===================================================== */
-function extraerLineItems(order) {
-  if (Array.isArray(order?.line_items)) {
-    return order.line_items;
-  }
-
-  if (order?.lineItems?.edges) {
-    return order.lineItems.edges.map(e => e.node);
-  }
-
-  if (Array.isArray(order?.lineItems)) {
-    return order.lineItems;
-  }
-
-  return [];
 }
 
 /* =====================================================
@@ -238,11 +240,20 @@ window.verDetalles = async function (orderId) {
   }
 };
 
+
 function pintarCargandoDetalles() {
   setTextSafe("detTitulo", "Cargando pedido…");
-  setHtmlSafe("detProductos", `<div class="text-slate-500 p-6 text-center">Cargando productos…</div>`);
-  setHtmlSafe("detResumen", `<div class="text-slate-500 p-4">Cargando resumen…</div>`);
+  setHtmlSafe(
+    "detProductos",
+    `<div class="text-slate-500 p-6 text-center">Cargando productos…</div>`
+  );
+  setHtmlSafe(
+    "detResumen",
+    `<div class="text-slate-500 p-4">Cargando resumen…</div>`
+  );
 }
+
+
 
 function pintarErrorDetalles(msg) {
   setHtmlSafe("detProductos", `<div class="text-rose-600 font-extrabold">${escapeHtml(msg)}</div>`);
@@ -261,32 +272,226 @@ function requiereImagenModificada(item) {
   return isLlaveroItem(item) || tieneImagen;
 }
 
-/* =====================================================
-   NORMALIZAR LINE ITEMS (VERSIÓN 2 — SE MANTIENE)
-===================================================== */
 function extraerLineItems(order) {
+  // Shopify REST
   if (Array.isArray(order?.line_items)) {
     return order.line_items;
   }
 
+  // Shopify GraphQL Admin API
   if (order?.lineItems?.edges) {
-    return order.lineItems.edges.map(({ node }) => ({
-      title: node.title,
-      quantity: node.quantity || 1,
-      price: Number(node.originalUnitPrice?.amount || 0),
-      product_id: node.product?.id || null,
-      variant_id: node.variant?.id || null,
-      variant_title: node.variant?.title || "",
-      sku: node.variant?.sku || "",
-      properties: Array.isArray(node.customAttributes)
-        ? node.customAttributes.map(p => ({ name: p.key, value: p.value }))
-        : []
-    }));
+    return order.lineItems.edges.map(({ node }) => {
+      return {
+        title: node.title,
+        quantity: node.quantity || 1,
+        price: Number(node.originalUnitPrice?.amount || 0),
+        product_id: node.product?.id || null,
+        variant_id: node.variant?.id || null,
+        variant_title: node.variant?.title || "",
+        sku: node.variant?.sku || "",
+        properties: Array.isArray(node.customAttributes)
+          ? node.customAttributes.map(p => ({
+              name: p.key,
+              value: p.value
+            }))
+          : []
+      };
+    });
   }
 
   return [];
 }
 
+
+/* =====================================================
+   PINTAR PRODUCTOS
+===================================================== */
+function pintarDetallesPedido(order, imagenesLocales = {}) {
+  const items = extraerLineItems(order);
+
+  imagenesRequeridas = [];
+  imagenesCargadas = [];
+
+  setTextSafe("detTitulo", `Pedido ${order.name || order.id}`);
+
+  if (!items.length) {
+    setHtmlSafe("detProductos", `
+      <div class="text-slate-500 p-6 text-center">
+        ⚠️ Este pedido no tiene productos detectables
+      </div>
+    `);
+    setHtmlSafe("detResumen", "");
+    return;
+  }
+
+  const html = items.map((item, index) => {
+    const requiere = requiereImagenModificada(item);
+    const imgLocal = imagenesLocales[index] || "";
+
+    imagenesRequeridas[index] = requiere;
+    imagenesCargadas[index] = !!imgLocal;
+
+    const estadoBadge = requiere
+      ? imgLocal
+        ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-100 text-emerald-800 font-bold">Listo</span>`
+        : `<span class="px-3 py-1 text-xs rounded-full bg-amber-100 text-amber-800 font-bold">Falta imagen</span>`
+      : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">No requiere</span>`;
+
+    const propsImg = item.properties.filter(p => esImagenUrl(p.value));
+    const propsTxt = item.properties.filter(p => !esImagenUrl(p.value));
+
+    return `
+      <div class="rounded-3xl border bg-white p-5 shadow-sm space-y-4">
+
+        <div class="flex justify-between items-start">
+          <div>
+            <div class="font-extrabold">${escapeHtml(item.title)}</div>
+            <div class="text-sm text-slate-600">
+              Cant: <b>${item.quantity}</b> · 
+              Precio: <b>${item.price.toFixed(2)} €</b> · 
+              Total: <b>${(item.price * item.quantity).toFixed(2)} €</b>
+            </div>
+          </div>
+          ${estadoBadge}
+        </div>
+
+        ${
+          item.variant_title ? `
+            <div class="text-sm"><b>Variante:</b> ${escapeHtml(item.variant_title)}</div>
+          ` : ""
+        }
+
+        ${
+          propsTxt.length ? `
+            <div class="bg-slate-50 rounded-xl p-3 text-sm">
+              <div class="font-bold mb-1">Personalización</div>
+              ${propsTxt.map(p => `
+                <div><b>${escapeHtml(p.name)}:</b> ${escapeHtml(p.value)}</div>
+              `).join("")}
+            </div>
+          ` : ""
+        }
+
+        ${
+          propsImg.length ? `
+            <div>
+              <div class="text-sm font-bold mb-2">Imagen original (cliente)</div>
+              <div class="flex gap-3 flex-wrap">
+                ${propsImg.map(p => `
+                  <a href="${escapeHtml(p.value)}" target="_blank">
+                    <img src="${escapeHtml(p.value)}" class="h-28 w-28 rounded-xl object-cover border">
+                  </a>
+                `).join("")}
+              </div>
+            </div>
+          ` : ""
+        }
+
+        ${
+          imgLocal ? `
+            <div>
+              <div class="text-sm font-bold mb-2">Imagen modificada</div>
+              <img src="${escapeHtml(imgLocal)}"
+                   class="h-40 rounded-xl border object-cover">
+            </div>
+          ` : ""
+        }
+
+        ${
+          requiere ? `
+            <div>
+              <div class="text-sm font-bold mb-2">Subir imagen modificada</div>
+              <input type="file" accept="image/*"
+                onchange="subirImagenProducto('${order.id}', ${index}, this)">
+            </div>
+          ` : ""
+        }
+
+      </div>
+    `;
+  }).join("");
+
+  setHtmlSafe("detProductos", html);
+  actualizarResumenAuto(order.id);
+}
+
+
+
+
+/* =====================================================
+   RESUMEN + AUTO ESTADO
+===================================================== */
+function actualizarResumenAuto(orderId) {
+  const total = imagenesRequeridas.filter(Boolean).length;
+  const ok = imagenesRequeridas.filter((v, i) => v && imagenesCargadas[i]).length;
+  const falta = total - ok;
+
+  setHtmlSafe("detResumen", `
+    <div class="font-extrabold">${ok} / ${total} imágenes cargadas</div>
+    <div class="mt-2 font-bold ${falta ? "text-amber-600" : "text-emerald-600"}">
+      ${falta ? `🟡 Faltan ${falta} imágenes` : "🟢 Todo listo"}
+    </div>
+  `);
+
+  if (total > 0) {
+    guardarEstadoAuto(orderId, falta === 0 ? "Confirmado" : "Faltan archivos");
+  }
+}
+
+/* =====================================================
+   SUBIR IMAGEN
+===================================================== */
+window.subirImagenProducto = async function (orderId, index, input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const fd = new FormData();
+  fd.append("order_id", orderId);
+  fd.append("line_index", index);
+  fd.append("file", file);
+
+  const r = await fetch("/api/pedidos/imagenes/subir", {
+    method: "POST",
+    body: fd,
+    headers: getCsrfHeaders(),
+    credentials: "same-origin"
+  });
+
+  const d = await r.json();
+  if (!r.ok || !d.url) {
+    alert("Error subiendo imagen");
+    return;
+  }
+
+  imagenesCargadas[index] = true;
+  actualizarResumenAuto(orderId);
+};
+
+/* =====================================================
+   AUTO ESTADO (FIX PAYLOAD)
+===================================================== */
+async function guardarEstadoAuto(orderId, estado) {
+  await fetch("/api/estado/guardar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
+    body: JSON.stringify({ id: orderId, estado }),
+    credentials: "same-origin"
+  });
+
+  if (estado === "Confirmado") {
+    setTimeout(() => {
+      cerrarModalDetalles();
+      cargarMiCola();
+    }, 600);
+  }
+}
+
+function cerrarDetallesFull() {
+  const modal = $("modalDetallesFull");
+  if (modal) modal.classList.add("hidden");
+  document.documentElement.classList.remove("overflow-hidden");
+  document.body.classList.remove("overflow-hidden");
+}
 /* =====================================================
    EVENTOS GLOBALES
 ===================================================== */
