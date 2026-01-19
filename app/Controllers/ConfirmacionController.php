@@ -6,376 +6,295 @@ use App\Controllers\BaseController;
 
 class ConfirmacionController extends BaseController
 {
+    /* =====================================================
+      INDEX
+    ===================================================== */
     public function index()
     {
-        return view('confirmacion', [
-            'etiquetasPredeterminadas' => []
-        ]);
+        return view('confirmacion');
     }
 
-    // =========================
-    // GET /confirmacion/my-queue
-    // =========================
+    /* =====================================================
+      GET /confirmacion/my-queue
+    ===================================================== */
     public function myQueue()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'ok' => false,
-                'error' => 'No autenticado'
-            ]);
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false]);
         }
 
-        $userId = (int)(session('user_id') ?? 0);
+        $userId = (int) session('user_id');
         if ($userId <= 0) {
-            return $this->response->setJSON([
-                'ok' => false,
-                'error' => 'Usuario inválido'
-            ]);
+            return $this->response->setJSON(['ok' => false]);
         }
 
-        try {
-            $db = \Config\Database::connect();
+        $db = \Config\Database::connect();
 
-            // ⚡ QUERY SIMPLE Y SEGURA
-            $rows = $db->table('pedidos p')
-                ->select([
-                    'p.id',
-                    'p.numero',
-                    'p.cliente',
-                    'p.total',
-                    'p.estado_envio',
-                    'p.forma_envio',
-                    'p.etiquetas',
-                    'p.articulos',
-                    'p.created_at',
-                    'p.shopify_order_id',
-                    'pe.estado AS estado_bd',
-                    'pe.estado_updated_at AS estado_actualizado',
-                    'pe.estado_updated_by_name AS estado_por',
-                ])
-                ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
-                ->where('p.assigned_to_user_id', $userId)
-                ->where('LOWER(pe.estado)', 'por preparar')
-                ->groupStart()
-                    ->where('p.estado_envio IS NULL')
-                    ->orWhereNotIn('LOWER(p.estado_envio)', ['fulfilled', 'entregado', 'enviado', 'complete'])
-                ->groupEnd()
-                ->orderBy("
-                    CASE
-                        WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
-                        WHEN LOWER(p.forma_envio) LIKE '%urgente%' THEN 0
-                        WHEN LOWER(p.forma_envio) LIKE '%priority%' THEN 0
-                        ELSE 1
-                    END
-                ", '', false)
-                ->orderBy('p.created_at', 'ASC')
-                ->get()
-                ->getResultArray();
+        $rows = $db->table('pedidos p')
+            ->select([
+                'p.id',
+                'p.numero',
+                'p.cliente',
+                'p.total',
+                'p.forma_envio',
+                'p.articulos',
+                'p.created_at',
+                'p.shopify_order_id',
+                'pe.estado AS estado_bd',
+                'pe.estado_updated_by_name AS estado_por',
+            ])
+            ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+            ->where('p.assigned_to_user_id', $userId)
+            ->where('LOWER(pe.estado)', 'por preparar')
+            ->orderBy('p.created_at', 'ASC')
+            ->get()
+            ->getResultArray();
 
-            return $this->response->setJSON([
-                'ok' => true,
-                'data' => $rows ?: []
-            ]);
-
-        } catch (\Throwable $e) {
-            log_message('error', 'ConfirmacionController myQueue ERROR: ' . $e->getMessage());
-
-            return $this->response->setJSON([
-                'ok' => false,
-                'error' => 'Error interno cargando confirmación'
-            ]);
-        }
+        return $this->response->setJSON([
+            'ok' => true,
+            'data' => $rows ?: []
+        ]);
     }
 
-    // =========================
-    // POST /confirmacion/pull
-    // =========================
+    /* =====================================================
+      POST /confirmacion/pull
+    ===================================================== */
     public function pull()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'ok' => false,
-                'error' => 'No autenticado'
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false]);
+        }
+
+        $userId = (int) session('user_id');
+        $user   = session('nombre') ?? 'Sistema';
+
+        $payload = $this->request->getJSON(true);
+        $count = (int) ($payload['count'] ?? 5);
+
+        $db = \Config\Database::connect();
+        $now = date('Y-m-d H:i:s');
+
+        $candidatos = $db->table('pedidos p')
+            ->select('p.id, p.shopify_order_id')
+            ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+            ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
+            ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)')
+            ->orderBy('p.created_at', 'ASC')
+            ->limit($count)
+            ->get()
+            ->getResultArray();
+
+        if (!$candidatos) {
+            return $this->response->setJSON(['ok' => true, 'assigned' => 0]);
+        }
+
+        $ids = array_column($candidatos, 'id');
+
+        $db->table('pedidos')
+            ->whereIn('id', $ids)
+            ->update([
+                'assigned_to_user_id' => $userId,
+                'assigned_at' => $now
+            ]);
+
+        foreach ($candidatos as $c) {
+            if (!$c['shopify_order_id']) continue;
+
+            $db->table('pedidos_estado_historial')->insert([
+                'order_id'   => $c['shopify_order_id'],
+                'estado'     => 'Por preparar',
+                'user_name'  => $user,
+                'created_at' => $now
             ]);
         }
 
-        $userId   = (int)(session('user_id') ?? 0);
-        $userName = (string)(session('nombre') ?? 'Usuario');
-
-        if ($userId <= 0) {
-            return $this->response->setJSON([
-                'ok' => false,
-                'error' => 'Usuario inválido'
-            ]);
-        }
-
-        $payload = $this->request->getJSON(true) ?? [];
-        $count   = (int)($payload['count'] ?? 5);
-        if (!in_array($count, [5, 10], true)) $count = 5;
-
-        try {
-            $db  = \Config\Database::connect();
-            $now = date('Y-m-d H:i:s');
-
-            // ⚡ QUERY SEGURA (SIN HISTORIAL)
-            $candidatos = $db->table('pedidos p')
-                ->select('p.id, p.shopify_order_id')
-                ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
-
-                // ✅ SOLO por preparar (fallback)
-                ->where("LOWER(COALESCE(pe.estado, 'por preparar')) = 'por preparar'", null, false)
-
-                // ❌ EXCLUIR fulfilled / enviados
-                ->groupStart()
-                    ->where('p.estado_envio IS NULL')
-                    ->orWhereNotIn('LOWER(p.estado_envio)', [
-                        'fulfilled',
-                        'entregado',
-                        'enviado',
-                        'complete'
-                    ])
-                ->groupEnd()
-
-                // ❌ NO asignados aún
-                ->groupStart()
-                    ->where('p.assigned_to_user_id IS NULL')
-                    ->orWhere('p.assigned_to_user_id', 0)
-                ->groupEnd()
-
-                // 🚀 PRIORIDAD ENVÍO EXPRESS
-                ->orderBy("
-                    CASE
-                        WHEN LOWER(p.forma_envio) LIKE '%express%' THEN 0
-                        WHEN LOWER(p.forma_envio) LIKE '%urgente%' THEN 0
-                        WHEN LOWER(p.forma_envio) LIKE '%priority%' THEN 0
-                        ELSE 1
-                    END
-                ", '', false)
-
-                ->orderBy('p.created_at', 'ASC')
-                ->limit($count)
-                ->get()
-                ->getResultArray();
-
-
-            if (!$candidatos) {
-                return $this->response->setJSON([
-                    'ok' => true,
-                    'assigned' => 0
-                ]);
-            }
-
-            $ids = array_column($candidatos, 'id');
-
-            // ✅ ASIGNAR
-            $db->table('pedidos')
-                ->whereIn('id', $ids)
-                ->update([
-                    'assigned_to_user_id' => $userId,
-                    'assigned_at' => $now
-                ]);
-
-            // 🧾 HISTORIAL (solo escritura, sin lectura)
-            foreach ($candidatos as $c) {
-                if (empty($c['shopify_order_id'])) continue;
-
-                $db->table('pedidos_estado_historial')->insert([
-                    'order_id'   => (string)$c['shopify_order_id'],
-                    'estado'     => 'Por preparar',
-                    'user_id'    => $userId,
-                    'user_name'  => $userName,
-                    'created_at' => $now,
-                    'pedido_json'=> null
-                ]);
-            }
-
-            return $this->response->setJSON([
-                'ok' => true,
-                'assigned' => count($ids),
-                'ids' => $ids
-            ]);
-
-        } catch (\Throwable $e) {
-            log_message('error', 'ConfirmacionController pull ERROR: ' . $e->getMessage());
-
-            return $this->response->setJSON([
-                'ok' => false,
-                'error' => 'Error asignando pedidos'
-            ]);
-        }
+        return $this->response->setJSON([
+            'ok' => true,
+            'assigned' => count($ids)
+        ]);
     }
 
-    // =========================
-    // POST /confirmacion/return-all
-    // =========================
+    /* =====================================================
+      POST /confirmacion/return-all
+    ===================================================== */
     public function returnAll()
     {
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON(['ok' => false]);
         }
 
-        $userId = (int)(session('user_id') ?? 0);
+        $userId = (int) session('user_id');
         if ($userId <= 0) {
             return $this->response->setJSON(['ok' => false]);
         }
 
-        try {
-            \Config\Database::connect()
-                ->table('pedidos')
-                ->where('assigned_to_user_id', $userId)
+        \Config\Database::connect()
+            ->table('pedidos')
+            ->where('assigned_to_user_id', $userId)
+            ->update([
+                'assigned_to_user_id' => null,
+                'assigned_at' => null
+            ]);
+
+        return $this->response->setJSON(['ok' => true]);
+    }
+
+    /* =====================================================
+      GET /confirmacion/detalles/{id}
+    ===================================================== */
+    public function detalles($id = null)
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON(['success' => false]);
+        }
+
+        $db = \Config\Database::connect();
+
+        $pedido = $db->table('pedidos')
+            ->groupStart()
+                ->where('id', $id)
+                ->orWhere('shopify_order_id', $id)
+            ->groupEnd()
+            ->get()
+            ->getRowArray();
+
+        if (!$pedido) {
+            return $this->response->setStatusCode(404)->setJSON(['success' => false]);
+        }
+
+        $orderJson = json_decode($pedido['pedido_json'] ?? '{}', true);
+        if (!$orderJson || empty($orderJson['line_items'])) {
+            return $this->response->setJSON(['success' => false]);
+        }
+
+        return $this->response->setJSON([
+            'success' => true,
+            'order' => $orderJson,
+            'imagenes_locales' => json_decode($pedido['imagenes_locales'] ?? '{}', true),
+            'product_images' => json_decode($pedido['product_images'] ?? '{}', true),
+        ]);
+    }
+
+    /* =====================================================
+      🔥 POST /api/pedidos/imagenes/subir
+      (USADO POR CONFIRMACIÓN)
+    ===================================================== */
+    public function subirImagen()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON(['success' => false]);
+        }
+
+        $orderId = $this->request->getPost('order_id');
+        $index   = (int) $this->request->getPost('line_index');
+        $file    = $this->request->getFile('file');
+
+        if (!$orderId || !$file || !$file->isValid()) {
+            return $this->response->setJSON(['success' => false]);
+        }
+
+        $name = $file->getRandomName();
+        $file->move(WRITEPATH . 'uploads/confirmacion', $name);
+
+        $url = base_url('writable/uploads/confirmacion/' . $name);
+
+        $db = \Config\Database::connect();
+        $pedido = $db->table('pedidos')
+            ->where('shopify_order_id', $orderId)
+            ->get()
+            ->getRowArray();
+
+        if (!$pedido) {
+            return $this->response->setJSON(['success' => false]);
+        }
+
+        $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
+        $imagenes[$index] = $url;
+
+        $db->table('pedidos')
+            ->where('shopify_order_id', $orderId)
+            ->update(['imagenes_locales' => json_encode($imagenes)]);
+
+        // 🔁 VALIDAR ESTADO AUTOMÁTICO
+        $this->validarEstadoAutomatico($pedido['id'], $pedido['shopify_order_id']);
+
+        return $this->response->setJSON([
+            'success' => true,
+            'url' => $url
+        ]);
+    }
+
+    /* =====================================================
+      🧠 ESTADO AUTOMÁTICO REAL
+    ===================================================== */
+    private function validarEstadoAutomatico($pedidoId, $shopifyId)
+    {
+        $db = \Config\Database::connect();
+
+        $pedido = $db->table('pedidos')
+            ->where('id', $pedidoId)
+            ->get()
+            ->getRowArray();
+
+        if (!$pedido) return;
+
+        $order = json_decode($pedido['pedido_json'], true);
+        $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
+
+        $requeridas = 0;
+        $cargadas   = 0;
+
+        foreach ($order['line_items'] as $i => $item) {
+            if ($this->requiereImagen($item)) {
+                $requeridas++;
+                if (!empty($imagenes[$i])) {
+                    $cargadas++;
+                }
+            }
+        }
+
+        $nuevoEstado = ($requeridas > 0 && $requeridas === $cargadas)
+            ? 'Confirmado'
+            : 'Faltan archivos';
+
+        // Guardar estado
+        $db->table('pedidos_estado')
+            ->where('order_id', $shopifyId)
+            ->update([
+                'estado' => $nuevoEstado,
+                'estado_updated_at' => date('Y-m-d H:i:s'),
+                'estado_updated_by_name' => session('nombre') ?? 'Sistema'
+            ]);
+
+        // Confirmado → liberar pedido
+        if ($nuevoEstado === 'Confirmado') {
+            $db->table('pedidos')
+                ->where('id', $pedidoId)
                 ->update([
                     'assigned_to_user_id' => null,
                     'assigned_at' => null
                 ]);
-
-            return $this->response->setJSON(['ok' => true]);
-
-        } catch (\Throwable $e) {
-            log_message('error', 'ConfirmacionController returnAll ERROR: ' . $e->getMessage());
-            return $this->response->setJSON(['ok' => false]);
         }
     }
-    // =========================
-    // GET /confirmacion/detalles/{id}
-    // =========================
-    public function detalles($id = null)
+
+    /* =====================================================
+      REGLAS IMAGEN
+    ===================================================== */
+    private function requiereImagen(array $item): bool
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado'
-            ]);
+        $title = strtolower($item['title'] ?? '');
+        $sku   = strtolower($item['sku'] ?? '');
+
+        if (str_contains($title, 'llavero') || str_contains($sku, 'llav')) {
+            return true;
         }
 
-        if (!$id) {
-            return $this->response->setStatusCode(400)->setJSON([
-                'success' => false,
-                'message' => 'ID inválido'
-            ]);
+        foreach ($item['properties'] ?? [] as $p) {
+            if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', (string)($p['value'] ?? ''))) {
+                return true;
+            }
         }
 
-        try {
-            $db = \Config\Database::connect();
-
-            // 1️⃣ Resolver pedido por ID interno O Shopify ID
-            $pedido = $db->table('pedidos')
-                ->groupStart()
-                    ->where('id', $id)
-                    ->orWhere('shopify_order_id', $id)
-                ->groupEnd()
-                ->get()
-                ->getRowArray();
-
-            if (!$pedido) {
-                return $this->response->setStatusCode(404)->setJSON([
-                    'success' => false,
-                    'message' => 'Pedido no encontrado'
-                ]);
-            }
-
-            // 2️⃣ ESTE ES EL ID REAL QUE IMPORTA
-            $shopifyOrderId = $pedido['shopify_order_id'] ?? null;
-
-            if (!$shopifyOrderId) {
-                return $this->response->setJSON([
-                    'success' => false,
-                    'message' => 'Pedido sin Shopify ID'
-                ]);
-            }
-
-            // 3️⃣ Cargar JSON COMPLETO (el mismo que usa dashboard)
-            $orderJson = json_decode($pedido['pedido_json'] ?? '{}', true);
-
-            if (empty($orderJson) || empty($orderJson['line_items'])) {
-                return $this->response->setJSON([
-                    'success' => false,
-                    'message' => 'Pedido sin información Shopify'
-                ]);
-            }
-
-            // 4️⃣ Cargar imágenes EXACTAMENTE como dashboard
-            $imagenesLocales = json_decode($pedido['imagenes_locales'] ?? '{}', true);
-            $productImages  = json_decode($pedido['product_images'] ?? '{}', true);
-
-            // 5️⃣ RESPUESTA IDÉNTICA A DASHBOARD
-            return $this->response->setJSON([
-                'success' => true,
-                'order' => $orderJson,
-                'imagenes_locales' => is_array($imagenesLocales) ? $imagenesLocales : [],
-                'product_images' => is_array($productImages) ? $productImages : [],
-            ]);
-
-        } catch (\Throwable $e) {
-            log_message('error', 'Confirmacion detalles ERROR: ' . $e->getMessage());
-
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => 'Error interno cargando detalles'
-            ]);
-        }
+        return false;
     }
-
-    // =========================
-// POST /confirmacion/guardar-estado
-// =========================
-public function guardarEstado()
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setStatusCode(401)->setJSON([
-            'success' => false,
-            'message' => 'No autenticado'
-        ]);
-    }
-
-    $payload = $this->request->getJSON(true) ?? [];
-
-    $shopifyOrderId = (string)($payload['shopify_order_id'] ?? '');
-    $nuevoEstado    = trim((string)($payload['estado'] ?? ''));
-
-    if (!$shopifyOrderId || !$nuevoEstado) {
-        return $this->response->setStatusCode(400)->setJSON([
-            'success' => false,
-            'message' => 'Datos incompletos'
-        ]);
-    }
-
-    try {
-        $db = \Config\Database::connect();
-        $now = date('Y-m-d H:i:s');
-
-        // 1️⃣ Actualizar estado actual
-        $db->table('pedidos_estado')->replace([
-            'order_id'               => $shopifyOrderId,
-            'estado'                 => $nuevoEstado,
-            'estado_updated_at'      => $now,
-            'estado_updated_by_id'   => session('user_id'),
-            'estado_updated_by_name' => session('nombre') ?? 'Sistema',
-        ]);
-
-        // 2️⃣ Guardar historial
-        $db->table('pedidos_estado_historial')->insert([
-            'order_id'   => $shopifyOrderId,
-            'estado'     => $nuevoEstado,
-            'user_id'    => session('user_id'),
-            'user_name'  => session('nombre') ?? 'Sistema',
-            'created_at' => $now,
-            'pedido_json'=> null,
-        ]);
-
-        return $this->response->setJSON([
-            'success' => true,
-            'estado' => $nuevoEstado
-        ]);
-
-    } catch (\Throwable $e) {
-        log_message('error', 'Confirmacion guardarEstado ERROR: ' . $e->getMessage());
-
-        return $this->response->setStatusCode(500)->setJSON([
-            'success' => false,
-            'message' => 'Error guardando estado'
-        ]);
-    }
-}
-
-
 }
