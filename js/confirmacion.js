@@ -43,6 +43,20 @@ function setLoader(show) {
   if (el) el.classList.toggle("hidden", !show);
 }
 
+function setTextSafe(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return false;
+  el.textContent = value ?? "";
+  return true;
+}
+
+function setHtmlSafe(id, html) {
+  const el = document.getElementById(id);
+  if (!el) return false;
+  el.innerHTML = html ?? "";
+  return true;
+}
+
 /* =====================================================
   CSRF
 ===================================================== */
@@ -221,10 +235,15 @@ function cerrarModalDetalles() {
 }
 
 function pintarCargandoDetalles() {
-  $("detTitulo").textContent = "Cargando…";
-  $("detProductos").innerHTML = "Cargando productos…";
-  $("detResumen").innerHTML = "—";
+  const titulo = document.getElementById("detTitulo");
+  const productos = document.getElementById("detProductos");
+  const resumen = document.getElementById("detResumen");
+
+  if (titulo) titulo.textContent = "Cargando pedido…";
+  if (productos) productos.innerHTML = `<div class="text-slate-500">Cargando productos…</div>`;
+  if (resumen) resumen.innerHTML = `<div class="text-slate-500">Cargando resumen…</div>`;
 }
+
 
 function pintarErrorDetalles(msg) {
   $("detProductos").innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(msg)}</span>`;
