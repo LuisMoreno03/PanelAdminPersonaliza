@@ -20,7 +20,7 @@ class ConfirmacionController extends Controller
         }
 
         // Renderiza vista (tu layout + scripts)
-        return view('confirmacion/index');
+        return view('confirmacion');
     }
 
     /**
