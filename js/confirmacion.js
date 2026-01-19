@@ -1,7 +1,8 @@
 /**
- * confirmacion.js — FINAL VALIDADO
- * Compatible con confirmacion.php + modal_detalles.php
+ * confirmacion.js — FINAL ESTABLE FIXED
  * Compatible con EstadoController.php
+ * Sin null errors
+ * Cierre modal completo
  */
 
 /* =====================================================
@@ -27,6 +28,28 @@ function $(id) {
   return document.getElementById(id);
 }
 
+/* =====================================================
+   NORMALIZAR LINE ITEMS (REST + GRAPHQL)
+===================================================== */
+function extraerLineItems(order) {
+  // REST clásico
+  if (Array.isArray(order?.line_items)) {
+    return order.line_items;
+  }
+
+  // GraphQL Admin API (edges/node)
+  if (order?.lineItems?.edges) {
+    return order.lineItems.edges.map(e => e.node);
+  }
+
+  // GraphQL plano (por si acaso)
+  if (Array.isArray(order?.lineItems)) {
+    return order.lineItems;
+  }
+
+  return [];
+}
+
 function escapeHtml(str) {
   return String(str ?? "")
     .replaceAll("&", "&amp;")
@@ -36,22 +59,27 @@ function escapeHtml(str) {
     .replaceAll("'", "&#039;");
 }
 
+function esUrl(str) {
+  return /^https?:\/\//i.test(String(str || ""));
+}
 function esImagenUrl(url) {
   return /https?:\/\/.*\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i.test(String(url || ""));
 }
 
+function setLoader(show) {
+  $("globalLoader")?.classList.toggle("hidden", !show);
+}
+
 function setTextSafe(id, value) {
   const el = $(id);
-  if (el) el.textContent = value ?? "";
+  if (!el) return;
+  el.textContent = value ?? "";
 }
 
 function setHtmlSafe(id, html) {
   const el = $(id);
-  if (el) el.innerHTML = html ?? "";
-}
-
-function setLoader(show) {
-  $("globalLoader")?.classList.toggle("hidden", !show);
+  if (!el) return;
+  el.innerHTML = html ?? "";
 }
 
 /* =====================================================
@@ -61,31 +89,6 @@ function getCsrfHeaders() {
   const token = document.querySelector('meta[name="csrf-token"]')?.content;
   const header = document.querySelector('meta[name="csrf-header"]')?.content;
   return token && header ? { [header]: token } : {};
-}
-
-/* =====================================================
-   NORMALIZAR LINE ITEMS (REST + GRAPHQL)
-===================================================== */
-function extraerLineItems(order) {
-  // REST
-  if (Array.isArray(order?.line_items)) {
-    return order.line_items;
-  }
-
-  // GraphQL Admin API
-  if (order?.lineItems?.edges) {
-    return order.lineItems.edges.map(({ node }) => ({
-      title: node.title,
-      quantity: node.quantity || 1,
-      price: Number(node.originalUnitPrice?.amount || 0),
-      variant_title: node.variant?.title || "",
-      properties: Array.isArray(node.customAttributes)
-        ? node.customAttributes.map(p => ({ name: p.key, value: p.value }))
-        : []
-    }));
-  }
-
-  return [];
 }
 
 /* =====================================================
@@ -112,15 +115,29 @@ function renderPedidos(pedidos) {
       <div>${escapeHtml((p.created_at || "").slice(0, 10))}</div>
       <div class="truncate">${escapeHtml(p.cliente)}</div>
       <div class="font-bold">${Number(p.total).toFixed(2)} €</div>
-      <div><span class="px-3 py-1 rounded-full bg-blue-600 text-white text-xs font-bold">POR PREPARAR</span></div>
+
+      <div>
+        <span class="px-3 py-1 rounded-full text-xs font-extrabold bg-blue-600 text-white">
+          POR PREPARAR
+        </span>
+      </div>
+
       <div>${escapeHtml(p.estado_por || "—")}</div>
       <div>—</div>
       <div class="text-center">${p.articulos || 1}</div>
-      <div><span class="px-3 py-1 rounded-full bg-slate-100 text-xs">Sin preparar</span></div>
+
+      <div>
+        <span class="px-3 py-1 rounded-full text-xs font-bold bg-slate-100">
+          Sin preparar
+        </span>
+      </div>
+
       <div class="truncate">${escapeHtml(p.forma_envio || "-")}</div>
+
       <div class="text-right">
-        <button onclick="verDetalles('${p.shopify_order_id}')"
-          class="px-3 py-1 rounded-2xl bg-blue-600 text-white font-bold">
+        <button
+          onclick="verDetalles('${p.shopify_order_id}')"
+          class="px-3 py-1 rounded-2xl bg-blue-600 text-white font-extrabold hover:bg-blue-700">
           VER DETALLES →
         </button>
       </div>
@@ -142,6 +159,7 @@ async function cargarMiCola() {
   try {
     const r = await fetch(ENDPOINT_QUEUE, { credentials: "same-origin" });
     const d = await r.json();
+
     pedidosCache = (r.ok && d.ok) ? d.data : [];
     renderPedidos(pedidosCache);
   } catch (e) {
@@ -154,17 +172,49 @@ async function cargarMiCola() {
 }
 
 /* =====================================================
+   ACCIONES
+===================================================== */
+async function traerPedidos(n) {
+  setLoader(true);
+  await fetch(ENDPOINT_PULL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
+    body: JSON.stringify({ count: n }),
+    credentials: "same-origin"
+  });
+  await cargarMiCola();
+  setLoader(false);
+}
+
+async function devolverPedidos() {
+  if (!confirm("¿Devolver todos los pedidos asignados?")) return;
+  setLoader(true);
+  await fetch(ENDPOINT_RETURN_ALL, {
+    method: "POST",
+    headers: getCsrfHeaders(),
+    credentials: "same-origin"
+  });
+  await cargarMiCola();
+  setLoader(false);
+}
+
+/* =====================================================
    MODAL
 ===================================================== */
 function abrirDetallesFull() {
-  $("modalDetallesFull")?.classList.remove("hidden");
+  const modal = $("modalDetallesFull");
+  if (!modal) return;
+  modal.classList.remove("hidden");
   document.body.classList.add("overflow-hidden");
 }
 
 function cerrarModalDetalles() {
-  $("modalDetallesFull")?.classList.add("hidden");
+  const modal = $("modalDetallesFull");
+  if (!modal) return;
+  modal.classList.add("hidden");
   document.body.classList.remove("overflow-hidden");
 }
+
 window.cerrarModalDetalles = cerrarModalDetalles;
 
 /* =====================================================
@@ -173,12 +223,7 @@ window.cerrarModalDetalles = cerrarModalDetalles;
 window.verDetalles = async function (orderId) {
   pedidoActualId = orderId;
   abrirDetallesFull();
-
-  setTextSafe("detTitle", "Cargando pedido…");
-  setTextSafe("detSubtitle", "");
-  setTextSafe("detItemsCount", "—");
-  setHtmlSafe("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
-  setHtmlSafe("detResumen", `<div class="text-slate-500">Cargando resumen…</div>`);
+  pintarCargandoDetalles();
 
   try {
     const r = await fetch(`${ENDPOINT_DETALLES}/${orderId}`, {
@@ -190,11 +235,73 @@ window.verDetalles = async function (orderId) {
     if (!r.ok || !d.success) throw new Error(d.message || "Error");
 
     pintarDetallesPedido(d.order, d.imagenes_locales || {});
-    setHtmlSafe("detJson", JSON.stringify(d, null, 2));
   } catch (e) {
-    setHtmlSafe("detItems", `<div class="text-red-600">${escapeHtml(e.message)}</div>`);
+    pintarErrorDetalles(e.message);
   }
 };
+
+
+function pintarCargandoDetalles() {
+  setTextSafe("detTitulo", "Cargando pedido…");
+  setHtmlSafe(
+    "detProductos",
+    `<div class="text-slate-500 p-6 text-center">Cargando productos…</div>`
+  );
+  setHtmlSafe(
+    "detResumen",
+    `<div class="text-slate-500 p-4">Cargando resumen…</div>`
+  );
+}
+
+
+
+function pintarErrorDetalles(msg) {
+  setHtmlSafe("detProductos", `<div class="text-rose-600 font-extrabold">${escapeHtml(msg)}</div>`);
+}
+
+/* =====================================================
+   REGLAS IMÁGENES
+===================================================== */
+function isLlaveroItem(item) {
+  return String(item?.title || "").toLowerCase().includes("llavero");
+}
+
+function requiereImagenModificada(item) {
+  const props = Array.isArray(item?.properties) ? item.properties : [];
+  const tieneImagen = props.some(p => esImagenUrl(p?.value));
+  return isLlaveroItem(item) || tieneImagen;
+}
+
+function extraerLineItems(order) {
+  // Shopify REST
+  if (Array.isArray(order?.line_items)) {
+    return order.line_items;
+  }
+
+  // Shopify GraphQL Admin API
+  if (order?.lineItems?.edges) {
+    return order.lineItems.edges.map(({ node }) => {
+      return {
+        title: node.title,
+        quantity: node.quantity || 1,
+        price: Number(node.originalUnitPrice?.amount || 0),
+        product_id: node.product?.id || null,
+        variant_id: node.variant?.id || null,
+        variant_title: node.variant?.title || "",
+        sku: node.variant?.sku || "",
+        properties: Array.isArray(node.customAttributes)
+          ? node.customAttributes.map(p => ({
+              name: p.key,
+              value: p.value
+            }))
+          : []
+      };
+    });
+  }
+
+  return [];
+}
+
 
 /* =====================================================
    PINTAR PRODUCTOS
@@ -205,60 +312,129 @@ function pintarDetallesPedido(order, imagenesLocales = {}) {
   imagenesRequeridas = [];
   imagenesCargadas = [];
 
-  setTextSafe("detTitle", `Pedido ${order.name || order.id}`);
-  setTextSafe("detSubtitle", `ID ${order.id}`);
-  setTextSafe("detItemsCount", items.length);
+  setTextSafe("detTitulo", `Pedido ${order.name || order.id}`);
 
   if (!items.length) {
-    setHtmlSafe("detItems", `<div class="text-slate-500">Sin productos</div>`);
+    setHtmlSafe("detProductos", `
+      <div class="text-slate-500 p-6 text-center">
+        ⚠️ Este pedido no tiene productos detectables
+      </div>
+    `);
+    setHtmlSafe("detResumen", "");
     return;
   }
 
   const html = items.map((item, index) => {
-    const requiere = item.properties.some(p => esImagenUrl(p.value));
+    const requiere = requiereImagenModificada(item);
     const imgLocal = imagenesLocales[index] || "";
 
     imagenesRequeridas[index] = requiere;
     imagenesCargadas[index] = !!imgLocal;
 
+    const estadoBadge = requiere
+      ? imgLocal
+        ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-100 text-emerald-800 font-bold">Listo</span>`
+        : `<span class="px-3 py-1 text-xs rounded-full bg-amber-100 text-amber-800 font-bold">Falta imagen</span>`
+      : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100 text-slate-600">No requiere</span>`;
+
+    const propsImg = item.properties.filter(p => esImagenUrl(p.value));
+    const propsTxt = item.properties.filter(p => !esImagenUrl(p.value));
+
     return `
-      <div class="rounded-3xl border bg-white p-5 space-y-4">
-        <div class="font-extrabold">${escapeHtml(item.title)}</div>
-        <div class="text-sm text-slate-600">
-          Cant: ${item.quantity} · ${item.price.toFixed(2)} €
+      <div class="rounded-3xl border bg-white p-5 shadow-sm space-y-4">
+
+        <div class="flex justify-between items-start">
+          <div>
+            <div class="font-extrabold">${escapeHtml(item.title)}</div>
+            <div class="text-sm text-slate-600">
+              Cant: <b>${item.quantity}</b> · 
+              Precio: <b>${item.price.toFixed(2)} €</b> · 
+              Total: <b>${(item.price * item.quantity).toFixed(2)} €</b>
+            </div>
+          </div>
+          ${estadoBadge}
         </div>
 
         ${
-          requiere ? `
-            <input type="file" accept="image/*"
-              onchange="subirImagenProducto('${order.id}', ${index}, this)">`
-          : `<span class="text-xs bg-slate-100 px-2 py-1 rounded">No requiere imagen</span>`
+          item.variant_title ? `
+            <div class="text-sm"><b>Variante:</b> ${escapeHtml(item.variant_title)}</div>
+          ` : ""
         }
 
         ${
-          imgLocal ? `<img src="${escapeHtml(imgLocal)}" class="h-40 rounded-xl border">` : ""
+          propsTxt.length ? `
+            <div class="bg-slate-50 rounded-xl p-3 text-sm">
+              <div class="font-bold mb-1">Personalización</div>
+              ${propsTxt.map(p => `
+                <div><b>${escapeHtml(p.name)}:</b> ${escapeHtml(p.value)}</div>
+              `).join("")}
+            </div>
+          ` : ""
         }
+
+        ${
+          propsImg.length ? `
+            <div>
+              <div class="text-sm font-bold mb-2">Imagen original (cliente)</div>
+              <div class="flex gap-3 flex-wrap">
+                ${propsImg.map(p => `
+                  <a href="${escapeHtml(p.value)}" target="_blank">
+                    <img src="${escapeHtml(p.value)}" class="h-28 w-28 rounded-xl object-cover border">
+                  </a>
+                `).join("")}
+              </div>
+            </div>
+          ` : ""
+        }
+
+        ${
+          imgLocal ? `
+            <div>
+              <div class="text-sm font-bold mb-2">Imagen modificada</div>
+              <img src="${escapeHtml(imgLocal)}"
+                   class="h-40 rounded-xl border object-cover">
+            </div>
+          ` : ""
+        }
+
+        ${
+          requiere ? `
+            <div>
+              <div class="text-sm font-bold mb-2">Subir imagen modificada</div>
+              <input type="file" accept="image/*"
+                onchange="subirImagenProducto('${order.id}', ${index}, this)">
+            </div>
+          ` : ""
+        }
+
       </div>
     `;
   }).join("");
 
-  setHtmlSafe("detItems", html);
+  setHtmlSafe("detProductos", html);
   actualizarResumenAuto(order.id);
 }
 
+
+
+
 /* =====================================================
-   RESUMEN + ESTADO
+   RESUMEN + AUTO ESTADO
 ===================================================== */
 function actualizarResumenAuto(orderId) {
   const total = imagenesRequeridas.filter(Boolean).length;
   const ok = imagenesRequeridas.filter((v, i) => v && imagenesCargadas[i]).length;
+  const falta = total - ok;
 
   setHtmlSafe("detResumen", `
-    <b>${ok} / ${total}</b> imágenes cargadas
+    <div class="font-extrabold">${ok} / ${total} imágenes cargadas</div>
+    <div class="mt-2 font-bold ${falta ? "text-amber-600" : "text-emerald-600"}">
+      ${falta ? `🟡 Faltan ${falta} imágenes` : "🟢 Todo listo"}
+    </div>
   `);
 
   if (total > 0) {
-    guardarEstadoAuto(orderId, ok === total ? "Confirmado" : "Faltan archivos");
+    guardarEstadoAuto(orderId, falta === 0 ? "Confirmado" : "Faltan archivos");
   }
 }
 
@@ -282,14 +458,17 @@ window.subirImagenProducto = async function (orderId, index, input) {
   });
 
   const d = await r.json();
-  if (!r.ok || !d.url) return alert("Error subiendo imagen");
+  if (!r.ok || !d.url) {
+    alert("Error subiendo imagen");
+    return;
+  }
 
   imagenesCargadas[index] = true;
   actualizarResumenAuto(orderId);
 };
 
 /* =====================================================
-   AUTO ESTADO
+   AUTO ESTADO (FIX PAYLOAD)
 ===================================================== */
 async function guardarEstadoAuto(orderId, estado) {
   await fetch("/api/estado/guardar", {
@@ -306,6 +485,23 @@ async function guardarEstadoAuto(orderId, estado) {
     }, 600);
   }
 }
+
+function cerrarDetallesFull() {
+  const modal = $("modalDetallesFull");
+  if (modal) modal.classList.add("hidden");
+  document.documentElement.classList.remove("overflow-hidden");
+  document.body.classList.remove("overflow-hidden");
+}
+/* =====================================================
+   EVENTOS GLOBALES
+===================================================== */
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") cerrarModalDetalles();
+});
+
+$("modalDetallesFull")?.addEventListener("click", e => {
+  if (e.target.id === "modalDetallesFull") cerrarModalDetalles();
+});
 
 /* =====================================================
    INIT
