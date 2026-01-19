@@ -24,37 +24,27 @@ class ConfirmacionController extends BaseController
         }
 
         $userId = (int) session('user_id');
-        if ($userId <= 0) {
-            return $this->response->setJSON(['ok' => false]);
-        }
-
         $db = \Config\Database::connect();
 
         $rows = $db->table('pedidos p')
-            ->select([
-                'p.id',
-                'p.numero',
-                'p.cliente',
-                'p.total',
-                'p.forma_envio',
-                'p.articulos',
-                'p.created_at',
-                'p.shopify_order_id',
-                'pe.estado AS estado_bd',
-                'pe.estado_updated_by_name AS estado_por',
-            ])
+            ->select('p.*, COALESCE(pe.estado,"Por preparar") as estado, pe.user_name as estado_por')
             ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
             ->where('p.assigned_to_user_id', $userId)
-            ->where('LOWER(pe.estado)', 'por preparar')
+            ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
+
+            // ✅ CLAVE: no mostrar pedidos ya enviados
+            ->where("LOWER(COALESCE(p.estado_envio,'unfulfilled'))", 'unfulfilled')
+
             ->orderBy('p.created_at', 'ASC')
             ->get()
             ->getResultArray();
 
         return $this->response->setJSON([
             'ok' => true,
-            'data' => $rows ?: []
+            'data' => $rows
         ]);
     }
+
 
     /* =====================================================
       POST /confirmacion/pull
