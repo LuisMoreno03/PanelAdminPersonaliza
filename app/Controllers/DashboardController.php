@@ -261,14 +261,13 @@ class DashboardController extends Controller
 
             $sql = "
                 INSERT INTO pedidos
-                    (shopify_order_id, numero, cliente, total, etiquetas, articulos, estado_envio, forma_envio, created_at, synced_at)
+                    (shopify_order_id, numero, cliente, total, articulos, estado_envio, forma_envio, created_at, synced_at)
                 VALUES
                     (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     numero      = VALUES(numero),
                     cliente     = VALUES(cliente),
                     total       = VALUES(total),
-                    etiquetas   = VALUES(etiquetas),
                     articulos   = VALUES(articulos),
                     estado_envio= VALUES(estado_envio),
                     forma_envio = VALUES(forma_envio),
@@ -325,57 +324,7 @@ class DashboardController extends Controller
         }
     }
 
-    // ============================================================
-    // ETIQUETAS/TAGS POR USUARIO
-    // ============================================================
-
-    private function getEtiquetasUsuario(): array
-    {
-        $defaults = [
-            'D.Diseño',
-            'P.Produccion',
-            'Cancelar pedido',
-            'Reembolso completo',
-            'No contesta 24h',
-        ];
-
-        $userId = session()->get('user_id');
-        if (!$userId) return $defaults;
-
-        try {
-            $db = \Config\Database::connect();
-
-            $tableExists = $db->query(
-                "SELECT 1
-                 FROM information_schema.tables
-                 WHERE table_schema = ?
-                   AND table_name = ?
-                 LIMIT 1",
-                [$db->getDatabase(), 'usuarios_etiquetas']
-            )->getRowArray();
-
-            if (empty($tableExists)) return $defaults;
-
-            $rows = $db->table('usuarios_etiquetas')
-                ->select('etiqueta')
-                ->where('user_id', $userId)
-                ->orderBy('id', 'ASC')
-                ->get()
-                ->getResultArray();
-
-            $etiquetas = [];
-            foreach ($rows as $r) {
-                $val = trim((string)($r['etiqueta'] ?? ''));
-                if ($val !== '') $etiquetas[] = $val;
-            }
-
-            return !empty($etiquetas) ? $etiquetas : $defaults;
-
-        } catch (\Throwable $e) {
-            log_message('error', 'getEtiquetasUsuario ERROR: ' . $e->getMessage());
-            return $defaults;
-        }
-    }
+ 
 
     // ============================================================
     // VISTA PRINCIPAL
@@ -387,9 +336,6 @@ class DashboardController extends Controller
             return redirect()->to('/');
         }
 
-        return view('dashboard', [
-            'etiquetasPredeterminadas' => $this->getEtiquetasUsuario(),
-        ]);
     }
 
     // ============================================================
@@ -541,7 +487,6 @@ class DashboardController extends Controller
                     'estado'       => 'Por preparar',
                     'estado_bd'    => null,         // opcional
                     'estado_html'  => null,       // opcional
-                    'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
                     'estado_envio' => $estado_envio ?: '-',
                     'forma_envio'  => $forma_envio ?: '-',
@@ -863,20 +808,7 @@ class DashboardController extends Controller
     // ENDPOINTS
     // ============================================================
 
-    public function etiquetasDisponibles()
-    {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
-
-        return $this->response->setJSON([
-            'success' => true,
-            'etiquetas' => $this->getEtiquetasUsuario(),
-        ]);
-    }
+    
 
     public function ping()
     {
