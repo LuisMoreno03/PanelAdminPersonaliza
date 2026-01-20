@@ -132,7 +132,8 @@
 
             <!-- lista -->
             <div class="flex-1 overflow-auto">
-              <template x-for="t in filteredTickets" :key="t.id">
+              <template x-for="(t, i) in filteredTickets" :key="t.id ?? t.ticket_code ?? i">
+
                 <button
                   type="button"
                   @click="openTicket(t.id)"

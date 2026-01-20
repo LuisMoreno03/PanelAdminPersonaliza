@@ -5,6 +5,14 @@
  * - FIX: ver detalles usa shopify_order_id cuando existe
  * - Fallback endpoints: con/sin index.php
  * - Upload GENERAL: (formGeneralUpload) es el único upload
+ *
+ * ✅ CAMBIOS INCLUIDOS:
+ * 1) Upload GENERAL con Drag & Drop + lista de seleccionados + quitar/reemplazar antes de subir
+ *    - NO requiere tocar el PHP para que se vea: el dropzone se inyecta por JS si no existe.
+ * 2) Upload de "Imagen modificada" por cada item (drag & drop + reemplazar)
+ *    - Requiere backend: POST /produccion/upload-modificada (order_id, item_index, file)
+ *    - Si aún no existe, la UI igual aparece y te mostrará error al subir (normal).
+ * 3) FIX bug TABLE: en el render usaba estadoBtn no definido (ahora usa estadoHtml).
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -13,6 +21,9 @@ const ENDPOINT_PULL = `${API_BASE}/produccion/pull`;
 const ENDPOINT_RETURN_ALL = `${API_BASE}/produccion/return-all`;
 const ENDPOINT_UPLOAD_GENERAL = `${API_BASE}/produccion/upload-general`;
 const ENDPOINT_LIST_GENERAL = `${API_BASE}/produccion/list-general`;
+
+// ✅ nuevo endpoint (para imagen modificada por item)
+const ENDPOINT_UPLOAD_MODIFICADA = `${API_BASE}/produccion/upload-modificada`;
 
 let pedidosCache = [];
 let pedidosFiltrados = [];
@@ -340,7 +351,6 @@ function actualizarListado(pedidos) {
       const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
       const estado = p.estado ?? p.estado_bd ?? "Por producir";
-      const etiquetas = p.etiquetas ?? "";
       const articulos = p.articulos ?? "-";
       const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
       const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
@@ -354,13 +364,6 @@ function actualizarListado(pedidos) {
           </button>
         `
         : renderEstadoPill(estado);
-
-      const detallesBtn = `
-        <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-          Ver detalles →
-        </button>
-      `;
 
       return `
         <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
@@ -423,7 +426,6 @@ function actualizarListado(pedidos) {
       const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
       const estado = p.estado ?? p.estado_bd ?? "Por producir";
-      const etiquetas = p.etiquetas ?? "";
       const articulos = p.articulos ?? "-";
       const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
       const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
@@ -431,13 +433,6 @@ function actualizarListado(pedidos) {
       const estadoHtml = (typeof window.abrirModal === "function")
         ? `<button type="button" onclick="window.abrirModal('${escapeJsString(internalId)}')" class="hover:opacity-90">${renderEstadoPill(estado)}</button>`
         : renderEstadoPill(estado);
-
-      const detallesBtn = `
-        <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-          Ver detalles →
-        </button>
-      `;
 
       return `
         <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
@@ -451,7 +446,7 @@ function actualizarListado(pedidos) {
 
           <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
 
-          <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
+          <div class="whitespace-nowrap relative z-10">${estadoHtml}</div>
 
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
 
@@ -1001,15 +996,59 @@ async function abrirDetallesPedido(orderId) {
       </div>
     ` : "";
 
-    const modificadaHtml = localUrl ? `
+    // ✅ NUEVO: UI para subir/reemplazar imagen modificada por item
+    const modificadaHtml = `
       <div class="mt-3">
-        <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
-        <a href="${escapeHtml(localUrl)}" target="_blank"
-           class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-          <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
-        </a>
+        <div class="flex items-center justify-between gap-2">
+          <div class="text-xs font-extrabold text-slate-500">Imagen modificada</div>
+          <button type="button"
+            class="text-xs font-extrabold text-blue-600 hover:underline"
+            data-mod-toggle="1"
+            data-order-id="${escapeHtml(keyForFiles)}"
+            data-item-index="${escapeHtml(String(index))}">
+            ${localUrl ? "Reemplazar" : "Subir"}
+          </button>
+        </div>
+
+        <div class="mt-2 ${localUrl ? "" : "hidden"}">
+          <a href="${escapeHtml(localUrl || "#")}" target="_blank"
+            class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+            <img data-mod-img="1"
+              data-order-id="${escapeHtml(keyForFiles)}"
+              data-item-index="${escapeHtml(String(index))}"
+              src="${escapeHtml(localUrl || "")}"
+              class="h-40 w-40 object-cover">
+          </a>
+        </div>
+
+        <div class="mt-2 hidden"
+          data-mod-zone="1"
+          data-order-id="${escapeHtml(keyForFiles)}"
+          data-item-index="${escapeHtml(String(index))}">
+          <div class="rounded-3xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 cursor-pointer hover:bg-slate-100 transition">
+            <div class="text-sm font-extrabold text-slate-900">Arrastra la imagen aquí</div>
+            <div class="text-xs text-slate-600 mt-1">o haz click para seleccionarla</div>
+
+            <input type="file" accept="image/*" class="hidden" data-mod-input="1" />
+
+            <div class="mt-3 hidden" data-mod-preview="1"></div>
+
+            <div class="mt-3 flex gap-2">
+              <button type="button" data-mod-upload="1"
+                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-xs font-extrabold hover:bg-blue-700 disabled:opacity-50" disabled>
+                Subir
+              </button>
+              <button type="button" data-mod-clear="1"
+                class="px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 text-xs font-extrabold hover:bg-slate-100 disabled:opacity-50" disabled>
+                Quitar
+              </button>
+            </div>
+
+            <div class="mt-2 text-xs font-bold hidden" data-mod-msg="1"></div>
+          </div>
+        </div>
       </div>
-    ` : "";
+    `;
 
     return `
       <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
@@ -1031,6 +1070,9 @@ async function abrirDetallesPedido(orderId) {
 
   // ✅ ahora sí pintamos los items
   setHtml("detItems", itemsHtml);
+
+  // ✅ activar dropzones por item
+  initModificadaDropzones();
 }
 
 // Hook del botón
@@ -1127,6 +1169,328 @@ async function subirArchivosGenerales(orderId, fileList) {
 }
 
 // =========================
+// ✅ Upload MODIFICADA (por item)
+// =========================
+const modState = new Map(); // key: `${orderId}:${itemIndex}` -> File
+
+function modKey(orderId, itemIndex) {
+  return `${String(orderId)}:${String(itemIndex)}`;
+}
+
+async function subirImagenModificada(orderId, itemIndex, file) {
+  const fd = new FormData();
+  fd.append("order_id", String(orderId));
+  fd.append("item_index", String(itemIndex));
+  fd.append("file", file);
+
+  const res = await fetch(ENDPOINT_UPLOAD_MODIFICADA, {
+    method: "POST",
+    body: fd,
+    headers: { ...getCsrfHeaders() },
+    credentials: "same-origin",
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data || data.success !== true) {
+    return { ok: false, message: data?.message || "No se pudo subir la imagen." };
+  }
+  return { ok: true, url: data.url, file: data.file || null };
+}
+
+function initModificadaDropzones() {
+  // toggle abrir/cerrar
+  document.querySelectorAll("[data-mod-toggle='1']").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const orderId = btn.getAttribute("data-order-id");
+      const itemIndex = btn.getAttribute("data-item-index");
+      const zone = document.querySelector(
+        `[data-mod-zone='1'][data-order-id="${CSS.escape(orderId)}"][data-item-index="${CSS.escape(itemIndex)}"]`
+      );
+      if (!zone) return;
+      zone.classList.toggle("hidden");
+    });
+  });
+
+  // init dropzone por item
+  document.querySelectorAll("[data-mod-zone='1']").forEach(zone => {
+    const orderId = zone.getAttribute("data-order-id");
+    const itemIndex = zone.getAttribute("data-item-index");
+    const key = modKey(orderId, itemIndex);
+
+    const box = zone.querySelector(".border-dashed");
+    const input = zone.querySelector("[data-mod-input='1']");
+    const preview = zone.querySelector("[data-mod-preview='1']");
+    const btnUpload = zone.querySelector("[data-mod-upload='1']");
+    const btnClear = zone.querySelector("[data-mod-clear='1']");
+    const msg = zone.querySelector("[data-mod-msg='1']");
+
+    if (!box || !input || !preview || !btnUpload || !btnClear || !msg) return;
+
+    const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
+    const highlight = (on) => {
+      box.classList.toggle("ring-2", on);
+      box.classList.toggle("ring-blue-600", on);
+      box.classList.toggle("bg-blue-50", on);
+    };
+
+    function setMsg(text, cls) {
+      msg.classList.remove("hidden", "text-rose-600", "text-emerald-700", "text-slate-600");
+      msg.classList.add(cls || "text-slate-600");
+      msg.textContent = text || "";
+      if (!text) msg.classList.add("hidden");
+    }
+
+    function setFile(file) {
+      if (!file) {
+        modState.delete(key);
+        preview.classList.add("hidden");
+        preview.innerHTML = "";
+        btnUpload.disabled = true;
+        btnClear.disabled = true;
+        setMsg("", "");
+        return;
+      }
+
+      modState.set(key, file);
+      const url = URL.createObjectURL(file);
+      preview.classList.remove("hidden");
+      preview.innerHTML = `
+        <div class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+          <img src="${escapeHtml(url)}" class="h-16 w-16 rounded-2xl object-cover border border-slate-200" />
+          <div class="min-w-0">
+            <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(file.name)}</div>
+            <div class="text-xs text-slate-600">${escapeHtml(file.type || "image")} · ${escapeHtml(String(file.size || ""))}</div>
+          </div>
+        </div>
+      `;
+      btnUpload.disabled = false;
+      btnClear.disabled = false;
+      setMsg("", "");
+    }
+
+    ["dragenter", "dragover", "dragleave", "drop"].forEach(ev => box.addEventListener(ev, prevent));
+    box.addEventListener("dragenter", () => highlight(true));
+    box.addEventListener("dragover", () => highlight(true));
+    box.addEventListener("dragleave", () => highlight(false));
+
+    box.addEventListener("drop", (e) => {
+      highlight(false);
+      const file = (e.dataTransfer?.files && e.dataTransfer.files[0]) ? e.dataTransfer.files[0] : null;
+      if (!file) return;
+      if (!(file.type || "").startsWith("image/")) {
+        setMsg("Solo se permiten imágenes.", "text-rose-600");
+        return;
+      }
+      setFile(file);
+    });
+
+    box.addEventListener("click", () => input.click());
+    input.addEventListener("change", () => {
+      const file = input.files && input.files[0] ? input.files[0] : null;
+      input.value = "";
+      if (!file) return;
+      if (!(file.type || "").startsWith("image/")) {
+        setMsg("Solo se permiten imágenes.", "text-rose-600");
+        return;
+      }
+      setFile(file);
+    });
+
+    btnClear.addEventListener("click", () => setFile(null));
+
+    btnUpload.addEventListener("click", async () => {
+      const file = modState.get(key);
+      if (!file) return;
+
+      btnUpload.disabled = true;
+      setMsg("Subiendo...", "text-slate-600");
+
+      const r = await subirImagenModificada(orderId, itemIndex, file);
+      if (!r.ok) {
+        btnUpload.disabled = false;
+        setMsg(r.message || "Error subiendo.", "text-rose-600");
+        return;
+      }
+
+      // actualiza imagen en UI
+      const img = document.querySelector(
+        `[data-mod-img='1'][data-order-id="${CSS.escape(orderId)}"][data-item-index="${CSS.escape(itemIndex)}"]`
+      );
+      if (img) img.src = r.url;
+
+      // muestra contenedor si estaba oculto
+      const imgWrap = img?.closest(".mt-2");
+      if (imgWrap) imgWrap.classList.remove("hidden");
+
+      setMsg("Listo. Imagen modificada actualizada.", "text-emerald-700");
+
+      setFile(null);
+      zone.classList.add("hidden");
+
+      // opcional: refresca cola (por si cambia estado/etiquetas)
+      // await cargarMiCola();
+    });
+  });
+}
+
+// =========================
+// ✅ Drag & Drop (upload GENERAL)
+// =========================
+let generalSelectedFiles = [];
+
+function humanFileSize(bytes) {
+  const n = Number(bytes || 0);
+  if (!n) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function uniqFiles(files) {
+  const seen = new Set();
+  const out = [];
+  for (const f of files) {
+    const k = `${f.name}|${f.size}|${f.lastModified}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(f);
+  }
+  return out;
+}
+
+function setGeneralSelectedFiles(files) {
+  generalSelectedFiles = uniqFiles(files || []);
+  renderGeneralSelectedFiles();
+}
+
+function renderGeneralSelectedFiles() {
+  const list = $("generalSelectedList");
+  if (!list) return;
+
+  if (!generalSelectedFiles.length) {
+    list.innerHTML = `<div class="text-xs text-slate-500">No hay archivos seleccionados.</div>`;
+    return;
+  }
+
+  list.innerHTML = generalSelectedFiles.map((f, idx) => {
+    const isImg = (f.type || "").startsWith("image/");
+    const thumb = isImg
+      ? `<img src="${URL.createObjectURL(f)}" class="h-12 w-12 rounded-2xl object-cover border border-slate-200" />`
+      : `<div class="h-12 w-12 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-400">📄</div>`;
+
+    return `
+      <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+        <div class="flex items-center gap-3 min-w-0">
+          ${thumb}
+          <div class="min-w-0">
+            <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(f.name)}</div>
+            <div class="text-xs text-slate-600">${escapeHtml(f.type || "—")} · ${escapeHtml(humanFileSize(f.size))}</div>
+          </div>
+        </div>
+        <button type="button"
+          data-general-remove="${idx}"
+          class="shrink-0 px-3 py-2 rounded-2xl bg-slate-900 text-white font-extrabold text-xs hover:bg-black">
+          Quitar
+        </button>
+      </div>
+    `;
+  }).join("");
+
+  list.querySelectorAll("[data-general-remove]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = Number(btn.getAttribute("data-general-remove"));
+      if (!Number.isFinite(i)) return;
+      generalSelectedFiles.splice(i, 1);
+      renderGeneralSelectedFiles();
+    });
+  });
+}
+
+function ensureGeneralDropzoneMarkup() {
+  const form = $("formGeneralUpload");
+  const input = $("generalFiles");
+  if (!form || !input) return;
+
+  // si ya existe, no duplicar
+  if ($("generalDropzone")) return;
+
+  // intenta ponerlo cerca del input
+  const wrap = document.createElement("div");
+  wrap.id = "generalDropzone";
+  wrap.className = "mt-3 rounded-3xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 cursor-pointer hover:bg-slate-100 transition";
+
+  wrap.innerHTML = `
+    <div class="text-sm font-extrabold text-slate-900">Arrastra aquí los archivos</div>
+    <div class="text-xs text-slate-600 mt-1">o haz click para seleccionarlos</div>
+
+    <div id="generalSelectedList" class="mt-3 space-y-2"></div>
+
+    <div class="mt-3 flex gap-2">
+      <button type="button" id="generalClearFiles"
+        class="px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
+        Quitar selección
+      </button>
+    </div>
+  `;
+
+  // inserta después del input si se puede, si no al final del form
+  if (input.parentElement) input.parentElement.insertAdjacentElement("afterend", wrap);
+  else form.appendChild(wrap);
+
+  // opcional: ocultar el input original (sigue funcionando)
+  // input.classList.add("hidden");
+}
+
+function initGeneralDropzone() {
+  ensureGeneralDropzoneMarkup();
+
+  const dz = $("generalDropzone");
+  const input = $("generalFiles");
+  const clearBtn = $("generalClearFiles");
+  const list = $("generalSelectedList");
+
+  if (!dz || !input || !list) return;
+
+  const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
+
+  const highlight = (on) => {
+    dz.classList.toggle("ring-2", on);
+    dz.classList.toggle("ring-blue-600", on);
+    dz.classList.toggle("bg-blue-50", on);
+  };
+
+  ["dragenter", "dragover", "dragleave", "drop"].forEach(ev => dz.addEventListener(ev, prevent));
+
+  dz.addEventListener("dragenter", () => highlight(true));
+  dz.addEventListener("dragover", () => highlight(true));
+  dz.addEventListener("dragleave", () => highlight(false));
+
+  dz.addEventListener("drop", (e) => {
+    highlight(false);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (!files.length) return;
+    setGeneralSelectedFiles([...generalSelectedFiles, ...files]);
+  });
+
+  dz.addEventListener("click", () => input.click());
+
+  input.addEventListener("change", () => {
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+    setGeneralSelectedFiles([...generalSelectedFiles, ...files]);
+    input.value = ""; // permite re-elegir el mismo archivo
+  });
+
+  clearBtn?.addEventListener("click", () => {
+    setGeneralSelectedFiles([]);
+    input.value = "";
+  });
+
+  renderGeneralSelectedFiles();
+}
+
+// =========================
 // Eventos
 // =========================
 function bindEventos() {
@@ -1147,10 +1511,13 @@ function bindEventos() {
     // ✅ usa el hidden si existe, si no cae al último id abierto
     const orderId = $("generalOrderId")?.value || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId;
     const input = $("generalFiles");
-    const files = input?.files;
+
+    const filesToSend = generalSelectedFiles.length
+      ? generalSelectedFiles
+      : Array.from(input?.files || []);
 
     if (!orderId) return;
-    if (!files || !files.length) {
+    if (!filesToSend.length) {
       const msg = $("generalUploadMsg");
       if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona uno o más archivos.</span>`;
       return;
@@ -1158,7 +1525,7 @@ function bindEventos() {
 
     setLoader(true);
     try {
-      const ok = await subirArchivosGenerales(orderId, files);
+      const ok = await subirArchivosGenerales(orderId, filesToSend);
       if (!ok) return;
 
       await cargarArchivosGenerales(orderId, {
@@ -1168,6 +1535,8 @@ function bindEventos() {
 
       await cargarMiCola();
     } finally {
+      generalSelectedFiles = [];
+      renderGeneralSelectedFiles();
       if (input) input.value = "";
       setLoader(false);
     }
@@ -1184,6 +1553,9 @@ function bindEventos() {
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") cerrarDetallesFull();
   });
+
+  // ✅ iniciar drag&drop general (se inyecta markup si falta)
+  initGeneralDropzone();
 }
 
 // =========================

@@ -1,16 +1,13 @@
 (() => {
-  // Factory del componente
   function supportChatFactory() {
     const SUPPORT = window.SUPPORT || {};
     const endpoints = SUPPORT.endpoints || {};
 
     return {
-      // session/env
       role: SUPPORT.role || '',
       userId: SUPPORT.userId || 0,
       endpoints,
 
-      // ui state
       tickets: [],
       selectedTicketId: null,
       ticket: null,
@@ -23,7 +20,6 @@
       files: [],
       sending: false,
 
-      // admin
       filter: (SUPPORT.role === 'admin') ? 'unassigned' : 'mine',
       q: '',
       adminStatus: 'open',
@@ -36,19 +32,18 @@
         let list = this.tickets;
 
         // search
-        if (this.q.trim()) {
-          const s = this.q.trim().toLowerCase();
+        const query = this.q.trim().toLowerCase();
+        if (query) {
           list = list.filter(t =>
-            String(t.ticket_code || '').toLowerCase().includes(s) ||
-            String(t.order_id || '').toLowerCase().includes(s)
+            String(t?.ticket_code || '').toLowerCase().includes(query) ||
+            String(t?.order_id || '').toLowerCase().includes(query)
           );
         }
 
-        // role filter
         if (!this.isAdmin) return list;
 
-        if (this.filter === 'unassigned') return list.filter(t => !t.assigned_to);
-        if (this.filter === 'mine') return list.filter(t => String(t.assigned_to) === String(this.userId));
+        if (this.filter === 'unassigned') return list.filter(t => !t?.assigned_to);
+        if (this.filter === 'mine') return list.filter(t => String(t?.assigned_to) === String(this.userId));
         return list;
       },
 
@@ -60,19 +55,36 @@
 
         await this.loadTickets();
 
-        // auto-open first ticket
-        const first = this.filteredTickets[0];
-        if (first && !this.selectedTicketId) {
+        // auto-open first ticket (solo si tiene id real)
+        const first = this.filteredTickets.find(t => t && (t.id || t.ticket_code));
+        if (first?.id && !this.selectedTicketId) {
           await this.openTicket(first.id);
         }
       },
 
       async loadTickets() {
         const r = await fetch(this.endpoints.tickets);
-        this.tickets = await r.json();
+        const data = await r.json().catch(() => null);
+
+        // soporta array directo o {tickets: []}
+        let list = Array.isArray(data) ? data : (data?.tickets || []);
+
+        // limpia null/undefined
+        list = list.filter(Boolean);
+
+        // dedupe por id o ticket_code
+        const map = new Map();
+        for (const t of list) {
+          const k = String(t.id ?? t.ticket_code ?? '');
+          if (!k) continue;
+          if (!map.has(k)) map.set(k, t);
+        }
+
+        this.tickets = [...map.values()];
       },
 
       async openTicket(id) {
+        if (!id) return; // ✅ nunca abrir sin id
         this.isCreating = false;
         this.selectedTicketId = id;
         await this.loadTicket();
@@ -80,10 +92,14 @@
       },
 
       async loadTicket() {
-        const r = await fetch(`${this.endpoints.ticket}/${this.selectedTicketId}`);
+        if (!this.selectedTicketId) return; // ✅ evita /soporte/ticket sin id
+
+        const url = `${this.endpoints.ticket}/${this.selectedTicketId}`;
+        const r = await fetch(url);
         const data = await r.json().catch(() => ({}));
 
         if (!r.ok) {
+          console.error('[SupportChat] loadTicket error', r.status, data);
           alert(data?.error || 'No se pudo abrir el ticket');
           return;
         }
@@ -118,6 +134,7 @@
         if (!this.draft.trim() && this.files.length === 0) return;
 
         this.sending = true;
+
         const fd = new FormData();
         fd.append('message', this.draft);
 
@@ -133,20 +150,34 @@
             const data = await r.json().catch(() => ({}));
 
             if (!r.ok) {
+              console.error('[SupportChat] create error', r.status, data);
               alert(data?.error || 'Error creando ticket');
               return;
             }
 
+            // ✅ tolera distintos nombres de id
+            const newId = data.ticket_id ?? data.id ?? data.ticket?.id ?? null;
+
             await this.loadTickets();
             this.isCreating = false;
-            this.selectedTicketId = data.ticket_id;
+
+            if (!newId) {
+              console.warn('[SupportChat] Ticket creado pero sin id en respuesta:', data);
+              alert('Ticket creado, pero el servidor no devolvió el ID para abrirlo.');
+              return;
+            }
+
+            this.selectedTicketId = newId;
             await this.loadTicket();
             this.startPolling();
           } else {
+            if (!this.selectedTicketId) return;
+
             const r = await fetch(`${this.endpoints.message}/${this.selectedTicketId}/message`, { method: 'POST', body: fd });
             const data = await r.json().catch(() => ({}));
 
             if (!r.ok) {
+              console.error('[SupportChat] message error', r.status, data);
               alert(data?.error || 'Error enviando mensaje');
               return;
             }
@@ -248,26 +279,14 @@
     };
   }
 
-  // Exponer global (por si quieres x-data="supportChat()")
-  window.supportChat = supportChatFactory;
-
-  // Registrar siempre, incluso si Alpine ya empezó
   function register() {
     if (!window.Alpine) return;
-
     if (window.__supportChatRegistered) return;
     window.__supportChatRegistered = true;
 
     window.Alpine.data('supportChat', supportChatFactory);
-
-    // Si Alpine ya estaba corriendo, inicializa el árbol del chat
-    try {
-      const el = document.querySelector('[x-data="supportChat"], [x-data="supportChat()"]');
-      if (el) window.Alpine.initTree(el);
-    } catch (e) {}
   }
 
   document.addEventListener('alpine:init', register);
   if (window.Alpine) register();
-  document.addEventListener('DOMContentLoaded', () => { if (window.Alpine) register(); });
 })();
