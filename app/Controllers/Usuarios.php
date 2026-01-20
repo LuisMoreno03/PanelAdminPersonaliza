@@ -4,7 +4,7 @@ namespace App\Controllers;
 
 use CodeIgniter\HTTP\ResponseInterface;
 
-class Usuario extends BaseController
+class Usuarios extends BaseController
 {
     /**
      * GET /usuarios
