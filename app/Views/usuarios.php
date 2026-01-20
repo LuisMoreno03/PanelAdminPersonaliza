@@ -10,7 +10,7 @@ use App\Models\UsuariosModel;
 
 
 {
-  return view('usuarios_index');
+  return view('Usuarios');
 }
 
 }
