@@ -13,13 +13,19 @@ document.addEventListener('alpine:init', () => {
     isCreating: false,
     draft: '',
     orderId: '',
+
+    // ✅ files = [{ file, url, name }]
     files: [],
     sending: false,
 
-    filter: 'unassigned', // admin default
+    filter: 'unassigned',
     q: '',
     adminStatus: 'open',
     pollTimer: null,
+
+    // 🔔 notifications
+    notifyEnabled: false,
+    lastSeenByTicket: {}, // ticketId -> last msg id visto (para detectar nuevos)
 
     get isAdmin() {
       const r = String(this.role || '').toLowerCase();
@@ -45,18 +51,99 @@ document.addEventListener('alpine:init', () => {
     },
 
     async init() {
-      // admin por defecto: sin asignar, produccion: mine no aplica ya que backend filtra
+      // persist notifications toggle
+      this.notifyEnabled = localStorage.getItem('support_notify') === '1';
+
       if (!this.isAdmin) this.filter = 'all';
 
       await this.loadTickets();
 
-      // auto-open first ticket si existe
       const first = this.filteredTickets[0];
-      if (first?.id) {
-        await this.openTicket(first.id);
+      if (first?.id) await this.openTicket(first.id);
+    },
+
+    // ---------- Notifications ----------
+    async toggleNotifications() {
+      if (!('Notification' in window)) {
+        alert('Tu navegador no soporta notificaciones.');
+        return;
+      }
+
+      if (Notification.permission === 'granted') {
+        this.notifyEnabled = !this.notifyEnabled;
+        localStorage.setItem('support_notify', this.notifyEnabled ? '1' : '0');
+        if (this.notifyEnabled) this.beep();
+        return;
+      }
+
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        this.notifyEnabled = true;
+        localStorage.setItem('support_notify', '1');
+        this.beep();
+        new Notification('Soporte', { body: 'Notificaciones activadas ✅' });
+      } else {
+        this.notifyEnabled = false;
+        localStorage.setItem('support_notify', '0');
+        alert('No se activaron las notificaciones.');
       }
     },
 
+    notify(title, body) {
+      if (!this.notifyEnabled) return;
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+
+      try {
+        new Notification(title, { body });
+        this.beep();
+      } catch (e) {}
+    },
+
+    beep() {
+      // beep simple (sin archivo)
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = 880;
+        g.gain.value = 0.05;
+        o.start();
+        o.stop(ctx.currentTime + 0.12);
+      } catch (e) {}
+    },
+
+    handleIncomingMessages(ticketId, ticketCode, messages) {
+      if (!Array.isArray(messages) || messages.length === 0) return;
+
+      const maxId = Math.max(...messages.map(m => Number(m.id || 0)));
+      const prev = this.lastSeenByTicket[ticketId];
+
+      // primera vez: no notifica
+      if (prev === undefined) {
+        this.lastSeenByTicket[ticketId] = maxId;
+        return;
+      }
+
+      if (maxId > prev) {
+        const last = messages.find(m => Number(m.id) === maxId) || messages[messages.length - 1];
+        const sender = String(last?.sender || '');
+        const isIncoming = this.isAdmin ? (sender === 'user') : (sender === 'admin');
+
+        if (isIncoming) {
+          const txt = (last?.message || '').trim();
+          const body = txt ? txt.slice(0, 80) : '📷 Imagen / adjunto';
+          this.notify(`Nuevo mensaje · ${ticketCode}`, body);
+        }
+
+        this.lastSeenByTicket[ticketId] = maxId;
+      }
+    },
+
+    // ---------- API ----------
     async loadTickets() {
       try {
         const r = await fetch(this.endpoints.tickets, { headers: { 'Accept': 'application/json' }});
@@ -67,6 +154,7 @@ document.addEventListener('alpine:init', () => {
           this.tickets = [];
           return;
         }
+
         this.tickets = Array.isArray(data) ? data : [];
       } catch (e) {
         console.error('[SupportChat] loadTickets exception', e);
@@ -101,6 +189,11 @@ document.addEventListener('alpine:init', () => {
         this.attachments = data.attachments || {};
         this.adminStatus = this.ticket?.status || 'open';
 
+        // 🔔 notificar si llegaron mensajes nuevos
+        if (this.ticket?.id) {
+          this.handleIncomingMessages(this.ticket.id, this.ticket.ticket_code || `#${this.ticket.id}`, this.messages);
+        }
+
         this.scrollToBottom();
       } catch (e) {
         console.error('[SupportChat] loadTicket exception', e);
@@ -108,6 +201,7 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
+    // ---------- NEW TICKET ----------
     startNew() {
       if (this.isAdmin) return;
 
@@ -118,14 +212,34 @@ document.addEventListener('alpine:init', () => {
       this.attachments = {};
       this.draft = '';
       this.orderId = '';
-      this.files = [];
+      this.clearFiles();
       this.stopPolling();
     },
 
+    // ---------- FILES (preview like WhatsApp) ----------
     pickFiles(e) {
-      this.files = Array.from(e.target.files || []);
+      const selected = Array.from(e.target.files || []);
+      selected.forEach(file => {
+        if (!file.type.startsWith('image/')) return;
+        const url = URL.createObjectURL(file);
+        this.files.push({ file, url, name: file.name });
+      });
+
+      // permite volver a seleccionar la misma imagen
+      e.target.value = '';
     },
 
+    removeFile(idx) {
+      try { URL.revokeObjectURL(this.files[idx]?.url); } catch (e) {}
+      this.files.splice(idx, 1);
+    },
+
+    clearFiles() {
+      this.files.forEach(f => { try { URL.revokeObjectURL(f.url); } catch(e) {} });
+      this.files = [];
+    },
+
+    // ---------- SEND ----------
     async send() {
       if (this.sending) return;
       if (!this.draft.trim() && this.files.length === 0) return;
@@ -139,8 +253,8 @@ document.addEventListener('alpine:init', () => {
         fd.append('order_id', this.orderId.trim());
       }
 
-      // OJO: backend soporta images y images[]
-      this.files.forEach(f => fd.append('images[]', f));
+      // ✅ IMPORTANT: enviar como "images" (no images[])
+      this.files.forEach(x => fd.append('images', x.file));
 
       try {
         if (this.isCreating) {
@@ -173,12 +287,13 @@ document.addEventListener('alpine:init', () => {
         }
 
         this.draft = '';
-        this.files = [];
+        this.clearFiles();
       } finally {
         this.sending = false;
       }
     },
 
+    // ---------- ADMIN ----------
     async acceptCase() {
       if (!this.ticket || !this.isAdmin) return;
 
@@ -214,6 +329,7 @@ document.addEventListener('alpine:init', () => {
       await this.loadTickets();
     },
 
+    // ---------- polling ----------
     startPolling() {
       this.stopPolling();
       this.pollTimer = setInterval(async () => {
@@ -227,6 +343,7 @@ document.addEventListener('alpine:init', () => {
       this.pollTimer = null;
     },
 
+    // ---------- UI ----------
     scrollToBottom() {
       this.$nextTick(() => {
         const el = this.$refs.thread;
@@ -237,12 +354,12 @@ document.addEventListener('alpine:init', () => {
     formatTime(dt) {
       if (!dt) return '';
       const t = String(dt).split(' ')[1] || '';
-      return t.slice(0, 5);
+      return t.slice(0,5);
     },
 
     formatDT(dt) {
       if (!dt) return '';
-      return String(dt).slice(0, 16);
+      return String(dt).slice(0,16);
     },
 
     statusLabel(s) {
