@@ -9,7 +9,7 @@ class Usuarios extends BaseController
 {
 public function index()
 {
-   return view('RUTAS APROVE');
+   return view('usuarios_index');
 
 
 }
