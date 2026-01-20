@@ -363,20 +363,39 @@ function actualizarListado(pedidos) {
       `;
 
       return `
-        <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
+        <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
+                    border-b border-slate-200 hover:bg-slate-50 transition">
+
           <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
+
           <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
+
           <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
-          <div class="font-extrabold text-slate-900 whitespace-nowrap">${moneyFormat(total)}</div>
+
+          <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
+
           <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
+
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-          <div class="col-etiquetas">${renderEtiquetasMini(etiquetas)}</div>
+
+          <div class="min-w-0">${renderEtiquetasMini(etiquetas)}</div>
+
           <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
+
           <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
+
           <div class="min-w-0 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
-          <div class="text-right whitespace-nowrap">${detallesBtn}</div>
+
+          <div class="flex justify-end">
+            <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
+              class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+              Ver detalles →
+            </button>
+          </div>
+
         </div>
       `;
+
     }).join("");
 
     return;
