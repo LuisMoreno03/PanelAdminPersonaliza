@@ -423,20 +423,39 @@ function actualizarListado(pedidos) {
       `;
 
       return `
-        <tr class="hover:bg-slate-50/60 transition">
-          <td class="px-5 py-4 font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</td>
-          <td class="px-5 py-4 text-slate-700 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</td>
-          <td class="px-5 py-4 text-slate-700 max-w-[320px] truncate">${escapeHtml(String(cliente || "—"))}</td>
-          <td class="px-5 py-4 text-slate-700 whitespace-nowrap">${moneyFormat(total)}</td>
-          <td class="px-5 py-4 whitespace-nowrap">${estadoHtml}</td>
-          <td class="px-5 py-4">${renderLastChangeCompact(p)}</td>
-          <td class="px-5 py-4 col-etiquetas">${renderEtiquetasMini(etiquetas)}</td>
-          <td class="px-5 py-4 text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</td>
-          <td class="px-5 py-4 whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</td>
-          <td class="px-5 py-4 text-slate-700 max-w-[240px] truncate">${escapeHtml(String(formaEnvio || "—"))}</td>
-          <td class="px-5 py-4 text-right whitespace-nowrap">${detallesBtn}</td>
-        </tr>
+        <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
+                    border-b border-slate-200 hover:bg-slate-50 transition">
+
+          <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
+
+          <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
+
+          <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
+
+          <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
+
+          <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
+
+          <div class="min-w-0">${renderLastChangeCompact(p)}</div>
+
+          <div class="min-w-0">${renderEtiquetasMini(etiquetas)}</div>
+
+          <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
+
+          <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
+
+          <div class="min-w-0 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
+
+          <div class="flex justify-end">
+            <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
+              class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+              Ver detalles →
+            </button>
+          </div>
+
+        </div>
       `;
+
     }).join("");
 
     return;
