@@ -214,6 +214,10 @@ $routes->group('repetir', [
 $routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->get('/', 'Usuarios::index');
     $routes->post('crear', 'Usuarios::crear');
+
+    $routes->get('usuarios', 'Usuario::index');        // vista HTML
+    $routes->get('api/usuarios', 'Usuario::apiIndex'); // JSON
+
 });
 
 /*
