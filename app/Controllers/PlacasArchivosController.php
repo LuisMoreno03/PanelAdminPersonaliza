@@ -789,4 +789,3 @@ private function descargarZipLote($loteId, $format = 'png')
         ->setFileName("lote_{$loteId}_{$format}.zip");
 }
 
-}
