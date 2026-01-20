@@ -691,14 +691,7 @@ private function descargarConvertido($archivoId, $format = 'png')
 // DESCARGAR ZIP POR LOTE (PNG/JPG)
 public function descargarPngLote($loteId)
 {
-    return $this->descargarZipLote($loteId, 'png');
-}
-
-public function descargarJpgLote($loteId)
-{
-    return $this->descargarZipLote($loteId, 'jpg');
-}
-
+    
 private function descargarZipLote($loteId, $format = 'png')
 {
     $format = strtolower($format) === 'jpg' ? 'jpg' : 'png';
@@ -714,7 +707,7 @@ private function descargarZipLote($loteId, $format = 'png')
     if ($zip->open($tmp, \ZipArchive::CREATE) !== true) {
         return $this->response->setStatusCode(500)->setBody('No se pudo crear ZIP');
     }
-}
+
     foreach ($rows as $r) {
         $ruta = $r['ruta'] ?? '';
         if (!$ruta) continue;
@@ -776,4 +769,6 @@ private function descargarZipLote($loteId, $format = 'png')
 
     return $this->response->download($tmp, null)
         ->setFileName("lote_{$loteId}_{$format}.zip");
+}
+}
 }
