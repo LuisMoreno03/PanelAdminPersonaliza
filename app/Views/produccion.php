@@ -128,7 +128,6 @@
                   <div class="text-right">Total</div>
                   <div>Estado</div>
                   <div>Último cambio</div>
-                  <div>Etiquetas</div>
                   <div class="text-center">Artículos</div>
                   <div>Entrega</div>
                   <div>Método</div>
@@ -149,7 +148,6 @@
                     <th class="px-5 py-4">Total</th>
                     <th class="px-5 py-4">Estado</th>
                     <th class="px-5 py-4">Último cambio</th>
-                    <th class="px-5 py-4">Etiquetas</th>
                     <th class="px-5 py-4 text-center">Artículos</th>
                     <th class="px-5 py-4">Entrega</th>
                     <th class="px-5 py-4">Método</th>

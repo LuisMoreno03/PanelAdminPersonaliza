@@ -378,8 +378,6 @@ function actualizarListado(pedidos) {
 
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
 
-          <div class="min-w-0">${renderEtiquetasMini(etiquetas)}</div>
-
           <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
 
           <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
@@ -456,8 +454,6 @@ function actualizarListado(pedidos) {
           <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
 
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
-          <div class="min-w-0">${renderEtiquetasMini(etiquetas)}</div>
 
           <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
 
