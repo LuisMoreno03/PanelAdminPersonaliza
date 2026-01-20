@@ -2,8 +2,6 @@
 
 namespace App\Controllers;
 
-use CodeIgniter\HTTP\ResponseInterface;
-
 class SoporteController extends BaseController
 {
     protected $db;
@@ -13,12 +11,13 @@ class SoporteController extends BaseController
         $this->db = \Config\Database::connect();
     }
 
+    // ✅ VISTA CHAT
     public function chat()
     {
         return view('soporte/chat');
     }
 
-    // LISTA DE TICKETS
+    // ✅ LISTAR TICKETS
     public function tickets()
     {
         try {
@@ -43,7 +42,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // ABRIR TICKET
+    // ✅ ABRIR TICKET
     public function ticket($id)
     {
         try {
@@ -70,7 +69,6 @@ class SoporteController extends BaseController
                 ->orderBy('id', 'ASC')
                 ->get()->getResultArray();
 
-            // agrupar attachments por message_id
             $grouped = [];
             foreach ($atts as $a) {
                 $mid = (int)($a['message_id'] ?? 0);
@@ -90,7 +88,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // CREAR TICKET (SOLO PRODUCCION)
+    // ✅ CREAR TICKET (SOLO PRODUCCION)
     public function create()
     {
         try {
@@ -114,15 +112,11 @@ class SoporteController extends BaseController
 
             $now = date('Y-m-d H:i:s');
 
-            // asegurar carpeta
             $dir = WRITEPATH . 'uploads/support';
-            if (!is_dir($dir)) {
-                @mkdir($dir, 0775, true);
-            }
+            if (!is_dir($dir)) @mkdir($dir, 0775, true);
 
             $this->db->transStart();
 
-            // ticket temporal (code se setea luego con ID)
             $this->db->table('support_tickets')->insert([
                 'ticket_code' => 'TCK-TMP',
                 'user_id' => $userId,
@@ -140,7 +134,6 @@ class SoporteController extends BaseController
                 'ticket_code' => $ticketCode
             ]);
 
-            // primer mensaje
             $this->db->table('support_messages')->insert([
                 'ticket_id' => $ticketId,
                 'sender' => 'user',
@@ -149,7 +142,6 @@ class SoporteController extends BaseController
             ]);
             $msgId = (int)$this->db->insertID();
 
-            // adjuntos
             foreach ($imgs as $img) {
                 if (!$img || !$img->isValid()) continue;
 
@@ -182,7 +174,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // ENVIAR MENSAJE A TICKET
+    // ✅ ENVIAR MENSAJE
     public function message($id)
     {
         try {
@@ -209,9 +201,7 @@ class SoporteController extends BaseController
             $now = date('Y-m-d H:i:s');
 
             $dir = WRITEPATH . 'uploads/support';
-            if (!is_dir($dir)) {
-                @mkdir($dir, 0775, true);
-            }
+            if (!is_dir($dir)) @mkdir($dir, 0775, true);
 
             $sender = ($role === 'admin') ? 'admin' : 'user';
 
@@ -258,14 +248,12 @@ class SoporteController extends BaseController
         }
     }
 
-    // ADMIN ACEPTA CASO
+    // ✅ ADMIN ACEPTA CASO
     public function assign($id)
     {
         try {
             $role = (string)(session('rol') ?? '');
-            if ($role !== 'admin') {
-                return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
-            }
+            if ($role !== 'admin') return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
 
             $id        = (int)$id;
             $adminId   = (int)(session('user_id') ?? 0);
@@ -287,14 +275,12 @@ class SoporteController extends BaseController
         }
     }
 
-    // ADMIN CAMBIA ESTADO
+    // ✅ ADMIN CAMBIA ESTADO
     public function status($id)
     {
         try {
             $role = (string)(session('rol') ?? '');
-            if ($role !== 'admin') {
-                return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
-            }
+            if ($role !== 'admin') return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
 
             $id = (int)$id;
             $status = (string)$this->request->getPost('status');
@@ -319,7 +305,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // SERVIR IMAGEN INLINE
+    // ✅ VER IMAGEN INLINE
     public function attachment($id)
     {
         try {
@@ -331,9 +317,7 @@ class SoporteController extends BaseController
             if (!is_file($path)) return $this->response->setStatusCode(404)->setBody('Archivo no existe');
 
             $mime = $a['mime'] ?: 'image/jpeg';
-            return $this->response
-                ->setHeader('Content-Type', $mime)
-                ->setBody(file_get_contents($path));
+            return $this->response->setHeader('Content-Type', $mime)->setBody(file_get_contents($path));
 
         } catch (\Throwable $e) {
             log_message('error', 'attachment() ERROR: {msg}', ['msg' => $e->getMessage()]);
