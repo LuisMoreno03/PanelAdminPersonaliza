@@ -217,6 +217,14 @@ $routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollectio
 
     $routes->get('usuarios', 'Usuario::index');        // vista HTML
     $routes->get('api/usuarios', 'Usuario::apiIndex'); // JSON
+    // Vistas
+    $routes->get('usuarios', 'Usuario::index');
+    $routes->get('mi-cuenta', 'MiCuenta::index');
+
+    // APIs
+    $routes->get('api/usuarios', 'Usuario::apiIndex');
+    $routes->post('api/mi-cuenta/cambiar-password', 'MiCuenta::cambiarPassword');
+
 
 });
 
