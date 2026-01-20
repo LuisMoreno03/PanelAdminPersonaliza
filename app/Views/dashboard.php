@@ -139,6 +139,120 @@
             </div>
           </div>
         </section>
+        <!-- FILTROS -->
+        <section class="mb-6">
+          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
+            <div class="flex items-center justify-between gap-3">
+              <div class="font-extrabold text-slate-900 text-lg">Filtros</div>
+
+              <button id="btnToggleFiltros"
+                type="button"
+                class="px-4 py-2 rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 text-xs font-extrabold uppercase tracking-wide hover:bg-slate-100">
+                Mostrar / Ocultar
+              </button>
+            </div>
+
+            <div id="boxFiltros" class="mt-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Buscar</label>
+                  <input id="f_q" type="text" placeholder="Pedido, cliente, ID…"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Estado interno</label>
+                  <select id="f_estado"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-200">
+                    <option value="">Cualquiera</option>
+                    <option value="Por preparar">Por preparar</option>
+                    <option value="Faltan archivos">Faltan archivos</option>
+                    <option value="Confirmado">Confirmado</option>
+                    <option value="Diseñado">Diseñado</option>
+                    <option value="Por producir">Por producir</option>
+                    <option value="Enviado">Enviado</option>
+                    <option value="Repetir">Repetir</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Estado envío</label>
+                  <select id="f_envio"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-200">
+                    <option value="">Cualquiera</option>
+                    <option value="__none__">Sin enviar</option>
+                    <option value="fulfilled">Enviado</option>
+                    <option value="partial">Parcial</option>
+                    <option value="unfulfilled">Pendiente</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Método entrega</label>
+                  <select id="f_forma"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-200">
+                    <option value="">Cualquiera</option>
+                    <!-- se llena dinámico desde JS -->
+                  </select>
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Desde</label>
+                  <input id="f_desde" type="date"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Hasta</label>
+                  <input id="f_hasta" type="date"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Total min</label>
+                  <input id="f_total_min" type="number" step="0.01" placeholder="0"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Total max</label>
+                  <input id="f_total_max" type="number" step="0.01" placeholder="9999"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Artículos min</label>
+                  <input id="f_art_min" type="number" step="1" placeholder="0"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Artículos max</label>
+                  <input id="f_art_max" type="number" step="1" placeholder="99"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+              </div>
+
+              <div class="mt-4 flex flex-wrap items-center gap-2">
+                <button id="btnAplicarFiltros"
+                  type="button"
+                  class="px-5 py-3 rounded-2xl bg-blue-600 text-white font-extrabold text-xs uppercase tracking-wide hover:bg-blue-700">
+                  Aplicar
+                </button>
+
+                <button id="btnLimpiarFiltros"
+                  type="button"
+                  class="px-5 py-3 rounded-2xl bg-slate-100 border border-slate-200 text-slate-800 font-extrabold text-xs uppercase tracking-wide hover:bg-slate-200">
+                  Limpiar
+                </button>
+
+                <div id="filtersInfo" class="ml-auto text-xs font-bold text-slate-500"></div>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <!-- PEDIDOS -->
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">

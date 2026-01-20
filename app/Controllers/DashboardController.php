@@ -22,6 +22,10 @@ class DashboardController extends Controller
         'Enviado',
         'Repetir',
     ];
+    public function filter()
+    {
+        return $this->pedidosFiltradosDb();
+    }
 
     public function __construct()
     {
@@ -167,6 +171,175 @@ class DashboardController extends Controller
             'error'   => $err ?: null,
         ];
     }
+
+
+    private function pedidosFiltradosDb(): ResponseInterface
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setStatusCode(401)->setJSON([
+            'success' => false,
+            'message' => 'No autenticado',
+        ]);
+    }
+
+    try {
+        $page  = (int)($this->request->getGet('page') ?? 1);
+        if ($page < 1) $page = 1;
+
+        $limit = (int)($this->request->getGet('limit') ?? 50);
+        if ($limit < 10) $limit = 10;
+        if ($limit > 200) $limit = 200;
+
+        $q         = trim((string)($this->request->getGet('q') ?? ''));
+        $estado    = trim((string)($this->request->getGet('estado') ?? ''));
+        $envio     = trim((string)($this->request->getGet('envio') ?? ''));
+        $forma     = trim((string)($this->request->getGet('forma') ?? ''));
+        $desde     = trim((string)($this->request->getGet('desde') ?? ''));
+        $hasta     = trim((string)($this->request->getGet('hasta') ?? ''));
+
+        $totalMin  = $this->moneyToDecimal($this->request->getGet('total_min'));
+        $totalMax  = $this->moneyToDecimal($this->request->getGet('total_max'));
+        $artMinRaw = trim((string)($this->request->getGet('art_min') ?? ''));
+        $artMaxRaw = trim((string)($this->request->getGet('art_max') ?? ''));
+
+        $artMin = is_numeric($artMinRaw) ? (int)$artMinRaw : null;
+        $artMax = is_numeric($artMaxRaw) ? (int)$artMaxRaw : null;
+
+        if ($estado !== '') $estado = $this->normalizeEstado($estado);
+
+        $db = \Config\Database::connect();
+
+        // -------- COUNT ----------
+        $cb = $db->table('pedidos p');
+        $cb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
+
+        // filtros reutilizados
+        $this->applyDbFilters($cb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
+
+        $countRow = $cb->select('COUNT(1) AS cnt', false)->get()->getRowArray();
+        $totalOrders = (int)($countRow['cnt'] ?? 0);
+
+        $totalPages = $totalOrders > 0 ? (int)ceil($totalOrders / $limit) : 1;
+        if ($page > $totalPages) $page = $totalPages;
+
+        $offset = ($page - 1) * $limit;
+
+        // -------- ROWS ----------
+        $qb = $db->table('pedidos p');
+        $qb->select(
+            'p.shopify_order_id, p.numero, p.cliente, p.total, p.articulos, p.estado_envio, p.forma_envio, p.created_at,' .
+            'pe.estado AS estado_interno, pe.estado_updated_by_name AS user_name,' .
+            'COALESCE(pe.estado_updated_at, pe.actualizado) AS changed_at',
+            false
+        );
+        $qb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
+
+        $this->applyDbFilters($qb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
+
+        $rows = $qb->orderBy('p.created_at', 'DESC')
+                   ->limit($limit, $offset)
+                   ->get()
+                   ->getResultArray();
+
+        $orders = [];
+        foreach ($rows as $r) {
+            $oid = trim((string)($r['shopify_order_id'] ?? ''));
+            if ($oid === '') continue;
+
+            $estadoFinal = $this->normalizeEstado((string)($r['estado_interno'] ?? 'Por preparar'));
+
+            $total = '-';
+            if ($r['total'] !== null && $r['total'] !== '') {
+                $total = number_format((float)$r['total'], 2, '.', '') . ' €';
+            }
+
+            $created = (string)($r['created_at'] ?? '');
+            $fecha = $created ? substr($created, 0, 10) : '-';
+
+            $changedAt = $r['changed_at'] ?? null;
+
+            $orders[] = [
+                'id'           => $oid,
+                'numero'       => $r['numero'] ?: ('#' . $oid),
+                'fecha'        => $fecha,
+                'cliente'      => $r['cliente'] ?: '-',
+                'total'        => $total,
+                'estado'       => $estadoFinal,
+                'articulos'    => (int)($r['articulos'] ?? 0),
+                'estado_envio' => $r['estado_envio'] ?: '-',
+                'forma_envio'  => $r['forma_envio'] ?: '-',
+                'last_status_change' => $changedAt ? [
+                    'user_name'  => $r['user_name'] ?: 'Sistema',
+                    'changed_at' => $changedAt,
+                ] : null,
+            ];
+        }
+
+        return $this->response->setJSON([
+            'success'        => true,
+            'orders'         => $orders,
+            'count'          => count($orders),
+            'limit'          => $limit,
+            'page'           => $page,
+            'total_orders'   => $totalOrders,
+            'total_pages'    => $totalPages,
+            'next_page_info' => ($page < $totalPages) ? (string)($page + 1) : null,
+            'prev_page_info' => ($page > 1) ? (string)($page - 1) : null,
+        ]);
+    } catch (\Throwable $e) {
+        log_message('error', 'pedidosFiltradosDb ERROR: ' . $e->getMessage());
+        return $this->response->setJSON([
+            'success' => false,
+            'message' => 'Error interno filtrando pedidos',
+            'orders'  => [],
+            'count'   => 0,
+        ])->setStatusCode(200);
+    }
+}
+
+private function applyDbFilters($builder, string $q, string $estado, string $envio, string $forma, string $desde, string $hasta, ?float $totalMin, ?float $totalMax, ?int $artMin, ?int $artMax): void
+{
+    if ($q !== '') {
+        $builder->groupStart()
+            ->like('p.numero', $q)
+            ->orLike('p.cliente', $q)
+        ->groupEnd();
+    }
+
+    if ($estado !== '') {
+        $builder->where('pe.estado', $estado);
+    }
+
+    if ($envio !== '') {
+        if ($envio === '__none__') {
+            // null o vacío
+            $builder->groupStart()
+                ->where('p.estado_envio IS NULL', null, false)
+                ->orWhere('p.estado_envio', '')
+                ->orWhere('p.estado_envio', '-')
+            ->groupEnd();
+        } else {
+            $builder->where('p.estado_envio', $envio);
+        }
+    }
+
+    if ($forma !== '') {
+        $builder->like('p.forma_envio', $forma);
+    }
+
+    if ($desde !== '') {
+        $builder->where('p.created_at >=', $desde . ' 00:00:00');
+    }
+    if ($hasta !== '') {
+        $builder->where('p.created_at <=', $hasta . ' 23:59:59');
+    }
+
+    if ($totalMin !== null) $builder->where('p.total >=', $totalMin);
+    if ($totalMax !== null) $builder->where('p.total <=', $totalMax);
+
+    if ($artMin !== null) $builder->where('p.articulos >=', $artMin);
+    if ($artMax !== null) $builder->where('p.articulos <=', $artMax);
+}
 
     // ============================================================
     // ✅ NORMALIZAR ESTADOS (viejos -> nuevos)
@@ -347,12 +520,6 @@ class DashboardController extends Controller
     {
         return $this->pedidosPaginados();
     }
-
-    public function filter()
-    {
-        return $this->pedidosPaginados();
-    }
-
     private function pedidosPaginados(): ResponseInterface
     {
         if (!session()->get('logged_in')) {

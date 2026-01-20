@@ -79,6 +79,74 @@ function hideLoader() {
   if (el) el.classList.add("hidden");
 }
 
+let filterMode = false;
+
+const FILTERS = {
+  q: "",
+  estado: "",
+  envio: "",
+  forma: "",
+  desde: "",
+  hasta: "",
+  total_min: "",
+  total_max: "",
+  art_min: "",
+  art_max: "",
+};
+
+function readFiltersFromUI() {
+  const v = (id) => (document.getElementById(id)?.value ?? "").toString().trim();
+
+  FILTERS.q = v("f_q");
+  FILTERS.estado = v("f_estado");
+  FILTERS.envio = v("f_envio");
+  FILTERS.forma = v("f_forma");
+  FILTERS.desde = v("f_desde");
+  FILTERS.hasta = v("f_hasta");
+  FILTERS.total_min = v("f_total_min");
+  FILTERS.total_max = v("f_total_max");
+  FILTERS.art_min = v("f_art_min");
+  FILTERS.art_max = v("f_art_max");
+
+  filterMode = hasActiveFilters();
+}
+
+function hasActiveFilters() {
+  return Object.entries(FILTERS).some(([k, val]) => String(val ?? "").trim() !== "");
+}
+
+function applyFiltersToUrl(u) {
+  // manda solo los que tengan valor
+  for (const [k, val] of Object.entries(FILTERS)) {
+    const s = String(val ?? "").trim();
+    if (s !== "") u.searchParams.set(k, s);
+    else u.searchParams.delete(k);
+  }
+}
+
+function fillFormaEntregaOptionsFromOrders(orders) {
+  const sel = document.getElementById("f_forma");
+  if (!sel) return;
+
+  const current = String(sel.value ?? "");
+  const set = new Set();
+
+  (orders || []).forEach((o) => {
+    const s = String(o.forma_envio ?? "").trim();
+    if (s && s !== "-") set.add(s);
+  });
+
+  const opts = Array.from(set).sort((a, b) => a.localeCompare(b));
+
+  sel.innerHTML = `<option value="">Cualquiera</option>` + opts.map((x) =>
+    `<option value="${escapeAttr(x)}">${escapeHtml(x)}</option>`
+  ).join("");
+
+  // intenta mantener selección
+  if (current) sel.value = current;
+}
+
+
 /* =====================================================
   INIT
 ===================================================== */
@@ -115,6 +183,43 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
   window.addEventListener("resize", () => {
+
+      // ===== FILTROS UI =====
+      const box = document.getElementById("boxFiltros");
+      const toggle = document.getElementById("btnToggleFiltros");
+      if (toggle && box) {
+        toggle.addEventListener("click", () => box.classList.toggle("hidden"));
+      }
+
+      const btnApply = document.getElementById("btnAplicarFiltros");
+      const btnClear = document.getElementById("btnLimpiarFiltros");
+
+      const runApply = () => {
+        readFiltersFromUI();
+        pauseLive();                 // ✅ cuando filtras, no quieres que LIVE te cambie la lista
+        resetToFirstPage({ withFetch: true });
+      };
+
+      const runClear = () => {
+        // reset UI
+        ["f_q","f_estado","f_envio","f_forma","f_desde","f_hasta","f_total_min","f_total_max","f_art_min","f_art_max"]
+          .forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
+
+        readFiltersFromUI();
+        filterMode = false;
+        resetToFirstPage({ withFetch: true });
+        resumeLiveIfOnFirstPage();
+      };
+
+      if (btnApply) btnApply.addEventListener("click", runApply);
+      if (btnClear) btnClear.addEventListener("click", runClear);
+
+      // aplicar con ENTER en el buscador
+      const q = document.getElementById("f_q");
+      if (q) q.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") runApply();
+      });
+
     const cont = document.getElementById("tablaPedidos");
     if (cont && cont.dataset.lastOrders) {
       try {
@@ -132,12 +237,14 @@ function startLive(ms = 20000) {
   if (liveInterval) clearInterval(liveInterval);
 
   liveInterval = setInterval(() => {
+    if (filterMode) return; // ✅ si hay filtros activos, NO live
     if (liveMode && currentPage === 1 && !isLoading) {
       silentFetch = true;
       cargarPedidos({ reset: false, page_info: "" });
     }
   }, ms);
 }
+
 
 function pauseLive() {
   liveMode = false;
@@ -378,8 +485,14 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
   const fetchToken = ++lastFetchToken;
 
-  const base = apiUrl("/dashboard/pedidos");
-  const fallback = apiUrl("/dashboard/filter");
+  readFiltersFromUI();
+
+  const base = filterMode
+    ? (window.API?.filter || apiUrl("/dashboard/filter"))
+    : (window.API?.pedidos || apiUrl("/dashboard/pedidos"));
+
+  const fallback = window.API?.filter || apiUrl("/dashboard/filter");
+
 
   if (reset) {
     currentPage = 1;
@@ -389,12 +502,19 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     liveMode = true;
   }
 
-  const buildUrl = (endpoint) => {
+    const buildUrl = (endpoint) => {
     const u = new URL(endpoint, window.location.origin);
     u.searchParams.set("page", String(currentPage));
-    if (page_info) u.searchParams.set("page_info", page_info);
+
+    // ✅ Shopify cursor solo si NO estamos filtrando
+    if (!filterMode && page_info) u.searchParams.set("page_info", page_info);
+
+    // ✅ filtros (modo DB)
+    if (filterMode) applyFiltersToUrl(u);
+
     return u.toString();
   };
+
 
   fetch(buildUrl(base), { headers: { Accept: "application/json" } })
     .then(async (res) => {
@@ -422,6 +542,18 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       prevPageInfo = data.prev_page_info ?? null;
 
       let incoming = Array.isArray(data.orders) ? data.orders : [];
+            // ✅ llena métodos de envío dinámicos
+      fillFormaEntregaOptionsFromOrders(incoming);
+
+      // ✅ info filtros
+      const info = document.getElementById("filtersInfo");
+      if (info) {
+        const total = data.total_orders ?? data.count ?? incoming.length;
+        info.textContent = filterMode
+          ? `Filtrado: ${incoming.length} / ${total}`
+          : "";
+      }
+
 
       // ✅ 0) aplica estados persistidos (al recargar)
       incoming = applyEstadosLSToIncoming(incoming);
