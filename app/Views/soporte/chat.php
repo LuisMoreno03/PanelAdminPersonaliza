@@ -8,11 +8,13 @@
   <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Alpine.js (CDN) -->
-  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <!-- ❌ IMPORTANTE: NO cargues Alpine aquí si tu panel ya lo carga -->
+  <!-- <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script> -->
 
-  <!-- (Opcional) Mejor render -->
   <meta name="color-scheme" content="light" />
+
+  <!-- Evita parpadeo de Alpine -->
+  <style>[x-cloak]{display:none!important}</style>
 </head>
 
 <body class="min-h-screen bg-slate-100">
@@ -47,6 +49,7 @@
           class="grid lg:grid-cols-[380px_1fr] gap-4"
           x-data="supportChat"
           x-init="init()"
+          x-cloak
         >
 
           <!-- =========================
@@ -136,10 +139,7 @@
                   class="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition flex items-start gap-3"
                   :class="selectedTicketId===t.id ? 'bg-slate-50' : ''"
                 >
-                  <!-- avatar -->
-                  <div class="h-11 w-11 rounded-full bg-slate-200 grid place-items-center font-extrabold text-slate-700 shrink-0">
-                    #
-                  </div>
+                  <div class="h-11 w-11 rounded-full bg-slate-200 grid place-items-center font-extrabold text-slate-700 shrink-0">#</div>
 
                   <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-2">
@@ -163,9 +163,7 @@
 
                     <div class="text-xs text-slate-500 mt-1" x-show="isAdmin">
                       <template x-if="t.assigned_to">
-                        <span>
-                          Aceptado por <span class="font-semibold" x-text="t.assigned_name || ('#'+t.assigned_to)"></span>
-                        </span>
+                        <span>Aceptado por <span class="font-semibold" x-text="t.assigned_name || ('#'+t.assigned_to)"></span></span>
                       </template>
                       <template x-if="!t.assigned_to">
                         <span class="text-amber-700 font-semibold">Sin asignar</span>
@@ -180,25 +178,20 @@
               </div>
             </div>
 
-            <!-- footer lista -->
             <div class="p-3 border-t border-slate-200 text-xs text-slate-500 flex items-center justify-between">
               <span x-text="`Total: ${tickets.length}`"></span>
               <span class="font-semibold text-slate-700">Soporte Interno</span>
             </div>
-
           </section>
 
           <!-- =========================
-               CHAT (WhatsApp-like)
+               CHAT
                ========================= -->
           <section class="rounded-2xl border border-slate-200 overflow-hidden flex flex-col bg-white min-h-[78vh]">
 
-            <!-- header chat -->
             <div class="px-4 py-3 border-b border-slate-200 bg-[#f0f2f5] flex items-center justify-between gap-3">
               <div class="flex items-center gap-3 min-w-0">
-                <div class="h-10 w-10 rounded-full bg-emerald-600 text-white grid place-items-center font-extrabold shrink-0">
-                  W
-                </div>
+                <div class="h-10 w-10 rounded-full bg-emerald-600 text-white grid place-items-center font-extrabold shrink-0">W</div>
 
                 <div class="min-w-0">
                   <div class="font-extrabold text-slate-900 truncate">
@@ -223,7 +216,6 @@
                 </div>
               </div>
 
-              <!-- acciones admin -->
               <div class="flex items-center gap-2" x-show="ticket && isAdmin">
                 <button
                   type="button"
@@ -234,10 +226,7 @@
                   Aceptar caso
                 </button>
 
-                <select
-                  x-model="adminStatus"
-                  class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                >
+                <select x-model="adminStatus" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
                   <option value="open">Abierto</option>
                   <option value="in_progress">En proceso</option>
                   <option value="waiting_customer">Esperando info</option>
@@ -245,20 +234,15 @@
                   <option value="closed">Cerrado</option>
                 </select>
 
-                <button
-                  type="button"
-                  @click="updateStatus()"
-                  class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold hover:bg-slate-50"
-                >
+                <button type="button" @click="updateStatus()"
+                        class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold hover:bg-slate-50">
                   Guardar
                 </button>
               </div>
             </div>
 
-            <!-- thread -->
             <div class="flex-1 overflow-auto px-4 py-4 bg-[#efeae2]" x-ref="thread">
 
-              <!-- estado vacío -->
               <div class="h-full grid place-items-center text-center px-6" x-show="!ticket && !isCreating">
                 <div class="max-w-sm">
                   <div class="mx-auto h-14 w-14 rounded-full bg-white border border-slate-200 grid place-items-center">
@@ -268,34 +252,26 @@
                     </svg>
                   </div>
                   <div class="mt-3 font-extrabold text-slate-900">Soporte interno</div>
-                  <div class="mt-1 text-sm text-slate-600">Selecciona un ticket de la izquierda para ver la conversación.</div>
+                  <div class="mt-1 text-sm text-slate-600">Selecciona un ticket para ver la conversación.</div>
                 </div>
               </div>
 
-              <!-- mensajes -->
               <div class="space-y-2" x-show="ticket || isCreating">
                 <template x-for="m in messages" :key="m.id">
                   <div class="flex" :class="m.sender==='user' ? 'justify-end' : 'justify-start'">
-                    <div
-                      class="max-w-[82%] shadow-sm px-3 py-2"
-                      :class="m.sender==='user'
-                        ? 'bg-emerald-200 text-slate-900 rounded-2xl rounded-tr-md'
-                        : 'bg-white text-slate-900 rounded-2xl rounded-tl-md'"
-                    >
+                    <div class="max-w-[82%] shadow-sm px-3 py-2"
+                         :class="m.sender==='user'
+                           ? 'bg-emerald-200 text-slate-900 rounded-2xl rounded-tr-md'
+                           : 'bg-white text-slate-900 rounded-2xl rounded-tl-md'">
                       <div class="text-sm whitespace-pre-wrap break-words" x-show="m.message" x-text="m.message"></div>
 
                       <div class="mt-2 grid grid-cols-2 gap-2" x-show="attachments[m.id]">
                         <template x-for="a in (attachments[m.id] || [])" :key="a.id">
-                          <a
-                            class="block overflow-hidden rounded-xl border border-black/10 bg-white"
-                            :href="`${SUPPORT.endpoints.attachment}/${a.id}`"
-                            target="_blank"
-                          >
-                            <img
-                              class="w-full h-28 object-cover"
-                              :src="`${SUPPORT.endpoints.attachment}/${a.id}`"
-                              alt=""
-                            >
+                          <a class="block overflow-hidden rounded-xl border border-black/10 bg-white"
+                             :href="`${SUPPORT.endpoints.attachment}/${a.id}`"
+                             target="_blank">
+                            <img class="w-full h-28 object-cover"
+                                 :src="`${SUPPORT.endpoints.attachment}/${a.id}`" alt="">
                           </a>
                         </template>
                       </div>
@@ -307,16 +283,10 @@
               </div>
             </div>
 
-            <!-- composer -->
             <form class="px-4 py-3 border-t border-slate-200 bg-[#f0f2f5]" @submit.prevent="send()">
-
               <div class="grid md:grid-cols-[240px_1fr] gap-3 mb-3" x-show="isCreating">
-                <input
-                  type="text"
-                  x-model="orderId"
-                  placeholder="Número de pedido (opcional)"
-                  class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
-                >
+                <input type="text" x-model="orderId" placeholder="Número de pedido (opcional)"
+                       class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200">
                 <div class="text-xs text-slate-500 flex items-center">Asócialo a un pedido si aplica.</div>
               </div>
 
@@ -329,20 +299,13 @@
                   </svg>
                 </label>
 
-                <textarea
-                  x-model="draft"
-                  rows="1"
-                  placeholder="Escribe un mensaje…"
-                  class="flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm
-                         focus:outline-none focus:ring-2 focus:ring-slate-200 max-h-32"
-                ></textarea>
+                <textarea x-model="draft" rows="1" placeholder="Escribe un mensaje…"
+                          class="flex-1 resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm
+                                 focus:outline-none focus:ring-2 focus:ring-slate-200 max-h-32"></textarea>
 
-                <button
-                  type="submit"
-                  class="h-11 w-11 rounded-full bg-emerald-600 text-white grid place-items-center hover:opacity-90 disabled:opacity-50"
-                  :disabled="sending"
-                  title="Enviar"
-                >
+                <button type="submit"
+                        class="h-11 w-11 rounded-full bg-emerald-600 text-white grid place-items-center hover:opacity-90 disabled:opacity-50"
+                        :disabled="sending" title="Enviar">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M5 12h14M12 5l7 7-7 7"/>
@@ -359,7 +322,6 @@
                 </template>
               </div>
             </form>
-
           </section>
 
         </div>
