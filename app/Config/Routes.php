@@ -211,18 +211,18 @@ $routes->group('repetir', [
 | USUARIOS (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollection $routes) {
-    $routes->get('/', 'Usuarios::index');
-    $routes->post('crear', 'Usuarios::crear');
+$routes->group('usuario', ['filter' => 'auth'], static function (RouteCollection $routes) {
+    $routes->get('/', 'Usuario::index');
+    $routes->post('crear', 'Usuario::crear');
 
-    $routes->get('usuarios', 'Usuario::index');        // vista HTML
-    $routes->get('api/usuarios', 'Usuario::apiIndex'); // JSON
+    $routes->get('usuario', 'Usuario::index');        // vista HTML
+    $routes->get('api/usuario', 'Usuario::apiIndex'); // JSON
     // Vistas
-    $routes->get('usuarios', 'Usuario::index');
+    $routes->get('usuario', 'Usuario::index');
     $routes->get('mi-cuenta', 'MiCuenta::index');
 
     // APIs
-    $routes->get('api/usuarios', 'Usuario::apiIndex');
+    $routes->get('api/usuario', 'Usuario::apiIndex');
     $routes->post('api/mi-cuenta/cambiar-password', 'MiCuenta::cambiarPassword');
 
 
