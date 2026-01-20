@@ -6,15 +6,14 @@ use App\Controllers\BaseController;
 use App\Models\UsuariosModel;
 
 class Usuarios extends BaseController
-{
-public function index()
+
 {
     public function index()
 {
-    return view('usuarios_index');
+    return view('<h1>Usuarios OK (vista cargada)</h1>
+');
 
 }
 
 }
 
-}
