@@ -120,15 +120,12 @@
             <!-- GRID 2XL -->
             <div class="hidden 2xl:block w-full overflow-x-auto soft-scroll">
               <div class="bg-slate-50 border-b border-slate-200 min-w-[1500px]">
-                <div class="
-                  grid items-center gap-3 px-4 py-3
-                  text-[11px] uppercase tracking-wider text-slate-600 font-extrabold
-                  [grid-template-columns:130px_135px_minmax(150px,1fr)_95px_185px_145px_150px_80px_150px_150px_130px]
-                ">
+                <div class="grid prod-grid-cols items-center gap-3 px-4 py-3
+                            text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
                   <div>Pedido</div>
                   <div>Fecha</div>
                   <div>Cliente</div>
-                  <div>Total</div>
+                  <div class="text-right">Total</div>
                   <div>Estado</div>
                   <div>Último cambio</div>
                   <div>Etiquetas</div>
@@ -138,7 +135,6 @@
                   <div class="text-right">Detalles</div>
                 </div>
               </div>
-
               <div id="tablaPedidos" class="min-w-[1500px]"></div>
             </div>
 
