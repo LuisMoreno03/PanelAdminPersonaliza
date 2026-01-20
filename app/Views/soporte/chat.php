@@ -9,7 +9,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- ❌ IMPORTANTE: NO cargues Alpine aquí si tu panel ya lo carga -->
-  <!-- <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script> -->
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script> 
 
   <meta name="color-scheme" content="light" />
 
