@@ -106,13 +106,20 @@ $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection
 
 /*
 |--------------------------------------------------------------------------
-| CONFIRMADOS (VISTA)
+| CONFIRMACIÓN (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->group('confirmados', ['filter' => 'auth'], static function (RouteCollection $routes) {
-    $routes->get('/', 'Confirmados::index');
-    $routes->get('filter', 'Confirmados::filter');
-});
+$routes->get('confirmacion', 'ConfirmacionController::index');
+$routes->get('confirmacion/my-queue', 'ConfirmacionController::myQueue');
+$routes->post('confirmacion/pull', 'ConfirmacionController::pull');
+$routes->post('confirmacion/return-all', 'ConfirmacionController::returnAll');
+
+// subir imágenes (cuadros/llaveros) y auto-cambiar estado a Confirmado si corresponde
+$routes->post('confirmacion/upload', 'ConfirmacionController::uploadConfirmacion');
+$routes->get('confirmacion/list', 'ConfirmacionController::listFiles');
+$routes->get('confirmacion/detalles/(:any)', 'ConfirmacionController::detalles/$1');
+$routes->post('confirmacion/guardar-estado', 'ConfirmacionController::guardarEstado');
+
 
 /*
 |--------------------------------------------------------------------------
@@ -134,8 +141,10 @@ $routes->get('produccion', 'ProduccionController::index');
 $routes->get('produccion/my-queue', 'ProduccionController::myQueue');
 $routes->post('produccion/pull', 'ProduccionController::pull');
 $routes->post('produccion/return-all', 'ProduccionController::returnAll');
-$routes->post('produccion/upload-general', 'Produccion::uploadGeneral');
-$routes->get('produccion/list-general', 'Produccion::listGeneral');
+
+// ✅ FIX: Controller correcto
+$routes->post('produccion/upload-general', 'ProduccionController::uploadGeneral');
+$routes->get('produccion/list-general', 'ProduccionController::listGeneral');
 
 
 

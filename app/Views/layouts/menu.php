@@ -258,10 +258,10 @@
             <span class="text-sm font-semibold text-white/90">Diseño</span>
           </a>
 
-          <a href="<?= base_url('confirmados') ?>"
+          <a href="<?= base_url('confirmacion') ?>"
              @click="close()"
              class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
-                    <?= $isActive('confirmados') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
+                    <?= $isActive('confirmacion') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
             <span class="text-white/85 shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

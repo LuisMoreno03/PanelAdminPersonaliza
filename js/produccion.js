@@ -1,22 +1,28 @@
 /**
- * produccion.js (CI4) — FULL
+ * produccion.js (CI4) — FULL (SIN Illustrator)
  * - Responsive real: GRID (>=2xl) + TABLE (xl..2xl-) + CARDS (<xl)
  * - Detalles FULL en #modalDetallesFull
  * - FIX: ver detalles usa shopify_order_id cuando existe
  * - Fallback endpoints: con/sin index.php
- * - Upload Illustrator: permite cargar 1 o varios archivos (.ai/.eps/.pdf/.svg) en el modal
+ * - Upload GENERAL: (formGeneralUpload) es el único upload
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
 const ENDPOINT_QUEUE = `${API_BASE}/produccion/my-queue`;
 const ENDPOINT_PULL = `${API_BASE}/produccion/pull`;
 const ENDPOINT_RETURN_ALL = `${API_BASE}/produccion/return-all`;
+const ENDPOINT_UPLOAD_GENERAL = `${API_BASE}/produccion/upload-general`;
+const ENDPOINT_LIST_GENERAL = `${API_BASE}/produccion/list-general`;
 
 let pedidosCache = [];
 let pedidosFiltrados = [];
 let isLoading = false;
 let liveInterval = null;
 let silentFetch = false;
+
+let currentDetallesPedidoId = null;  // p.id (interno)
+let currentDetallesShopifyId = null; // shopify_order_id
+let currentDetallesOrderId = null;   // el que llegó al abrir (puede ser shopify o interno)
 
 // =========================
 // Helpers DOM/UI
@@ -79,7 +85,6 @@ function parseDateSafe(dtStr) {
   let s = String(dtStr).trim();
   if (!s) return null;
 
-  // epoch
   if (/^\d+$/.test(s)) {
     const n = Number(s);
     const ms = s.length <= 10 ? n * 1000 : n;
@@ -87,7 +92,6 @@ function parseDateSafe(dtStr) {
     return isNaN(d) ? null : d;
   }
 
-  // "YYYY-MM-DD HH:mm:ss" -> ISO-ish
   if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(s)) s = s.replace(" ", "T");
 
   const d = new Date(s);
@@ -200,7 +204,7 @@ function renderLastChangeCompact(p) {
 }
 
 // =========================
-// Etiquetas mini (usa CSS del view)
+// Etiquetas mini
 // =========================
 function renderEtiquetasMini(etiquetasRaw) {
   const raw = String(etiquetasRaw || "").trim();
@@ -294,15 +298,14 @@ function extractOrdersPayload(payload) {
 // =========================
 function getMode() {
   const w = window.innerWidth || 0;
-  if (w >= 1536) return "grid";     // 2xl
-  if (w >= 1280) return "table";    // xl
+  if (w >= 1536) return "grid";
+  if (w >= 1280) return "table";
   return "cards";
 }
 
 function actualizarListado(pedidos) {
   const mode = getMode();
 
-  // caches globales
   window.ordersCache = pedidos || [];
   window.ordersById = new Map((pedidos || []).map(o => [String(o.id), o]));
   window.ordersByShopify = new Map((pedidos || []).map(o => [String(o.shopify_order_id || ""), o]).filter(([k]) => k && k !== "0"));
@@ -315,7 +318,7 @@ function actualizarListado(pedidos) {
   if (contTable) contTable.innerHTML = "";
   if (contCards) contCards.innerHTML = "";
 
-  // GRID (>=2xl)
+  // GRID
   if (mode === "grid") {
     if (contGrid) contGrid.classList.remove("hidden");
     if (contCards) contCards.classList.add("hidden");
@@ -379,7 +382,7 @@ function actualizarListado(pedidos) {
     return;
   }
 
-  // TABLE (xl..2xl-)
+  // TABLE
   if (mode === "table") {
     if (contCards) contCards.classList.add("hidden");
     if (!contTable) return;
@@ -439,7 +442,7 @@ function actualizarListado(pedidos) {
     return;
   }
 
-  // CARDS (<xl)
+  // CARDS
   if (contCards) contCards.classList.remove("hidden");
   if (!contCards) return;
 
@@ -572,7 +575,6 @@ async function cargarMiCola() {
       return;
     }
 
-    // normaliza shape
     const incoming = extracted.orders.map((r) => ({
       id: r.id ?? r.pedido_id ?? "",
       shopify_order_id: r.shopify_order_id ?? r.order_id ?? r.shopifyId ?? "",
@@ -692,7 +694,6 @@ function cerrarDetallesFull() {
 
 window.cerrarDetallesFull = cerrarDetallesFull;
 
-// JSON panel
 window.toggleJsonDetalles = function () {
   const pre = $("detJson");
   if (!pre) return;
@@ -714,10 +715,9 @@ window.copiarDetallesJson = async function () {
   }
 };
 
-// ---- endpoints fallback para detalles
+// endpoints fallback detalles (usa tu dashboard/detalles existente)
 function buildDetallesEndpoints(orderId) {
   const id = encodeURIComponent(String(orderId || ""));
-  // Probables rutas CI4:
   return [
     `${API_BASE}/dashboard/detalles/${id}`,
     `/dashboard/detalles/${id}`,
@@ -738,152 +738,12 @@ function fmtMoney(v) {
   return n.toFixed(2);
 }
 
-// ---- UI upload illustrator (inyectada en modal)
-function renderUploadBox(orderId) {
-  const oid = escapeHtml(String(orderId || ""));
-  return `
-    <div id="detUploadBox" class="mt-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
-          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Archivos Illustrator</div>
-          <div class="text-sm font-semibold text-slate-900 mt-1">Sube 1 o varios archivos para este pedido</div>
-          <div class="text-xs text-slate-500 mt-1">Acepta: .ai, .eps, .pdf, .svg</div>
-        </div>
-      </div>
-
-      <div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-3">
-        <input
-          id="detIllustratorFiles"
-          type="file"
-          multiple
-          accept=".ai,.eps,.pdf,.svg"
-          class="block w-full text-sm text-slate-700
-                 file:mr-4 file:py-2 file:px-4
-                 file:rounded-2xl file:border-0
-                 file:text-sm file:font-extrabold
-                 file:bg-slate-200 file:text-slate-900
-                 hover:file:bg-slate-300"
-        />
-
-        <button
-          id="btnUploadIllustrator"
-          type="button"
-          class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition whitespace-nowrap"
-        >
-          Subir archivos
-        </button>
-      </div>
-
-      <div id="detUploadMsg" class="mt-3 text-sm text-slate-600"></div>
-      <div id="detUploadList" class="mt-3 space-y-2"></div>
-
-      <div class="mt-2 text-xs text-slate-500">
-        Pedido: <span class="font-bold text-slate-700">${oid}</span>
-      </div>
-    </div>
-  `;
-}
-
-// ---- subida (requiere endpoint backend; si no existe, mostrará error claro)
-function buildUploadEndpoints(orderId) {
-  const id = encodeURIComponent(String(orderId || ""));
-  return [
-    `${API_BASE}/produccion/upload-illustrator/${id}`,
-    `${API_BASE}/produccion/upload-illustrator`,
-    `/produccion/upload-illustrator/${id}`,
-    `/produccion/upload-illustrator`,
-    `/index.php/produccion/upload-illustrator/${id}`,
-    `/index.php/produccion/upload-illustrator`,
-  ];
-}
-
-async function uploadIllustratorFiles(orderId) {
-  const input = $("detIllustratorFiles");
-  const msg = $("detUploadMsg");
-  const list = $("detUploadList");
-  if (!input || !msg || !list) return;
-
-  const files = Array.from(input.files || []);
-  if (!files.length) {
-    msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona al menos 1 archivo.</span>`;
-    return;
-  }
-
-  msg.innerHTML = `Subiendo ${files.length} archivo(s)…`;
-  list.innerHTML = "";
-
-  const fd = new FormData();
-  fd.append("order_id", String(orderId || ""));
-  files.forEach((f) => fd.append("files[]", f, f.name));
-
-  // CSRF header (CI4)
-  const csrf = getCsrfHeaders();
-
-  let ok = false;
-  let lastError = null;
-  let responseData = null;
-
-  for (const url of buildUploadEndpoints(orderId)) {
-    try {
-      const r = await fetch(url, {
-        method: "POST",
-        headers: { ...csrf }, // NO pongas Content-Type, FormData lo pone solo
-        body: fd,
-        credentials: "same-origin",
-      });
-
-      const text = await r.text();
-      let d = null;
-      try { d = JSON.parse(text); } catch { d = null; }
-
-      if (!r.ok) throw new Error(d?.error || d?.message || `HTTP ${r.status}`);
-
-      // esperamos algo como {ok:true, files:[{name,url}...]}
-      if (d && (d.ok === true || d.success === true)) {
-        ok = true;
-        responseData = d;
-        break;
-      }
-
-      throw new Error(d?.error || d?.message || "Respuesta inválida (ok!=true)");
-    } catch (e) {
-      lastError = e;
-    }
-  }
-
-  if (!ok) {
-    msg.innerHTML = `<span class="text-rose-600 font-extrabold">No se pudo subir.</span> <span class="text-slate-600">${escapeHtml(lastError?.message || "")}</span>`;
-    return;
-  }
-
-  const uploaded = responseData?.files || responseData?.data || [];
-  msg.innerHTML = `<span class="text-emerald-700 font-extrabold">Subido ✅</span>`;
-
-  if (Array.isArray(uploaded) && uploaded.length) {
-    list.innerHTML = uploaded.map((f) => {
-      const name = escapeHtml(f.name || f.filename || "archivo");
-      const url = f.url ? String(f.url) : "";
-      return `
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-3">
-          <div class="min-w-0">
-            <div class="font-bold text-slate-900 truncate">${name}</div>
-            ${url ? `<a class="text-xs text-blue-700 underline break-all" href="${escapeHtml(url)}" target="_blank">${escapeHtml(url)}</a>` : `<div class="text-xs text-slate-500">Sin URL devuelta por el backend</div>`}
-          </div>
-        </div>
-      `;
-    }).join("");
-  } else {
-    list.innerHTML = `<div class="text-xs text-slate-500">El backend no devolvió listado de archivos, pero marcó ok=true.</div>`;
-  }
-
-  input.value = "";
-}
-
 async function abrirDetallesPedido(orderId) {
   const id = String(orderId || "");
   if (!id) return;
 
   abrirDetallesFull();
+  currentDetallesOrderId = id;
 
   // placeholders
   setText("detTitle", "Cargando...");
@@ -896,7 +756,7 @@ async function abrirDetallesPedido(orderId) {
   setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detJson", "");
 
-  // fetch robusto (prueba varias rutas)
+  // fetch detalle robusto
   let payload = null;
   let lastErr = null;
 
@@ -928,7 +788,28 @@ async function abrirDetallesPedido(orderId) {
   }
 
   const o = payload.order || {};
-  const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+  const lineItems = Array.isArray(o.line_items) ? o.line_items : (Array.isArray(o.lineItems) ? o.lineItems : []);
+
+  // ✅ guarda ids reales para upload/list
+  currentDetallesShopifyId = String(o.id || o.shopify_order_id || o.order_id || "").trim() || null;
+  // intento sacar p.id del payload si existe
+  currentDetallesPedidoId = String(payload.pedido_id || payload.id || o.pedido_id || "").trim() || null;
+
+  // ✅ el formulario general debe usar una key estable:
+  // prioridad: shopify_order_id; si no hay, usa pedido_id; si no hay, usa el que se abrió
+  const keyForFiles =
+    (currentDetallesShopifyId && currentDetallesShopifyId !== "0") ? currentDetallesShopifyId :
+    (currentDetallesPedidoId && currentDetallesPedidoId !== "0") ? currentDetallesPedidoId :
+    id;
+
+  const hiddenId = $("generalOrderId");
+  if (hiddenId) hiddenId.value = keyForFiles;
+
+  // ✅ cargar archivos generales con fallback (shopify -> interno)
+  await cargarArchivosGenerales(keyForFiles, {
+    fallbackKey: (keyForFiles === id ? null : id),
+    extraFallbackKey: currentDetallesPedidoId && currentDetallesPedidoId !== keyForFiles ? currentDetallesPedidoId : null,
+  });
 
   // header
   const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
@@ -991,7 +872,7 @@ async function abrirDetallesPedido(orderId) {
       <div><span class="text-slate-500 font-bold">Etiquetas:</span> ${tags ? escapeHtml(tags) : "—"}</div>
       <div><span class="text-slate-500 font-bold">Último cambio:</span> ${lastText}</div>
       <div><span class="text-slate-500 font-bold">Pago:</span> ${escapeHtml(o.financial_status || "—")}</div>
-      <div><span class="text-slate-500 font-bold">Entrega:</span> ${escapeHtml(o.fulfillment_status || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Entrega:</span> ${escapeHtml(o.fulfillment_status || o.estado_envio || "—")}</div>
       <div><span class="text-slate-500 font-bold">Total artículos:</span> ${escapeHtml(String(lineItems.length))}</div>
     </div>
   `);
@@ -1019,11 +900,7 @@ async function abrirDetallesPedido(orderId) {
   setText("detItemsCount", String(lineItems.length));
 
   if (!lineItems.length) {
-    setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>${renderUploadBox(id)}`);
-    // bind upload
-    setTimeout(() => {
-      $("btnUploadIllustrator")?.addEventListener("click", () => uploadIllustratorFiles(id));
-    }, 0);
+    setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
     return;
   }
 
@@ -1118,19 +995,102 @@ async function abrirDetallesPedido(orderId) {
     `;
   }).join("");
 
-  // ✅ al final metemos el upload box
-  setHtml("detItems", `${itemsHtml}${renderUploadBox(id)}`);
-
-  // bind upload
-  setTimeout(() => {
-    $("btnUploadIllustrator")?.addEventListener("click", () => uploadIllustratorFiles(id));
-  }, 0);
+  // ✅ ahora sí pintamos los items
+  setHtml("detItems", itemsHtml);
 }
 
 // Hook del botón
 window.verDetallesPedido = function (pedidoId) {
   abrirDetallesPedido(String(pedidoId));
 };
+
+// =========================
+// Archivos generales (list/upload)
+// =========================
+async function cargarArchivosGenerales(orderId, opts = {}) {
+  const list = $("generalFilesList");
+  if (!list) return;
+
+  const tryKey = async (key) => {
+    if (!key) return null;
+    const url = `${ENDPOINT_LIST_GENERAL}?order_id=${encodeURIComponent(key)}`;
+    const r = await fetch(url, { credentials: "same-origin" });
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || d.success !== true) return null;
+    return d;
+  };
+
+  list.innerHTML = `<div class="text-slate-500 text-sm">Cargando...</div>`;
+
+  // 1) key principal
+  let d = await tryKey(orderId);
+
+  // 2) fallback #1
+  if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.fallbackKey) {
+    d = await tryKey(opts.fallbackKey);
+  }
+
+  // 3) fallback #2
+  if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.extraFallbackKey) {
+    d = await tryKey(opts.extraFallbackKey);
+  }
+
+  if (!d) {
+    list.innerHTML = `<div class="text-rose-600 text-sm font-bold">No se pudo cargar archivos.</div>`;
+    return;
+  }
+
+  const files = Array.isArray(d.files) ? d.files : [];
+  if (!files.length) {
+    list.innerHTML = `<div class="text-slate-500 text-sm">—</div>`;
+    return;
+  }
+
+  list.innerHTML = files.map(f => `
+    <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <div class="min-w-0">
+        <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(f.original_name || f.filename || "Archivo")}</div>
+        <div class="text-xs text-slate-600">${escapeHtml(f.mime || "")} · ${escapeHtml(String(f.size || ""))}</div>
+      </div>
+      <a href="${escapeHtml(f.url || "#")}" target="_blank"
+         class="shrink-0 px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
+        Abrir
+      </a>
+    </div>
+  `).join("");
+}
+
+async function subirArchivosGenerales(orderId, fileList) {
+  const msg = $("generalUploadMsg");
+  if (msg) msg.innerHTML = `<span class="text-slate-600">Subiendo...</span>`;
+
+  const fd = new FormData();
+  fd.append("order_id", String(orderId));
+  for (const f of fileList) fd.append("files[]", f);
+
+  const res = await fetch(ENDPOINT_UPLOAD_GENERAL, {
+    method: "POST",
+    body: fd,
+    headers: { ...getCsrfHeaders() },
+    credentials: "same-origin",
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || !data || data.success !== true) {
+    const err = data?.message || "No se pudo subir.";
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(err)}</span>`;
+    return false;
+  }
+
+  if (msg) {
+    msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
+      Subido (${data.saved || 0}). Estado → Por producir. Pedido desasignado.
+    </span>`;
+  }
+
+  return true;
+}
 
 // =========================
 // Eventos
@@ -1147,16 +1107,46 @@ function bindEventos() {
     aplicarFiltroBusqueda();
   });
 
+  $("formGeneralUpload")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    // ✅ usa el hidden si existe, si no cae al último id abierto
+    const orderId = $("generalOrderId")?.value || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId;
+    const input = $("generalFiles");
+    const files = input?.files;
+
+    if (!orderId) return;
+    if (!files || !files.length) {
+      const msg = $("generalUploadMsg");
+      if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona uno o más archivos.</span>`;
+      return;
+    }
+
+    setLoader(true);
+    try {
+      const ok = await subirArchivosGenerales(orderId, files);
+      if (!ok) return;
+
+      await cargarArchivosGenerales(orderId, {
+        fallbackKey: currentDetallesPedidoId,
+        extraFallbackKey: currentDetallesShopifyId,
+      });
+
+      await cargarMiCola();
+    } finally {
+      if (input) input.value = "";
+      setLoader(false);
+    }
+  });
+
   window.addEventListener("resize", () => {
     actualizarListado(pedidosFiltrados.length ? pedidosFiltrados : pedidosCache);
   });
 
-  // cerrar modal click fuera
   $("modalDetallesFull")?.addEventListener("click", (e) => {
     if (e.target && e.target.id === "modalDetallesFull") cerrarDetallesFull();
   });
 
-  // ESC
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") cerrarDetallesFull();
   });

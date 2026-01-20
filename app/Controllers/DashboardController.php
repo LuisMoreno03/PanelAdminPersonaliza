@@ -539,6 +539,8 @@ class DashboardController extends Controller
                     'cliente'      => $cliente,
                     'total'        => $total,
                     'estado'       => 'Por preparar',
+                    'estado_bd'    => null,         // opcional
+                    'estado_html'  => null,       // opcional
                     'etiquetas'    => $o['tags'] ?? '',
                     'articulos'    => $articulos,
                     'estado_envio' => $estado_envio ?: '-',
@@ -567,6 +569,8 @@ class DashboardController extends Controller
 
                         if (!empty($rowEstado['estado'])) {
                             $ord2['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
+                            $ord2['estado'] = strip_tags($ord2['estado']);
+                            $ord2['estado_bd'] = $ord2['estado']; // opcional para debug
                         }
 
                         // ✅ FIX CLAVE: tu tabla guarda fecha en "actualizado"
@@ -648,7 +652,6 @@ class DashboardController extends Controller
             ''
         ));
 
-        // ✅ FIX: bloquear vacío y 0
         if ($orderId === '' || $orderId === '0') {
             return $this->response->setJSON([
                 'success' => false,
@@ -681,6 +684,21 @@ class DashboardController extends Controller
                 (string)$userName
             );
 
+            // ✅ AQUI MISMO: guardar también en historial (solo si OK)
+            if ($ok) {
+                $db  = \Config\Database::connect();
+                $now = date('Y-m-d H:i:s');
+
+                $db->table('pedidos_estado_historial')->insert([
+                    'order_id'    => (string)$orderId, // ideal si ya lo cambiaste a VARCHAR(64)
+                    'estado'      => $estado,
+                    'user_id'     => $userId ? (int)$userId : null,
+                    'user_name'   => (string)$userName,
+                    'created_at'  => $now,
+                    'pedido_json' => null,
+                ]);
+            }
+
             return $this->response->setJSON([
                 'success'  => (bool)$ok,
                 'message'  => $ok ? 'Estado guardado' : 'No se pudo guardar',
@@ -697,6 +715,7 @@ class DashboardController extends Controller
         }
     }
 
+
     // ============================================================
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
     // ============================================================
@@ -710,12 +729,12 @@ class DashboardController extends Controller
             ]);
         }
 
-        $orderId = (string)$orderId;
-        if ($orderId === '') {
-            return $this->response->setJSON([
+        $orderId = trim((string)$orderId);
+        if ($orderId === '' || $orderId === '0') {
+            return $this->response->setStatusCode(422)->setJSON([
                 'success' => false,
                 'message' => 'ID inválido',
-            ])->setStatusCode(422);
+            ]);
         }
 
         try {
@@ -726,11 +745,12 @@ class DashboardController extends Controller
                 ])->setStatusCode(200);
             }
 
+            // 1) Traer pedido desde Shopify
             $urlOrder = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/" . urlencode($orderId) . ".json";
             $resp = $this->curlShopify($urlOrder, 'GET');
 
             if ($resp['status'] >= 400 || $resp['status'] === 0) {
-                log_message('error', 'DETALLES ORDER HTTP '.$resp['status'].': '.$resp['body']);
+                log_message('error', 'DETALLES ORDER HTTP ' . $resp['status'] . ': ' . ($resp['body'] ?? ''));
                 return $this->response->setJSON([
                     'success' => false,
                     'message' => 'Error consultando pedido en Shopify',
@@ -738,7 +758,7 @@ class DashboardController extends Controller
                 ])->setStatusCode(200);
             }
 
-            $json = json_decode($resp['body'], true) ?: [];
+            $json  = json_decode($resp['body'], true) ?: [];
             $order = $json['order'] ?? null;
 
             if (!$order) {
@@ -748,7 +768,31 @@ class DashboardController extends Controller
                 ])->setStatusCode(200);
             }
 
-            $lineItems = $order['line_items'] ?? [];
+            // ✅ 2) OVERRIDE ESTADO desde BD (pedidos_estado)
+            // Shopify no tiene tu "Por producir", esto es interno.
+            try {
+                $estadoModel = new \App\Models\PedidosEstadoModel();
+                $rowEstado   = $estadoModel->getEstadoPedido((string)$orderId);
+
+                if (!empty($rowEstado) && !empty($rowEstado['estado'])) {
+                    $order['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
+
+                    $changedAt = $rowEstado['estado_updated_at'] ?? null;
+                    if (!$changedAt && !empty($rowEstado['actualizado'])) {
+                        $changedAt = $rowEstado['actualizado'];
+                    }
+
+                    $order['last_status_change'] = [
+                        'user_name'  => $rowEstado['estado_updated_by_name'] ?? 'Sistema',
+                        'changed_at' => $changedAt,
+                    ];
+                }
+            } catch (\Throwable $e) {
+                log_message('error', 'DETALLES override estado ERROR: ' . $e->getMessage());
+            }
+
+            // 3) Product images
+            $lineItems  = $order['line_items'] ?? [];
             $productIds = [];
 
             foreach ($lineItems as $li) {
@@ -759,7 +803,6 @@ class DashboardController extends Controller
             $productIds = array_keys($productIds);
 
             $productImages = [];
-
             foreach ($productIds as $pid) {
                 $urlProd = "https://{$this->shop}/admin/api/{$this->apiVersion}/products/{$pid}.json?fields=id,image,images";
                 $rP = $this->curlShopify($urlProd, 'GET');
@@ -776,8 +819,8 @@ class DashboardController extends Controller
                 if ($img) $productImages[(string)$pid] = $img;
             }
 
+            // 4) Imágenes locales
             $imagenesLocales = [];
-
             try {
                 $db = \Config\Database::connect();
 
@@ -795,18 +838,18 @@ class DashboardController extends Controller
                     }
                 }
             } catch (\Throwable $e) {
-                log_message('error', 'DETALLES imagenesLocales ERROR: '.$e->getMessage());
+                log_message('error', 'DETALLES imagenesLocales ERROR: ' . $e->getMessage());
             }
 
             return $this->response->setJSON([
                 'success'          => true,
-                'order'            => $order,
+                'order'            => $order, // ✅ ahora viene con estado override si existe
                 'product_images'   => $productImages,
                 'imagenes_locales' => $imagenesLocales,
             ]);
 
         } catch (\Throwable $e) {
-            log_message('error', 'DETALLES ERROR: '.$e->getMessage().' :: '.$e->getFile().':'.$e->getLine());
+            log_message('error', 'DETALLES ERROR: ' . $e->getMessage() . ' :: ' . $e->getFile() . ':' . $e->getLine());
 
             return $this->response->setJSON([
                 'success' => false,
@@ -814,6 +857,7 @@ class DashboardController extends Controller
             ])->setStatusCode(200);
         }
     }
+
 
     // ============================================================
     // ENDPOINTS

@@ -4,13 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <!-- (Opcional) CSRF -->
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
   <meta name="csrf-header" content="<?= csrf_header() ?>">
 
   <title>Producción - Panel</title>
 
-  <!-- Estilos -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/alpinejs" defer></script>
 
@@ -25,7 +23,7 @@
     }
     .animate-fadeIn { animation: fadeIn .18s ease-out; }
 
-    /* ✅ Layout con menú (igual dashboard) */
+    /* Layout menú */
     .layout { transition: padding-left .2s ease; padding-left: 16rem; }
     .layout.menu-collapsed { padding-left: 5.25rem; }
     @media (max-width: 768px) { .layout, .layout.menu-collapsed { padding-left: 0 !important; } }
@@ -34,20 +32,17 @@
 
 <body class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 overflow-x-hidden">
 
-  <!-- MENU -->
   <?= view('layouts/menu') ?>
 
-  <!-- CONTENIDO -->
   <main id="mainLayout" class="layout">
     <div class="p-4 sm:p-6 lg:p-8">
       <div class="mx-auto w-full max-w-[1600px]">
 
-        <!-- HEADER -->
         <section class="mb-6">
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex items-start justify-between gap-4">
             <div>
               <h1 class="text-3xl font-extrabold text-slate-900">Producción</h1>
-              <p class="text-slate-500 mt-1">Cola por usuario · solo pedidos en estado Producción</p>
+              <p class="text-slate-500 mt-1">Cola por usuario · Pull desde “Confirmado”</p>
             </div>
 
             <div class="hidden sm:flex items-center gap-2">
@@ -58,19 +53,16 @@
           </div>
         </section>
 
-        <!-- LISTADO -->
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
 
-          <!-- Topbar -->
           <div class="px-4 py-3 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div class="flex items-center justify-between gap-3">
               <div class="font-semibold text-slate-900">Listado de pedidos</div>
               <div class="text-xs text-slate-500 hidden sm:block">
-                Solo tu cola · desaparecen al pasar a “Fabricando”
+                Solo tu cola · desaparecen cuando se sube archivo y pasan a “Por producir”
               </div>
             </div>
 
-            <!-- Toolbar -->
             <div class="flex flex-col sm:flex-row sm:items-center gap-2">
               <div class="relative">
                 <input
@@ -82,46 +74,35 @@
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔎</span>
               </div>
 
-              <button
-                id="btnLimpiarBusqueda"
-                class="h-11 px-4 rounded-2xl bg-slate-200 text-slate-800 font-extrabold hover:bg-slate-300 transition"
-              >
+              <button id="btnLimpiarBusqueda"
+                class="h-11 px-4 rounded-2xl bg-slate-200 text-slate-800 font-extrabold hover:bg-slate-300 transition">
                 Limpiar
               </button>
 
               <div class="hidden sm:block w-px h-11 bg-slate-200 mx-1"></div>
 
-              <button
-                id="btnTraer5"
-                class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition"
-              >
+              <button id="btnTraer5"
+                class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition">
                 Traer 5 pedidos
               </button>
 
-              <button
-                id="btnTraer10"
-                class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition"
-              >
+              <button id="btnTraer10"
+                class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition">
                 Traer 10 pedidos
               </button>
 
-              <button
-                id="btnDevolver"
-                class="h-11 px-4 rounded-2xl bg-white border border-rose-200 text-rose-700 font-extrabold hover:bg-rose-50 transition"
-              >
+              <button id="btnDevolver"
+                class="h-11 px-4 rounded-2xl bg-white border border-rose-200 text-rose-700 font-extrabold hover:bg-rose-50 transition">
                 Devolver pedidos restantes
               </button>
             </div>
           </div>
 
-          <!-- =========================
-               ✅ LISTADO RESPONSIVE REAL
-          ========================= -->
+          <!-- LISTADO RESPONSIVE -->
           <div class="w-full">
 
-            <!-- ✅ GRID (2XL+) con Tailwind + scroll si falta -->
+            <!-- GRID 2XL -->
             <div class="hidden 2xl:block w-full overflow-x-auto soft-scroll">
-              <!-- header -->
               <div class="bg-slate-50 border-b border-slate-200 min-w-[1500px]">
                 <div class="
                   grid items-center gap-3 px-4 py-3
@@ -142,11 +123,10 @@
                 </div>
               </div>
 
-              <!-- rows: tu JS debe renderizar DIVs con el MISMO grid-template-columns -->
               <div id="tablaPedidos" class="min-w-[1500px]"></div>
             </div>
 
-            <!-- ✅ TABLA con scroll (XL a <2XL) -->
+            <!-- TABLE XL -->
             <div class="hidden xl:block 2xl:hidden w-full overflow-x-auto soft-scroll">
               <table class="min-w-[1500px] w-full text-sm">
                 <thead class="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
@@ -169,12 +149,11 @@
               </table>
             </div>
 
-            <!-- ✅ CARDS (mobile/medio <XL) -->
+            <!-- CARDS <XL -->
             <div id="cardsPedidos" class="block xl:hidden p-3"></div>
 
           </div>
 
-          <!-- Footer -->
           <div class="px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div class="text-xs text-slate-500">
               Consejo: en desktop verás grid/tabla; en móvil verás tarjetas.
@@ -193,9 +172,7 @@
     </div>
   </main>
 
-  <!-- =========================
-       ✅ MODAL DETALLES FULL (igual dashboard)
-  ========================= -->
+  <!-- MODAL DETALLES -->
   <div id="modalDetallesFull" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50">
     <div class="absolute inset-0 p-4 sm:p-6">
       <div class="mx-auto h-full max-w-[1400px] rounded-3xl bg-white shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-fadeIn">
@@ -224,6 +201,7 @@
 
         <div class="flex-1 overflow-hidden">
           <div class="h-full grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-0">
+
             <div class="h-full overflow-auto soft-scroll p-5">
               <div class="flex items-center justify-between mb-4">
                 <div class="text-sm font-extrabold text-slate-900">
@@ -236,6 +214,7 @@
             </div>
 
             <div class="h-full overflow-auto soft-scroll p-5 border-l border-slate-200 bg-slate-50">
+
               <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Cliente</div>
                 <div id="detCliente" class="mt-2 text-sm text-slate-700"></div>
@@ -255,6 +234,41 @@
                 <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Totales</div>
                 <div id="detTotales" class="mt-2 text-sm text-slate-700"></div>
               </div>
+
+              <!-- ✅ NUEVO: Archivos generales -->
+              <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Archivos generales (AI/PDF/ZIP)</div>
+
+                <form id="formGeneralUpload" class="mt-3 space-y-3">
+                  <input type="hidden" id="generalOrderId" value="">
+
+                  <input
+                    id="generalFiles"
+                    name="files[]"
+                    type="file"
+                    multiple
+                    accept=".ai,.eps,.pdf,.svg,.zip,.rar,.7z"
+                    class="block w-full text-sm text-slate-700
+                           file:mr-3 file:py-2 file:px-3
+                           file:rounded-2xl file:border-0
+                           file:bg-slate-900 file:text-white file:font-extrabold
+                           hover:file:bg-slate-800"
+                  />
+
+                  <button type="submit"
+                    class="h-11 w-full px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition">
+                    Subir archivo(s) y pasar a “Por producir”
+                  </button>
+
+                  <div id="generalUploadMsg" class="text-sm"></div>
+                </form>
+
+                <div class="mt-4">
+                  <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Subidos</div>
+                  <div id="generalFilesList" class="space-y-2"></div>
+                </div>
+              </div>
+
             </div>
 
           </div>
@@ -264,7 +278,7 @@
     </div>
   </div>
 
-  <!-- LOADER GLOBAL -->
+  <!-- LOADER -->
   <div id="globalLoader" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]">
     <div class="bg-white p-6 rounded-3xl shadow-xl text-center animate-fadeIn border border-slate-200">
       <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
@@ -272,7 +286,6 @@
     </div>
   </div>
 
-  <!-- ✅ Variables globales -->
   <script>
     window.etiquetasPredeterminadas = <?= json_encode($etiquetasPredeterminadas ?? []) ?>;
     window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
@@ -280,10 +293,8 @@
     window.API_BASE = "<?= rtrim(site_url(), '/') ?>";
   </script>
 
-  <!-- JS principal -->
   <script src="<?= base_url('js/produccion.js?v=' . time()) ?>" defer></script>
 
-  <!-- ✅ aplicar colapso menú -->
   <script>
     (function () {
       const main = document.getElementById('mainLayout');
