@@ -427,16 +427,21 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
         'lote_nombre' => $loteNombre,
         'fecha' => $fecha,
         'items' => $guardados
-    ]);
-}
-    
+        ]);
+
+    }
+
+
+
+
+
+
     public function listarPorDia()
 {
     try {
         helper('url');
         $db = \Config\Database::connect();
 
-        // Detectar columnas disponibles
         $fields = $db->getFieldNames('placas_archivos');
 
         $hasNombre      = in_array('nombre', $fields, true);
@@ -457,7 +462,6 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
 
         if ($hasCreatedAt) $select[] = '`created_at`';
 
-        // ✅ ORIGINAL fallback con backticks
         if ($hasOriginal || $hasOriginalName || $hasFilename) {
             $origParts = [];
             if ($hasOriginal)     $origParts[] = "NULLIF(`original`, '')";
@@ -468,14 +472,12 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
             $select[] = "NULL AS `original`";
         }
 
-        // ✅ nombre si existe
         if ($hasNombre) {
             $select[] = "`nombre`";
         } else {
             $select[] = "NULL AS `nombre`";
         }
 
-        // ✅ size fallback con backticks
         if ($hasSize || $hasSizeKb) {
             $sizeParts = [];
             if ($hasSize)   $sizeParts[] = "NULLIF(`size`, 0)";
@@ -498,12 +500,10 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
             $created = $r['created_at'] ?? null;
             $fecha = $created ? date('Y-m-d', strtotime($created)) : 'sin-fecha';
 
-           $loteId = (string)($r['lote_id'] ?? 'sin-lote');
+            $loteId = (string)($r['lote_id'] ?? 'sin-lote');
 
             $loteNombre = trim((string)($r['lote_nombre'] ?? ''));
-        if ($loteNombre === '') {
-            $loteNombre = 'Sin nombre'; // ✅ sin fallback al número
-}
+            if ($loteNombre === '') $loteNombre = 'Sin nombre';
 
             if (!isset($out[$fecha])) {
                 $out[$fecha] = [
@@ -567,7 +567,6 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
 }
 
 
-}
 
 // DESCARGAR FOTOS Y ARCHIVOS JPG/PNG (FOTOS) //
 
