@@ -37,14 +37,15 @@
             base: "<?= base_url() ?>",
             csrf: <?= json_encode($csrf) ?>,
             endpoints: {
-              tickets: "<?= base_url('soporte/tickets') ?>",
-              ticket:  "<?= base_url('soporte/ticket/') ?>",
-              create:  "<?= base_url('soporte/ticket') ?>",
-              message: "<?= base_url('soporte/ticket/') ?>",
-              assign:  "<?= base_url('soporte/ticket/') ?>",
-              status:  "<?= base_url('soporte/ticket/') ?>",
-              attachment: "<?= base_url('soporte/attachment') ?>"
-            }
+                tickets: "<?= base_url('soporte/tickets') ?>",
+                ticket:  "<?= base_url('soporte/ticket') ?>",
+                create:  "<?= base_url('soporte/ticket') ?>",
+                message: "<?= base_url('soporte/ticket') ?>",
+                assign:  "<?= base_url('soporte/ticket') ?>",
+                status:  "<?= base_url('soporte/ticket') ?>",
+                attachment: "<?= base_url('soporte/attachment') ?>"
+                }
+
           };
         </script>
 

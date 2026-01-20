@@ -1,8 +1,21 @@
 /**
- * confirmacion.js — VISTA DETALLES COMO ANTES (FULL)
+ * confirmacion.js — VISTA DETALLES COMO ANTES (FULL) + DRAG&DROP + EDITOR + AUDITORÍA
  * - Listado desde /confirmacion/my-queue (tabla pedidos)
  * - Pull desde /confirmacion/pull (tabla pedidos)
  * - verDetalles render full tipo Shopify + imágenes + upload + auto estado
+ *
+ * NUEVO:
+ * - Subida con Drag & Drop + click
+ * - Editor (Cropper.js) antes de subir (rotar/zoom/crop)
+ * - Auditoría: modified_by + modified_at (se envía al backend y se muestra)
+ * - Estado "Faltan archivos" NO debe desasignar (se envía mantener_asignado: true en guardarEstado)
+ *
+ * Requiere (para editor):
+ * - cropperjs en tu layout:
+ *   <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
+ *   <script src="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.js"></script>
+ * - opcional: usuario actual
+ *   <meta name="current-user" content="Luis Moreno">
  */
 
 const API = window.API || {};
@@ -22,6 +35,48 @@ let pedidoActualId = null;
 let DET_IMAGENES_LOCALES = {};
 let DET_PRODUCT_IMAGES = {};
 let DET_ORDER = null;
+
+/* =====================================================
+   DRAG & DROP + EDITOR + AUDITORÍA
+===================================================== */
+let PENDING_FILES = {}; // { "<orderId>_<index>": File }
+let EDITED_BLOBS = {};  // { "<orderId>_<index>": Blob }
+let EDITED_NAMES = {};  // { "<orderId>_<index>": "nombre_edit.png" }
+
+function keyFile(orderId, index) {
+  return `${String(orderId)}_${String(index)}`;
+}
+
+function getCurrentUserLabel() {
+  const metaUser = document.querySelector('meta[name="current-user"]')?.content?.trim();
+  if (metaUser) return metaUser;
+
+  if (window.CURRENT_USER) return String(window.CURRENT_USER);
+  if (window.API?.currentUser) return String(window.API.currentUser);
+
+  return "Desconocido";
+}
+
+function formatFechaLocal(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString();
+}
+
+function normalizeImagenLocal(v) {
+  // Compatibilidad: antes era string URL, ahora permitimos objeto con auditoría
+  if (!v) return { url: "", modified_by: "", modified_at: "" };
+  if (typeof v === "string") return { url: v, modified_by: "", modified_at: "" };
+  if (typeof v === "object") {
+    return {
+      url: String(v.url || v.value || ""),
+      modified_by: String(v.modified_by || v.user || ""),
+      modified_at: String(v.modified_at || v.date || ""),
+    };
+  }
+  return { url: String(v), modified_by: "", modified_at: "" };
+}
 
 /* =====================================================
    HELPERS
@@ -273,6 +328,11 @@ window.verDetalles = async function (orderId) {
   DET_PRODUCT_IMAGES = {};
   DET_ORDER = null;
 
+  // reset editor caches por seguridad
+  PENDING_FILES = {};
+  EDITED_BLOBS = {};
+  EDITED_NAMES = {};
+
   try {
     const r = await fetch(`${ENDPOINT_DETALLES}/${encodeURIComponent(pedidoActualId)}`, {
       credentials: "same-origin",
@@ -388,7 +448,9 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
       const total = price * qty;
 
       const requiere = requiereImagenModificada(item);
-      const imgMod = imagenesLocales?.[i] ? String(imagenesLocales[i]) : "";
+
+      const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[i]);
+      const imgMod = imgLocalObj.url || "";
 
       imagenesRequeridas[i] = !!requiere;
       imagenesCargadas[i] = !!imgMod;
@@ -464,10 +526,42 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
         ? `
           <div class="mt-4">
             <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
-            <input type="file" accept="image/*"
-              onchange="subirImagenProducto('${orderKey}', ${i}, this)"
-              class="w-full border border-slate-200 rounded-2xl p-2">
-            <div id="preview_${orderKey}_${i}" class="mt-2"></div>
+
+            <div
+              id="dz_${orderKey}_${i}"
+              data-dropzone="1"
+              data-order="${escapeHtml(orderKey)}"
+              data-index="${i}"
+              class="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 cursor-pointer hover:bg-slate-100 transition"
+            >
+              <div class="font-extrabold text-slate-700">Arrastra y suelta aquí</div>
+              <div class="text-xs text-slate-500 mt-1">o haz clic para elegir un archivo</div>
+
+              <input id="file_${orderKey}_${i}" type="file" accept="image/*" class="hidden" />
+
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button type="button"
+                  data-action="edit"
+                  class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide disabled:opacity-40"
+                  disabled
+                >Editar</button>
+
+                <button type="button"
+                  data-action="upload"
+                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition disabled:opacity-40"
+                  disabled
+                >Subir</button>
+
+                <button type="button"
+                  data-action="clear"
+                  class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-300 transition disabled:opacity-40"
+                  disabled
+                >Quitar</button>
+              </div>
+
+              <div id="preview_${orderKey}_${i}" class="mt-3"></div>
+              <div id="audit_${orderKey}_${i}" class="mt-2 text-xs text-slate-500"></div>
+            </div>
           </div>
         `
         : "";
@@ -517,9 +611,6 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
               ${propsTxtHtml}
               ${imgClienteHtml}
               ${imgModHtml}
-
-              <div id="preview_${orderKey}_${i}" class="mt-2"></div>
-
               ${uploadHtml}
             </div>
           </div>
@@ -542,92 +633,260 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   );
 
   actualizarResumenAuto();
+
+  // Inicializar dropzones + auditoría
+  initDropzones(orderKey);
+  hydrateAuditsFromExisting(orderKey, items.length, imagenesLocales);
+}
+
+/* =====================================================
+   DROPZONES + PREVIEW LOCAL + AUDITORÍA
+===================================================== */
+function initDropzones(orderId) {
+  const oidStr = String(orderId);
+  const zones = document.querySelectorAll(`[data-dropzone="1"][data-order="${CSS.escape(oidStr)}"]`);
+
+  zones.forEach((zone) => {
+    const oid = zone.getAttribute("data-order");
+    const idx = Number(zone.getAttribute("data-index"));
+
+    const input = document.getElementById(`file_${oid}_${idx}`);
+    const btnEdit = zone.querySelector(`[data-action="edit"]`);
+    const btnUpload = zone.querySelector(`[data-action="upload"]`);
+    const btnClear = zone.querySelector(`[data-action="clear"]`);
+
+    const enableBtns = (v) => {
+      if (btnEdit) btnEdit.disabled = !v;
+      if (btnUpload) btnUpload.disabled = !v;
+      if (btnClear) btnClear.disabled = !v;
+    };
+
+    const onPick = (file) => {
+      if (!file) return;
+      const k = keyFile(oid, idx);
+      PENDING_FILES[k] = file;
+      delete EDITED_BLOBS[k];
+      delete EDITED_NAMES[k];
+      renderLocalPreview(oid, idx, file);
+      enableBtns(true);
+    };
+
+    // click zona => abrir picker (pero no al pulsar botones)
+    zone.addEventListener("click", (e) => {
+      const tag = (e.target?.tagName || "").toLowerCase();
+      if (tag === "button") return;
+      input?.click();
+    });
+
+    input?.addEventListener("change", () => onPick(input.files?.[0]));
+
+    // drag & drop
+    zone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      zone.classList.add("border-blue-500");
+    });
+
+    zone.addEventListener("dragleave", () => zone.classList.remove("border-blue-500"));
+
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("border-blue-500");
+      const file = e.dataTransfer?.files?.[0];
+      onPick(file);
+    });
+
+    btnClear?.addEventListener("click", (e) => {
+      e.preventDefault();
+      const k = keyFile(oid, idx);
+      delete PENDING_FILES[k];
+      delete EDITED_BLOBS[k];
+      delete EDITED_NAMES[k];
+      if (input) input.value = "";
+      clearLocalPreview(oid, idx);
+      enableBtns(false);
+    });
+
+    btnEdit?.addEventListener("click", (e) => {
+      e.preventDefault();
+      const k = keyFile(oid, idx);
+      const file = PENDING_FILES[k];
+      if (!file) return;
+      openImageEditor(oid, idx, file);
+    });
+
+    btnUpload?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const k = keyFile(oid, idx);
+
+      const editedBlob = EDITED_BLOBS[k];
+      const editedName = EDITED_NAMES[k];
+      const originalFile = PENDING_FILES[k];
+      if (!originalFile && !editedBlob) return;
+
+      const payloadFile = editedBlob
+        ? new File([editedBlob], editedName || originalFile?.name || `edit_${idx}.png`, {
+            type: editedBlob.type || "image/png",
+          })
+        : originalFile;
+
+      await subirImagenProductoFile(oid, idx, payloadFile, { edited: !!editedBlob });
+
+      // limpiar pendientes
+      delete PENDING_FILES[k];
+      delete EDITED_BLOBS[k];
+      delete EDITED_NAMES[k];
+      if (input) input.value = "";
+      enableBtns(false);
+    });
+  });
+}
+
+function renderLocalPreview(orderId, index, fileOrBlob) {
+  const prev = document.getElementById(`preview_${orderId}_${index}`);
+  if (!prev) return;
+  const url = URL.createObjectURL(fileOrBlob);
+  prev.innerHTML = `
+    <div>
+      <div class="text-xs font-extrabold text-slate-500 mb-2">Vista previa (local)</div>
+      <div class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+        <img src="${escapeHtml(url)}" class="h-40 w-40 object-cover">
+      </div>
+    </div>
+  `;
+}
+
+function clearLocalPreview(orderId, index) {
+  const prev = document.getElementById(`preview_${orderId}_${index}`);
+  if (prev) prev.innerHTML = "";
+}
+
+function hydrateAuditsFromExisting(orderId, count, imagenesLocales) {
+  for (let i = 0; i < count; i++) {
+    const obj = normalizeImagenLocal(imagenesLocales?.[i]);
+    const audit = document.getElementById(`audit_${orderId}_${i}`);
+    if (!audit) continue;
+
+    if (obj.url) {
+      audit.innerHTML = `
+        <span>Última modificación:</span>
+        <b class="text-slate-900">${escapeHtml(obj.modified_by || "—")}</b>
+        ${obj.modified_at ? ` · ${escapeHtml(formatFechaLocal(obj.modified_at))}` : ""}
+      `;
+    } else {
+      audit.innerHTML = "";
+    }
+  }
 }
 
 /* =====================================================
    SUBIR IMAGEN MODIFICADA + PREVIEW INMEDIATA
 ===================================================== */
+// Compat (por si alguna parte del HTML antiguo lo sigue usando)
 window.subirImagenProducto = async function (orderId, index, input) {
   try {
     const file = input?.files?.[0];
     if (!file) return;
-
-    const fd = new FormData();
-    fd.append("order_id", String(orderId));
-    fd.append("line_index", String(index));
-    fd.append("file", file);
-
-    const endpoints = [
-      window.API?.subirImagen,
-      "/api/pedidos/imagenes/subir",
-      "/index.php/api/pedidos/imagenes/subir",
-      "/index.php/index.php/api/pedidos/imagenes/subir",
-    ].filter(Boolean);
-
-    let lastErr = null;
-
-    for (const url of endpoints) {
-      try {
-        const r = await fetch(url, {
-          method: "POST",
-          headers: { ...getCsrfHeaders() },
-          body: fd,
-          credentials: "same-origin",
-        });
-
-        if (r.status === 404) continue;
-
-        const d = await r.json().catch(() => null);
-        const ok = r.ok && d?.success === true && d?.url;
-        if (!ok) throw new Error(d?.message || `HTTP ${r.status}`);
-
-        const urlFinal = String(d.url);
-        const bust = urlFinal + (urlFinal.includes("?") ? "&" : "?") + "t=" + Date.now();
-
-        // Preview inmediato
-        const prev = document.getElementById(`preview_${orderId}_${index}`);
-        if (prev) {
-          prev.innerHTML = `
-            <div class="mt-2">
-              <div class="text-xs font-extrabold text-slate-500 mb-2">Vista previa (subida ✅)</div>
-              <a href="${escapeHtml(urlFinal)}" target="_blank"
-                class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-                <img src="${escapeHtml(bust)}" class="h-40 w-40 object-cover">
-              </a>
-            </div>
-          `;
-        }
-
-        // Marcar cargada
-        imagenesCargadas[index] = true;
-        if (!DET_IMAGENES_LOCALES || typeof DET_IMAGENES_LOCALES !== "object") DET_IMAGENES_LOCALES = {};
-        DET_IMAGENES_LOCALES[index] = urlFinal;
-
-        // Badge a listo
-        const badge = document.getElementById(`badge_item_${orderId}_${index}`);
-        if (badge) {
-          badge.innerHTML = `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`;
-        }
-
-        actualizarResumenAuto();
-
-        // Auto-estado
-        await window.validarEstadoAuto(String(orderId));
-
-        try { input.value = ""; } catch {}
-
-        return;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-
-    throw lastErr || new Error("No se encontró endpoint válido para subir imagen.");
+    await subirImagenProductoFile(String(orderId), Number(index), file, { edited: false });
+    try {
+      input.value = "";
+    } catch {}
   } catch (e) {
     console.error("subirImagenProducto error:", e);
     alert("Error subiendo imagen: " + (e?.message || e));
   }
 };
+
+async function subirImagenProductoFile(orderId, index, file, meta = {}) {
+  const modified_by = getCurrentUserLabel();
+  const modified_at = new Date().toISOString();
+
+  const fd = new FormData();
+  fd.append("order_id", String(orderId));
+  fd.append("line_index", String(index));
+  fd.append("file", file);
+
+  // Auditoría
+  fd.append("modified_by", modified_by);
+  fd.append("modified_at", modified_at);
+  fd.append("edited", meta?.edited ? "1" : "0");
+
+  const endpoints = [
+    window.API?.subirImagen,
+    "/api/pedidos/imagenes/subir",
+    "/index.php/api/pedidos/imagenes/subir",
+    "/index.php/index.php/api/pedidos/imagenes/subir",
+  ].filter(Boolean);
+
+  let lastErr = null;
+
+  for (const url of endpoints) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { ...getCsrfHeaders() },
+        body: fd,
+        credentials: "same-origin",
+      });
+
+      if (r.status === 404) continue;
+
+      const d = await r.json().catch(() => null);
+      const ok = r.ok && d?.success === true && d?.url;
+      if (!ok) throw new Error(d?.message || `HTTP ${r.status}`);
+
+      const urlFinal = String(d.url);
+      const bust = urlFinal + (urlFinal.includes("?") ? "&" : "?") + "t=" + Date.now();
+
+      // Preview inmediato (subida)
+      const prev = document.getElementById(`preview_${orderId}_${index}`);
+      if (prev) {
+        prev.innerHTML = `
+          <div class="mt-2">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Vista previa (subida ✅)</div>
+            <a href="${escapeHtml(urlFinal)}" target="_blank"
+              class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+              <img src="${escapeHtml(bust)}" class="h-40 w-40 object-cover">
+            </a>
+          </div>
+        `;
+      }
+
+      // Auditoría visible
+      const audit = document.getElementById(`audit_${orderId}_${index}`);
+      if (audit) {
+        audit.innerHTML = `
+          <span>Última modificación:</span>
+          <b class="text-slate-900">${escapeHtml(modified_by)}</b>
+          · ${escapeHtml(formatFechaLocal(modified_at))}
+        `;
+      }
+
+      // Marcar cargada + guardar localmente (con auditoría)
+      imagenesCargadas[index] = true;
+      if (!DET_IMAGENES_LOCALES || typeof DET_IMAGENES_LOCALES !== "object") DET_IMAGENES_LOCALES = {};
+      DET_IMAGENES_LOCALES[index] = { url: urlFinal, modified_by, modified_at };
+
+      // Badge a listo
+      const badge = document.getElementById(`badge_item_${orderId}_${index}`);
+      if (badge) {
+        badge.innerHTML = `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`;
+      }
+
+      actualizarResumenAuto();
+
+      // Auto-estado
+      await window.validarEstadoAuto(String(orderId));
+
+      return true;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  console.error("subirImagenProductoFile error:", lastErr);
+  alert("Error subiendo imagen: " + (lastErr?.message || lastErr));
+  return false;
+}
 
 /* =====================================================
    RESUMEN
@@ -670,6 +929,9 @@ window.guardarEstado = async function (orderId, nuevoEstado) {
           order_id: String(orderId),
           id: String(orderId),
           estado: String(nuevoEstado),
+
+          // CLAVE para que tu backend NO desasigne al poner "Faltan archivos"
+          mantener_asignado: true,
         }),
       });
 
@@ -727,11 +989,13 @@ window.validarEstadoAuto = async function (orderId) {
 
     actualizarResumenAuto();
 
+    // Si faltan, mantenemos asignación (backend) y refrescamos lista, SIN cerrar modal
     if (faltaAlguna) {
       await cargarMiCola();
       return;
     }
 
+    // Si ya está confirmado, cerramos
     if (saved && nuevoEstado === "Confirmado") {
       await cargarMiCola();
       cerrarModalDetalles();
@@ -740,6 +1004,141 @@ window.validarEstadoAuto = async function (orderId) {
     console.error("validarEstadoAuto error:", e);
   }
 };
+
+/* =====================================================
+   EDITOR (Cropper.js)
+===================================================== */
+let __editor = {
+  modal: null,
+  img: null,
+  cropper: null,
+  current: null, // { orderId, index, file }
+};
+
+function ensureEditorModal() {
+  if (__editor.modal) return;
+
+  const modal = document.createElement("div");
+  modal.id = "imgEditorModal";
+  modal.className = "fixed inset-0 z-[9999] hidden";
+  modal.innerHTML = `
+    <div class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="w-full max-w-3xl rounded-3xl bg-white shadow-xl overflow-hidden">
+        <div class="p-4 border-b flex items-center justify-between">
+          <div class="font-extrabold text-slate-900">Editar imagen antes de subir</div>
+          <button type="button" id="btnEditorClose" class="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 font-extrabold">✕</button>
+        </div>
+
+        <div class="p-4">
+          <div class="rounded-2xl border bg-slate-50 p-2 flex items-center justify-center">
+            <img id="editorImg" alt="editor" class="max-h-[60vh]">
+          </div>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button type="button" data-ed="rotateL" class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase">⟲ Rotar</button>
+            <button type="button" data-ed="rotateR" class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase">⟳ Rotar</button>
+            <button type="button" data-ed="zoomIn" class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase">＋ Zoom</button>
+            <button type="button" data-ed="zoomOut" class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase">－ Zoom</button>
+
+            <div class="flex-1"></div>
+
+            <button type="button" data-ed="cancel" class="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-[11px] font-extrabold uppercase">Cancelar</button>
+            <button type="button" data-ed="save" class="px-3 py-2 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-extrabold uppercase">Guardar edición</button>
+          </div>
+
+          <div class="mt-2 text-xs text-slate-500">
+            Tip: ajusta el encuadre y guarda. Luego pulsa “Subir”.
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  __editor.modal = modal;
+  __editor.img = modal.querySelector("#editorImg");
+
+  modal.querySelector("#btnEditorClose")?.addEventListener("click", closeImageEditor);
+  modal.addEventListener("click", (e) => {
+    const bg = modal.querySelector(".absolute.inset-0.bg-black\\/60");
+    if (e.target === bg) closeImageEditor();
+  });
+
+  modal.querySelectorAll("[data-ed]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const action = btn.getAttribute("data-ed");
+      if (action === "cancel") return closeImageEditor();
+      if (action === "save") return saveImageEditor();
+      if (!__editor.cropper) return;
+
+      if (action === "rotateL") __editor.cropper.rotate(-90);
+      if (action === "rotateR") __editor.cropper.rotate(90);
+      if (action === "zoomIn") __editor.cropper.zoom(0.1);
+      if (action === "zoomOut") __editor.cropper.zoom(-0.1);
+    });
+  });
+}
+
+function openImageEditor(orderId, index, file) {
+  ensureEditorModal();
+
+  if (!window.Cropper) {
+    alert("Para editar imágenes, incluye Cropper.js (CDN o npm).");
+    return;
+  }
+
+  __editor.current = { orderId: String(orderId), index: Number(index), file };
+
+  const url = URL.createObjectURL(file);
+  __editor.img.src = url;
+
+  __editor.modal.classList.remove("hidden");
+
+  // destruir cropper previo
+  try {
+    __editor.cropper?.destroy();
+  } catch {}
+  __editor.cropper = new Cropper(__editor.img, {
+    viewMode: 1,
+    autoCropArea: 1,
+    responsive: true,
+    background: false,
+  });
+}
+
+function closeImageEditor() {
+  if (!__editor.modal) return;
+  __editor.modal.classList.add("hidden");
+  try {
+    __editor.cropper?.destroy();
+  } catch {}
+  __editor.cropper = null;
+  __editor.current = null;
+}
+
+async function saveImageEditor() {
+  if (!__editor.cropper || !__editor.current) return;
+
+  const { orderId, index, file } = __editor.current;
+  const k = keyFile(orderId, index);
+
+  const canvas = __editor.cropper.getCroppedCanvas({
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: "high",
+  });
+
+  const blob = await new Promise((res) => canvas.toBlob(res, "image/png", 0.92));
+  if (!blob) return alert("No se pudo generar la imagen editada.");
+
+  EDITED_BLOBS[k] = blob;
+  EDITED_NAMES[k] =
+    (file?.name ? file.name.replace(/\.[a-z0-9]+$/i, "") : `edit_${index}`) + "_edit.png";
+
+  // preview local del resultado editado
+  renderLocalPreview(orderId, index, blob);
+  closeImageEditor();
+}
 
 /* =====================================================
    INIT
