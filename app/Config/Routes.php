@@ -142,6 +142,8 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
     // uploads/listado general
     $routes->post('upload-general', 'ProduccionController::uploadGeneral');
     $routes->get('list-general', 'ProduccionController::listGeneral');
+    $routes->post('produccion/upload-modificada', 'ProduccionController::uploadModificada');
+
 });
 
 /*

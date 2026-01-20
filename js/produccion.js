@@ -6,13 +6,10 @@
  * - Fallback endpoints: con/sin index.php
  * - Upload GENERAL: (formGeneralUpload) es el único upload
  *
- * ✅ CAMBIOS INCLUIDOS:
- * 1) Upload GENERAL con Drag & Drop + lista de seleccionados + quitar/reemplazar antes de subir
- *    - NO requiere tocar el PHP para que se vea: el dropzone se inyecta por JS si no existe.
- * 2) Upload de "Imagen modificada" por cada item (drag & drop + reemplazar)
- *    - Requiere backend: POST /produccion/upload-modificada (order_id, item_index, file)
- *    - Si aún no existe, la UI igual aparece y te mostrará error al subir (normal).
- * 3) FIX bug TABLE: en el render usaba estadoBtn no definido (ahora usa estadoHtml).
+ * ✅ NUEVO:
+ * - Upload Imagen MODIFICADA por item_index (drag&drop + reemplazar + preview)
+ * - Endpoint: POST /produccion/upload-modificada (order_id, item_index, file)
+ * - Fallback: si no viene imagenes_locales desde detalles, intenta detectar mod_# desde list-general
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -22,7 +19,7 @@ const ENDPOINT_RETURN_ALL = `${API_BASE}/produccion/return-all`;
 const ENDPOINT_UPLOAD_GENERAL = `${API_BASE}/produccion/upload-general`;
 const ENDPOINT_LIST_GENERAL = `${API_BASE}/produccion/list-general`;
 
-// ✅ nuevo endpoint (para imagen modificada por item)
+// ✅ nuevo endpoint
 const ENDPOINT_UPLOAD_MODIFICADA = `${API_BASE}/produccion/upload-modificada`;
 
 let pedidosCache = [];
@@ -34,6 +31,10 @@ let silentFetch = false;
 let currentDetallesPedidoId = null;  // p.id (interno)
 let currentDetallesShopifyId = null; // shopify_order_id
 let currentDetallesOrderId = null;   // el que llegó al abrir (puede ser shopify o interno)
+let currentKeyForFiles = null;       // ✅ key estable del pedido (para uploads)
+
+// ✅ estado por item para “imagen modificada”
+const modState = new Map(); // index -> { existingUrl, selectedFile, objectUrl, isUploading }
 
 // =========================
 // Helpers DOM/UI
@@ -370,21 +371,13 @@ function actualizarListado(pedidos) {
                     border-b border-slate-200 hover:bg-slate-50 transition">
 
           <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
-
           <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
-
           <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
-
           <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
-
           <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
-
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
           <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
-
           <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
-
           <div class="min-w-0 gap-x-4 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
 
           <div class="flex justify-end">
@@ -393,16 +386,14 @@ function actualizarListado(pedidos) {
               Ver detalles →
             </button>
           </div>
-
         </div>
       `;
-
     }).join("");
 
     return;
   }
 
-  // TABLE
+  // TABLE ✅ FIX REAL: tr/td dentro del tbody
   if (mode === "table") {
     if (contCards) contCards.classList.add("hidden");
     if (!contTable) return;
@@ -410,7 +401,7 @@ function actualizarListado(pedidos) {
     if (!pedidos || !pedidos.length) {
       contTable.innerHTML = `
         <tr>
-          <td colspan="11" class="px-5 py-8 text-slate-500 text-sm">No tienes pedidos asignados.</td>
+          <td colspan="10" class="px-5 py-8 text-slate-500 text-sm">No tienes pedidos asignados.</td>
         </tr>
       `;
       return;
@@ -435,37 +426,24 @@ function actualizarListado(pedidos) {
         : renderEstadoPill(estado);
 
       return `
-        <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
-                    border-b border-slate-200 hover:bg-slate-50 transition">
-
-          <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
-
-          <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
-
-          <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
-
-          <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
-
-          <div class="whitespace-nowrap relative z-10">${estadoHtml}</div>
-
-          <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
-          <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
-
-          <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
-
-          <div class="min-w-0 gap-x-4 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
-
-          <div class="flex justify-end">
+        <tr class="hover:bg-slate-50 transition">
+          <td class="px-5 py-4 font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</td>
+          <td class="px-5 py-4 text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</td>
+          <td class="px-5 py-4 min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</td>
+          <td class="px-5 py-4 font-extrabold text-slate-900 whitespace-nowrap">${moneyFormat(total)}</td>
+          <td class="px-5 py-4 whitespace-nowrap">${estadoHtml}</td>
+          <td class="px-5 py-4 min-w-0">${renderLastChangeCompact(p)}</td>
+          <td class="px-5 py-4 text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</td>
+          <td class="px-5 py-4 whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</td>
+          <td class="px-5 py-4 whitespace-nowrap text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</td>
+          <td class="px-5 py-4 text-right whitespace-nowrap">
             <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
               class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
               Ver detalles →
             </button>
-          </div>
-
-        </div>
+          </td>
+        </tr>
       `;
-
     }).join("");
 
     return;
@@ -719,6 +697,9 @@ function cerrarDetallesFull() {
   modal.classList.add("hidden");
   document.documentElement.classList.remove("overflow-hidden");
   document.body.classList.remove("overflow-hidden");
+
+  // ✅ limpiar previews al cerrar
+  cleanupModPreviews();
 }
 
 window.cerrarDetallesFull = cerrarDetallesFull;
@@ -767,12 +748,423 @@ function fmtMoney(v) {
   return n.toFixed(2);
 }
 
+// =========================
+// ✅ Archivos Generales (fetch con fallback)
+// =========================
+async function fetchGeneralFilesAnyKey(orderId, opts = {}) {
+  const tryKey = async (key) => {
+    if (!key) return null;
+    const url = `${ENDPOINT_LIST_GENERAL}?order_id=${encodeURIComponent(key)}`;
+    const r = await fetch(url, { credentials: "same-origin" });
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d || d.success !== true) return null;
+    return { data: d, usedKey: key };
+  };
+
+  // 1) key principal
+  let out = await tryKey(orderId);
+
+  // 2) fallback #1
+  if ((!out || !Array.isArray(out.data?.files) || out.data.files.length === 0) && opts.fallbackKey) {
+    out = await tryKey(opts.fallbackKey);
+  }
+
+  // 3) fallback #2
+  if ((!out || !Array.isArray(out.data?.files) || out.data.files.length === 0) && opts.extraFallbackKey) {
+    out = await tryKey(opts.extraFallbackKey);
+  }
+
+  // 4) fallback #3 opcional
+  if ((!out || !Array.isArray(out.data?.files) || out.data.files.length === 0) && opts.extraFallbackKey2) {
+    out = await tryKey(opts.extraFallbackKey2);
+  }
+
+  return out;
+}
+
+// =========================
+// ✅ Detectar modificadas desde list-general (fallback)
+// =========================
+function parseModIndexFromFilename(name) {
+  const s = String(name || "").trim();
+  const m = s.match(/^mod_(\d+)_/i);
+  if (!m) return null;
+  const idx = Number(m[1]);
+  return Number.isFinite(idx) ? idx : null;
+}
+
+function pickLatestByCreatedAt(prev, cand) {
+  if (!prev) return cand;
+  const a = parseDateSafe(prev.created_at) || new Date(0);
+  const b = parseDateSafe(cand.created_at) || new Date(0);
+  return b > a ? cand : prev;
+}
+
+async function guessModificadasFromGeneralList(orderId, opts = {}) {
+  const out = await fetchGeneralFilesAnyKey(orderId, opts);
+  if (!out || !out.data) return {};
+
+  const files = Array.isArray(out.data.files) ? out.data.files : [];
+  if (!files.length) return {};
+
+  // buscamos filenames tipo mod_{index}_...
+  const best = {}; // idx -> file
+  for (const f of files) {
+    const filename = f.filename || f.original_name || "";
+    const idx = parseModIndexFromFilename(filename);
+    if (idx === null) continue;
+    best[idx] = pickLatestByCreatedAt(best[idx], f);
+  }
+
+  const map = {};
+  for (const [k, f] of Object.entries(best)) {
+    map[k] = f.url || "";
+  }
+  return map;
+}
+
+// =========================
+// Archivos generales (list/upload UI)
+// =========================
+async function cargarArchivosGenerales(orderId, opts = {}) {
+  const list = $("generalFilesList");
+  if (!list) return;
+
+  list.innerHTML = `<div class="text-slate-500 text-sm">Cargando...</div>`;
+
+  const out = await fetchGeneralFilesAnyKey(orderId, opts);
+  if (!out || !out.data) {
+    list.innerHTML = `<div class="text-rose-600 text-sm font-bold">No se pudo cargar archivos.</div>`;
+    return;
+  }
+
+  const files = Array.isArray(out.data.files) ? out.data.files : [];
+  if (!files.length) {
+    list.innerHTML = `<div class="text-slate-500 text-sm">—</div>`;
+    return;
+  }
+
+  list.innerHTML = files.map(f => `
+    <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <div class="min-w-0">
+        <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(f.original_name || f.filename || "Archivo")}</div>
+        <div class="text-xs text-slate-600">${escapeHtml(f.mime || "")} · ${escapeHtml(String(f.size || ""))}</div>
+      </div>
+      <a href="${escapeHtml(f.url || "#")}" target="_blank"
+         class="shrink-0 px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
+        Abrir
+      </a>
+    </div>
+  `).join("");
+}
+
+async function subirArchivosGenerales(orderId, fileList) {
+  const msg = $("generalUploadMsg");
+  if (msg) msg.innerHTML = `<span class="text-slate-600">Subiendo...</span>`;
+
+  const fd = new FormData();
+  fd.append("order_id", String(orderId));
+  for (const f of fileList) fd.append("files[]", f);
+
+  const res = await fetch(ENDPOINT_UPLOAD_GENERAL, {
+    method: "POST",
+    body: fd,
+    headers: { ...getCsrfHeaders() },
+    credentials: "same-origin",
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || !data || data.success !== true) {
+    const err = data?.message || "No se pudo subir.";
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(err)}</span>`;
+    return false;
+  }
+
+  if (msg) {
+    msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
+      Subido (${data.saved || 0}). Estado → Por producir. Pedido desasignado.
+    </span>`;
+  }
+
+  return true;
+}
+
+// =========================
+// ✅ Imagen modificada: helpers + UI
+// =========================
+function getModState(index) {
+  const key = String(index);
+  if (!modState.has(key)) {
+    modState.set(key, { existingUrl: "", selectedFile: null, objectUrl: null, isUploading: false });
+  }
+  return modState.get(key);
+}
+
+function setModMsg(index, html) {
+  const el = $(`modMsg_${index}`);
+  if (el) el.innerHTML = html || "";
+}
+
+function setModBusy(index, busy) {
+  const zone = $(`modZone_${index}`);
+  const btnUp = $(`modBtnUpload_${index}`);
+  const btnPick = $(`modBtnPick_${index}`);
+  const btnClear = $(`modBtnClear_${index}`);
+  if (zone) zone.classList.toggle("opacity-70", !!busy);
+  if (btnUp) btnUp.disabled = !!busy;
+  if (btnPick) btnPick.disabled = !!busy;
+  if (btnClear) btnClear.disabled = !!busy;
+}
+
+function setModPreview(index, src) {
+  const img = $(`modPrev_${index}`);
+  const ph = $(`modPh_${index}`);
+  if (!img || !ph) return;
+
+  const has = !!src;
+  img.src = src || "";
+  img.classList.toggle("hidden", !has);
+  ph.classList.toggle("hidden", has);
+}
+
+function cleanupModPreviews() {
+  for (const [idx, st] of modState.entries()) {
+    if (st?.objectUrl) {
+      try { URL.revokeObjectURL(st.objectUrl); } catch {}
+    }
+  }
+  modState.clear();
+}
+
+function validateImageFile(file) {
+  if (!file) return { ok: false, message: "Archivo inválido" };
+  if (!file.type || !file.type.startsWith("image/")) return { ok: false, message: "Solo se permiten imágenes" };
+
+  // opcional: límite 12MB
+  const max = 12 * 1024 * 1024;
+  if (file.size > max) return { ok: false, message: "La imagen supera 12MB" };
+
+  return { ok: true };
+}
+
+function applySelectedModFile(index, file) {
+  const st = getModState(index);
+
+  // limpia objectUrl anterior
+  if (st.objectUrl) {
+    try { URL.revokeObjectURL(st.objectUrl); } catch {}
+    st.objectUrl = null;
+  }
+
+  st.selectedFile = file;
+
+  const objUrl = URL.createObjectURL(file);
+  st.objectUrl = objUrl;
+
+  setModPreview(index, objUrl);
+  setModMsg(index, `<span class="text-slate-600 font-semibold">Lista para subir: <b>${escapeHtml(file.name)}</b></span>`);
+}
+
+function clearSelectedModFile(index) {
+  const st = getModState(index);
+
+  if (st.objectUrl) {
+    try { URL.revokeObjectURL(st.objectUrl); } catch {}
+    st.objectUrl = null;
+  }
+  st.selectedFile = null;
+
+  // vuelve a la existente (si hay)
+  setModPreview(index, st.existingUrl || "");
+  setModMsg(index, st.existingUrl ? `<span class="text-slate-600">Usando la imagen ya subida.</span>` : `<span class="text-slate-500">Sin imagen modificada subida.</span>`);
+}
+
+async function uploadModificada(index) {
+  const st = getModState(index);
+  if (st.isUploading) return;
+
+  const orderId = currentKeyForFiles || $("generalOrderId")?.value || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId;
+  if (!orderId) {
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">No se detectó order_id.</span>`);
+    return;
+  }
+
+  const file = st.selectedFile;
+  if (!file) {
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">Primero selecciona o arrastra una imagen.</span>`);
+    return;
+  }
+
+  const check = validateImageFile(file);
+  if (!check.ok) {
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">${escapeHtml(check.message)}</span>`);
+    return;
+  }
+
+  st.isUploading = true;
+  setModBusy(index, true);
+  setModMsg(index, `<span class="text-slate-600">Subiendo imagen…</span>`);
+  setLoader(true);
+
+  try {
+    const fd = new FormData();
+    fd.append("order_id", String(orderId));
+    fd.append("item_index", String(index));
+    fd.append("file", file);
+
+    const res = await fetch(ENDPOINT_UPLOAD_MODIFICADA, {
+      method: "POST",
+      body: fd,
+      headers: { ...getCsrfHeaders() },
+      credentials: "same-origin",
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || data.success !== true) {
+      const err = data?.message || `No se pudo subir (HTTP ${res.status})`;
+      setModMsg(index, `<span class="text-rose-600 font-extrabold">${escapeHtml(err)}</span>`);
+      return;
+    }
+
+    const url = String(data.url || "").trim();
+    if (!url) {
+      setModMsg(index, `<span class="text-rose-600 font-extrabold">Subió, pero no devolvió URL.</span>`);
+      return;
+    }
+
+    // ✅ set nueva existente
+    st.existingUrl = url;
+
+    // limpia selectedFile (ya quedó subida)
+    if (st.objectUrl) {
+      try { URL.revokeObjectURL(st.objectUrl); } catch {}
+      st.objectUrl = null;
+    }
+    st.selectedFile = null;
+
+    setModPreview(index, url);
+    setModMsg(index, `<span class="text-emerald-700 font-extrabold">Imagen modificada subida ✅</span>`);
+
+    // opcional: recargar archivos generales (por si se guarda en misma carpeta)
+    await cargarArchivosGenerales(orderId, {
+      fallbackKey: currentDetallesPedidoId,
+      extraFallbackKey: currentDetallesShopifyId,
+      extraFallbackKey2: currentDetallesOrderId,
+    });
+
+    // opcional: refrescar cola
+    await cargarMiCola();
+
+  } catch (e) {
+    console.error("uploadModificada error:", e);
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">Error subiendo imagen.</span>`);
+  } finally {
+    st.isUploading = false;
+    setModBusy(index, false);
+    setLoader(false);
+  }
+}
+
+function initModUploadZones() {
+  // enganchar todos los zones
+  document.querySelectorAll("[data-mod-zone='1']").forEach((zone) => {
+    const index = String(zone.getAttribute("data-item-index") || "");
+    if (index === "") return;
+
+    const st = getModState(index);
+
+    // existente viene en data-existing-url
+    const existing = String(zone.getAttribute("data-existing-url") || "").trim();
+    st.existingUrl = existing;
+
+    // preview inicial
+    setModPreview(index, existing || "");
+    setModMsg(index, existing ? `<span class="text-slate-600">Usando la imagen ya subida.</span>` : `<span class="text-slate-500">Arrastra una imagen aquí o presiona “Elegir”.</span>`);
+
+    const input = $(`modInput_${index}`);
+    const btnPick = $(`modBtnPick_${index}`);
+    const btnClear = $(`modBtnClear_${index}`);
+    const btnUpload = $(`modBtnUpload_${index}`);
+
+    const pick = () => input && input.click();
+
+    // click en botón
+    btnPick?.addEventListener("click", (e) => { e.preventDefault(); pick(); });
+
+    // limpiar selección
+    btnClear?.addEventListener("click", (e) => {
+      e.preventDefault();
+      clearSelectedModFile(index);
+      if (input) input.value = "";
+    });
+
+    // subir
+    btnUpload?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await uploadModificada(index);
+      if (input) input.value = "";
+    });
+
+    // input change
+    input?.addEventListener("change", () => {
+      const file = input.files && input.files[0] ? input.files[0] : null;
+      if (!file) return;
+      const check = validateImageFile(file);
+      if (!check.ok) {
+        setModMsg(index, `<span class="text-rose-600 font-extrabold">${escapeHtml(check.message)}</span>`);
+        input.value = "";
+        return;
+      }
+      applySelectedModFile(index, file);
+    });
+
+    // drag & drop
+    const prevent = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
+    ["dragenter", "dragover"].forEach((evt) => zone.addEventListener(evt, (ev) => {
+      prevent(ev);
+      zone.classList.add("ring-2", "ring-blue-300", "bg-blue-50");
+    }));
+
+    ["dragleave", "drop"].forEach((evt) => zone.addEventListener(evt, (ev) => {
+      prevent(ev);
+      zone.classList.remove("ring-2", "ring-blue-300", "bg-blue-50");
+    }));
+
+    zone.addEventListener("drop", (ev) => {
+      const dt = ev.dataTransfer;
+      const file = dt?.files && dt.files[0] ? dt.files[0] : null;
+      if (!file) return;
+
+      const check = validateImageFile(file);
+      if (!check.ok) {
+        setModMsg(index, `<span class="text-rose-600 font-extrabold">${escapeHtml(check.message)}</span>`);
+        return;
+      }
+
+      // reflejar también en input (opcional)
+      applySelectedModFile(index, file);
+    });
+
+    // click en el dropzone abre picker
+    zone.addEventListener("click", (e) => {
+      // si clic en botones, no
+      const t = e.target;
+      if (t && (t.closest("button") || t.closest("a"))) return;
+      pick();
+    });
+  });
+}
+
 async function abrirDetallesPedido(orderId) {
   const id = String(orderId || "");
   if (!id) return;
 
   abrirDetallesFull();
   currentDetallesOrderId = id;
+
+  // reset mod state
+  cleanupModPreviews();
 
   // placeholders
   setText("detTitle", "Cargando...");
@@ -819,25 +1211,26 @@ async function abrirDetallesPedido(orderId) {
   const o = payload.order || {};
   const lineItems = Array.isArray(o.line_items) ? o.line_items : (Array.isArray(o.lineItems) ? o.lineItems : []);
 
-  // ✅ guarda ids reales para upload/list
+  // ✅ ids reales
   currentDetallesShopifyId = String(o.id || o.shopify_order_id || o.order_id || "").trim() || null;
-  // intento sacar p.id del payload si existe
   currentDetallesPedidoId = String(payload.pedido_id || payload.id || o.pedido_id || "").trim() || null;
 
-  // ✅ el formulario general debe usar una key estable:
-  // prioridad: shopify_order_id; si no hay, usa pedido_id; si no hay, usa el que se abrió
+  // key estable para files
   const keyForFiles =
     (currentDetallesShopifyId && currentDetallesShopifyId !== "0") ? currentDetallesShopifyId :
     (currentDetallesPedidoId && currentDetallesPedidoId !== "0") ? currentDetallesPedidoId :
     id;
 
+  currentKeyForFiles = keyForFiles;
+
   const hiddenId = $("generalOrderId");
   if (hiddenId) hiddenId.value = keyForFiles;
 
-  // ✅ cargar archivos generales con fallback (shopify -> interno)
+  // ✅ cargar archivos generales (lista)
   await cargarArchivosGenerales(keyForFiles, {
     fallbackKey: (keyForFiles === id ? null : id),
     extraFallbackKey: currentDetallesPedidoId && currentDetallesPedidoId !== keyForFiles ? currentDetallesPedidoId : null,
+    extraFallbackKey2: currentDetallesShopifyId && currentDetallesShopifyId !== keyForFiles ? currentDetallesShopifyId : null,
   });
 
   // header
@@ -933,8 +1326,20 @@ async function abrirDetallesPedido(orderId) {
     return;
   }
 
-  const imagenesLocales = payload.imagenes_locales || {};
+  // ✅ imágenes
   const productImages = payload.product_images || {};
+
+  // ✅ imagenesLocales: si dashboard no las manda, intentamos detectarlas con list-general (prefijo mod_)
+  const modFallback = await guessModificadasFromGeneralList(keyForFiles, {
+    fallbackKey: (keyForFiles === id ? null : id),
+    extraFallbackKey: currentDetallesPedidoId && currentDetallesPedidoId !== keyForFiles ? currentDetallesPedidoId : null,
+    extraFallbackKey2: currentDetallesShopifyId && currentDetallesShopifyId !== keyForFiles ? currentDetallesShopifyId : null,
+  });
+
+  const imagenesLocales = {
+    ...(modFallback || {}),
+    ...(payload.imagenes_locales || {}),
+  };
 
   const itemsHtml = lineItems.map((item, index) => {
     const title = item.title || item.name || "Producto";
@@ -996,55 +1401,59 @@ async function abrirDetallesPedido(orderId) {
       </div>
     ` : "";
 
-    // ✅ NUEVO: UI para subir/reemplazar imagen modificada por item
+    // ✅ NUEVO: Zona drag&drop para imagen modificada
     const modificadaHtml = `
-      <div class="mt-3">
-        <div class="flex items-center justify-between gap-2">
-          <div class="text-xs font-extrabold text-slate-500">Imagen modificada</div>
-          <button type="button"
-            class="text-xs font-extrabold text-blue-600 hover:underline"
-            data-mod-toggle="1"
-            data-order-id="${escapeHtml(keyForFiles)}"
-            data-item-index="${escapeHtml(String(index))}">
-            ${localUrl ? "Reemplazar" : "Subir"}
-          </button>
-        </div>
+      <div class="mt-4">
+        <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
 
-        <div class="mt-2 ${localUrl ? "" : "hidden"}">
-          <a href="${escapeHtml(localUrl || "#")}" target="_blank"
-            class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-            <img data-mod-img="1"
-              data-order-id="${escapeHtml(keyForFiles)}"
-              data-item-index="${escapeHtml(String(index))}"
-              src="${escapeHtml(localUrl || "")}"
-              class="h-40 w-40 object-cover">
-          </a>
-        </div>
+        <div id="modZone_${index}"
+             data-mod-zone="1"
+             data-item-index="${escapeHtml(index)}"
+             data-existing-url="${escapeHtml(localUrl)}"
+             class="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white p-3 cursor-pointer hover:bg-slate-50 transition">
 
-        <div class="mt-2 hidden"
-          data-mod-zone="1"
-          data-order-id="${escapeHtml(keyForFiles)}"
-          data-item-index="${escapeHtml(String(index))}">
-          <div class="rounded-3xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 cursor-pointer hover:bg-slate-100 transition">
-            <div class="text-sm font-extrabold text-slate-900">Arrastra la imagen aquí</div>
-            <div class="text-xs text-slate-600 mt-1">o haz click para seleccionarla</div>
-
-            <input type="file" accept="image/*" class="hidden" data-mod-input="1" />
-
-            <div class="mt-3 hidden" data-mod-preview="1"></div>
-
-            <div class="mt-3 flex gap-2">
-              <button type="button" data-mod-upload="1"
-                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-xs font-extrabold hover:bg-blue-700 disabled:opacity-50" disabled>
-                Subir
-              </button>
-              <button type="button" data-mod-clear="1"
-                class="px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 text-xs font-extrabold hover:bg-slate-100 disabled:opacity-50" disabled>
-                Quitar
-              </button>
+          <div class="flex items-start gap-3">
+            <div class="h-24 w-24 rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center flex-shrink-0">
+              <img id="modPrev_${index}" src="" class="h-full w-full object-cover hidden" />
+              <div id="modPh_${index}" class="text-slate-400 text-xs font-extrabold text-center px-2">
+                Arrastra<br/>o elige
+              </div>
             </div>
 
-            <div class="mt-2 text-xs font-bold hidden" data-mod-msg="1"></div>
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-extrabold text-slate-900">Subir / Reemplazar</div>
+              <div class="text-xs text-slate-500 mt-1">
+                Arrastra una imagen aquí o pulsa “Elegir”.
+              </div>
+
+              <input id="modInput_${index}" type="file" accept="image/*" class="hidden" />
+
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button id="modBtnPick_${index}" type="button"
+                  class="h-9 px-3 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-800 transition">
+                  Elegir
+                </button>
+
+                <button id="modBtnUpload_${index}" type="button"
+                  class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+                  Subir
+                </button>
+
+                <button id="modBtnClear_${index}" type="button"
+                  class="h-9 px-3 rounded-2xl bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-100 transition">
+                  Quitar
+                </button>
+
+                ${localUrl ? `
+                  <a href="${escapeHtml(localUrl)}" target="_blank"
+                     class="h-9 px-3 inline-flex items-center rounded-2xl bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-100 transition">
+                    Abrir
+                  </a>
+                ` : ""}
+              </div>
+
+              <div id="modMsg_${index}" class="mt-2 text-xs"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1068,427 +1477,16 @@ async function abrirDetallesPedido(orderId) {
     `;
   }).join("");
 
-  // ✅ ahora sí pintamos los items
   setHtml("detItems", itemsHtml);
 
-  // ✅ activar dropzones por item
-  initModificadaDropzones();
+  // ✅ enganchar drag&drop + botones
+  initModUploadZones();
 }
 
 // Hook del botón
 window.verDetallesPedido = function (pedidoId) {
   abrirDetallesPedido(String(pedidoId));
 };
-
-// =========================
-// Archivos generales (list/upload)
-// =========================
-async function cargarArchivosGenerales(orderId, opts = {}) {
-  const list = $("generalFilesList");
-  if (!list) return;
-
-  const tryKey = async (key) => {
-    if (!key) return null;
-    const url = `${ENDPOINT_LIST_GENERAL}?order_id=${encodeURIComponent(key)}`;
-    const r = await fetch(url, { credentials: "same-origin" });
-    const d = await r.json().catch(() => null);
-    if (!r.ok || !d || d.success !== true) return null;
-    return d;
-  };
-
-  list.innerHTML = `<div class="text-slate-500 text-sm">Cargando...</div>`;
-
-  // 1) key principal
-  let d = await tryKey(orderId);
-
-  // 2) fallback #1
-  if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.fallbackKey) {
-    d = await tryKey(opts.fallbackKey);
-  }
-
-  // 3) fallback #2
-  if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.extraFallbackKey) {
-    d = await tryKey(opts.extraFallbackKey);
-  }
-
-  if (!d) {
-    list.innerHTML = `<div class="text-rose-600 text-sm font-bold">No se pudo cargar archivos.</div>`;
-    return;
-  }
-
-  const files = Array.isArray(d.files) ? d.files : [];
-  if (!files.length) {
-    list.innerHTML = `<div class="text-slate-500 text-sm">—</div>`;
-    return;
-  }
-
-  list.innerHTML = files.map(f => `
-    <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-      <div class="min-w-0">
-        <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(f.original_name || f.filename || "Archivo")}</div>
-        <div class="text-xs text-slate-600">${escapeHtml(f.mime || "")} · ${escapeHtml(String(f.size || ""))}</div>
-      </div>
-      <a href="${escapeHtml(f.url || "#")}" target="_blank"
-         class="shrink-0 px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
-        Abrir
-      </a>
-    </div>
-  `).join("");
-}
-
-async function subirArchivosGenerales(orderId, fileList) {
-  const msg = $("generalUploadMsg");
-  if (msg) msg.innerHTML = `<span class="text-slate-600">Subiendo...</span>`;
-
-  const fd = new FormData();
-  fd.append("order_id", String(orderId));
-  for (const f of fileList) fd.append("files[]", f);
-
-  const res = await fetch(ENDPOINT_UPLOAD_GENERAL, {
-    method: "POST",
-    body: fd,
-    headers: { ...getCsrfHeaders() },
-    credentials: "same-origin",
-  });
-
-  const data = await res.json().catch(() => null);
-
-  if (!res.ok || !data || data.success !== true) {
-    const err = data?.message || "No se pudo subir.";
-    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(err)}</span>`;
-    return false;
-  }
-
-  if (msg) {
-    msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
-      Subido (${data.saved || 0}). Estado → Por producir. Pedido desasignado.
-    </span>`;
-  }
-
-  return true;
-}
-
-// =========================
-// ✅ Upload MODIFICADA (por item)
-// =========================
-const modState = new Map(); // key: `${orderId}:${itemIndex}` -> File
-
-function modKey(orderId, itemIndex) {
-  return `${String(orderId)}:${String(itemIndex)}`;
-}
-
-async function subirImagenModificada(orderId, itemIndex, file) {
-  const fd = new FormData();
-  fd.append("order_id", String(orderId));
-  fd.append("item_index", String(itemIndex));
-  fd.append("file", file);
-
-  const res = await fetch(ENDPOINT_UPLOAD_MODIFICADA, {
-    method: "POST",
-    body: fd,
-    headers: { ...getCsrfHeaders() },
-    credentials: "same-origin",
-  });
-
-  const data = await res.json().catch(() => null);
-  if (!res.ok || !data || data.success !== true) {
-    return { ok: false, message: data?.message || "No se pudo subir la imagen." };
-  }
-  return { ok: true, url: data.url, file: data.file || null };
-}
-
-function initModificadaDropzones() {
-  // toggle abrir/cerrar
-  document.querySelectorAll("[data-mod-toggle='1']").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const orderId = btn.getAttribute("data-order-id");
-      const itemIndex = btn.getAttribute("data-item-index");
-      const zone = document.querySelector(
-        `[data-mod-zone='1'][data-order-id="${CSS.escape(orderId)}"][data-item-index="${CSS.escape(itemIndex)}"]`
-      );
-      if (!zone) return;
-      zone.classList.toggle("hidden");
-    });
-  });
-
-  // init dropzone por item
-  document.querySelectorAll("[data-mod-zone='1']").forEach(zone => {
-    const orderId = zone.getAttribute("data-order-id");
-    const itemIndex = zone.getAttribute("data-item-index");
-    const key = modKey(orderId, itemIndex);
-
-    const box = zone.querySelector(".border-dashed");
-    const input = zone.querySelector("[data-mod-input='1']");
-    const preview = zone.querySelector("[data-mod-preview='1']");
-    const btnUpload = zone.querySelector("[data-mod-upload='1']");
-    const btnClear = zone.querySelector("[data-mod-clear='1']");
-    const msg = zone.querySelector("[data-mod-msg='1']");
-
-    if (!box || !input || !preview || !btnUpload || !btnClear || !msg) return;
-
-    const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
-    const highlight = (on) => {
-      box.classList.toggle("ring-2", on);
-      box.classList.toggle("ring-blue-600", on);
-      box.classList.toggle("bg-blue-50", on);
-    };
-
-    function setMsg(text, cls) {
-      msg.classList.remove("hidden", "text-rose-600", "text-emerald-700", "text-slate-600");
-      msg.classList.add(cls || "text-slate-600");
-      msg.textContent = text || "";
-      if (!text) msg.classList.add("hidden");
-    }
-
-    function setFile(file) {
-      if (!file) {
-        modState.delete(key);
-        preview.classList.add("hidden");
-        preview.innerHTML = "";
-        btnUpload.disabled = true;
-        btnClear.disabled = true;
-        setMsg("", "");
-        return;
-      }
-
-      modState.set(key, file);
-      const url = URL.createObjectURL(file);
-      preview.classList.remove("hidden");
-      preview.innerHTML = `
-        <div class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
-          <img src="${escapeHtml(url)}" class="h-16 w-16 rounded-2xl object-cover border border-slate-200" />
-          <div class="min-w-0">
-            <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(file.name)}</div>
-            <div class="text-xs text-slate-600">${escapeHtml(file.type || "image")} · ${escapeHtml(String(file.size || ""))}</div>
-          </div>
-        </div>
-      `;
-      btnUpload.disabled = false;
-      btnClear.disabled = false;
-      setMsg("", "");
-    }
-
-    ["dragenter", "dragover", "dragleave", "drop"].forEach(ev => box.addEventListener(ev, prevent));
-    box.addEventListener("dragenter", () => highlight(true));
-    box.addEventListener("dragover", () => highlight(true));
-    box.addEventListener("dragleave", () => highlight(false));
-
-    box.addEventListener("drop", (e) => {
-      highlight(false);
-      const file = (e.dataTransfer?.files && e.dataTransfer.files[0]) ? e.dataTransfer.files[0] : null;
-      if (!file) return;
-      if (!(file.type || "").startsWith("image/")) {
-        setMsg("Solo se permiten imágenes.", "text-rose-600");
-        return;
-      }
-      setFile(file);
-    });
-
-    box.addEventListener("click", () => input.click());
-    input.addEventListener("change", () => {
-      const file = input.files && input.files[0] ? input.files[0] : null;
-      input.value = "";
-      if (!file) return;
-      if (!(file.type || "").startsWith("image/")) {
-        setMsg("Solo se permiten imágenes.", "text-rose-600");
-        return;
-      }
-      setFile(file);
-    });
-
-    btnClear.addEventListener("click", () => setFile(null));
-
-    btnUpload.addEventListener("click", async () => {
-      const file = modState.get(key);
-      if (!file) return;
-
-      btnUpload.disabled = true;
-      setMsg("Subiendo...", "text-slate-600");
-
-      const r = await subirImagenModificada(orderId, itemIndex, file);
-      if (!r.ok) {
-        btnUpload.disabled = false;
-        setMsg(r.message || "Error subiendo.", "text-rose-600");
-        return;
-      }
-
-      // actualiza imagen en UI
-      const img = document.querySelector(
-        `[data-mod-img='1'][data-order-id="${CSS.escape(orderId)}"][data-item-index="${CSS.escape(itemIndex)}"]`
-      );
-      if (img) img.src = r.url;
-
-      // muestra contenedor si estaba oculto
-      const imgWrap = img?.closest(".mt-2");
-      if (imgWrap) imgWrap.classList.remove("hidden");
-
-      setMsg("Listo. Imagen modificada actualizada.", "text-emerald-700");
-
-      setFile(null);
-      zone.classList.add("hidden");
-
-      // opcional: refresca cola (por si cambia estado/etiquetas)
-      // await cargarMiCola();
-    });
-  });
-}
-
-// =========================
-// ✅ Drag & Drop (upload GENERAL)
-// =========================
-let generalSelectedFiles = [];
-
-function humanFileSize(bytes) {
-  const n = Number(bytes || 0);
-  if (!n) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0, v = n;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-function uniqFiles(files) {
-  const seen = new Set();
-  const out = [];
-  for (const f of files) {
-    const k = `${f.name}|${f.size}|${f.lastModified}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(f);
-  }
-  return out;
-}
-
-function setGeneralSelectedFiles(files) {
-  generalSelectedFiles = uniqFiles(files || []);
-  renderGeneralSelectedFiles();
-}
-
-function renderGeneralSelectedFiles() {
-  const list = $("generalSelectedList");
-  if (!list) return;
-
-  if (!generalSelectedFiles.length) {
-    list.innerHTML = `<div class="text-xs text-slate-500">No hay archivos seleccionados.</div>`;
-    return;
-  }
-
-  list.innerHTML = generalSelectedFiles.map((f, idx) => {
-    const isImg = (f.type || "").startsWith("image/");
-    const thumb = isImg
-      ? `<img src="${URL.createObjectURL(f)}" class="h-12 w-12 rounded-2xl object-cover border border-slate-200" />`
-      : `<div class="h-12 w-12 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-400">📄</div>`;
-
-    return `
-      <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
-        <div class="flex items-center gap-3 min-w-0">
-          ${thumb}
-          <div class="min-w-0">
-            <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(f.name)}</div>
-            <div class="text-xs text-slate-600">${escapeHtml(f.type || "—")} · ${escapeHtml(humanFileSize(f.size))}</div>
-          </div>
-        </div>
-        <button type="button"
-          data-general-remove="${idx}"
-          class="shrink-0 px-3 py-2 rounded-2xl bg-slate-900 text-white font-extrabold text-xs hover:bg-black">
-          Quitar
-        </button>
-      </div>
-    `;
-  }).join("");
-
-  list.querySelectorAll("[data-general-remove]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const i = Number(btn.getAttribute("data-general-remove"));
-      if (!Number.isFinite(i)) return;
-      generalSelectedFiles.splice(i, 1);
-      renderGeneralSelectedFiles();
-    });
-  });
-}
-
-function ensureGeneralDropzoneMarkup() {
-  const form = $("formGeneralUpload");
-  const input = $("generalFiles");
-  if (!form || !input) return;
-
-  // si ya existe, no duplicar
-  if ($("generalDropzone")) return;
-
-  // intenta ponerlo cerca del input
-  const wrap = document.createElement("div");
-  wrap.id = "generalDropzone";
-  wrap.className = "mt-3 rounded-3xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 cursor-pointer hover:bg-slate-100 transition";
-
-  wrap.innerHTML = `
-    <div class="text-sm font-extrabold text-slate-900">Arrastra aquí los archivos</div>
-    <div class="text-xs text-slate-600 mt-1">o haz click para seleccionarlos</div>
-
-    <div id="generalSelectedList" class="mt-3 space-y-2"></div>
-
-    <div class="mt-3 flex gap-2">
-      <button type="button" id="generalClearFiles"
-        class="px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
-        Quitar selección
-      </button>
-    </div>
-  `;
-
-  // inserta después del input si se puede, si no al final del form
-  if (input.parentElement) input.parentElement.insertAdjacentElement("afterend", wrap);
-  else form.appendChild(wrap);
-
-  // opcional: ocultar el input original (sigue funcionando)
-  // input.classList.add("hidden");
-}
-
-function initGeneralDropzone() {
-  ensureGeneralDropzoneMarkup();
-
-  const dz = $("generalDropzone");
-  const input = $("generalFiles");
-  const clearBtn = $("generalClearFiles");
-  const list = $("generalSelectedList");
-
-  if (!dz || !input || !list) return;
-
-  const prevent = (e) => { e.preventDefault(); e.stopPropagation(); };
-
-  const highlight = (on) => {
-    dz.classList.toggle("ring-2", on);
-    dz.classList.toggle("ring-blue-600", on);
-    dz.classList.toggle("bg-blue-50", on);
-  };
-
-  ["dragenter", "dragover", "dragleave", "drop"].forEach(ev => dz.addEventListener(ev, prevent));
-
-  dz.addEventListener("dragenter", () => highlight(true));
-  dz.addEventListener("dragover", () => highlight(true));
-  dz.addEventListener("dragleave", () => highlight(false));
-
-  dz.addEventListener("drop", (e) => {
-    highlight(false);
-    const files = Array.from(e.dataTransfer?.files || []);
-    if (!files.length) return;
-    setGeneralSelectedFiles([...generalSelectedFiles, ...files]);
-  });
-
-  dz.addEventListener("click", () => input.click());
-
-  input.addEventListener("change", () => {
-    const files = Array.from(input.files || []);
-    if (!files.length) return;
-    setGeneralSelectedFiles([...generalSelectedFiles, ...files]);
-    input.value = ""; // permite re-elegir el mismo archivo
-  });
-
-  clearBtn?.addEventListener("click", () => {
-    setGeneralSelectedFiles([]);
-    input.value = "";
-  });
-
-  renderGeneralSelectedFiles();
-}
 
 // =========================
 // Eventos
@@ -1508,16 +1506,12 @@ function bindEventos() {
   $("formGeneralUpload")?.addEventListener("submit", async (e) => {
     e.preventDefault();
 
-    // ✅ usa el hidden si existe, si no cae al último id abierto
     const orderId = $("generalOrderId")?.value || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId;
     const input = $("generalFiles");
-
-    const filesToSend = generalSelectedFiles.length
-      ? generalSelectedFiles
-      : Array.from(input?.files || []);
+    const files = input?.files;
 
     if (!orderId) return;
-    if (!filesToSend.length) {
+    if (!files || !files.length) {
       const msg = $("generalUploadMsg");
       if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona uno o más archivos.</span>`;
       return;
@@ -1525,18 +1519,17 @@ function bindEventos() {
 
     setLoader(true);
     try {
-      const ok = await subirArchivosGenerales(orderId, filesToSend);
+      const ok = await subirArchivosGenerales(orderId, files);
       if (!ok) return;
 
       await cargarArchivosGenerales(orderId, {
         fallbackKey: currentDetallesPedidoId,
         extraFallbackKey: currentDetallesShopifyId,
+        extraFallbackKey2: currentDetallesOrderId,
       });
 
       await cargarMiCola();
     } finally {
-      generalSelectedFiles = [];
-      renderGeneralSelectedFiles();
       if (input) input.value = "";
       setLoader(false);
     }
@@ -1553,9 +1546,6 @@ function bindEventos() {
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") cerrarDetallesFull();
   });
-
-  // ✅ iniciar drag&drop general (se inyecta markup si falta)
-  initGeneralDropzone();
 }
 
 // =========================

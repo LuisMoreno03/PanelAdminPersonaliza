@@ -8,8 +8,8 @@
   <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- ❌ IMPORTANTE: NO cargues Alpine aquí si tu panel ya lo carga -->
-  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script> 
+  <!-- Alpine.js (CDN) -->
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
   <meta name="color-scheme" content="light" />
 
@@ -35,11 +35,11 @@
             base: "<?= base_url() ?>",
             endpoints: {
               tickets: "<?= base_url('soporte/tickets') ?>",
-              ticket:  "<?= base_url('soporte/ticket') ?>",
+              ticket:  "<?= base_url('soporte/ticket/') ?>",
               create:  "<?= base_url('soporte/ticket') ?>",
-              message: "<?= base_url('soporte/ticket') ?>",
-              assign:  "<?= base_url('soporte/ticket') ?>",
-              status:  "<?= base_url('soporte/ticket') ?>",
+              message: "<?= base_url('soporte/ticket/') ?>",
+              assign:  "<?= base_url('soporte/ticket/') ?>",
+              status:  "<?= base_url('soporte/ticket/') ?>",
               attachment: "<?= base_url('soporte/attachment') ?>"
             }
           };
@@ -65,7 +65,8 @@
                 </div>
                 <div class="min-w-0">
                   <div class="font-extrabold text-slate-900 leading-tight truncate">Soporte</div>
-                  <div class="text-xs text-slate-500 truncate" x-text="isAdmin ? 'Vista Admin (todos los tickets)' : 'Mis tickets (producción)'"></div>
+                  <div class="text-xs text-slate-500 truncate"
+                       x-text="isAdmin ? 'Vista Admin (todos los tickets)' : 'Mis tickets (producción)'"></div>
                 </div>
               </div>
 
@@ -133,40 +134,39 @@
             <!-- lista -->
             <div class="flex-1 overflow-auto">
               <template x-for="(t, i) in filteredTickets" :key="t.id ?? t.ticket_code ?? i">
-
                 <button
                   type="button"
-                  @click="openTicket(t.id)"
+                  @click="t?.id ? openTicket(t.id) : null"
                   class="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition flex items-start gap-3"
-                  :class="selectedTicketId===t.id ? 'bg-slate-50' : ''"
+                  :class="selectedTicketId===t?.id ? 'bg-slate-50' : ''"
                 >
                   <div class="h-11 w-11 rounded-full bg-slate-200 grid place-items-center font-extrabold text-slate-700 shrink-0">#</div>
 
                   <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-2">
-                      <div class="font-bold text-slate-900 truncate" x-text="t.ticket_code"></div>
+                      <div class="font-bold text-slate-900 truncate" x-text="t?.ticket_code || '—'"></div>
 
                       <span
                         class="text-[11px] font-semibold px-2 py-1 rounded-lg"
-                        :class="badgeClass(t.status)"
-                        x-text="statusLabel(t.status)"
+                        :class="badgeClass(t?.status)"
+                        x-text="statusLabel(t?.status)"
                       ></span>
                     </div>
 
                     <div class="text-xs text-slate-500 mt-1 truncate">
-                      <template x-if="t.order_id">
+                      <template x-if="t?.order_id">
                         <span>Pedido: <span class="font-semibold" x-text="t.order_id"></span></span>
                       </template>
-                      <template x-if="!t.order_id">
+                      <template x-if="!t?.order_id">
                         <span>—</span>
                       </template>
                     </div>
 
                     <div class="text-xs text-slate-500 mt-1" x-show="isAdmin">
-                      <template x-if="t.assigned_to">
+                      <template x-if="t?.assigned_to">
                         <span>Aceptado por <span class="font-semibold" x-text="t.assigned_name || ('#'+t.assigned_to)"></span></span>
                       </template>
-                      <template x-if="!t.assigned_to">
+                      <template x-if="!t?.assigned_to">
                         <span class="text-amber-700 font-semibold">Sin asignar</span>
                       </template>
                     </div>
@@ -196,22 +196,22 @@
 
                 <div class="min-w-0">
                   <div class="font-extrabold text-slate-900 truncate">
-                    <span x-show="ticket" x-text="ticket.ticket_code"></span>
+                    <span x-show="ticket" x-text="ticket?.ticket_code || ''"></span>
                     <span x-show="isCreating" class="text-slate-600">Nuevo ticket</span>
                     <span x-show="!ticket && !isCreating" class="text-slate-600">Selecciona un ticket</span>
                   </div>
 
                   <div class="text-xs text-slate-600 truncate" x-show="ticket">
-                    <span class="font-semibold" x-text="statusLabel(ticket.status)"></span>
+                    <span class="font-semibold" x-text="statusLabel(ticket?.status)"></span>
 
-                    <span x-show="ticket.order_id">
-                      · Pedido: <span class="font-semibold" x-text="ticket.order_id"></span>
+                    <span x-show="ticket?.order_id">
+                      · Pedido: <span class="font-semibold" x-text="ticket?.order_id"></span>
                     </span>
 
-                    <span x-show="ticket.assigned_to">
+                    <span x-show="ticket?.assigned_to">
                       · Aceptado por
-                      <span class="font-semibold" x-text="ticket.assigned_name || ('#'+ticket.assigned_to)"></span>
-                      · <span class="font-semibold" x-text="formatDT(ticket.assigned_at)"></span>
+                      <span class="font-semibold" x-text="ticket?.assigned_name || ('#'+ticket?.assigned_to)"></span>
+                      · <span class="font-semibold" x-text="ticket?.assigned_at ? formatDT(ticket.assigned_at) : ''"></span>
                     </span>
                   </div>
                 </div>
@@ -220,7 +220,7 @@
               <div class="flex items-center gap-2" x-show="ticket && isAdmin">
                 <button
                   type="button"
-                  x-show="ticket && !ticket.assigned_to"
+                  x-show="ticket && !ticket?.assigned_to"
                   @click="acceptCase()"
                   class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:opacity-90"
                 >
@@ -331,6 +331,6 @@
   </main>
 
   <!-- JS del chat (tu archivo) -->
-  <script src="<?= base_url('js/support-chat.js') ?>"></script>
+  <script src="<?= base_url('js/support-chat.js') ?>?v=<?= time() ?>"></script>
 </body>
 </html>
