@@ -376,7 +376,7 @@ function estadoStyle(estado) {
   const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
 
   if (s.includes("por preparar")) {
-    return { label, icon: "⏳", wrap: `${base} bg-slate-900 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
+    return { label, icon: "⏳", wrap: `${base} bg-gray-600 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
   if (s.includes("faltan archivos")) {
     return { label, icon: "⚠️", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
