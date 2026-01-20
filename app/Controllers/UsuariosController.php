@@ -11,7 +11,7 @@ class UsuariosController extends BaseController
 
   public function index()
 {
- return view('usuarios/index');
+ return view('usuarios');
  
  }
 
