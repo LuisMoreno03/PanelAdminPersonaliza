@@ -2,384 +2,296 @@
 
 namespace App\Controllers;
 
-use CodeIgniter\Controller;
+use CodeIgniter\HTTP\ResponseInterface;
 
-class SupportController extends Controller
+class SoporteController extends BaseController
 {
-    /**
-     * AJUSTA ESTO SI TU TABLA DE USUARIOS SE LLAMA DIFERENTE
-     * (solo se usa para mostrar nombres en el UI).
-     */
-    private string $usersTable = 'usuarios';     // <-- cambia si aplica
-    private string $usersIdCol = 'id';
-    private string $usersNameCol = 'nombre';
+  protected $db;
 
-    // =========================
-    // Helpers de sesión/rol
-    // =========================
-    private function userId(): int
-    {
-        // AJUSTA si tu sesión usa otra llave
-        return (int) (session('user_id') ?? 0);
+  public function __construct()
+  {
+    $this->db = \Config\Database::connect();
+  }
+
+  public function chat()
+  {
+    return view('soporte/chat');
+  }
+
+  // ✅ ESTE es el endpoint que ahora te da 500
+  public function tickets()
+  {
+    try {
+      $role   = session('rol') ?? '';
+      $userId = (int)(session('user_id') ?? 0);
+
+      $b = $this->db->table('support_tickets');
+      $b->select('id, ticket_code, order_id, status, user_id, assigned_to, assigned_at, updated_at, created_at');
+
+      if ($role !== 'admin') {
+        // produccion solo ve sus tickets
+        $b->where('user_id', $userId);
+      }
+
+      $b->orderBy('updated_at', 'DESC');
+
+      $tickets = $b->get()->getResultArray();
+
+      return $this->response->setJSON($tickets);
+
+    } catch (\Throwable $e) {
+      log_message('error', 'tickets() error: {msg}', ['msg' => $e->getMessage()]);
+      return $this->response->setStatusCode(500)->setJSON([
+        'error' => 'Error interno en tickets()'
+      ]);
     }
+  }
 
-    private function role(): string
-    {
-        // AJUSTA si tu sesión usa otra llave
-        return (string) (session('rol') ?? '');
+  public function ticket($id)
+  {
+    try {
+      $role   = session('rol') ?? '';
+      $userId = (int)(session('user_id') ?? 0);
+
+      $t = $this->db->table('support_tickets')->where('id', (int)$id)->get()->getRowArray();
+      if (!$t) {
+        return $this->response->setStatusCode(404)->setJSON(['error' => 'Ticket no encontrado']);
+      }
+
+      // permiso: produccion solo su ticket
+      if ($role !== 'admin' && (int)$t['user_id'] !== $userId) {
+        return $this->response->setStatusCode(403)->setJSON(['error' => 'Sin permisos']);
+      }
+
+      $msgs = $this->db->table('support_messages')
+        ->where('ticket_id', (int)$id)
+        ->orderBy('id', 'ASC')
+        ->get()->getResultArray();
+
+      $atts = $this->db->table('support_attachments')
+        ->where('ticket_id', (int)$id)
+        ->orderBy('id', 'ASC')
+        ->get()->getResultArray();
+
+      // agrupar attachments por message_id (tu frontend espera attachments[m.id])
+      $grouped = [];
+      foreach ($atts as $a) {
+        $mid = (int)($a['message_id'] ?? 0);
+        if (!isset($grouped[$mid])) $grouped[$mid] = [];
+        $grouped[$mid][] = $a;
+      }
+
+      return $this->response->setJSON([
+        'ticket' => $t,
+        'messages' => $msgs,
+        'attachments' => $grouped
+      ]);
+
+    } catch (\Throwable $e) {
+      log_message('error', 'ticket($id) error: {msg}', ['msg' => $e->getMessage()]);
+      return $this->response->setStatusCode(500)->setJSON(['error' => 'Error interno abriendo ticket']);
     }
+  }
 
-    private function isAdmin(): bool
-    {
-        return $this->role() === 'admin';
-    }
+  // crear ticket (solo produccion)
+  public function create()
+  {
+    try {
+      $role   = session('rol') ?? '';
+      $userId = (int)(session('user_id') ?? 0);
 
-    private function requireLogin()
-    {
-        if ($this->userId() <= 0) {
-            return $this->response->setStatusCode(401)->setJSON(['error' => 'Not authenticated']);
-        }
-        return null;
-    }
+      if ($role === 'admin') {
+        return $this->response->setStatusCode(403)->setJSON(['error' => 'Admin no crea tickets']);
+      }
 
-    private function canSeeTicketRow(array $ticket): bool
-    {
-        return $this->isAdmin() || ((int)$ticket['user_id'] === $this->userId());
-    }
+      $message = trim((string)$this->request->getPost('message'));
+      $orderId = trim((string)$this->request->getPost('order_id'));
 
-    // =========================
-    // Vista
-    // =========================
-    public function chat()
-    {
-        if ($resp = $this->requireLogin()) return $resp;
-        return view('soporte/chat');
-    }
+      if ($message === '' && empty($_FILES['images'])) {
+        return $this->response->setStatusCode(400)->setJSON(['error' => 'Mensaje o imagen requerida']);
+      }
 
-    // =========================
-    // Listar tickets (admin todos / produccion solo propios)
-    // =========================
-    public function tickets()
-    {
-        if ($resp = $this->requireLogin()) return $resp;
+      $code = 'T' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(3)));
 
-        $db = db_connect();
-        $builder = $db->table('support_tickets t')
-            ->select('t.id, t.ticket_code, t.order_id, t.status, t.created_at, t.updated_at, t.assigned_to, t.assigned_at')
-            ->orderBy('t.updated_at', 'DESC');
+      $now = date('Y-m-d H:i:s');
 
-        if (!$this->isAdmin()) {
-            $builder->where('t.user_id', $this->userId());
-        }
+      $this->db->transStart();
 
-        // Traer nombres si existe tabla usuarios
-        // Si tu tabla no existe o no quieres, puedes comentar estas 2 líneas.
-        $builder->select("a.{$this->usersNameCol} AS assigned_name");
-        $builder->join("{$this->usersTable} a", "a.{$this->usersIdCol} = t.assigned_to", 'left');
+      $this->db->table('support_tickets')->insert([
+        'ticket_code' => $code,
+        'user_id' => $userId,
+        'order_id' => $orderId ?: null,
+        'status' => 'open',
+        'created_at' => $now,
+        'updated_at' => $now
+      ]);
 
-        $rows = $builder->get()->getResultArray();
-        return $this->response->setJSON($rows);
-    }
+      $ticketId = (int)$this->db->insertID();
 
-    // =========================
-    // Ver ticket + mensajes + adjuntos
-    // =========================
-    public function ticket($id)
-    {
-        if ($resp = $this->requireLogin()) return $resp;
+      $this->db->table('support_messages')->insert([
+        'ticket_id' => $ticketId,
+        'sender' => 'user',
+        'message' => $message,
+        'created_at' => $now
+      ]);
+      $msgId = (int)$this->db->insertID();
 
-        $db = db_connect();
+      // imágenes
+      $files = $this->request->getFiles();
+      $imgs = $files['images'] ?? [];
 
-        $ticketBuilder = $db->table('support_tickets t')
-            ->select('t.*')
-            ->where('t.id', (int)$id);
+      if (!is_array($imgs)) $imgs = [$imgs];
 
-        // nombres (opcional)
-        $ticketBuilder->select("u.{$this->usersNameCol} AS created_name");
-        $ticketBuilder->join("{$this->usersTable} u", "u.{$this->usersIdCol} = t.user_id", 'left');
-        $ticketBuilder->select("a.{$this->usersNameCol} AS assigned_name");
-        $ticketBuilder->join("{$this->usersTable} a", "a.{$this->usersIdCol} = t.assigned_to", 'left');
+      foreach ($imgs as $img) {
+        if (!$img || !$img->isValid()) continue;
 
-        $ticket = $ticketBuilder->get()->getRowArray();
-        if (!$ticket) return $this->response->setStatusCode(404)->setJSON(['error' => 'Not found']);
+        $newName = $img->getRandomName();
+        $img->move(WRITEPATH . 'uploads/support', $newName);
 
-        if (!$this->canSeeTicketRow($ticket)) {
-            return $this->response->setStatusCode(403)->setJSON(['error' => 'Forbidden']);
-        }
-
-        $messages = $db->table('support_messages')
-            ->where('ticket_id', (int)$id)
-            ->orderBy('created_at', 'ASC')
-            ->get()->getResultArray();
-
-        $msgIds = array_column($messages, 'id');
-        $attachmentsByMsg = [];
-
-        if (!empty($msgIds)) {
-            $atts = $db->table('support_attachments')
-                ->whereIn('message_id', $msgIds)
-                ->get()->getResultArray();
-
-            foreach ($atts as $a) {
-                $attachmentsByMsg[$a['message_id']][] = $a;
-            }
-        }
-
-        return $this->response->setJSON([
-            'ticket' => $ticket,
-            'messages' => $messages,
-            'attachments' => $attachmentsByMsg
+        $this->db->table('support_attachments')->insert([
+          'ticket_id' => $ticketId,
+          'message_id' => $msgId,
+          'filename' => $newName,
+          'mime' => $img->getMimeType(),
+          'created_at' => $now
         ]);
+      }
+
+      $this->db->transComplete();
+
+      if ($this->db->transStatus() === false) {
+        return $this->response->setStatusCode(500)->setJSON(['error' => 'No se pudo crear el ticket']);
+      }
+
+      return $this->response->setJSON(['ticket_id' => $ticketId]);
+
+    } catch (\Throwable $e) {
+      log_message('error', 'create() error: {msg}', ['msg' => $e->getMessage()]);
+      return $this->response->setStatusCode(500)->setJSON(['error' => 'Error interno creando ticket']);
+    }
+  }
+
+  public function message($id)
+  {
+    try {
+      $role   = session('rol') ?? '';
+      $userId = (int)(session('user_id') ?? 0);
+      $id = (int)$id;
+
+      $t = $this->db->table('support_tickets')->where('id', $id)->get()->getRowArray();
+      if (!$t) return $this->response->setStatusCode(404)->setJSON(['error' => 'Ticket no existe']);
+
+      if ($role !== 'admin' && (int)$t['user_id'] !== $userId) {
+        return $this->response->setStatusCode(403)->setJSON(['error' => 'Sin permisos']);
+      }
+
+      $message = trim((string)$this->request->getPost('message'));
+      if ($message === '' && empty($_FILES['images'])) {
+        return $this->response->setStatusCode(400)->setJSON(['error' => 'Mensaje o imagen requerida']);
+      }
+
+      $now = date('Y-m-d H:i:s');
+
+      $sender = ($role === 'admin') ? 'admin' : 'user';
+
+      $this->db->transStart();
+
+      $this->db->table('support_messages')->insert([
+        'ticket_id' => $id,
+        'sender' => $sender,
+        'message' => $message,
+        'created_at' => $now
+      ]);
+      $msgId = (int)$this->db->insertID();
+
+      // imágenes
+      $files = $this->request->getFiles();
+      $imgs = $files['images'] ?? [];
+      if (!is_array($imgs)) $imgs = [$imgs];
+
+      foreach ($imgs as $img) {
+        if (!$img || !$img->isValid()) continue;
+
+        $newName = $img->getRandomName();
+        $img->move(WRITEPATH . 'uploads/support', $newName);
+
+        $this->db->table('support_attachments')->insert([
+          'ticket_id' => $id,
+          'message_id' => $msgId,
+          'filename' => $newName,
+          'mime' => $img->getMimeType(),
+          'created_at' => $now
+        ]);
+      }
+
+      // tocar updated_at
+      $this->db->table('support_tickets')->where('id', $id)->update(['updated_at' => $now]);
+
+      $this->db->transComplete();
+
+      return $this->response->setJSON(['ok' => true]);
+
+    } catch (\Throwable $e) {
+      log_message('error', 'message() error: {msg}', ['msg' => $e->getMessage()]);
+      return $this->response->setStatusCode(500)->setJSON(['error' => 'Error interno enviando mensaje']);
+    }
+  }
+
+  // admin acepta caso
+  public function assign($id)
+  {
+    $role = session('rol') ?? '';
+    if ($role !== 'admin') {
+      return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
     }
 
-    // =========================
-    // Crear ticket (SOLO produccion)
-    // =========================
-    public function createTicket()
-    {
-        if ($resp = $this->requireLogin()) return $resp;
+    $adminId = (int)(session('user_id') ?? 0);
+    $now = date('Y-m-d H:i:s');
 
-        if ($this->isAdmin()) {
-            return $this->response->setStatusCode(403)->setJSON(['error' => 'Admins no crean tickets']);
-        }
+    $this->db->table('support_tickets')->where('id', (int)$id)->update([
+      'assigned_to' => $adminId,
+      'assigned_at' => $now,
+      'updated_at' => $now
+    ]);
 
-        $db = db_connect();
-        $message = trim((string)$this->request->getPost('message'));
-        $orderId = trim((string)$this->request->getPost('order_id'));
+    return $this->response->setJSON(['ok' => true]);
+  }
 
-        // permitir ticket con solo imagen o solo texto
-        $hasFiles = !empty($this->request->getFiles()['images'] ?? null);
-        if ($message === '' && !$hasFiles) {
-            return $this->response->setStatusCode(422)->setJSON(['error' => 'Escribe un mensaje o adjunta una imagen']);
-        }
-
-        $now = date('Y-m-d H:i:s');
-
-        $db->transStart();
-
-        $db->table('support_tickets')->insert([
-            'ticket_code' => 'TMP',
-            'user_id' => $this->userId(),
-            'order_id' => ($orderId !== '') ? $orderId : null,
-            'status' => 'open',
-            'assigned_to' => null,
-            'assigned_at' => null,
-            'created_at' => $now,
-            'updated_at' => $now
-        ]);
-        $ticketId = $db->insertID();
-
-        $code = 'TCK-' . str_pad((string)$ticketId, 6, '0', STR_PAD_LEFT);
-        $db->table('support_tickets')->where('id', $ticketId)->update(['ticket_code' => $code]);
-
-        $db->table('support_messages')->insert([
-            'ticket_id' => $ticketId,
-            'sender' => 'user',
-            'message' => ($message !== '') ? $message : null,
-            'created_at' => $now
-        ]);
-        $messageId = $db->insertID();
-
-        $this->saveImages($messageId);
-
-        $db->transComplete();
-
-        return $this->response->setJSON([
-            'ticket_id' => $ticketId,
-            'ticket_code' => $code,
-            'status' => 'open'
-        ]);
+  public function status($id)
+  {
+    $role = session('rol') ?? '';
+    if ($role !== 'admin') {
+      return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
     }
 
-    // =========================
-    // Enviar mensaje (admin a cualquiera / produccion solo propios)
-    // =========================
-    public function sendMessage($ticketId)
-    {
-        if ($resp = $this->requireLogin()) return $resp;
-
-        $db = db_connect();
-        $ticket = $db->table('support_tickets')->where('id', (int)$ticketId)->get()->getRowArray();
-        if (!$ticket) return $this->response->setStatusCode(404)->setJSON(['error' => 'Not found']);
-
-        if (!$this->canSeeTicketRow($ticket)) {
-            return $this->response->setStatusCode(403)->setJSON(['error' => 'Forbidden']);
-        }
-
-        $message = trim((string)$this->request->getPost('message'));
-        $hasFiles = !empty($this->request->getFiles()['images'] ?? null);
-
-        if ($message === '' && !$hasFiles) {
-            return $this->response->setStatusCode(422)->setJSON(['error' => 'Mensaje vacío']);
-        }
-
-        $now = date('Y-m-d H:i:s');
-        $sender = $this->isAdmin() ? 'support' : 'user';
-
-        $db->transStart();
-
-        $db->table('support_messages')->insert([
-            'ticket_id' => (int)$ticketId,
-            'sender' => $sender,
-            'message' => ($message !== '') ? $message : null,
-            'created_at' => $now
-        ]);
-        $messageId = $db->insertID();
-
-        $this->saveImages($messageId);
-
-        // Auto-cambios de estado:
-        // - Si admin responde y estaba open => in_progress
-        // - Si produccion responde y estaba waiting_customer => in_progress
-        $updates = ['updated_at' => $now];
-        if ($this->isAdmin() && $ticket['status'] === 'open') $updates['status'] = 'in_progress';
-        if (!$this->isAdmin() && $ticket['status'] === 'waiting_customer') $updates['status'] = 'in_progress';
-
-        $db->table('support_tickets')->where('id', (int)$ticketId)->update($updates);
-
-        $db->transComplete();
-
-        return $this->response->setJSON(['ok' => true]);
+    $status = (string)$this->request->getPost('status');
+    $allowed = ['open','in_progress','waiting_customer','resolved','closed'];
+    if (!in_array($status, $allowed, true)) {
+      return $this->response->setStatusCode(400)->setJSON(['error' => 'Estado inválido']);
     }
 
-    // =========================
-    // Admin: Aceptar caso (asignarse)
-    // =========================
-    public function assign($ticketId)
-    {
-        if ($resp = $this->requireLogin()) return $resp;
+    $now = date('Y-m-d H:i:s');
 
-        if (!$this->isAdmin()) {
-            return $this->response->setStatusCode(403)->setJSON(['error' => 'Forbidden']);
-        }
+    $this->db->table('support_tickets')->where('id', (int)$id)->update([
+      'status' => $status,
+      'updated_at' => $now
+    ]);
 
-        $db = db_connect();
-        $adminId = $this->userId();
-        $now = date('Y-m-d H:i:s');
+    return $this->response->setJSON(['ok' => true]);
+  }
 
-        $ticket = $db->table('support_tickets')->where('id', (int)$ticketId)->get()->getRowArray();
-        if (!$ticket) return $this->response->setStatusCode(404)->setJSON(['error' => 'Not found']);
-
-        if (!empty($ticket['assigned_to'])) {
-            return $this->response->setStatusCode(409)->setJSON(['error' => 'Ticket ya asignado']);
-        }
-
-        $db->transStart();
-
-        $db->table('support_tickets')->where('id', (int)$ticketId)->update([
-            'assigned_to' => $adminId,
-            'assigned_at' => $now,
-            'status' => 'in_progress',
-            'updated_at' => $now
-        ]);
-
-        $db->table('support_ticket_assignments')->insert([
-            'ticket_id' => (int)$ticketId,
-            'admin_id' => $adminId,
-            'assigned_at' => $now,
-            'note' => 'Aceptado por admin'
-        ]);
-
-        $db->transComplete();
-
-        return $this->response->setJSON(['ok' => true]);
+  public function attachment($id)
+  {
+    $a = $this->db->table('support_attachments')->where('id', (int)$id)->get()->getRowArray();
+    if (!$a) {
+      return $this->response->setStatusCode(404)->setBody('No encontrado');
     }
 
-    // =========================
-    // Admin: Cambiar estado (opcional pero útil)
-    // Body: status=open|in_progress|waiting_customer|resolved|closed
-    // =========================
-    public function setStatus($ticketId)
-    {
-        if ($resp = $this->requireLogin()) return $resp;
-
-        if (!$this->isAdmin()) {
-            return $this->response->setStatusCode(403)->setJSON(['error' => 'Forbidden']);
-        }
-
-        $status = (string)$this->request->getPost('status');
-        $allowed = ['open','in_progress','waiting_customer','resolved','closed'];
-        if (!in_array($status, $allowed, true)) {
-            return $this->response->setStatusCode(422)->setJSON(['error' => 'Estado inválido']);
-        }
-
-        $db = db_connect();
-        $ticket = $db->table('support_tickets')->where('id', (int)$ticketId)->get()->getRowArray();
-        if (!$ticket) return $this->response->setStatusCode(404)->setJSON(['error' => 'Not found']);
-
-        $db->table('support_tickets')->where('id', (int)$ticketId)->update([
-            'status' => $status,
-            'updated_at' => date('Y-m-d H:i:s')
-        ]);
-
-        return $this->response->setJSON(['ok' => true]);
+    $path = WRITEPATH . 'uploads/support/' . $a['filename'];
+    if (!is_file($path)) {
+      return $this->response->setStatusCode(404)->setBody('Archivo no existe');
     }
 
-    // =========================
-    // Ver adjunto (seguro)
-    // =========================
-    public function attachment($attachmentId)
-    {
-        if ($resp = $this->requireLogin()) return $resp;
-
-        $db = db_connect();
-
-        // validar que el adjunto pertenece a un ticket visible por este usuario
-        $row = $db->query("
-            SELECT a.*, t.user_id
-            FROM support_attachments a
-            JOIN support_messages m ON m.id = a.message_id
-            JOIN support_tickets t ON t.id = m.ticket_id
-            WHERE a.id = ?
-        ", [(int)$attachmentId])->getRowArray();
-
-        if (!$row) return $this->response->setStatusCode(404);
-
-        if (!$this->isAdmin() && (int)$row['user_id'] !== $this->userId()) {
-            return $this->response->setStatusCode(403);
-        }
-
-        $fullPath = WRITEPATH . 'uploads/' . $row['file_path'];
-        if (!is_file($fullPath)) return $this->response->setStatusCode(404);
-
-        return $this->response
-            ->setHeader('Content-Type', $row['mime'] ?? 'application/octet-stream')
-            ->setBody(file_get_contents($fullPath));
-    }
-
-    // =========================
-    // Guardar imágenes (privado)
-    // input name = images[]
-    // =========================
-    private function saveImages($messageId): void
-    {
-        $db = db_connect();
-        $files = $this->request->getFiles();
-        if (!isset($files['images'])) return;
-
-        $images = $files['images'];
-        if (!is_array($images)) $images = [$images];
-
-        foreach ($images as $img) {
-            if (!$img || !$img->isValid()) continue;
-
-            $mime = $img->getClientMimeType();
-            if (!in_array($mime, ['image/jpeg','image/png','image/webp'], true)) continue;
-
-            // max 5MB
-            if ($img->getSize() > 5 * 1024 * 1024) continue;
-
-            $newName = $img->getRandomName();
-            $img->move(WRITEPATH . 'uploads/support', $newName);
-
-            $db->table('support_attachments')->insert([
-                'message_id' => (int)$messageId,
-                'file_path' => 'support/' . $newName,
-                'original_name' => $img->getClientName(),
-                'mime' => $mime,
-                'size' => $img->getSize(),
-                'created_at' => date('Y-m-d H:i:s'),
-            ]);
-        }
-    }
+    return $this->response->download($path, null)->setFileName($a['filename']);
+  }
 }
