@@ -4,7 +4,6 @@ namespace App\Controllers;
 
 use CodeIgniter\Controller;
 use CodeIgniter\HTTP\ResponseInterface;
-use App\Models\PedidoImagenModel;
 use App\Models\PedidosEstadoModel;
 
 class DashboardController extends Controller
@@ -23,7 +22,7 @@ class DashboardController extends Controller
         'Enviado',
         'Repetir',
     ];
-    
+
     public function __construct()
     {
         // 1) Config/Shopify.php
@@ -59,9 +58,9 @@ class DashboardController extends Controller
             $cfg = config('Shopify');
             if (!$cfg) return;
 
-            $this->shop       = (string) ($cfg->shop ?? $cfg->SHOP ?? $this->shop);
-            $this->token      = (string) ($cfg->token ?? $cfg->TOKEN ?? $this->token);
-            $this->apiVersion = (string) ($cfg->apiVersion ?? $cfg->version ?? $cfg->API_VERSION ?? $this->apiVersion);
+            $this->shop       = (string)($cfg->shop ?? $cfg->SHOP ?? $this->shop);
+            $this->token      = (string)($cfg->token ?? $cfg->TOKEN ?? $this->token);
+            $this->apiVersion = (string)($cfg->apiVersion ?? $cfg->version ?? $cfg->API_VERSION ?? $this->apiVersion);
         } catch (\Throwable $e) {
             log_message('error', 'DashboardController loadShopifyFromConfig ERROR: ' . $e->getMessage());
         }
@@ -70,9 +69,9 @@ class DashboardController extends Controller
     private function loadShopifyFromEnv(): void
     {
         try {
-            $shop  = (string) env('SHOPIFY_STORE_DOMAIN');
-            $token = (string) env('SHOPIFY_ADMIN_TOKEN');
-            $ver   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
+            $shop  = (string)env('SHOPIFY_STORE_DOMAIN');
+            $token = (string)env('SHOPIFY_ADMIN_TOKEN');
+            $ver   = (string)(env('SHOPIFY_API_VERSION') ?: '2025-10');
 
             if (!empty(trim($shop)))  $this->shop = $shop;
             if (!empty(trim($token))) $this->token = $token;
@@ -91,9 +90,9 @@ class DashboardController extends Controller
             $cfg = require $path;
             if (!is_array($cfg)) return;
 
-            $this->shop       = (string) ($cfg['shop'] ?? $this->shop);
-            $this->token      = (string) ($cfg['token'] ?? $this->token);
-            $this->apiVersion = (string) ($cfg['apiVersion'] ?? $cfg['version'] ?? $this->apiVersion);
+            $this->shop       = (string)($cfg['shop'] ?? $this->shop);
+            $this->token      = (string)($cfg['token'] ?? $this->token);
+            $this->apiVersion = (string)($cfg['apiVersion'] ?? $cfg['version'] ?? $this->apiVersion);
         } catch (\Throwable $e) {
             log_message('error', 'DashboardController loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
         }
@@ -157,7 +156,7 @@ class DashboardController extends Controller
         }
 
         $body   = curl_exec($ch);
-        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err    = curl_error($ch);
         curl_close($ch);
 
@@ -207,7 +206,6 @@ class DashboardController extends Controller
             'en produccion'    => 'Por producir',
             'en producción'    => 'Por producir',
             'a medias'         => 'Por producir',
-            'produccion '      => 'Por producir',
 
             'enviado'          => 'Enviado',
             'entregado'        => 'Enviado',
@@ -244,6 +242,10 @@ class DashboardController extends Controller
         return date('Y-m-d H:i:s', $ts);
     }
 
+    /**
+     * ✅ Sync a tabla "pedidos" (SIN ETIQUETAS/TAGS)
+     * - Fix importante: placeholders/columnas ahora coinciden (9 columnas / 9 values)
+     */
     private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): void
     {
         if (empty($ordersRaw)) return;
@@ -263,15 +265,16 @@ class DashboardController extends Controller
                 INSERT INTO pedidos
                     (shopify_order_id, numero, cliente, total, articulos, estado_envio, forma_envio, created_at, synced_at)
                 VALUES
-                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
-                    numero      = VALUES(numero),
-                    cliente     = VALUES(cliente),
-                    total       = VALUES(total),
-                    articulos   = VALUES(articulos),
-                    estado_envio= VALUES(estado_envio),
-                    forma_envio = VALUES(forma_envio),
-                    synced_at   = VALUES(synced_at)
+                    numero       = VALUES(numero),
+                    cliente      = VALUES(cliente),
+                    total        = VALUES(total),
+                    articulos    = VALUES(articulos),
+                    estado_envio = VALUES(estado_envio),
+                    forma_envio  = VALUES(forma_envio),
+                    created_at   = VALUES(created_at),
+                    synced_at    = VALUES(synced_at)
             ";
 
             foreach ($ordersRaw as $o) {
@@ -287,7 +290,6 @@ class DashboardController extends Controller
                 }
 
                 $totalDec   = $this->moneyToDecimal($o['total_price'] ?? null);
-                $tags       = (string)($o['tags'] ?? '');
                 $articulos  = (isset($o['line_items']) && is_array($o['line_items'])) ? count($o['line_items']) : 0;
                 $estadoEnv  = (string)($o['fulfillment_status'] ?? '');
                 $formaEnvio = (!empty($o['shipping_lines'][0]['title'])) ? (string)$o['shipping_lines'][0]['title'] : '';
@@ -301,7 +303,6 @@ class DashboardController extends Controller
                     $numero,
                     $cliente,
                     $totalDec,
-                    $tags,
                     (int)$articulos,
                     $estadoEnv !== '' ? $estadoEnv : null,
                     $formaEnvio !== '' ? $formaEnvio : null,
@@ -317,14 +318,11 @@ class DashboardController extends Controller
                     else $syncDebug['inserted']++;
                 }
             }
-
         } catch (\Throwable $e) {
             $syncDebug['last_db_error'] = $e->getMessage();
             log_message('error', 'syncPedidosToDb ERROR: ' . $e->getMessage());
         }
     }
-
- 
 
     // ============================================================
     // VISTA PRINCIPAL
@@ -336,6 +334,9 @@ class DashboardController extends Controller
             return redirect()->to('/');
         }
 
+        // Si aquí renderizas una vista, cámbiala por la tuya:
+        // return view('dashboard/index');
+        return view('dashboard');
     }
 
     // ============================================================
@@ -362,13 +363,13 @@ class DashboardController extends Controller
         }
 
         try {
-            $pageInfo = (string) ($this->request->getGet('page_info') ?? '');
+            $pageInfo = (string)($this->request->getGet('page_info') ?? '');
             $limit    = 50;
 
-            $page = (int) ($this->request->getGet('page') ?? 1);
+            $page = (int)($this->request->getGet('page') ?? 1);
             if ($page < 1) $page = 1;
 
-            $debug = (string) ($this->request->getGet('debug') ?? '');
+            $debug = (string)($this->request->getGet('debug') ?? '');
             $debugEnabled = ($debug === '1' || $debug === 'true');
 
             if (!$this->shop || !$this->token) {
@@ -392,7 +393,7 @@ class DashboardController extends Controller
                 $countJson = json_decode($countRaw, true) ?: [];
 
                 if ($countStatus >= 200 && $countStatus < 300) {
-                    $totalOrders = (int) ($countJson['count'] ?? 0);
+                    $totalOrders = (int)($countJson['count'] ?? 0);
                     cache()->save($cacheKey, $totalOrders, 300);
                 } else {
                     $totalOrders = 0;
@@ -400,7 +401,7 @@ class DashboardController extends Controller
                 }
             }
 
-            $totalPages = $totalOrders > 0 ? (int) ceil($totalOrders / $limit) : null;
+            $totalPages = $totalOrders > 0 ? (int)ceil($totalOrders / $limit) : null;
 
             if ($pageInfo !== '') {
                 $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
@@ -460,7 +461,6 @@ class DashboardController extends Controller
 
             $orders = [];
             foreach ($ordersRaw as $o) {
-                // ✅ FIX: asegurar string limpio
                 $orderId = trim((string)($o['id'] ?? ''));
 
                 $numero = $o['name'] ?? ('#' . ($o['order_number'] ?? $orderId));
@@ -485,8 +485,8 @@ class DashboardController extends Controller
                     'cliente'      => $cliente,
                     'total'        => $total,
                     'estado'       => 'Por preparar',
-                    'estado_bd'    => null,         // opcional
-                    'estado_html'  => null,       // opcional
+                    'estado_bd'    => null,
+                    'estado_html'  => null,
                     'articulos'    => $articulos,
                     'estado_envio' => $estado_envio ?: '-',
                     'forma_envio'  => $forma_envio ?: '-',
@@ -515,11 +515,10 @@ class DashboardController extends Controller
                         if (!empty($rowEstado['estado'])) {
                             $ord2['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
                             $ord2['estado'] = strip_tags($ord2['estado']);
-                            $ord2['estado_bd'] = $ord2['estado']; // opcional para debug
+                            $ord2['estado_bd'] = $ord2['estado'];
                         }
 
                         // ✅ FIX CLAVE: tu tabla guarda fecha en "actualizado"
-                        // y estado_updated_at te sale NULL (lo vimos en tu screenshot).
                         $changedAt = $rowEstado['estado_updated_at'] ?? null;
                         if (!$changedAt && !empty($rowEstado['actualizado'])) {
                             $changedAt = $rowEstado['actualizado'];
@@ -561,7 +560,6 @@ class DashboardController extends Controller
             }
 
             return $this->response->setJSON($payload);
-
         } catch (\Throwable $e) {
             log_message('error', 'DASHBOARD PEDIDOS ERROR: ' . $e->getMessage());
 
@@ -629,13 +627,13 @@ class DashboardController extends Controller
                 (string)$userName
             );
 
-            // ✅ AQUI MISMO: guardar también en historial (solo si OK)
+            // ✅ guardar también en historial (solo si OK)
             if ($ok) {
                 $db  = \Config\Database::connect();
                 $now = date('Y-m-d H:i:s');
 
                 $db->table('pedidos_estado_historial')->insert([
-                    'order_id'    => (string)$orderId, // ideal si ya lo cambiaste a VARCHAR(64)
+                    'order_id'    => (string)$orderId,
                     'estado'      => $estado,
                     'user_id'     => $userId ? (int)$userId : null,
                     'user_name'   => (string)$userName,
@@ -650,7 +648,6 @@ class DashboardController extends Controller
                 'order_id' => $orderId,
                 'estado'   => $estado,
             ])->setStatusCode(200);
-
         } catch (\Throwable $e) {
             log_message('error', 'guardarEstadoPedido ERROR: ' . $e->getMessage());
             return $this->response->setJSON([
@@ -659,7 +656,6 @@ class DashboardController extends Controller
             ])->setStatusCode(200);
         }
     }
-
 
     // ============================================================
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
@@ -714,9 +710,8 @@ class DashboardController extends Controller
             }
 
             // ✅ 2) OVERRIDE ESTADO desde BD (pedidos_estado)
-            // Shopify no tiene tu "Por producir", esto es interno.
             try {
-                $estadoModel = new \App\Models\PedidosEstadoModel();
+                $estadoModel = new PedidosEstadoModel();
                 $rowEstado   = $estadoModel->getEstadoPedido((string)$orderId);
 
                 if (!empty($rowEstado) && !empty($rowEstado['estado'])) {
@@ -788,11 +783,10 @@ class DashboardController extends Controller
 
             return $this->response->setJSON([
                 'success'          => true,
-                'order'            => $order, // ✅ ahora viene con estado override si existe
+                'order'            => $order,
                 'product_images'   => $productImages,
                 'imagenes_locales' => $imagenesLocales,
             ]);
-
         } catch (\Throwable $e) {
             log_message('error', 'DETALLES ERROR: ' . $e->getMessage() . ' :: ' . $e->getFile() . ':' . $e->getLine());
 
@@ -803,12 +797,9 @@ class DashboardController extends Controller
         }
     }
 
-
     // ============================================================
     // ENDPOINTS
     // ============================================================
-
-    
 
     public function ping()
     {
