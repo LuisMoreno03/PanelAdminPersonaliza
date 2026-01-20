@@ -23,6 +23,22 @@
     }
     .animate-fadeIn { animation: fadeIn .18s ease-out; }
 
+    /* ✅ misma grilla para header y filas (2xl GRID) */
+    .prod-grid-cols {
+      grid-template-columns:
+        130px
+        135px
+        minmax(150px, 1fr)
+        95px
+        185px
+        145px
+        150px
+        80px
+        150px
+        150px
+        130px;
+    }
+
     /* Layout menú */
     .layout { transition: padding-left .2s ease; padding-left: 16rem; }
     .layout.menu-collapsed { padding-left: 5.25rem; }
