@@ -6,11 +6,26 @@ use CodeIgniter\HTTP\ResponseInterface;
 
 class Usuarios extends BaseController
 {
+    private string $tablaUsuarios = 'users'; // ✅ tu tabla real
+
     /**
      * GET /usuarios
-     * Lista usuarios (simple)
+     * VISTA (Dashboard), NO JSON
      */
-    public function index(): ResponseInterface
+    public function index()
+    {
+        if (!session()->get('logged_in')) {
+            return redirect()->to('/login');
+        }
+
+        return view('usuarios/index'); // ✅ aquí va tu vista bonita
+    }
+
+    /**
+     * GET /usuarios/api
+     * JSON para pintar la tabla desde la vista
+     */
+    public function apiIndex(): ResponseInterface
     {
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
@@ -19,10 +34,9 @@ class Usuarios extends BaseController
             ]);
         }
 
-        
         $db = \Config\Database::connect();
 
-        $users = $db->table('usuarios')
+        $users = $db->table($this->tablaUsuarios)
             ->select('id, nombre, role, email, created_at')
             ->orderBy('id', 'DESC')
             ->get()
@@ -37,7 +51,7 @@ class Usuarios extends BaseController
 
     /**
      * POST /usuarios/crear
-     * Crea usuario + crea tags automáticos (D./P.) según rol
+     * Crea usuario + tags
      */
     public function crear(): ResponseInterface
     {
@@ -48,7 +62,6 @@ class Usuarios extends BaseController
             ]);
         }
 
-        // Permite JSON o form-data
         $payload = $this->request->getJSON(true);
         if (!is_array($payload)) $payload = $this->request->getPost() ?: [];
 
@@ -64,7 +77,6 @@ class Usuarios extends BaseController
             ]);
         }
 
-        // roles permitidos (ajusta si quieres)
         $rolLower = mb_strtolower($rol);
         $rolesPermitidos = ['admin', 'produccion', 'producción', 'diseno', 'diseño', 'confirmacion', 'confirmación'];
         if (!in_array($rolLower, $rolesPermitidos, true)) {
@@ -84,7 +96,7 @@ class Usuarios extends BaseController
         $db = \Config\Database::connect();
 
         // evitar duplicado por email
-        $exists = $db->table('users')
+        $exists = $db->table($this->tablaUsuarios)
             ->select('id')
             ->where('email', $email)
             ->get()
@@ -99,25 +111,20 @@ class Usuarios extends BaseController
 
         $db->transStart();
 
-        // 1) Insert usuario
-    $db->table('users')->insert([
-        'nombre'     => $nombre,
-        'role'       => $rolLower, // IMPORTANTE
-        'email'      => $email,
-        'password'   => password_hash($pass, PASSWORD_DEFAULT),
-        'activo'     => 1,
-        'created_at' => date('Y-m-d H:i:s'),
-    ]);
-
+        $db->table($this->tablaUsuarios)->insert([
+            'nombre'     => $nombre,
+            'role'       => $rolLower,
+            'email'      => $email,
+            'password'   => password_hash($pass, PASSWORD_DEFAULT),
+            'activo'     => 1,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
 
         $userId = (int)$db->insertID();
 
-        // 2) Generar tags según rol
         $tags = $this->buildTagsForUser($nombre, $rol);
 
-        // 3) Guardar en user_tags
         foreach ($tags as $t) {
-            // unique key evita duplicados, pero igual lo hacemos limpio
             $db->table('user_tags')->insert([
                 'user_id' => $userId,
                 'tag' => $t,
@@ -143,7 +150,6 @@ class Usuarios extends BaseController
 
     /**
      * GET /usuarios/(:num)/tags
-     * Devuelve las etiquetas del usuario
      */
     public function tags($id = null): ResponseInterface
     {
@@ -180,17 +186,6 @@ class Usuarios extends BaseController
         ]);
     }
 
-    // =====================================================
-    // Helpers
-    // =====================================================
-
-    /**
-     * Construye tags según rol:
-     * - producción: P.Nombre
-     * - diseño: D.Nombre
-     * - confirmación: D.Nombre
-     * - admin: D.Nombre + P.Nombre
-     */
     private function buildTagsForUser(string $nombre, string $rol): array
     {
         $nombre = trim($nombre);
@@ -201,23 +196,19 @@ class Usuarios extends BaseController
 
         $tags = [];
 
-        // ✅ Producción: P + D
         if ($rol === 'produccion' || $rol === 'producción') {
             $tags[] = 'P.' . $nombreTag;
             $tags[] = 'D.' . $nombreTag;
         }
 
-        // Diseño: solo D
         if ($rol === 'diseno' || $rol === 'diseño') {
             $tags[] = 'D.' . $nombreTag;
         }
 
-        // Confirmación: D
         if ($rol === 'confirmacion' || $rol === 'confirmación') {
             $tags[] = 'D.' . $nombreTag;
         }
 
-        // Admin: ambas
         if ($rol === 'admin') {
             $tags[] = 'P.' . $nombreTag;
             $tags[] = 'D.' . $nombreTag;
@@ -225,5 +216,4 @@ class Usuarios extends BaseController
 
         return array_values(array_unique(array_filter($tags)));
     }
-
 }

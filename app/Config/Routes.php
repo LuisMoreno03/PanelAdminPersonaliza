@@ -206,27 +206,16 @@ $routes->group('repetir', [
     $routes->get('usuarios-estado', 'RepetirController::usuariosEstado');
 });
 
-/*
-|--------------------------------------------------------------------------
-| USUARIOS (PROTEGIDO)
-|--------------------------------------------------------------------------
-*/
-$routes->group('usuario', ['filter' => 'auth'], static function (RouteCollection $routes) {
-    $routes->get('/', 'Usuario::index');
-    $routes->post('crear', 'Usuario::crear');
+$routes->group('usuarios', ['filter' => 'auth'], static function ($routes) {
+    $routes->get('/', 'Usuarios::index');         // /usuarios  (vista)
+    $routes->get('api', 'Usuarios::apiIndex');    // /usuarios/api (json)
+    $routes->post('crear', 'Usuarios::crear');    // /usuarios/crear
+    $routes->get('(:num)/tags', 'Usuarios::tags/$1'); // /usuarios/{id}/tags
 
-    $routes->get('usuario', 'Usuario::index');        // vista HTML
-    $routes->get('api/usuario', 'Usuario::apiIndex'); // JSON
-    // Vistas
-    $routes->get('usuario', 'Usuario::index');
-    $routes->get('mi-cuenta', 'MiCuenta::index');
-
-    // APIs
-    $routes->get('api/usuario', 'Usuario::apiIndex');
-    $routes->post('api/mi-cuenta/cambiar-password', 'MiCuenta::cambiarPassword');
-
-
+    $routes->get('mi-cuenta', 'MiCuenta::index'); // /usuarios/mi-cuenta
+    $routes->post('api/mi-cuenta/cambiar-password', 'MiCuenta::cambiarPassword'); // /usuarios/api/mi-cuenta/cambiar-password
 });
+
 
 /*
 |--------------------------------------------------------------------------
