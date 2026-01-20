@@ -387,7 +387,9 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
     foreach ($uploaded as $file) {
         if (!$file || !$file->isValid()) continue;
 
-        $original = $file->getClientName();
+        $original   = $file->getClientName();
+        $nombreBase = pathinfo($original, PATHINFO_FILENAME); // ✅ AÑADIR
+
         $mime     = $file->getClientMimeType();
         $sizeKb   = (int) ceil($file->getSize() / 1024);
 
