@@ -211,15 +211,12 @@ $routes->group('repetir', [
 | USUARIOS (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->group('usuarios', ['filter' => 'auth'], static function ($routes) {
-    $routes->get('/', 'Usuarios::index');         // /usuarios  (vista)
-    $routes->get('api', 'Usuarios::apiIndex');    // /usuarios/api (json)
-    $routes->post('crear', 'Usuarios::crear');    // /usuarios/crear
-    $routes->get('(:num)/tags', 'Usuarios::tags/$1'); // /usuarios/{id}/tags
-
-    $routes->get('mi-cuenta', 'MiCuenta::index'); // /usuarios/mi-cuenta
-    $routes->post('api/mi-cuenta/cambiar-password', 'MiCuenta::cambiarPassword'); // /usuarios/api/mi-cuenta/cambiar-password
+$routes->group('', ['namespace' => 'App\Controllers'], function($routes) {
+    $routes->get('usuarios', 'Usuarios::index');
+    $routes->get('usuarios/(:num)/password', 'Usuarios::password/$1');
+    $routes->post('usuarios/(:num)/password', 'Usuarios::updatePassword/$1');
 });
+
 
 
 /*
