@@ -206,6 +206,11 @@ $routes->group('repetir', [
     $routes->get('usuarios-estado', 'RepetirController::usuariosEstado');
 });
 
+/*
+|--------------------------------------------------------------------------
+| USUARIOS (PROTEGIDO)
+|--------------------------------------------------------------------------
+*/
 $routes->group('usuarios', ['filter' => 'auth'], static function ($routes) {
     $routes->get('/', 'Usuarios::index');         // /usuarios  (vista)
     $routes->get('api', 'Usuarios::apiIndex');    // /usuarios/api (json)
