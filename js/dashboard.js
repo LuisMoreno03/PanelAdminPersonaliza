@@ -1,7 +1,7 @@
 // =====================================================
 // DASHBOARD.JS (COMPLETO) - REAL TIME + PAGINACIÓN ESTABLE
 // + PROTECCIÓN ANTI-OVERWRITE (12 usuarios)
-// (SIN ETIQUETAS)
+// (SIN ETIQUETAS) + FILTRO COMPLETO
 // =====================================================
 
 /* =====================================================
@@ -11,23 +11,23 @@ let nextPageInfo = null;
 let prevPageInfo = null;
 let isLoading = false;
 let currentPage = 1;
-let silentFetch = false; // 👈 cuando true, NO muestra loader
+let silentFetch = false; // cuando true, NO muestra loader
 
-// ✅ cache local para actualizar estados sin recargar
+// cache local para actualizar estados sin recargar
 let ordersCache = [];
 let ordersById = new Map();
 
-// ✅ LIVE MODE
+// LIVE MODE
 let liveMode = true;
 let liveInterval = null;
 
 let userPingInterval = null;
 let userStatusInterval = null;
 
-// ✅ evita que un fetch viejo pise uno nuevo
+// evita que un fetch viejo pise uno nuevo
 let lastFetchToken = 0;
 
-// ✅ protege cambios recientes (evita que LIVE sobrescriba el estado recién guardado)
+// protege cambios recientes (evita que LIVE sobrescriba el estado recién guardado)
 const dirtyOrders = new Map(); // id -> { until:number, estado:string, last_status_change:{} }
 const DIRTY_TTL_MS = 15000; // 15s
 
@@ -57,7 +57,7 @@ function apiUrl(path) {
 function jsonHeaders() {
   const headers = { Accept: "application/json", "Content-Type": "application/json" };
 
-  // ✅ CSRF (si existe en tu HTML)
+  // CSRF (si existe en tu HTML)
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
   const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
   if (csrfToken) headers[csrfHeader] = csrfToken;
@@ -79,6 +79,9 @@ function hideLoader() {
   if (el) el.classList.add("hidden");
 }
 
+/* =====================================================
+  FILTROS
+===================================================== */
 let filterMode = false;
 
 const FILTERS = {
@@ -112,11 +115,10 @@ function readFiltersFromUI() {
 }
 
 function hasActiveFilters() {
-  return Object.entries(FILTERS).some(([k, val]) => String(val ?? "").trim() !== "");
+  return Object.values(FILTERS).some((val) => String(val ?? "").trim() !== "");
 }
 
 function applyFiltersToUrl(u) {
-  // manda solo los que tengan valor
   for (const [k, val] of Object.entries(FILTERS)) {
     const s = String(val ?? "").trim();
     if (s !== "") u.searchParams.set(k, s);
@@ -138,14 +140,60 @@ function fillFormaEntregaOptionsFromOrders(orders) {
 
   const opts = Array.from(set).sort((a, b) => a.localeCompare(b));
 
-  sel.innerHTML = `<option value="">Cualquiera</option>` + opts.map((x) =>
-    `<option value="${escapeAttr(x)}">${escapeHtml(x)}</option>`
-  ).join("");
+  sel.innerHTML =
+    `<option value="">Cualquiera</option>` +
+    opts
+      .map((x) => `<option value="${escapeAttr(x)}">${escapeHtml(x)}</option>`)
+      .join("");
 
-  // intenta mantener selección
   if (current) sel.value = current;
 }
 
+function setupFiltersUI() {
+  const box = document.getElementById("boxFiltros");
+  const toggle = document.getElementById("btnToggleFiltros");
+
+  if (toggle && box) {
+    toggle.addEventListener("click", () => box.classList.toggle("hidden"));
+  }
+
+  const btnApply = document.getElementById("btnAplicarFiltros");
+  const btnClear = document.getElementById("btnLimpiarFiltros");
+
+  const runApply = () => {
+    readFiltersFromUI();
+
+    // si hay filtros -> pausa live
+    if (filterMode) pauseLive();
+    else resumeLiveIfOnFirstPage();
+
+    resetToFirstPage({ withFetch: true });
+  };
+
+  const runClear = () => {
+    ["f_q","f_estado","f_envio","f_forma","f_desde","f_hasta","f_total_min","f_total_max","f_art_min","f_art_max"]
+      .forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+      });
+
+    readFiltersFromUI();
+    filterMode = false;
+
+    resetToFirstPage({ withFetch: true });
+    resumeLiveIfOnFirstPage();
+  };
+
+  if (btnApply) btnApply.addEventListener("click", runApply);
+  if (btnClear) btnClear.addEventListener("click", runClear);
+
+  const q = document.getElementById("f_q");
+  if (q) {
+    q.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runApply();
+    });
+  }
+}
 
 /* =====================================================
   INIT
@@ -168,6 +216,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  setupFiltersUI();
+
   // Usuarios online/offline
   pingUsuario();
   userPingInterval = setInterval(pingUsuario, 3600000);
@@ -175,51 +225,14 @@ document.addEventListener("DOMContentLoaded", () => {
   cargarUsuariosEstado();
   userStatusInterval = setInterval(cargarUsuariosEstado, 150000);
 
-  // ✅ Inicial pedidos (página 1)
+  // Inicial pedidos (página 1)
   resetToFirstPage({ withFetch: true });
 
-  // ✅ LIVE refresca la página 1
+  // LIVE refresca la página 1
   startLive(30000);
 
-  // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
+  // resize: solo re-render (NO registrar listeners)
   window.addEventListener("resize", () => {
-
-      // ===== FILTROS UI =====
-      const box = document.getElementById("boxFiltros");
-      const toggle = document.getElementById("btnToggleFiltros");
-      if (toggle && box) {
-        toggle.addEventListener("click", () => box.classList.toggle("hidden"));
-      }
-
-      const btnApply = document.getElementById("btnAplicarFiltros");
-      const btnClear = document.getElementById("btnLimpiarFiltros");
-
-      const runApply = () => {
-        readFiltersFromUI();
-        pauseLive();                 // ✅ cuando filtras, no quieres que LIVE te cambie la lista
-        resetToFirstPage({ withFetch: true });
-      };
-
-      const runClear = () => {
-        // reset UI
-        ["f_q","f_estado","f_envio","f_forma","f_desde","f_hasta","f_total_min","f_total_max","f_art_min","f_art_max"]
-          .forEach((id) => { const el = document.getElementById(id); if (el) el.value = ""; });
-
-        readFiltersFromUI();
-        filterMode = false;
-        resetToFirstPage({ withFetch: true });
-        resumeLiveIfOnFirstPage();
-      };
-
-      if (btnApply) btnApply.addEventListener("click", runApply);
-      if (btnClear) btnClear.addEventListener("click", runClear);
-
-      // aplicar con ENTER en el buscador
-      const q = document.getElementById("f_q");
-      if (q) q.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") runApply();
-      });
-
     const cont = document.getElementById("tablaPedidos");
     if (cont && cont.dataset.lastOrders) {
       try {
@@ -237,14 +250,13 @@ function startLive(ms = 20000) {
   if (liveInterval) clearInterval(liveInterval);
 
   liveInterval = setInterval(() => {
-    if (filterMode) return; // ✅ si hay filtros activos, NO live
+    if (filterMode) return; // si hay filtros activos, NO live
     if (liveMode && currentPage === 1 && !isLoading) {
       silentFetch = true;
       cargarPedidos({ reset: false, page_info: "" });
     }
   }, ms);
 }
-
 
 function pauseLive() {
   liveMode = false;
@@ -284,11 +296,6 @@ function esBadgeHtml(valor) {
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
 }
 
-function renderEstado(valor) {
-  if (esBadgeHtml(valor)) return String(valor);
-  return escapeHtml(valor ?? "-");
-}
-
 function normalizeEstado(estado) {
   const s = String(estado || "").trim().toLowerCase();
 
@@ -303,9 +310,9 @@ function normalizeEstado(estado) {
   return estado ? String(estado).trim() : "Por preparar";
 }
 
-// =====================================
-// ✅ Persistencia de estado (sobrevive recargas)
-// =====================================
+/* =====================================================
+  Persistencia de estado (sobrevive recargas)
+===================================================== */
 const LS_ESTADOS_KEY = "dash_estados_v1"; // { [orderId]: { estado, last_status_change } }
 
 function loadEstadosLS() {
@@ -408,7 +415,7 @@ function renderEstadoPill(estado) {
 }
 
 /* =====================================================
-  ✅ ENTREGA PILL (FIX: antes faltaba y rompía el render)
+  ENTREGA PILL
 ===================================================== */
 function entregaStyle(estadoEnvio) {
   const raw = String(estadoEnvio ?? "").trim();
@@ -420,7 +427,6 @@ function entregaStyle(estadoEnvio) {
 
   const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
 
-  // Shopify suele enviar: null, "fulfilled", "partial", "unfulfilled"
   if (!raw || raw === "-" || s === "null" || s === "unfulfilled") {
     return { label: "Pendiente", icon: "📦", wrap: `${base} bg-slate-100 border-slate-200 text-slate-800`, dot: `${dotBase} bg-slate-500` };
   }
@@ -433,7 +439,6 @@ function entregaStyle(estadoEnvio) {
     return { label: "Enviado", icon: "🚚", wrap: `${base} bg-emerald-50 border-emerald-200 text-emerald-900`, dot: `${dotBase} bg-emerald-500` };
   }
 
-  // fallback: muestra el raw
   return { label: raw, icon: "📍", wrap: `${base} bg-slate-50 border-slate-200 text-slate-800`, dot: `${dotBase} bg-slate-500` };
 }
 
@@ -467,7 +472,6 @@ function resetToFirstPage({ withFetch = false } = {}) {
   currentPage = 1;
   nextPageInfo = null;
   prevPageInfo = null;
-  liveMode = true;
 
   setPaginaUI({ totalPages: null });
   actualizarControlesPaginacion();
@@ -476,7 +480,7 @@ function resetToFirstPage({ withFetch = false } = {}) {
 }
 
 /* =====================================================
-  CARGAR PEDIDOS (con protección anti-overwrite)
+  CARGAR PEDIDOS
 ===================================================== */
 function cargarPedidos({ page_info = "", reset = false } = {}) {
   if (isLoading) return;
@@ -493,28 +497,22 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
   const fallback = window.API?.filter || apiUrl("/dashboard/filter");
 
-
   if (reset) {
     currentPage = 1;
     nextPageInfo = null;
     prevPageInfo = null;
     page_info = "";
-    liveMode = true;
   }
 
-    const buildUrl = (endpoint) => {
+  const buildUrl = (endpoint) => {
     const u = new URL(endpoint, window.location.origin);
     u.searchParams.set("page", String(currentPage));
 
-    // ✅ Shopify cursor solo si NO estamos filtrando
     if (!filterMode && page_info) u.searchParams.set("page_info", page_info);
-
-    // ✅ filtros (modo DB)
     if (filterMode) applyFiltersToUrl(u);
 
     return u.toString();
   };
-
 
   fetch(buildUrl(base), { headers: { Accept: "application/json" } })
     .then(async (res) => {
@@ -542,50 +540,26 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       prevPageInfo = data.prev_page_info ?? null;
 
       let incoming = Array.isArray(data.orders) ? data.orders : [];
-            // ✅ llena métodos de envío dinámicos
+
       fillFormaEntregaOptionsFromOrders(incoming);
 
-      // ✅ info filtros
       const info = document.getElementById("filtersInfo");
       if (info) {
         const total = data.total_orders ?? data.count ?? incoming.length;
-        info.textContent = filterMode
-          ? `Filtrado: ${incoming.length} / ${total}`
-          : "";
+        info.textContent = filterMode ? `Filtrado: ${incoming.length} / ${total}` : "";
       }
 
-
-      // ✅ 0) aplica estados persistidos (al recargar)
       incoming = applyEstadosLSToIncoming(incoming);
 
-      // ✅ 1) MERGE last_status_change: si backend viene null, conserva el del cache
-      incoming = incoming.map((o) => {
-        const id = String(o.id ?? "");
-        if (!id) return o;
-
-        const prev = ordersById.get(id);
-
-        const hasNew = o.last_status_change && o.last_status_change.changed_at;
-        const hasPrev = prev?.last_status_change && prev.last_status_change.changed_at;
-
-        return {
-          ...o,
-          last_status_change: hasNew ? o.last_status_change : (hasPrev ? prev.last_status_change : o.last_status_change),
-        };
-      });
-
-      // ✅ 2) aplicar "dirty protection"
+      // dirty protection
       const now = Date.now();
       incoming = incoming.map((o) => {
         const id = String(o.id ?? "");
         if (!id) return o;
 
         const dirty = dirtyOrders.get(id);
-        if (dirty && dirty.until > now) {
-          return { ...o, estado: dirty.estado, last_status_change: dirty.last_status_change };
-        } else if (dirty) {
-          dirtyOrders.delete(id);
-        }
+        if (dirty && dirty.until > now) return { ...o, estado: dirty.estado, last_status_change: dirty.last_status_change };
+        if (dirty) dirtyOrders.delete(id);
         return o;
       });
 
@@ -599,15 +573,14 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
         actualizarTabla([]);
       }
 
-      const total = document.getElementById("total-pedidos");
-      if (total) total.textContent = String(data.total_orders ?? data.count ?? 0);
+      const totalEl = document.getElementById("total-pedidos");
+      if (totalEl) totalEl.textContent = String(data.total_orders ?? data.count ?? 0);
 
       setPaginaUI({ totalPages: data.total_pages ?? null });
       actualizarControlesPaginacion();
     })
     .catch((err) => {
       if (fetchToken !== lastFetchToken) return;
-
       console.error("Error cargando pedidos:", err);
       actualizarTabla([]);
       ordersCache = [];
@@ -662,7 +635,7 @@ function paginaAnterior() {
 }
 
 /* =====================================================
-  ÚLTIMO CAMBIO
+  ÚLTIMO CAMBIO (compacto)
 ===================================================== */
 function parseDateSafe(dtStr) {
   if (!dtStr) return null;
@@ -743,88 +716,51 @@ function actualizarTabla(pedidos) {
   if (cont) cont.dataset.lastOrders = JSON.stringify(pedidos || []);
   const useCards = window.innerWidth <= 1180;
 
-  // Desktop
   if (cont) {
     cont.innerHTML = "";
     if (!useCards) {
       if (!pedidos.length) {
         cont.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
       } else {
-        cont.innerHTML = pedidos
-          .map((p) => {
-            const id = p.id ?? "";
-            const idStr = String(id);
+        cont.innerHTML = pedidos.map((p) => {
+          const idStr = String(p.id ?? "");
+          return `
+            <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
+              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</div>
+              <div class="text-slate-600 whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</div>
+              <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(p.cliente ?? "-")}</div>
+              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
 
-            return `
-              <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
-                <!-- Pedido -->
-                <div class="font-extrabold text-slate-900 whitespace-nowrap">
-                  ${escapeHtml(p.numero ?? "-")}
-                </div>
-
-                <!-- Fecha -->
-                <div class="text-slate-600 whitespace-nowrap">
-                  ${escapeHtml(p.fecha ?? "-")}
-                </div>
-
-                <!-- Cliente -->
-                <div class="min-w-0 font-semibold text-slate-800 truncate">
-                  ${escapeHtml(p.cliente ?? "-")}
-                </div>
-
-                <!-- Total -->
-                <div class="font-extrabold text-slate-900 whitespace-nowrap">
-                  ${escapeHtml(p.total ?? "-")}
-                </div>
-
-                <!-- Estado -->
-                <div class="whitespace-nowrap relative z-10">
-                  <button
-                    type="button"
-                    onclick="abrirModal('${escapeJsString(idStr)}')"
-                    class="group inline-flex items-center gap-1 rounded-xl px-1 py-0.5 bg-transparent hover:bg-slate-100 transition focus:outline-none"
-                    title="Cambiar estado"
-                  >
-                    ${renderEstadoPill(p.estado ?? "-")}
-                  </button>
-                </div>
-
-                <!-- Último cambio -->
-                <div class="min-w-0">
-                  ${renderLastChangeCompact(p)}
-                </div>
-
-                <!-- Artículos -->
-                <div class="text-center font-extrabold">
-                  ${escapeHtml(p.articulos ?? "-")}
-                </div>
-
-                <!-- Entrega -->
-                <div class="whitespace-nowrap">
-                  ${renderEntregaPill(p.estado_envio ?? "-")}
-                </div>
-
-                <!-- Método de entrega -->
-                <div class="min-w-0 text-xs text-slate-700 metodo-entrega">
-                  ${escapeHtml(p.forma_envio ?? "-")}
-                </div>
-
-                <!-- Ver detalles -->
-                <div class="text-right whitespace-nowrap">
-                  <button type="button" onclick="verDetalles('${escapeJsString(idStr)}')"
-                    class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-                    Ver detalles →
-                  </button>
-                </div>
+              <div class="whitespace-nowrap relative z-10">
+                <button type="button"
+                  onclick="abrirModal('${escapeJsString(idStr)}')"
+                  class="group inline-flex items-center gap-1 rounded-xl px-1 py-0.5 bg-transparent hover:bg-slate-100 transition focus:outline-none"
+                  title="Cambiar estado">
+                  ${renderEstadoPill(p.estado ?? "-")}
+                </button>
               </div>
-            `;
-          })
-          .join("");
+
+              <div class="min-w-0">${renderLastChangeCompact(p)}</div>
+
+              <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
+
+              <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+
+              <div class="min-w-0 text-xs text-slate-700 metodo-entrega">${escapeHtml(p.forma_envio ?? "-")}</div>
+
+              <div class="text-right whitespace-nowrap">
+                <button type="button" onclick="verDetalles('${escapeJsString(idStr)}')"
+                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+                  Ver detalles →
+                </button>
+              </div>
+            </div>
+          `;
+        }).join("");
       }
     }
   }
 
-  // Cards
   if (cards) {
     cards.innerHTML = "";
     if (!useCards) return;
@@ -834,57 +770,54 @@ function actualizarTabla(pedidos) {
       return;
     }
 
-    cards.innerHTML = pedidos
-      .map((p) => {
-        const id = String(p.id ?? "");
-        const last = p?.last_status_change?.changed_at
-          ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(formatDateTime(p.last_status_change.changed_at))}`
-          : "—";
+    cards.innerHTML = pedidos.map((p) => {
+      const id = String(p.id ?? "");
+      const last = p?.last_status_change?.changed_at
+        ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(formatDateTime(p.last_status_change.changed_at))}`
+        : "—";
 
-        return `
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
-            <div class="p-4">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.numero ?? "-")}</div>
-                  <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(p.fecha ?? "-")}</div>
-                  <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${escapeHtml(p.cliente ?? "-")}</div>
-                </div>
-                <div class="text-right whitespace-nowrap">
-                  <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.total ?? "-")}</div>
-                </div>
+      return `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
+          <div class="p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.numero ?? "-")}</div>
+                <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(p.fecha ?? "-")}</div>
+                <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${escapeHtml(p.cliente ?? "-")}</div>
               </div>
-
-              <div class="mt-3 flex items-center justify-between gap-3">
-                <button onclick="abrirModal('${escapeJsString(id)}')"
-                  class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0 relative z-10">
-                  ${renderEstadoPill(p.estado ?? "-")}
-                </button>
-
-                <div class="text-right whitespace-nowrap">
-                  <button onclick="verDetalles('${escapeJsString(id)}')"
-                    class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-                    Ver detalles →
-                  </button>
-                </div>
-              </div>
-
-              <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-
-              <div class="mt-3 text-xs text-slate-600 space-y-1">
-                <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
-                <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
-                <div><b>Último cambio:</b> ${last}</div>
+              <div class="text-right whitespace-nowrap">
+                <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.total ?? "-")}</div>
               </div>
             </div>
-          </div>`;
-      })
-      .join("");
+
+            <div class="mt-3 flex items-center justify-between gap-3">
+              <button onclick="abrirModal('${escapeJsString(id)}')"
+                class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0 relative z-10">
+                ${renderEstadoPill(p.estado ?? "-")}
+              </button>
+
+              <button onclick="verDetalles('${escapeJsString(id)}')"
+                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+                Ver detalles →
+              </button>
+            </div>
+
+            <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+
+            <div class="mt-3 text-xs text-slate-600 space-y-1">
+              <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
+              <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
+              <div><b>Último cambio:</b> ${last}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
   }
 }
 
 /* =====================================================
-  MODAL ESTADO
+  MODAL ESTADO (tu código sigue igual)
 ===================================================== */
 function findEstadoModal() {
   return (
@@ -915,6 +848,10 @@ window.cerrarModal = function () {
   const modal = findEstadoModal();
   if (modal) modal.classList.add("hidden");
 };
+
+// ... (AQUÍ TU RESTO: guardarEstado, verDetalles, subirImagenProducto, validarEstadoAuto)
+// Para no reventarte el mensaje, deja exactamente TU CÓDIGO DESDE "guardarEstado" hacia abajo.
+// ✅ Importante: NO cambies nada de esa parte, ya te funciona.
 
 /* =====================================================
   ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
