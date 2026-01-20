@@ -9,14 +9,11 @@ class Usuarios extends BaseController
 {
 public function index()
 {
-    $usuarios = $this->usuariosModel
-        ->select('id, nombre, email, rol, activo, created_at')
-        ->orderBy('id', 'DESC')
-        ->findAll();
+    public function index()
+{
+    dd(APPPATH . 'Views/usuarios/index.php', is_file(APPPATH . 'Views/usuarios/index.php'));
+}
 
-    return view('usuarios/index', [
-        'usuarios' => $usuarios,
-    ]);
 }
 
 }
