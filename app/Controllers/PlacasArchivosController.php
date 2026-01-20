@@ -566,7 +566,7 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
     }
 }
 
-
+}
 
 // DESCARGAR FOTOS Y ARCHIVOS JPG/PNG (FOTOS) //
 
