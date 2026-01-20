@@ -939,15 +939,41 @@ function setModBusy(index, busy) {
 }
 
 function setModPreview(index, src) {
-  const img = $(`modPrev_${index}`);
-  const ph = $(`modPh_${index}`);
+  const img = document.getElementById(`modPrev_${index}`);
+  const ph = document.getElementById(`modPh_${index}`);
   if (!img || !ph) return;
 
-  const has = !!src;
-  img.src = src || "";
-  img.classList.toggle("hidden", !has);
-  ph.classList.toggle("hidden", has);
+  const finalSrc = src ? withCacheBust(normalizeUrl(src)) : "";
+
+  // reset handlers
+  img.onload = null;
+  img.onerror = null;
+
+  if (!finalSrc) {
+    img.removeAttribute("src");
+    img.classList.add("hidden");
+    ph.classList.remove("hidden");
+    return;
+  }
+
+  // muestra placeholder mientras carga
+  img.classList.add("hidden");
+  ph.classList.remove("hidden");
+
+  img.onload = () => {
+    ph.classList.add("hidden");
+    img.classList.remove("hidden");
+  };
+
+  img.onerror = () => {
+    img.classList.add("hidden");
+    ph.classList.remove("hidden");
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">No se pudo cargar la vista previa. Abre el link para verificar.</span>`);
+  };
+
+  img.src = finalSrc;
 }
+
 
 function cleanupModPreviews() {
   for (const [, st] of modState.entries()) {
@@ -956,6 +982,23 @@ function cleanupModPreviews() {
     }
   }
   modState.clear();
+}
+function normalizeUrl(u) {
+  const s = String(u || "").trim();
+  if (!s) return "";
+  try {
+    // vuelve absoluta aunque venga "produccion/file/..." o "/produccion/file/..."
+    return new URL(s, window.location.href).href;
+  } catch {
+    return s;
+  }
+}
+
+function withCacheBust(u) {
+  const s = String(u || "").trim();
+  if (!s) return "";
+  const sep = s.includes("?") ? "&" : "?";
+  return `${s}${sep}v=${Date.now()}`;
 }
 
 function validateImageFile(file) {
@@ -1058,21 +1101,25 @@ async function uploadModificada(index) {
     }
 
     const url = String(data.url || "").trim();
-    if (!url) {
-      setModMsg(index, `<span class="text-rose-600 font-extrabold">Subió, pero no devolvió URL.</span>`);
-      return;
-    }
+      if (!url) {
+        setModMsg(index, `<span class="text-rose-600 font-extrabold">Subió, pero no devolvió URL.</span>`);
+        return;
+      }
 
-    st.existingUrl = url;
+      const absUrl = normalizeUrl(url);
+      st.existingUrl = absUrl;
 
-    if (st.objectUrl) {
-      try { URL.revokeObjectURL(st.objectUrl); } catch {}
-      st.objectUrl = null;
-    }
-    st.selectedFile = null;
+      // limpia preview temporal si existía
+      if (st.objectUrl) {
+        try { URL.revokeObjectURL(st.objectUrl); } catch {}
+        st.objectUrl = null;
+      }
+      st.selectedFile = null;
 
-    setModPreview(index, url);
-    setModMsg(index, `<span class="text-emerald-700 font-extrabold">Imagen modificada subida ✅</span>`);
+      // ✅ fuerza refresh + arregla URLs relativas
+      setModPreview(index, absUrl);
+
+      setModMsg(index, `<span class="text-emerald-700 font-extrabold">Imagen modificada subida ✅</span>`);
 
     await cargarArchivosGenerales(orderId, {
       fallbackKey: currentDetallesPedidoId,
