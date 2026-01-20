@@ -232,18 +232,16 @@ $routes->get('zz-check-routes', static fn () => 'ROUTES_OK_' . date('Y-m-d_H:i:s
 | Soporte 
 |--------------------------------------------------------------------------
 */
-$routes->get('soporte/chat', 'SupportController::chat');
+$routes->group('soporte', ['filter' => 'auth'], function($routes) {
+  $routes->get('chat', 'SoporteController::chat');
+  $routes->get('tickets', 'SoporteController::tickets');
 
-// APIs (JSON)
-$routes->get('soporte/tickets', 'SupportController::tickets');
-$routes->get('soporte/ticket/(:num)', 'SupportController::ticket/$1');
+  $routes->get('ticket/(:num)', 'SoporteController::ticket/$1');
 
-$routes->post('soporte/ticket', 'SupportController::createTicket');
-$routes->post('soporte/ticket/(:num)/message', 'SupportController::sendMessage/$1');
+  $routes->post('ticket', 'SoporteController::create');                 // crear ticket (produccion)
+  $routes->post('ticket/(:num)/message', 'SoporteController::message/$1'); // enviar mensaje
+  $routes->post('ticket/(:num)/assign', 'SoporteController::assign/$1');   // aceptar caso (admin)
+  $routes->post('ticket/(:num)/status', 'SoporteController::status/$1');   // cambiar estado (admin)
 
-// admin
-$routes->post('soporte/ticket/(:num)/assign', 'SupportController::assign/$1');
-$routes->post('soporte/ticket/(:num)/status', 'SupportController::setStatus/$1');
-
-// adjuntos (sirve imagen de forma segura)
-$routes->get('soporte/attachment/(:num)', 'SupportController::attachment/$1');
+  $routes->get('attachment/(:num)', 'SoporteController::attachment/$1');   // ver imagen
+});
