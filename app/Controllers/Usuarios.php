@@ -16,7 +16,7 @@ class Usuarios extends BaseController
 
 public function index()
 {
-    $usuarios = $this->usuarioModel
+    $usuarios = $this->usuariosModel
         ->select('id, nombre, email, rol, activo, created_at')
         ->orderBy('id', 'DESC')
         ->findAll();
