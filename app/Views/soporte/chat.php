@@ -330,6 +330,6 @@
   </main>
 
   <!-- JS del chat (tu archivo) -->
-  <script src="<?= base_url('assets/js/support-chat.js') ?>"></script>
+  <script src="<?= base_url('js/support-chat.js') ?>"></script>
 </body>
 </html>
