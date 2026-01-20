@@ -599,25 +599,31 @@ private function descargarConvertido($archivoId, $format = 'png')
     $fullPath = ROOTPATH . ltrim($ruta, '/');
     if (!is_file($fullPath)) return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
 
-    // nombre de descarga (usa nombre editable)
-   // nombre de descarga (usa nombre editable, pero si está vacío usa original/original_name)
-$baseName = trim((string)($r['nombre'] ?? ''));
+    // Nombre de descarga (no vacío)
+    $baseName = trim((string)($r['nombre'] ?? ''));
 
-if ($baseName === '') {
-    $orig = (string)($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? 'archivo_' . $archivoId);
-    $baseName = trim(pathinfo($orig, PATHINFO_FILENAME));
-}
+    if ($baseName === '') {
+        $orig = (string)($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? ('archivo_' . $archivoId));
+        $baseName = trim(pathinfo($orig, PATHINFO_FILENAME));
+    }
+    if ($baseName === '') $baseName = 'archivo_' . $archivoId;
 
-if ($baseName === '') {
-    $baseName = 'archivo_' . $archivoId;
-}
+    $baseName = preg_replace('/[^a-zA-Z0-9\-_ ]/', '_', $baseName);
+    $downloadName = $baseName . '.' . $format;
 
-$baseName = preg_replace('/[^a-zA-Z0-9\-_ ]/', '_', $baseName);
-$downloadName = $baseName . '.' . $format;
+    // ✅ Detectar si ya es del mismo formato
+    $mime = strtolower((string)($r['mime'] ?? ''));
+    $ext  = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+
+    $isPng = ($ext === 'png') || str_contains($mime, 'png');
+    $isJpg = in_array($ext, ['jpg', 'jpeg'], true)
+        || str_contains($mime, 'jpeg')
+        || str_contains($mime, 'jpg');
+
+    $isSame = ($format === 'png' && $isPng) || ($format === 'jpg' && $isJpg);
 
     if ($isSame) {
         return $this->response->download($fullPath, null)->setFileName($downloadName);
-
     }
 
     // Convertir (preferir Imagick)
@@ -626,10 +632,7 @@ $downloadName = $baseName . '.' . $format;
             $im = new \Imagick();
             $im->readImage($fullPath);
 
-            // Si es PDF y tiene páginas, toma la primera
-            if ($im->getNumberImages() > 1) {
-                $im->setIteratorIndex(0);
-            }
+            if ($im->getNumberImages() > 1) $im->setIteratorIndex(0);
 
             $im->setImageColorspace(\Imagick::COLORSPACE_RGB);
 
@@ -637,67 +640,57 @@ $downloadName = $baseName . '.' . $format;
                 $im->setImageFormat('jpeg');
                 $im->setImageCompression(\Imagick::COMPRESSION_JPEG);
                 $im->setImageCompressionQuality(92);
-                $blob = $im->getImageBlob();
                 $contentType = 'image/jpeg';
             } else {
                 $im->setImageFormat('png');
-                $blob = $im->getImageBlob();
                 $contentType = 'image/png';
             }
 
+            $blob = $im->getImageBlob();
             $im->clear();
             $im->destroy();
 
             return $this->response
+                ->setHeader('Content-Type', $contentType)
+                ->setHeader(
+                    'Content-Disposition',
+                    'attachment; filename="' . $downloadName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName)
+                )
+                ->setBody($blob);
+        }
+
+        // Fallback GD
+        $img = @imagecreatefromstring(file_get_contents($fullPath));
+        if (!$img) return $this->response->setStatusCode(415)->setBody('No se pudo convertir (requiere Imagick)');
+
+        ob_start();
+        if ($format === 'png') {
+            imagepng($img);
+            $contentType = 'image/png';
+        } else {
+            imagejpeg($img, null, 92);
+            $contentType = 'image/jpeg';
+        }
+        $blob = ob_get_clean();
+        imagedestroy($img);
+
+        return $this->response
             ->setHeader('Content-Type', $contentType)
-            ->setHeader('Content-Disposition',
-            'attachment; filename="' . $downloadName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName))
+            ->setHeader(
+                'Content-Disposition',
+                'attachment; filename="' . $downloadName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName)
+            )
             ->setBody($blob);
 
-        }
-
-        // Fallback GD (solo soporta jpg/png; webp depende del server)
-        if ($format === 'png') {
-            $img = @imagecreatefromstring(file_get_contents($fullPath));
-            if (!$img) return $this->response->setStatusCode(415)->setBody('No se pudo convertir (requiere Imagick)');
-            ob_start();
-            imagepng($img);
-            $blob = ob_get_clean();
-            imagedestroy($img);
-
-            return $this->response
-                ->setHeader('Content-Type', 'image/png')
-                ->setHeader('Content-Disposition', 'attachment; filename="' . $downloadName . '"')
-                ->setBody($blob);
-        } else {
-            $img = @imagecreatefromstring(file_get_contents($fullPath));
-            if (!$img) return $this->response->setStatusCode(415)->setBody('No se pudo convertir (requiere Imagick)');
-            ob_start();
-            imagejpeg($img, null, 92);
-            $blob = ob_get_clean();
-            imagedestroy($img);
-
-            return $this->response
-                ->setHeader('Content-Type', 'image/jpeg')
-                ->setHeader('Content-Disposition', 'attachment; filename="' . $downloadName . '"')
-                ->setBody($blob);
-        }
     } catch (\Throwable $e) {
         return $this->response->setStatusCode(500)->setBody('Error convirtiendo: ' . $e->getMessage());
     }
 }
 
+
 public function descargarPngLote($loteId)
 {
-    return $this->descargarZipLote($loteId, 'png');
-}
-
-public function descargarJpgLote($loteId)
-{
-    return $this->descargarZipLote($loteId, 'jpg');
-}
-
-private function descargarZipLote($loteId, $format = 'png')
+    private function descargarZipLote($loteId, $format = 'png')
 {
     $format = strtolower($format) === 'jpg' ? 'jpg' : 'png';
 
@@ -720,20 +713,16 @@ private function descargarZipLote($loteId, $format = 'png')
         $fullPath = ROOTPATH . ltrim($ruta, '/');
         if (!is_file($fullPath)) continue;
 
-        // nombre base (usa "nombre" editable si existe)
-     $baseName = trim((string)($r['nombre'] ?? ''));
+        $aid = (int)($r['id'] ?? 0);
 
+        $baseName = trim((string)($r['nombre'] ?? ''));
         if ($baseName === '') {
-        $orig = (string)($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? 'archivo_' . $archivoId);
-        $baseName = trim(pathinfo($orig, PATHINFO_FILENAME));
+            $orig = (string)($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? ('archivo_' . $aid));
+            $baseName = trim(pathinfo($orig, PATHINFO_FILENAME));
         }
-        if ($baseName === '') $baseName = 'archivo_' . $archivoId;
-
+        if ($baseName === '') $baseName = 'archivo_' . $aid;
 
         $baseName = preg_replace('/[^a-zA-Z0-9\-_ ]/', '_', $baseName);
-        $downloadName = $baseName . '.' . $format;
-
-
 
         // Detectar si ya es del mismo formato
         $mime = strtolower((string)($r['mime'] ?? ''));
@@ -744,18 +733,14 @@ private function descargarZipLote($loteId, $format = 'png')
             || str_contains($mime, 'jpeg')
             || str_contains($mime, 'jpg');
 
-        $isSame = ($format === 'png' && $isPng)
-            || ($format === 'jpg' && $isJpg);
-
-
         $isSame = ($format === 'png' && $isPng) || ($format === 'jpg' && $isJpg);
 
         if ($isSame) {
-        return $this->response->download($fullPath, null)->setFileName($downloadName);
+            $zip->addFile($fullPath, $baseName . '.' . $format);
+            continue;
         }
 
-        // convertir usando tu misma lógica: reutiliza descargarConvertido (blob)
-        // aquí hacemos conversion rápida con Imagick si existe
+        // Convertir con Imagick si existe
         if (class_exists(\Imagick::class)) {
             $im = new \Imagick();
             $im->readImage($fullPath);
@@ -782,6 +767,9 @@ private function descargarZipLote($loteId, $format = 'png')
 
     return $this->response->download($tmp, null)
         ->setFileName("lote_{$loteId}_{$format}.zip");
+    }
+
 }
+
 
 }
