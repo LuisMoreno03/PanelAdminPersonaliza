@@ -399,6 +399,7 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
         $relative = 'uploads/placas/' . $fecha . '/lote_' . $loteId . '/' . $finalName;
 
         $id = $archivosModel->insert([
+            'nombre'           => $nombreBase,
             'lote_id'          => $loteId,
             'lote_nombre'      => $loteNombre, // ✅ GUARDA TAMBIÉN EN ARCHIVOS (para listar fácil)
             'ruta'             => $relative,
@@ -599,17 +600,20 @@ private function descargarConvertido($archivoId, $format = 'png')
     if (!is_file($fullPath)) return $this->response->setStatusCode(404)->setBody("No existe el archivo: {$fullPath}");
 
     // nombre de descarga (usa nombre editable)
-    $baseName = trim((string)($r['nombre'] ?? 'archivo_' . $archivoId));
-    $baseName = preg_replace('/[^a-zA-Z0-9\-_ ]/', '_', $baseName);
-    $downloadName = $baseName . '.' . $format;
+   // nombre de descarga (usa nombre editable, pero si está vacío usa original/original_name)
+$baseName = trim((string)($r['nombre'] ?? ''));
 
-    // si ya es del mismo formato, devuelve directo
-    $mime = (string)($r['mime'] ?? '');
-    $ext  = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+if ($baseName === '') {
+    $orig = (string)($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? 'archivo_' . $archivoId);
+    $baseName = trim(pathinfo($orig, PATHINFO_FILENAME));
+}
 
-    $isSame =
-        ($format === 'png' && ($ext === 'png' || str_contains($mime, 'png'))) ||
-        ($format === 'jpg' && (in_array($ext, ['jpg','jpeg'], true) || str_contains($mime, 'jpeg')));
+if ($baseName === '') {
+    $baseName = 'archivo_' . $archivoId;
+}
+
+$baseName = preg_replace('/[^a-zA-Z0-9\-_ ]/', '_', $baseName);
+$downloadName = $baseName . '.' . $format;
 
     if ($isSame) {
         return $this->response->download($fullPath, null)->setFileName($downloadName);
@@ -644,9 +648,11 @@ private function descargarConvertido($archivoId, $format = 'png')
             $im->destroy();
 
             return $this->response
-                ->setHeader('Content-Type', $contentType)
-                ->setHeader('Content-Disposition', 'attachment; filename="' . $downloadName . '"')
-                ->setBody($blob);
+            ->setHeader('Content-Type', $contentType)
+            ->setHeader('Content-Disposition',
+            'attachment; filename="' . $downloadName . '"; filename*=UTF-8\'\'' . rawurlencode($downloadName))
+            ->setBody($blob);
+
         }
 
         // Fallback GD (solo soporta jpg/png; webp depende del server)
@@ -714,8 +720,16 @@ private function descargarZipLote($loteId, $format = 'png')
         if (!is_file($fullPath)) continue;
 
         // nombre base (usa "nombre" editable si existe)
-        $baseName = trim((string)($r['nombre'] ?? pathinfo(($r['original'] ?? 'archivo'), PATHINFO_FILENAME)));
+      $baseName = trim((string)($r['nombre'] ?? ''));
+
+        if ($baseName === '') {
+        $orig = (string)($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? 'archivo');
+        $baseName = trim(pathinfo($orig, PATHINFO_FILENAME));
+        }
+
+        if ($baseName === '') $baseName = 'archivo_' . ($r['id'] ?? '');
         $baseName = preg_replace('/[^a-zA-Z0-9\-_ ]/', '_', $baseName);
+
 
         // si es imagen ya del formato => mete directo
         $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));

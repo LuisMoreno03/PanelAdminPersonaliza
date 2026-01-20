@@ -21,8 +21,8 @@ class Usuario extends BaseController
 
         $db = \Config\Database::connect();
 
-        $users = $db->table('usuarios')
-            ->select('id, nombre, rol, email, created_at')
+        $users = $db->table('users')
+            ->select('id, nombre, role, email, created_at')
             ->orderBy('id', 'DESC')
             ->get()
             ->getResultArray();
@@ -83,7 +83,7 @@ class Usuario extends BaseController
         $db = \Config\Database::connect();
 
         // evitar duplicado por email
-        $exists = $db->table('usuarios')
+        $exists = $db->table('users')
             ->select('id')
             ->where('email', $email)
             ->get()
@@ -99,13 +99,15 @@ class Usuario extends BaseController
         $db->transStart();
 
         // 1) Insert usuario
-        $db->table('usuarios')->insert([
-            'nombre' => $nombre,
-            'rol' => $rol,
-            'email' => $email,
-            'password' => password_hash($pass, PASSWORD_DEFAULT),
-            'created_at' => date('Y-m-d H:i:s'),
-        ]);
+    $db->table('users')->insert([
+        'nombre'     => $nombre,
+        'role'       => $rolLower, // IMPORTANTE
+        'email'      => $email,
+        'password'   => password_hash($pass, PASSWORD_DEFAULT),
+        'activo'     => 1,
+        'created_at' => date('Y-m-d H:i:s'),
+    ]);
+
 
         $userId = (int)$db->insertID();
 
