@@ -44,9 +44,26 @@ class SoporteController extends BaseController
 
     // ✅ Vista
     public function chat()
-    {
-        return view('soporte/chat');
+{
+    $userId = (int)(session('user_id') ?? 0);
+
+    // Intenta leer rol desde tu tabla real de usuarios
+    // Cambia "usuarios" y "rol" si tu tabla/columna se llaman distinto
+    $role = (string)(session('rol') ?? '');
+
+    try {
+        $u = $this->db->table('usuarios')->select('rol')->where('id', $userId)->get()->getRowArray();
+        if ($u && !empty($u['rol'])) {
+            $role = $u['rol'];
+            session()->set('rol', $role); // sincroniza la sesión
+        }
+    } catch (\Throwable $e) {
+        // si falla, se queda con session('rol')
     }
+
+    return view('soporte/chat', ['forcedRole' => $role]);
+}
+
 
     // ✅ GET /soporte/tickets
     public function tickets()

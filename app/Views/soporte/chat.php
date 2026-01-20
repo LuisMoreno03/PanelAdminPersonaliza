@@ -48,6 +48,11 @@
 
           };
         </script>
+        <script>
+        console.log('ROL SESSION:', "<?= esc(session('rol') ?? '') ?>");
+        console.log('USER ID:', <?= (int)(session('user_id') ?? 0) ?>);
+        </script>
+
 
         <div class="grid lg:grid-cols-[380px_1fr] gap-4"
              x-data="supportChat"
