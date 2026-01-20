@@ -617,6 +617,7 @@ $downloadName = $baseName . '.' . $format;
 
     if ($isSame) {
         return $this->response->download($fullPath, null)->setFileName($downloadName);
+
     }
 
     // Convertir (preferir Imagick)
@@ -727,21 +728,25 @@ private function descargarZipLote($loteId, $format = 'png')
         $baseName = trim(pathinfo($orig, PATHINFO_FILENAME));
         }
         if ($baseName === '') $baseName = 'archivo_' . $archivoId;
-        
+
 
         $baseName = preg_replace('/[^a-zA-Z0-9\-_ ]/', '_', $baseName);
         $downloadName = $baseName . '.' . $format;
 
 
 
-        // si ya es del mismo formato, devuelve directo
+        // Detectar si ya es del mismo formato
         $mime = strtolower((string)($r['mime'] ?? ''));
         $ext  = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
 
         $isPng = ($ext === 'png') || str_contains($mime, 'png');
         $isJpg = in_array($ext, ['jpg', 'jpeg'], true)
-        || str_contains($mime, 'jpeg')
-        || str_contains($mime, 'jpg'); // por si guardaste image/jpg
+            || str_contains($mime, 'jpeg')
+            || str_contains($mime, 'jpg');
+
+        $isSame = ($format === 'png' && $isPng)
+            || ($format === 'jpg' && $isJpg);
+
 
         $isSame = ($format === 'png' && $isPng) || ($format === 'jpg' && $isJpg);
 
