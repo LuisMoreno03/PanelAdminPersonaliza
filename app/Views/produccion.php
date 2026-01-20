@@ -35,7 +35,7 @@
         150px
         80px
         180px
-        130px;
+        150px;
     }
 
     /* Layout menú */
