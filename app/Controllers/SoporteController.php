@@ -6,7 +6,6 @@ class SoporteController extends BaseController
 {
     protected $db;
 
-    // cache columnas (evita romper si faltan columnas)
     protected array $ticketCols = [];
     protected array $msgCols = [];
     protected array $attCols = [];
@@ -14,7 +13,6 @@ class SoporteController extends BaseController
     public function __construct()
     {
         $this->db = \Config\Database::connect();
-
         $this->ticketCols = $this->safeFields('support_tickets');
         $this->msgCols    = $this->safeFields('support_messages');
         $this->attCols    = $this->safeFields('support_attachments');
@@ -36,29 +34,39 @@ class SoporteController extends BaseController
     private function onlyExistingTicketCols(array $data): array
     {
         $out = [];
-        foreach ($data as $k => $v) {
-            if ($this->hasTicketCol($k)) $out[$k] = $v;
-        }
+        foreach ($data as $k => $v) if ($this->hasTicketCol($k)) $out[$k] = $v;
         return $out;
     }
 
-    // ✅ Rol canónico (SOLUCIÓN al problema admin=produccion)
+    private function onlyExistingMsgCols(array $data): array
+    {
+        $out = [];
+        foreach ($data as $k => $v) if ($this->hasMsgCol($k)) $out[$k] = $v;
+        return $out;
+    }
+
+    private function onlyExistingAttCols(array $data): array
+    {
+        $out = [];
+        foreach ($data as $k => $v) if ($this->hasAttCol($k)) $out[$k] = $v;
+        return $out;
+    }
+
     private function canonRole(): string
     {
-        // lee rol desde varias keys por si tu login usa otra
         $r = (string)(session('rol') ?? session('role') ?? session('tipo') ?? '');
         $r = strtolower(trim($r));
 
         $map = [
             'administrator' => 'admin',
             'administrador' => 'admin',
-            'admin'         => 'admin',
-            'superadmin'    => 'admin',
-            'root'          => 'admin',
+            'admin' => 'admin',
+            'superadmin' => 'admin',
+            'root' => 'admin',
 
-            'producción'    => 'produccion',
-            'produccion'    => 'produccion',
-            'production'    => 'produccion',
+            'producción' => 'produccion',
+            'produccion' => 'produccion',
+            'production' => 'produccion',
         ];
 
         return $map[$r] ?? $r;
@@ -69,53 +77,42 @@ class SoporteController extends BaseController
         return $this->canonRole() === 'admin';
     }
 
-    // ✅ Vista
     public function chat()
     {
         $userId = (int)(session('user_id') ?? 0);
-
-        // Parte de sesión
         $role = $this->canonRole();
 
-        // Opcional: intentar sincronizar rol desde tabla usuarios
-        // (si tu tabla o columna se llaman distinto, cambia aquí)
+        // si tienes tabla usuarios con rol, intenta sincronizar (ajusta si tu tabla/columna es otra)
         try {
             $u = $this->db->table('usuarios')->select('rol')->where('id', $userId)->get()->getRowArray();
             if ($u && !empty($u['rol'])) {
                 $role = strtolower(trim((string)$u['rol']));
-                $role = ($role === 'administrador' || $role === 'administrator') ? 'admin' : $role;
+                if (in_array($role, ['administrador','administrator'], true)) $role = 'admin';
             }
-        } catch (\Throwable $e) {
-            // si falla, se queda con lo de sesión
-        }
+        } catch (\Throwable $e) {}
 
-        // 🔥 fuerza rol en sesión para que frontend y backend coincidan
         session()->set('rol', $role);
 
         return view('soporte/chat', ['forcedRole' => $role]);
     }
 
-    // ✅ GET /soporte/tickets
+    // GET /soporte/tickets
     public function tickets()
     {
         try {
             if (empty($this->ticketCols)) {
-                return $this->response->setStatusCode(500)->setJSON([
-                    'error' => 'Tabla support_tickets no existe o no es accesible'
-                ]);
+                return $this->response->setStatusCode(500)->setJSON(['error' => 'Tabla support_tickets no existe']);
             }
 
             $isAdmin = $this->isAdminRole();
             $userId  = (int)(session('user_id') ?? 0);
 
-            // columnas seguras
             $want = ['id','ticket_code','order_id','status','user_id','assigned_to','assigned_at','created_at','updated_at','assigned_name','user_name'];
             $sel = array_values(array_intersect($want, $this->ticketCols));
             if (!in_array('id', $sel, true)) $sel[] = 'id';
 
             $b = $this->db->table('support_tickets')->select(implode(',', $sel));
 
-            // 🔥 si NO es admin, solo los suyos
             if (!$isAdmin && $this->hasTicketCol('user_id')) {
                 $b->where('user_id', $userId);
             }
@@ -125,7 +122,6 @@ class SoporteController extends BaseController
 
             $rows = $b->get()->getResultArray();
 
-            // normaliza para frontend
             foreach ($rows as &$r) {
                 $rid = (int)($r['id'] ?? 0);
                 $r['ticket_code']   = $r['ticket_code']   ?? ('TCK-' . str_pad((string)$rid, 6, '0', STR_PAD_LEFT));
@@ -145,7 +141,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // ✅ GET /soporte/ticket/{id}
+    // GET /soporte/ticket/{id}
     public function ticket($id)
     {
         try {
@@ -156,12 +152,10 @@ class SoporteController extends BaseController
             $t = $this->db->table('support_tickets')->where('id', $id)->get()->getRowArray();
             if (!$t) return $this->response->setStatusCode(404)->setJSON(['error' => 'Ticket no encontrado']);
 
-            // permisos
             if (!$isAdmin && isset($t['user_id']) && (int)$t['user_id'] !== $userId) {
                 return $this->response->setStatusCode(403)->setJSON(['error' => 'Sin permisos']);
             }
 
-            // mensajes
             $messages = [];
             if (!empty($this->msgCols)) {
                 $mwant = ['id','ticket_id','sender','message','created_at'];
@@ -181,7 +175,6 @@ class SoporteController extends BaseController
                 }
             }
 
-            // attachments agrupados por message_id
             $grouped = [];
             if (!empty($this->attCols)) {
                 $awant = ['id','ticket_id','message_id','filename','mime','created_at'];
@@ -207,7 +200,6 @@ class SoporteController extends BaseController
                 }
             }
 
-            // normaliza ticket para frontend
             $t['ticket_code']   = $t['ticket_code']   ?? ('TCK-' . str_pad((string)$id, 6, '0', STR_PAD_LEFT));
             $t['order_id']      = $t['order_id']      ?? null;
             $t['status']        = $t['status']        ?? 'open';
@@ -227,14 +219,12 @@ class SoporteController extends BaseController
         }
     }
 
-    // ✅ POST /soporte/ticket  (crear) SOLO PRODUCCION
+    // POST /soporte/ticket (crear) SOLO produccion
     public function create()
     {
         try {
             if (empty($this->ticketCols) || empty($this->msgCols)) {
-                return $this->response->setStatusCode(500)->setJSON([
-                    'error' => 'Faltan tablas support_tickets o support_messages'
-                ]);
+                return $this->response->setStatusCode(500)->setJSON(['error' => 'Faltan tablas support_tickets o support_messages']);
             }
 
             if ($this->isAdminRole()) {
@@ -247,9 +237,8 @@ class SoporteController extends BaseController
             $message = trim((string)$this->request->getPost('message'));
             $orderId = trim((string)$this->request->getPost('order_id'));
 
-            // soporta images y images[]
+            // ✅ solo "images" (como lo envía el JS)
             $imgs = $this->request->getFileMultiple('images');
-            if (!is_array($imgs) || count($imgs) === 0) $imgs = $this->request->getFileMultiple('images[]');
             if (!is_array($imgs)) $imgs = [];
 
             if ($message === '' && count($imgs) === 0) {
@@ -257,13 +246,12 @@ class SoporteController extends BaseController
             }
 
             $now = date('Y-m-d H:i:s');
-
             $dir = WRITEPATH . 'uploads/support';
             if (!is_dir($dir)) @mkdir($dir, 0775, true);
 
             $this->db->transStart();
 
-            $ticketData = [
+            $ticketData = $this->onlyExistingTicketCols([
                 'ticket_code' => 'TCK-TMP',
                 'user_id' => $userId,
                 'order_id' => ($orderId !== '' ? $orderId : null),
@@ -271,10 +259,14 @@ class SoporteController extends BaseController
                 'created_at' => $now,
                 'updated_at' => $now,
                 'user_name' => ($userName !== '' ? $userName : null),
-            ];
-            $ticketData = $this->onlyExistingTicketCols($ticketData);
+            ]);
 
-            $this->db->table('support_tickets')->insert($ticketData);
+            $ok = $this->db->table('support_tickets')->insert($ticketData);
+            if (!$ok) {
+                $err = $this->db->error();
+                throw new \RuntimeException('DB tickets insert: ' . ($err['message'] ?? 'error'));
+            }
+
             $ticketId = (int)$this->db->insertID();
 
             $ticketCode = 'TCK-' . str_pad((string)$ticketId, 6, '0', STR_PAD_LEFT);
@@ -282,35 +274,43 @@ class SoporteController extends BaseController
                 $this->db->table('support_tickets')->where('id', $ticketId)->update(['ticket_code' => $ticketCode]);
             }
 
-            // mensaje inicial
-            $this->db->table('support_messages')->insert([
+            $msgData = $this->onlyExistingMsgCols([
                 'ticket_id' => $ticketId,
                 'sender' => 'user',
                 'message' => $message,
-                'created_at' => $now
+                'created_at' => $now,
             ]);
+
+            $ok = $this->db->table('support_messages')->insert($msgData);
+            if (!$ok) {
+                $err = $this->db->error();
+                throw new \RuntimeException('DB messages insert: ' . ($err['message'] ?? 'error'));
+            }
+
             $msgId = (int)$this->db->insertID();
 
-            // adjuntos
             if (!empty($this->attCols)) {
                 foreach ($imgs as $img) {
                     if (!$img || !$img->isValid()) continue;
 
                     $newName = $img->getRandomName();
-                    $img->move($dir, $newName);
+                    if (!$img->move($dir, $newName)) {
+                        throw new \RuntimeException('No se pudo mover archivo subido');
+                    }
 
-                    $att = [
+                    $attData = $this->onlyExistingAttCols([
                         'ticket_id' => $ticketId,
                         'message_id' => $msgId,
                         'filename' => $newName,
                         'mime' => $img->getMimeType(),
                         'created_at' => $now
-                    ];
+                    ]);
 
-                    $out = [];
-                    foreach ($att as $k => $v) if ($this->hasAttCol($k)) $out[$k] = $v;
-
-                    $this->db->table('support_attachments')->insert($out);
+                    $ok = $this->db->table('support_attachments')->insert($attData);
+                    if (!$ok) {
+                        $err = $this->db->error();
+                        throw new \RuntimeException('DB attachments insert: ' . ($err['message'] ?? 'error'));
+                    }
                 }
             }
 
@@ -320,10 +320,7 @@ class SoporteController extends BaseController
                 return $this->response->setStatusCode(500)->setJSON(['error' => 'No se pudo crear el ticket']);
             }
 
-            return $this->response->setJSON([
-                'ticket_id' => $ticketId,
-                'ticket_code' => $ticketCode
-            ]);
+            return $this->response->setJSON(['ticket_id' => $ticketId, 'ticket_code' => $ticketCode]);
 
         } catch (\Throwable $e) {
             log_message('error', 'create() ERROR: {msg}', ['msg' => $e->getMessage()]);
@@ -331,7 +328,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // ✅ POST /soporte/ticket/{id}/message
+    // POST /soporte/ticket/{id}/message
     public function message($id)
     {
         try {
@@ -352,8 +349,8 @@ class SoporteController extends BaseController
 
             $message = trim((string)$this->request->getPost('message'));
 
+            // ✅ solo "images" (como lo envía el JS)
             $imgs = $this->request->getFileMultiple('images');
-            if (!is_array($imgs) || count($imgs) === 0) $imgs = $this->request->getFileMultiple('images[]');
             if (!is_array($imgs)) $imgs = [];
 
             if ($message === '' && count($imgs) === 0) {
@@ -361,7 +358,6 @@ class SoporteController extends BaseController
             }
 
             $now = date('Y-m-d H:i:s');
-
             $dir = WRITEPATH . 'uploads/support';
             if (!is_dir($dir)) @mkdir($dir, 0775, true);
 
@@ -369,12 +365,19 @@ class SoporteController extends BaseController
 
             $this->db->transStart();
 
-            $this->db->table('support_messages')->insert([
+            $msgData = $this->onlyExistingMsgCols([
                 'ticket_id' => $id,
                 'sender' => $sender,
                 'message' => $message,
                 'created_at' => $now
             ]);
+
+            $ok = $this->db->table('support_messages')->insert($msgData);
+            if (!$ok) {
+                $err = $this->db->error();
+                throw new \RuntimeException('DB messages insert: ' . ($err['message'] ?? 'error'));
+            }
+
             $msgId = (int)$this->db->insertID();
 
             if (!empty($this->attCols)) {
@@ -382,20 +385,23 @@ class SoporteController extends BaseController
                     if (!$img || !$img->isValid()) continue;
 
                     $newName = $img->getRandomName();
-                    $img->move($dir, $newName);
+                    if (!$img->move($dir, $newName)) {
+                        throw new \RuntimeException('No se pudo mover archivo subido');
+                    }
 
-                    $att = [
+                    $attData = $this->onlyExistingAttCols([
                         'ticket_id' => $id,
                         'message_id' => $msgId,
                         'filename' => $newName,
                         'mime' => $img->getMimeType(),
                         'created_at' => $now
-                    ];
+                    ]);
 
-                    $out = [];
-                    foreach ($att as $k => $v) if ($this->hasAttCol($k)) $out[$k] = $v;
-
-                    $this->db->table('support_attachments')->insert($out);
+                    $ok = $this->db->table('support_attachments')->insert($attData);
+                    if (!$ok) {
+                        $err = $this->db->error();
+                        throw new \RuntimeException('DB attachments insert: ' . ($err['message'] ?? 'error'));
+                    }
                 }
             }
 
@@ -417,7 +423,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // ✅ POST /soporte/ticket/{id}/assign  (admin)
+    // POST /soporte/ticket/{id}/assign
     public function assign($id)
     {
         try {
@@ -428,13 +434,12 @@ class SoporteController extends BaseController
             $adminName = (string)(session('nombre') ?? '');
             $now       = date('Y-m-d H:i:s');
 
-            $upd = [
+            $upd = $this->onlyExistingTicketCols([
                 'assigned_to' => $adminId,
                 'assigned_at' => $now,
                 'updated_at'  => $now,
                 'assigned_name' => ($adminName !== '' ? $adminName : null),
-            ];
-            $upd = $this->onlyExistingTicketCols($upd);
+            ]);
 
             $this->db->table('support_tickets')->where('id', $id)->update($upd);
 
@@ -446,7 +451,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // ✅ POST /soporte/ticket/{id}/status  (admin)
+    // POST /soporte/ticket/{id}/status
     public function status($id)
     {
         try {
@@ -462,9 +467,7 @@ class SoporteController extends BaseController
 
             $now = date('Y-m-d H:i:s');
 
-            $upd = ['status' => $status, 'updated_at' => $now];
-            $upd = $this->onlyExistingTicketCols($upd);
-
+            $upd = $this->onlyExistingTicketCols(['status' => $status, 'updated_at' => $now]);
             $this->db->table('support_tickets')->where('id', $id)->update($upd);
 
             return $this->response->setJSON(['ok' => true]);
@@ -475,15 +478,12 @@ class SoporteController extends BaseController
         }
     }
 
-    // ✅ GET /soporte/attachment/{id}
+    // GET /soporte/attachment/{id}
     public function attachment($id)
     {
         try {
             $id = (int)$id;
-
-            if (empty($this->attCols)) {
-                return $this->response->setStatusCode(404)->setBody('No encontrado');
-            }
+            if (empty($this->attCols)) return $this->response->setStatusCode(404)->setBody('No encontrado');
 
             $a = $this->db->table('support_attachments')->where('id', $id)->get()->getRowArray();
             if (!$a) return $this->response->setStatusCode(404)->setBody('No encontrado');

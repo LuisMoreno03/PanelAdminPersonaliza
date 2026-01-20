@@ -15,7 +15,6 @@
 </head>
 
 <body class="min-h-screen bg-slate-100">
-
   <?= view('layouts/menu') ?>
 
   <main id="mainLayout" class="min-h-screen md:pl-64 transition-all">
@@ -24,7 +23,7 @@
 
         <script>
           window.SUPPORT = {
-            role: "<?= esc($forcedRole ?? (session('rol') ?? '')) ?>", // ✅ canonizado
+            role: "<?= esc($forcedRole ?? (session('rol') ?? '')) ?>",
             userId: <?= (int)(session('user_id') ?? 0) ?>,
             base: "<?= base_url() ?>",
             endpoints: {
@@ -37,21 +36,18 @@
               attachment: "<?= base_url('soporte/attachment') ?>"
             }
           };
-          console.log('[SUPPORT role]', window.SUPPORT.role);
         </script>
 
         <div class="grid lg:grid-cols-[380px_1fr] gap-4" x-data="supportChat" x-init="init()" x-cloak>
 
           <!-- LISTA -->
           <section class="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col min-h-[78vh]">
-
             <div class="p-4 border-b border-slate-200 flex items-center justify-between">
               <div class="flex items-center gap-3 min-w-0">
                 <div class="h-10 w-10 rounded-full bg-slate-900 text-white grid place-items-center font-extrabold shrink-0">S</div>
                 <div class="min-w-0">
                   <div class="font-extrabold text-slate-900 leading-tight truncate">Soporte</div>
-                  <div class="text-xs text-slate-500 truncate"
-                       x-text="isAdmin ? 'Vista Admin (todos los tickets)' : 'Mis tickets (producción)'"></div>
+                  <div class="text-xs text-slate-500 truncate" x-text="isAdmin ? 'Vista Admin (todos los tickets)' : 'Mis tickets (producción)'"></div>
                 </div>
               </div>
 
@@ -81,13 +77,11 @@
                         :class="filter==='unassigned' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'">
                   Sin asignar
                 </button>
-
                 <button type="button" @click="filter='mine'"
                         class="px-3 py-2 rounded-xl text-xs font-semibold border"
                         :class="filter==='mine' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'">
                   Asignados a mí
                 </button>
-
                 <button type="button" @click="filter='all'"
                         class="px-3 py-2 rounded-xl text-xs font-semibold border"
                         :class="filter==='all' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'">
@@ -101,7 +95,6 @@
                 <button type="button" @click="openTicket(t.id)"
                         class="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition flex items-start gap-3"
                         :class="selectedTicketId===t.id ? 'bg-slate-50' : ''">
-
                   <div class="h-11 w-11 rounded-full bg-slate-200 grid place-items-center font-extrabold text-slate-700 shrink-0">#</div>
 
                   <div class="min-w-0 flex-1">
@@ -172,30 +165,41 @@
                 </div>
               </div>
 
-              <!-- acciones admin -->
-              <div class="flex items-center gap-2" x-show="ticket && isAdmin">
-                <button type="button" x-show="ticket && !ticket.assigned_to" @click="acceptCase()"
-                        class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:opacity-90">
-                  Aceptar caso
+              <div class="flex items-center gap-2">
+                <!-- 🔔 Notificaciones -->
+                <button type="button" @click="toggleNotifications()"
+                        class="h-10 w-10 rounded-full bg-white border border-slate-200 grid place-items-center hover:bg-slate-50"
+                        :title="notifyEnabled ? 'Notificaciones activadas' : 'Activar notificaciones'">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 01-6 0"/>
+                  </svg>
                 </button>
 
-                <select x-model="adminStatus" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                  <option value="open">Abierto</option>
-                  <option value="in_progress">En proceso</option>
-                  <option value="waiting_customer">Esperando info</option>
-                  <option value="resolved">Resuelto</option>
-                  <option value="closed">Cerrado</option>
-                </select>
+                <!-- acciones admin -->
+                <div class="flex items-center gap-2" x-show="ticket && isAdmin">
+                  <button type="button" x-show="ticket && !ticket.assigned_to" @click="acceptCase()"
+                          class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:opacity-90">
+                    Aceptar caso
+                  </button>
 
-                <button type="button" @click="updateStatus()"
-                        class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold hover:bg-slate-50">
-                  Guardar
-                </button>
+                  <select x-model="adminStatus" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                    <option value="open">Abierto</option>
+                    <option value="in_progress">En proceso</option>
+                    <option value="waiting_customer">Esperando info</option>
+                    <option value="resolved">Resuelto</option>
+                    <option value="closed">Cerrado</option>
+                  </select>
+
+                  <button type="button" @click="updateStatus()"
+                          class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold hover:bg-slate-50">
+                    Guardar
+                  </button>
+                </div>
               </div>
             </div>
 
             <div class="flex-1 overflow-auto px-4 py-4 bg-[#efeae2]" x-ref="thread">
-
               <div class="h-full grid place-items-center text-center px-6" x-show="!ticket && !isCreating">
                 <div class="max-w-sm">
                   <div class="mx-auto h-14 w-14 rounded-full bg-white border border-slate-200 grid place-items-center">
@@ -236,11 +240,27 @@
               </div>
             </div>
 
+            <!-- composer -->
             <form class="px-4 py-3 border-t border-slate-200 bg-[#f0f2f5]" @submit.prevent="send()">
               <div class="grid md:grid-cols-[240px_1fr] gap-3 mb-3" x-show="isCreating">
                 <input type="text" x-model="orderId" placeholder="Número de pedido (opcional)"
                        class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200">
                 <div class="text-xs text-slate-500 flex items-center">Asócialo a un pedido si aplica.</div>
+              </div>
+
+              <!-- ✅ PREVIEW WHATSAPP -->
+              <div class="mb-3" x-show="files.length">
+                <div class="flex gap-2 overflow-x-auto pb-1">
+                  <template x-for="(f, idx) in files" :key="f.url">
+                    <div class="relative h-16 w-16 rounded-xl overflow-hidden border border-black/10 bg-white shrink-0">
+                      <img :src="f.url" class="h-full w-full object-cover" alt="">
+                      <button type="button" @click="removeFile(idx)"
+                              class="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/60 text-white grid place-items-center text-xs">
+                        ✕
+                      </button>
+                    </div>
+                  </template>
+                </div>
               </div>
 
               <div class="flex items-end gap-2">
@@ -264,15 +284,6 @@
                           d="M5 12h14M12 5l7 7-7 7"/>
                   </svg>
                 </button>
-              </div>
-
-              <div class="mt-3 flex flex-wrap gap-2" x-show="files.length">
-                <template x-for="(f, idx) in files" :key="idx">
-                  <div class="text-xs px-2 py-1 rounded-lg bg-white border border-slate-200">
-                    <span x-text="f.name"></span>
-                    <button type="button" class="ml-2 text-rose-600" @click="files.splice(idx,1)">x</button>
-                  </div>
-                </template>
               </div>
             </form>
           </section>
