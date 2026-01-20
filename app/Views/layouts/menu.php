@@ -285,7 +285,7 @@
       <?php $item(base_url('usuarios'), $isActive('usuarios'), 'Usuarios',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A8.967 8.967 0 0112 15c2.5 0 4.764 1.02 6.879 2.804M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'
       ); ?>
-            <?php $item(base_url('soporte'), $isActive('soporte'), 'Soporte',
+            <?php $item(base_url('soporte/chat'), $isActive('soporte'), 'Soporte',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M4 12a8 8 0 0116 0v3a3 3 0 01-3 3h-1v-6h4M4 12v3a3 3 0 003 3h1v-6H4"/>
