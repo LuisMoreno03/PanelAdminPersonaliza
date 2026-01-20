@@ -4,7 +4,7 @@ namespace App\Controllers;
 
 use CodeIgniter\HTTP\ResponseInterface;
 
-class SoporteController extends BaseController
+class SupportController extends BaseController
 {
   protected $db;
 
