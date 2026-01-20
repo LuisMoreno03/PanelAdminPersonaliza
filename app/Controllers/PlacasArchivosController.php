@@ -11,54 +11,47 @@ class PlacasArchivosController extends BaseController
 
 
 {
-    public function listar()
-    {
-        try {
-            helper('url');
+public function listar()
+{
+    try {
+        helper('url');
 
-            $model = new PlacaArchivoModel();
-            $items = $model->orderBy('id', 'DESC')->findAll();
+        $model = new PlacaArchivoModel();
+        $items = $model->orderBy('id', 'DESC')->findAll();
 
-            foreach ($items as &$it) {
-                $ruta = $it['ruta'] ?? '';
-                $it['url'] = base_url('placas/archivos/descargar/' . $it['id']);
+        foreach ($items as &$it) {
+            $it['url'] = base_url('placas/archivos/descargar/' . $it['id']);
+            $it['created_at'] = $it['created_at'] ?? null;
 
+            $it['original'] = $it['original']
+                ?? ($it['original_name'] ?? ($it['filename'] ?? null));
 
-                $it['created_at'] = $it['created_at'] ?? null;
+            $it['nombre'] = $it['nombre']
+                ?? ($it['original']
+                    ? pathinfo($it['original'], PATHINFO_FILENAME)
+                    : null
+                );
 
-                $it['original'] = $it['original']
-                    ?? ($it['original_name'] ?? ($it['filename'] ?? null));
-
-                $it['nombre'] = $it['nombre']
-                    ?? ($it['original']
-                        ? pathinfo($it['original'], PATHINFO_FILENAME)
-                        : null
-                    );
-
-                $it['lote_id'] = $it['lote_id']
-                    ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
-            }
-            unset($it);
-
-            return $this->response->setJSON([
-                'success' => true,
-                'data'    => $items
-            ]);
-
-        } catch (\Throwable $e) {
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-                'file'    => $e->getFile(),
-                'line'    => $e->getLine()
-            ]);
-
-            
-
+            $it['lote_id'] = $it['lote_id']
+                ?? ($it['conjunto_id'] ?? ($it['placa_id'] ?? null));
         }
-    }
+        unset($it);
 
+        return $this->response->setJSON([
+            'success' => true,
+            'data'    => $items
+        ]);
+
+    } catch (\Throwable $e) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => $e->getMessage(),
+            'file'    => $e->getFile(),
+            'line'    => $e->getLine()
+        ]);
+    }
 }
+
 
     public function stats()
     {
@@ -574,7 +567,7 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
 }
 
 
-
+}
 
 // DESCARGAR FOTOS Y ARCHIVOS JPG/PNG (FOTOS) //
 
@@ -781,3 +774,4 @@ private function descargarZipLote($loteId, $format = 'png')
     return $this->response->download($tmp, null)
         ->setFileName("lote_{$loteId}_{$format}.zip");
 }
+
