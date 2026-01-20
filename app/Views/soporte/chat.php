@@ -5,8 +5,9 @@
   <!-- MAIN -->
   <main id="mainLayout" class="min-h-screen md:pl-64 transition-all">
     <div class="p-4 md:p-6">
-      <div class="mx-auto max-w-7xl" x-data="supportChat">
+      <div class="mx-auto max-w-7xl">
 
+        <!-- contexto global para JS -->
         <script>
           window.SUPPORT = {
             role: "<?= esc(session('rol') ?? '') ?>",          // admin | produccion
@@ -24,32 +25,42 @@
           };
         </script>
 
-        <div class="grid lg:grid-cols-[380px_1fr] gap-4">
+        <div
+          class="grid lg:grid-cols-[380px_1fr] gap-4"
+          x-data="supportChat"
+          x-init="init()"
+        >
 
-          <!-- LISTA (tipo WhatsApp chats) -->
-          <section class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <!-- =========================
+               LISTA DE TICKETS (Sidebar estilo WhatsApp)
+               ========================= -->
+          <section class="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col min-h-[78vh]">
+
+            <!-- header -->
             <div class="p-4 border-b border-slate-200 flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <div class="h-10 w-10 rounded-full bg-slate-900 text-white grid place-items-center font-extrabold">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="h-10 w-10 rounded-full bg-slate-900 text-white grid place-items-center font-extrabold shrink-0">
                   S
                 </div>
-                <div>
-                  <div class="font-extrabold text-slate-900 leading-tight">Soporte</div>
-                  <div class="text-xs text-slate-500" x-text="isAdmin ? 'Vista Admin' : 'Mis tickets'"></div>
+                <div class="min-w-0">
+                  <div class="font-extrabold text-slate-900 leading-tight truncate">Soporte</div>
+                  <div class="text-xs text-slate-500 truncate" x-text="isAdmin ? 'Vista Admin (todos los tickets)' : 'Mis tickets (producción)'"></div>
                 </div>
               </div>
 
-              <!-- Nuevo ticket SOLO produccion -->
+              <!-- Nuevo: solo produccion -->
               <button
                 x-show="!isAdmin"
                 @click="startNew()"
-                class="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 hover:bg-slate-50">
+                class="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 hover:bg-slate-50"
+              >
                 Nuevo
               </button>
             </div>
 
-            <!-- búsqueda -->
+            <!-- search + filtros -->
             <div class="p-3 border-b border-slate-200">
+              <!-- search -->
               <div class="relative">
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -60,39 +71,53 @@
                 <input
                   x-model="q"
                   type="text"
-                  placeholder="Buscar ticket…"
+                  placeholder="Buscar por ticket o pedido…"
                   class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm
                          placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
                 />
               </div>
 
-              <!-- filtros SOLO admin -->
+              <!-- filtros admin -->
               <div class="mt-3 flex gap-2" x-show="isAdmin">
-                <button @click="filter='unassigned'"
-                        class="px-3 py-2 rounded-xl text-xs font-semibold border"
-                        :class="filter==='unassigned' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'">
+                <button
+                  type="button"
+                  @click="filter='unassigned'"
+                  class="px-3 py-2 rounded-xl text-xs font-semibold border"
+                  :class="filter==='unassigned' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'"
+                >
                   Sin asignar
                 </button>
-                <button @click="filter='mine'"
-                        class="px-3 py-2 rounded-xl text-xs font-semibold border"
-                        :class="filter==='mine' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'">
-                  Míos
+
+                <button
+                  type="button"
+                  @click="filter='mine'"
+                  class="px-3 py-2 rounded-xl text-xs font-semibold border"
+                  :class="filter==='mine' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'"
+                >
+                  Asignados a mí
                 </button>
-                <button @click="filter='all'"
-                        class="px-3 py-2 rounded-xl text-xs font-semibold border"
-                        :class="filter==='all' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'">
+
+                <button
+                  type="button"
+                  @click="filter='all'"
+                  class="px-3 py-2 rounded-xl text-xs font-semibold border"
+                  :class="filter==='all' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'"
+                >
                   Todos
                 </button>
               </div>
             </div>
 
-            <div class="max-h-[72vh] overflow-auto">
+            <!-- lista -->
+            <div class="flex-1 overflow-auto">
               <template x-for="t in filteredTickets" :key="t.id">
                 <button
+                  type="button"
                   @click="openTicket(t.id)"
                   class="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition flex items-start gap-3"
                   :class="selectedTicketId===t.id ? 'bg-slate-50' : ''"
                 >
+                  <!-- avatar -->
                   <div class="h-11 w-11 rounded-full bg-slate-200 grid place-items-center font-extrabold text-slate-700 shrink-0">
                     #
                   </div>
@@ -101,19 +126,27 @@
                     <div class="flex items-center justify-between gap-2">
                       <div class="font-bold text-slate-900 truncate" x-text="t.ticket_code"></div>
 
-                      <span class="text-[11px] font-semibold px-2 py-1 rounded-lg"
-                            :class="badgeClass(t.status)"
-                            x-text="statusLabel(t.status)"></span>
+                      <span
+                        class="text-[11px] font-semibold px-2 py-1 rounded-lg"
+                        :class="badgeClass(t.status)"
+                        x-text="statusLabel(t.status)"
+                      ></span>
                     </div>
 
                     <div class="text-xs text-slate-500 mt-1 truncate">
-                      <span x-show="t.order_id">Pedido: <span class="font-semibold" x-text="t.order_id"></span></span>
-                      <span x-show="!t.order_id">—</span>
+                      <template x-if="t.order_id">
+                        <span>Pedido: <span class="font-semibold" x-text="t.order_id"></span></span>
+                      </template>
+                      <template x-if="!t.order_id">
+                        <span>—</span>
+                      </template>
                     </div>
 
                     <div class="text-xs text-slate-500 mt-1" x-show="isAdmin">
                       <template x-if="t.assigned_to">
-                        <span>Aceptado por <span class="font-semibold" x-text="t.assigned_name || ('#'+t.assigned_to)"></span></span>
+                        <span>
+                          Aceptado por <span class="font-semibold" x-text="t.assigned_name || ('#'+t.assigned_to)"></span>
+                        </span>
                       </template>
                       <template x-if="!t.assigned_to">
                         <span class="text-amber-700 font-semibold">Sin asignar</span>
@@ -123,19 +156,28 @@
                 </button>
               </template>
 
-              <div x-show="filteredTickets.length===0" class="p-4 text-sm text-slate-500">
+              <div class="p-4 text-sm text-slate-500" x-show="filteredTickets.length===0">
                 No hay tickets en este filtro.
               </div>
             </div>
+
+            <!-- footer lista -->
+            <div class="p-3 border-t border-slate-200 text-xs text-slate-500 flex items-center justify-between">
+              <span x-text="`Total: ${tickets.length}`"></span>
+              <span class="font-semibold text-slate-700">Soporte Interno</span>
+            </div>
+
           </section>
 
-          <!-- CHAT (WhatsApp-like) -->
-          <section class="rounded-2xl border border-slate-200 overflow-hidden flex flex-col bg-white">
+          <!-- =========================
+               CHAT (WhatsApp-like)
+               ========================= -->
+          <section class="rounded-2xl border border-slate-200 overflow-hidden flex flex-col bg-white min-h-[78vh]">
 
-            <!-- Header chat -->
+            <!-- header chat -->
             <div class="px-4 py-3 border-b border-slate-200 bg-[#f0f2f5] flex items-center justify-between gap-3">
               <div class="flex items-center gap-3 min-w-0">
-                <div class="h-10 w-10 rounded-full bg-emerald-600 text-white grid place-items-center font-extrabold">
+                <div class="h-10 w-10 rounded-full bg-emerald-600 text-white grid place-items-center font-extrabold shrink-0">
                   W
                 </div>
 
@@ -148,27 +190,36 @@
 
                   <div class="text-xs text-slate-600 truncate" x-show="ticket">
                     <span class="font-semibold" x-text="statusLabel(ticket.status)"></span>
-                    <span x-show="ticket.order_id"> · Pedido: <span class="font-semibold" x-text="ticket.order_id"></span></span>
+
+                    <span x-show="ticket.order_id">
+                      · Pedido: <span class="font-semibold" x-text="ticket.order_id"></span>
+                    </span>
 
                     <span x-show="ticket.assigned_to">
-                      · Aceptado por <span class="font-semibold" x-text="ticket.assigned_name || ('#'+ticket.assigned_to)"></span>
+                      · Aceptado por
+                      <span class="font-semibold" x-text="ticket.assigned_name || ('#'+ticket.assigned_to)"></span>
                       · <span class="font-semibold" x-text="formatDT(ticket.assigned_at)"></span>
                     </span>
                   </div>
                 </div>
               </div>
 
-              <!-- Admin controls -->
+              <!-- acciones admin -->
               <div class="flex items-center gap-2" x-show="ticket && isAdmin">
+
                 <button
+                  type="button"
                   x-show="ticket && !ticket.assigned_to"
                   @click="acceptCase()"
-                  class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:opacity-90">
+                  class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:opacity-90"
+                >
                   Aceptar caso
                 </button>
 
-                <select x-model="adminStatus"
-                        class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                <select
+                  x-model="adminStatus"
+                  class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                >
                   <option value="open">Abierto</option>
                   <option value="in_progress">En proceso</option>
                   <option value="waiting_customer">Esperando info</option>
@@ -177,65 +228,94 @@
                 </select>
 
                 <button
+                  type="button"
                   @click="updateStatus()"
-                  class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold hover:bg-slate-50">
+                  class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold hover:bg-slate-50"
+                >
                   Guardar
                 </button>
               </div>
             </div>
 
-            <!-- Thread (fondo WhatsApp) -->
+            <!-- thread -->
             <div class="flex-1 overflow-auto px-4 py-4 bg-[#efeae2]" x-ref="thread">
+
+              <!-- estado vacío -->
+              <div class="h-full grid place-items-center text-center px-6" x-show="!ticket && !isCreating">
+                <div class="max-w-sm">
+                  <div class="mx-auto h-14 w-14 rounded-full bg-white border border-slate-200 grid place-items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-700" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8 10h8M8 14h5m9-2a8 8 0 01-8 8H7l-4 3V6a8 8 0 018-8h3a8 8 0 018 8z"/>
+                    </svg>
+                  </div>
+                  <div class="mt-3 font-extrabold text-slate-900">Soporte interno</div>
+                  <div class="mt-1 text-sm text-slate-600">Selecciona un ticket de la izquierda para ver la conversación.</div>
+                </div>
+              </div>
+
+              <!-- mensajes -->
               <div class="space-y-2" x-show="ticket || isCreating">
 
                 <template x-for="m in messages" :key="m.id">
                   <div class="flex" :class="m.sender==='user' ? 'justify-end' : 'justify-start'">
 
-                    <!-- Bubble -->
-                    <div class="max-w-[82%] shadow-sm px-3 py-2"
-                         :class="m.sender==='user'
-                           ? 'bg-emerald-200 text-slate-900 rounded-2xl rounded-tr-md'
-                           : 'bg-white text-slate-900 rounded-2xl rounded-tl-md'">
-
+                    <!-- bubble -->
+                    <div
+                      class="max-w-[82%] shadow-sm px-3 py-2 relative"
+                      :class="m.sender==='user'
+                        ? 'bg-emerald-200 text-slate-900 rounded-2xl rounded-tr-md'
+                        : 'bg-white text-slate-900 rounded-2xl rounded-tl-md'"
+                    >
+                      <!-- mensaje -->
                       <div class="text-sm whitespace-pre-wrap break-words" x-show="m.message" x-text="m.message"></div>
 
-                      <!-- Adjuntos -->
+                      <!-- adjuntos -->
                       <div class="mt-2 grid grid-cols-2 gap-2" x-show="attachments[m.id]">
                         <template x-for="a in (attachments[m.id] || [])" :key="a.id">
-                          <a class="block overflow-hidden rounded-xl border border-black/10 bg-white"
-                             :href="`${SUPPORT.endpoints.attachment}/${a.id}`"
-                             target="_blank">
-                            <img class="w-full h-28 object-cover"
-                                 :src="`${SUPPORT.endpoints.attachment}/${a.id}`"
-                                 alt="">
+                          <a
+                            class="block overflow-hidden rounded-xl border border-black/10 bg-white"
+                            :href="`${SUPPORT.endpoints.attachment}/${a.id}`"
+                            target="_blank"
+                          >
+                            <img
+                              class="w-full h-28 object-cover"
+                              :src="`${SUPPORT.endpoints.attachment}/${a.id}`"
+                              alt=""
+                            >
                           </a>
                         </template>
                       </div>
 
+                      <!-- meta -->
                       <div class="mt-1 text-[10px] text-slate-600 flex justify-end"
                            x-text="formatTime(m.created_at)"></div>
                     </div>
+
                   </div>
                 </template>
 
               </div>
-
-              <div class="text-sm text-slate-600" x-show="!ticket && !isCreating">
-                Selecciona un ticket para ver la conversación.
-              </div>
             </div>
 
-            <!-- Composer -->
+            <!-- composer -->
             <form class="px-4 py-3 border-t border-slate-200 bg-[#f0f2f5]" @submit.prevent="send()">
 
+              <!-- pedido (solo al crear) -->
               <div class="grid md:grid-cols-[240px_1fr] gap-3 mb-3" x-show="isCreating">
-                <input type="text" x-model="orderId"
-                       placeholder="Número de pedido (opcional)"
-                       class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200">
+                <input
+                  type="text"
+                  x-model="orderId"
+                  placeholder="Número de pedido (opcional)"
+                  class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-200"
+                >
                 <div class="text-xs text-slate-500 flex items-center">Asócialo a un pedido si aplica.</div>
               </div>
 
+              <!-- fila input -->
               <div class="flex items-end gap-2">
+
+                <!-- adjuntar -->
                 <label class="h-11 w-11 grid place-items-center rounded-full bg-white border border-slate-200 cursor-pointer hover:bg-slate-50">
                   <input type="file" multiple accept="image/*" class="hidden" @change="pickFiles($event)">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-700" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -244,6 +324,7 @@
                   </svg>
                 </label>
 
+                <!-- textarea -->
                 <textarea
                   x-model="draft"
                   rows="1"
@@ -252,17 +333,22 @@
                          focus:outline-none focus:ring-2 focus:ring-slate-200 max-h-32"
                 ></textarea>
 
-                <button type="submit"
-                        class="h-11 w-11 rounded-full bg-emerald-600 text-white grid place-items-center hover:opacity-90 disabled:opacity-50"
-                        :disabled="sending">
+                <!-- enviar -->
+                <button
+                  type="submit"
+                  class="h-11 w-11 rounded-full bg-emerald-600 text-white grid place-items-center hover:opacity-90 disabled:opacity-50"
+                  :disabled="sending"
+                  title="Enviar"
+                >
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M5 12h14M12 5l7 7-7 7"/>
                   </svg>
                 </button>
+
               </div>
 
-              <!-- previews -->
+              <!-- preview adjuntos -->
               <div class="mt-3 flex flex-wrap gap-2" x-show="files.length">
                 <template x-for="(f, idx) in files" :key="idx">
                   <div class="text-xs px-2 py-1 rounded-lg bg-white border border-slate-200">
@@ -273,8 +359,8 @@
               </div>
 
             </form>
-
           </section>
+
         </div>
       </div>
     </div>
@@ -283,4 +369,4 @@
 
 <!-- JS externo -->
 <script src="<?= base_url('assets/js/support-chat.js') ?>"></script>
-<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+          
