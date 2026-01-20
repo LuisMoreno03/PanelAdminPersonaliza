@@ -32,7 +32,9 @@
 
         <script>
           window.SUPPORT = {
-            role: "<?= esc(session('rol') ?? '') ?>",
+            role: "<?= esc($forcedRole ?? (session('rol') ?? '')) ?>",
+            isAdmin: <?= json_encode((session('rol') ?? '') === 'admin') ?>,
+            
             userId: <?= (int)(session('user_id') ?? 0) ?>,
             base: "<?= base_url() ?>",
             csrf: <?= json_encode($csrf) ?>,
