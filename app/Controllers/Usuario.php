@@ -19,9 +19,10 @@ class Usuario extends BaseController
             ]);
         }
 
+        
         $db = \Config\Database::connect();
 
-        $users = $db->table('users')
+        $users = $db->table('usuarios')
             ->select('id, nombre, role, email, created_at')
             ->orderBy('id', 'DESC')
             ->get()
