@@ -119,7 +119,7 @@
             <!-- GRID 2XL -->
             <div class="hidden 2xl:block w-full overflow-x-auto soft-scroll">
               <div class="bg-slate-50 border-b border-slate-200 min-w-[1500px]">
-                <div class="grid prod-grid-cols items-center gap-3 px-4 py-3
+                <div class="grid prod-grid-cols space-x-4 items-center gap-3 px-4 py-3
                             text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
                   <div>Pedido</div>
                   <div>Fecha</div>
