@@ -1,5 +1,23 @@
-<div class="min-h-screen bg-slate-100">
-  <!-- MENU -->
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Soporte | Chat</title>
+
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Alpine.js (CDN) -->
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <!-- (Opcional) Mejor render -->
+  <meta name="color-scheme" content="light" />
+</head>
+
+<body class="min-h-screen bg-slate-100">
+
+  <!-- MENU (barra izquierda) -->
   <?= view('layouts/menu') ?>
 
   <!-- MAIN -->
@@ -32,7 +50,7 @@
         >
 
           <!-- =========================
-               LISTA DE TICKETS (Sidebar estilo WhatsApp)
+               LISTA DE TICKETS (estilo WhatsApp)
                ========================= -->
           <section class="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col min-h-[78vh]">
 
@@ -53,6 +71,7 @@
                 x-show="!isAdmin"
                 @click="startNew()"
                 class="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 hover:bg-slate-50"
+                type="button"
               >
                 Nuevo
               </button>
@@ -206,7 +225,6 @@
 
               <!-- acciones admin -->
               <div class="flex items-center gap-2" x-show="ticket && isAdmin">
-
                 <button
                   type="button"
                   x-show="ticket && !ticket.assigned_to"
@@ -256,21 +274,16 @@
 
               <!-- mensajes -->
               <div class="space-y-2" x-show="ticket || isCreating">
-
                 <template x-for="m in messages" :key="m.id">
                   <div class="flex" :class="m.sender==='user' ? 'justify-end' : 'justify-start'">
-
-                    <!-- bubble -->
                     <div
-                      class="max-w-[82%] shadow-sm px-3 py-2 relative"
+                      class="max-w-[82%] shadow-sm px-3 py-2"
                       :class="m.sender==='user'
                         ? 'bg-emerald-200 text-slate-900 rounded-2xl rounded-tr-md'
                         : 'bg-white text-slate-900 rounded-2xl rounded-tl-md'"
                     >
-                      <!-- mensaje -->
                       <div class="text-sm whitespace-pre-wrap break-words" x-show="m.message" x-text="m.message"></div>
 
-                      <!-- adjuntos -->
                       <div class="mt-2 grid grid-cols-2 gap-2" x-show="attachments[m.id]">
                         <template x-for="a in (attachments[m.id] || [])" :key="a.id">
                           <a
@@ -287,21 +300,16 @@
                         </template>
                       </div>
 
-                      <!-- meta -->
-                      <div class="mt-1 text-[10px] text-slate-600 flex justify-end"
-                           x-text="formatTime(m.created_at)"></div>
+                      <div class="mt-1 text-[10px] text-slate-600 flex justify-end" x-text="formatTime(m.created_at)"></div>
                     </div>
-
                   </div>
                 </template>
-
               </div>
             </div>
 
             <!-- composer -->
             <form class="px-4 py-3 border-t border-slate-200 bg-[#f0f2f5]" @submit.prevent="send()">
 
-              <!-- pedido (solo al crear) -->
               <div class="grid md:grid-cols-[240px_1fr] gap-3 mb-3" x-show="isCreating">
                 <input
                   type="text"
@@ -312,10 +320,7 @@
                 <div class="text-xs text-slate-500 flex items-center">Asócialo a un pedido si aplica.</div>
               </div>
 
-              <!-- fila input -->
               <div class="flex items-end gap-2">
-
-                <!-- adjuntar -->
                 <label class="h-11 w-11 grid place-items-center rounded-full bg-white border border-slate-200 cursor-pointer hover:bg-slate-50">
                   <input type="file" multiple accept="image/*" class="hidden" @change="pickFiles($event)">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-700" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -324,7 +329,6 @@
                   </svg>
                 </label>
 
-                <!-- textarea -->
                 <textarea
                   x-model="draft"
                   rows="1"
@@ -333,7 +337,6 @@
                          focus:outline-none focus:ring-2 focus:ring-slate-200 max-h-32"
                 ></textarea>
 
-                <!-- enviar -->
                 <button
                   type="submit"
                   class="h-11 w-11 rounded-full bg-emerald-600 text-white grid place-items-center hover:opacity-90 disabled:opacity-50"
@@ -345,10 +348,8 @@
                           d="M5 12h14M12 5l7 7-7 7"/>
                   </svg>
                 </button>
-
               </div>
 
-              <!-- preview adjuntos -->
               <div class="mt-3 flex flex-wrap gap-2" x-show="files.length">
                 <template x-for="(f, idx) in files" :key="idx">
                   <div class="text-xs px-2 py-1 rounded-lg bg-white border border-slate-200">
@@ -357,16 +358,16 @@
                   </div>
                 </template>
               </div>
-
             </form>
+
           </section>
 
         </div>
       </div>
     </div>
   </main>
-</div>
 
-<!-- JS externo -->
-<script src="<?= base_url('assets/js/support-chat.js') ?>"></script>
-          
+  <!-- JS del chat (tu archivo) -->
+  <script src="<?= base_url('assets/js/support-chat.js') ?>"></script>
+</body>
+</html>
