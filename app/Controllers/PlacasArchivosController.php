@@ -720,28 +720,33 @@ private function descargarZipLote($loteId, $format = 'png')
         if (!is_file($fullPath)) continue;
 
         // nombre base (usa "nombre" editable si existe)
-      $baseName = trim((string)($r['nombre'] ?? ''));
+     $baseName = trim((string)($r['nombre'] ?? ''));
 
         if ($baseName === '') {
-        $orig = (string)($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? 'archivo');
+        $orig = (string)($r['original'] ?? $r['original_name'] ?? $r['filename'] ?? 'archivo_' . $archivoId);
         $baseName = trim(pathinfo($orig, PATHINFO_FILENAME));
         }
+        if ($baseName === '') $baseName = 'archivo_' . $archivoId;
+        
 
-        if ($baseName === '') $baseName = 'archivo_' . ($r['id'] ?? '');
         $baseName = preg_replace('/[^a-zA-Z0-9\-_ ]/', '_', $baseName);
+        $downloadName = $baseName . '.' . $format;
 
 
-        // si es imagen ya del formato => mete directo
-        $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
-        $mime = (string)($r['mime'] ?? '');
 
-        $isSame =
-            ($format === 'png' && ($ext === 'png' || str_contains($mime, 'png'))) ||
-            ($format === 'jpg' && (in_array($ext, ['jpg','jpeg'], true) || str_contains($mime, 'jpeg')));
+        // si ya es del mismo formato, devuelve directo
+        $mime = strtolower((string)($r['mime'] ?? ''));
+        $ext  = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+
+        $isPng = ($ext === 'png') || str_contains($mime, 'png');
+        $isJpg = in_array($ext, ['jpg', 'jpeg'], true)
+        || str_contains($mime, 'jpeg')
+        || str_contains($mime, 'jpg'); // por si guardaste image/jpg
+
+        $isSame = ($format === 'png' && $isPng) || ($format === 'jpg' && $isJpg);
 
         if ($isSame) {
-            $zip->addFile($fullPath, $baseName . '.' . $format);
-            continue;
+        return $this->response->download($fullPath, null)->setFileName($downloadName);
         }
 
         // convertir usando tu misma lógica: reutiliza descargarConvertido (blob)
