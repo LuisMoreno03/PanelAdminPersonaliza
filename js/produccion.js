@@ -382,7 +382,7 @@ function actualizarListado(pedidos) {
 
           <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
 
-          <div class="min-w-0 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
+          <div class="min-w-0 gap-x-4 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
 
           <div class="flex justify-end">
             <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
@@ -459,7 +459,7 @@ function actualizarListado(pedidos) {
 
           <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
 
-          <div class="min-w-0 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
+          <div class="min-w-0 gap-x-4 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
 
           <div class="flex justify-end">
             <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
