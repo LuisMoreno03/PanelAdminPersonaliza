@@ -36,62 +36,53 @@
       .layout, .layout.menu-collapsed { padding-left: 0 !important; }
     }
 
-    /* ✅ Grid sin scroll para filas desktop (se adapta a ancho real) */
-    ./* ✅ Fuerza que el contenedor del listado no “recorte” */
-.table-wrap {
-  width: 100%;
-  max-width: 100%;
-}
+    /* ✅ Fuerza que el contenedor del listado no “recorte” */
+    .table-wrap {
+      width: 100%;
+      max-width: 100%;
+    }
 
-/* ✅ GRID responsive real (desktop) */
-.orders-grid {
-  display: grid;
-  align-items: center;
-  gap: .65rem;
-  width: 100%;
-}
+    /* ✅ GRID responsive real (desktop) */
+    .orders-grid {
+      display: grid;
+      align-items: center;
+      gap: .65rem;
+      width: 100%;
+    }
 
-/* ✅ Header + rows usan la misma grilla */
-.orders-grid.cols {
-  grid-template-columns:
-    110px                     /* Pedido */
-    92px                      /* Fecha */
-    minmax(170px, 1.2fr)      /* Cliente */
-    90px                      /* Total */
-    160px                     /* Estado */
-    minmax(140px, 0.9fr)      /* Último cambio */
-    minmax(170px, 1fr)        /* Etiquetas */
-    44px                      /* Art */
-    140px                     /* Entrega */
-    minmax(190px, 1fr)        /* Método entrega */
-    130px;                    /* ✅ Ver detalles */
-}
+    /* ✅ Header + rows usan la misma grilla (SIN ETIQUETAS: 10 columnas) */
+    .orders-grid.cols {
+      grid-template-columns:
+        110px                     /* Pedido */
+        92px                      /* Fecha */
+        minmax(170px, 1.2fr)      /* Cliente */
+        90px                      /* Total */
+        160px                     /* Estado */
+        minmax(140px, 0.9fr)      /* Último cambio */
+        44px                      /* Art */
+        140px                     /* Entrega */
+        minmax(190px, 1fr)        /* Método entrega */
+        130px;                    /* Ver detalles */
+    }
 
-/* ✅ Importante: permite truncar sin romper el grid */
-.orders-grid > div {
-  min-width: 0;
-}
+    /* ✅ Importante: permite truncar sin romper el grid */
+    .orders-grid > div { min-width: 0; }
 
-/* ✅ Para el método de entrega: permite 2 líneas */
-.metodo-entrega {
-  white-space: normal;
-  line-height: 1.1;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;       /* máximo 2 líneas */
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
+    /* ✅ Para el método de entrega: permite 2 líneas */
+    .metodo-entrega {
+      white-space: normal;
+      line-height: 1.1;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;       /* máximo 2 líneas */
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
 
-/* ✅ Si quieres “ver todo sí o sí” cuando el monitor sea pequeño,
-   activa scroll solo en la tabla (opcional) */
-.table-scroll {
-  overflow-x: auto;
-}
-.table-scroll::-webkit-scrollbar { height: 10px; }
-.table-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
-.table-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
-
-
+    /* ✅ Scroll horizontal solo en la tabla (si hace falta) */
+    .table-scroll { overflow-x: auto; }
+    .table-scroll::-webkit-scrollbar { height: 10px; }
+    .table-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    .table-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
 
     /* ✅ Cuando el ancho baja demasiado, pasamos a cards */
     @media (max-width: 1180px) {
@@ -119,7 +110,7 @@
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex items-start justify-between gap-4">
             <div>
               <h1 class="text-3xl font-extrabold text-slate-900">Pedidos</h1>
-              <p class="text-slate-500 mt-1">Estados, etiquetas, últimos cambios y detalles</p>
+              <p class="text-slate-500 mt-1">Estados, últimos cambios y detalles</p>
             </div>
           </div>
         </section>
@@ -148,6 +139,120 @@
             </div>
           </div>
         </section>
+        <!-- FILTROS -->
+        <section class="mb-6">
+          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
+            <div class="flex items-center justify-between gap-3">
+              <div class="font-extrabold text-slate-900 text-lg">Filtros</div>
+
+              <button id="btnToggleFiltros"
+                type="button"
+                class="px-4 py-2 rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 text-xs font-extrabold uppercase tracking-wide hover:bg-slate-100">
+                Mostrar / Ocultar
+              </button>
+            </div>
+
+            <div id="boxFiltros" class="mt-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Buscar</label>
+                  <input id="f_q" type="text" placeholder="Pedido, cliente, ID…"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Estado interno</label>
+                  <select id="f_estado"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-200">
+                    <option value="">Cualquiera</option>
+                    <option value="Por preparar">Por preparar</option>
+                    <option value="Faltan archivos">Faltan archivos</option>
+                    <option value="Confirmado">Confirmado</option>
+                    <option value="Diseñado">Diseñado</option>
+                    <option value="Por producir">Por producir</option>
+                    <option value="Enviado">Enviado</option>
+                    <option value="Repetir">Repetir</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Estado envío</label>
+                  <select id="f_envio"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-200">
+                    <option value="">Cualquiera</option>
+                    <option value="__none__">Sin enviar</option>
+                    <option value="fulfilled">Enviado</option>
+                    <option value="partial">Parcial</option>
+                    <option value="unfulfilled">Pendiente</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Método entrega</label>
+                  <select id="f_forma"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-200">
+                    <option value="">Cualquiera</option>
+                    <!-- se llena dinámico desde JS -->
+                  </select>
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Desde</label>
+                  <input id="f_desde" type="date"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Hasta</label>
+                  <input id="f_hasta" type="date"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Total min</label>
+                  <input id="f_total_min" type="number" step="0.01" placeholder="0"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Total max</label>
+                  <input id="f_total_max" type="number" step="0.01" placeholder="9999"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Artículos min</label>
+                  <input id="f_art_min" type="number" step="1" placeholder="0"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+                <div>
+                  <label class="text-xs font-extrabold text-slate-600 uppercase">Artículos max</label>
+                  <input id="f_art_max" type="number" step="1" placeholder="99"
+                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                </div>
+
+              </div>
+
+              <div class="mt-4 flex flex-wrap items-center gap-2">
+                <button id="btnAplicarFiltros"
+                  type="button"
+                  class="px-5 py-3 rounded-2xl bg-blue-600 text-white font-extrabold text-xs uppercase tracking-wide hover:bg-blue-700">
+                  Aplicar
+                </button>
+
+                <button id="btnLimpiarFiltros"
+                  type="button"
+                  class="px-5 py-3 rounded-2xl bg-slate-100 border border-slate-200 text-slate-800 font-extrabold text-xs uppercase tracking-wide hover:bg-slate-200">
+                  Limpiar
+                </button>
+
+                <div id="filtersInfo" class="ml-auto text-xs font-bold text-slate-500"></div>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <!-- PEDIDOS -->
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -156,8 +261,8 @@
             <div class="text-xs text-slate-500 hidden sm:block">Todo visible · responsive</div>
           </div>
 
-          <!-- ✅ Wrap que permite scroll opcional si hace falta -->
-          <div class="table-wrap table-scroll">
+          <!-- ✅ Desktop table (oculta en mobile) -->
+          <div class="table-wrap table-scroll desktop-orders">
             <!-- HEADER -->
             <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
               <div>Pedido</div>
@@ -179,7 +284,6 @@
           <!-- MOBILE/TABLET CARDS -->
           <div id="cardsPedidos" class="mobile-orders p-4"></div>
         </section>
-
 
         <!-- PAGINACIÓN -->
         <section class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -208,9 +312,8 @@
     </div>
   </main>
 
-  
   <!-- =============================================================== -->
-   <!-- MODAL DETALLES PEDIDO -->
+  <!-- MODAL DETALLES PEDIDO -->
   <!-- =============================================================== -->
   <?= view('layouts/modal_detalles') ?>
   <!-- MODALES (SOLO ESTADO) -->
@@ -226,21 +329,17 @@
 
   <!-- ✅ Variables globales (UNA sola vez) -->
   <script>
-  
-  window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
+    window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
 
-  // ✅ Endpoints correctos (sin concatenaciones peligrosas)
-  window.API = {
-    pedidos: "<?= site_url('dashboard/pedidos') ?>",
-    filter: "<?= site_url('dashboard/filter') ?>",
-    
-    ping: "<?= site_url('dashboard/ping') ?>",
-    usuariosEstado: "<?= site_url('dashboard/usuarios-estado') ?>",
-    guardarEstado: "<?= site_url('dashboard/guardar-estado') ?>",
-    
-  };
-</script>
-
+    // ✅ Endpoints correctos
+    window.API = {
+      pedidos: "<?= site_url('dashboard/pedidos') ?>",
+      filter: "<?= site_url('dashboard/filter') ?>",
+      ping: "<?= site_url('dashboard/ping') ?>",
+      usuariosEstado: "<?= site_url('dashboard/usuarios-estado') ?>",
+      guardarEstado: "<?= site_url('dashboard/guardar-estado') ?>"
+    };
+  </script>
 
   <!-- ✅ romper caché -->
   <script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>

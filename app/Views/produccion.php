@@ -56,7 +56,7 @@
         <section class="mb-6">
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex items-start justify-between gap-4">
             <div>
-              <h1 class="text-3xl font-extrabold text-slate-900">Producción</h1>
+              <h1 class="text-3xl font-extrabold text-slate-900">Diseño</h1>
               <p class="text-slate-500 mt-1">Cola por usuario · Pull desde “Confirmado”</p>
             </div>
 
@@ -246,7 +246,7 @@
 
               <!-- ✅ NUEVO: Archivos generales -->
               <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
-                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Archivos generales (AI/PDF/ZIP)</div>
+                <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Archivos Diseñados</div>
 
                 <form id="formGeneralUpload" class="mt-3 space-y-3">
                   <input type="hidden" id="generalOrderId" value="">
@@ -266,8 +266,8 @@
 
                   <button type="submit"
                     class="h-11 w-full px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition">
-                    Subir archivo(s) y pasar a “Por producir”
-                  </button>
+                    subir arcvhivo diseñado
+                  </button>z
 
                   <div id="generalUploadMsg" class="text-sm"></div>
                 </form>

@@ -5,6 +5,16 @@
  * - FIX: ver detalles usa shopify_order_id cuando existe
  * - Fallback endpoints: con/sin index.php
  * - Upload GENERAL: (formGeneralUpload) es el único upload
+ *
+ * ✅ NUEVO:
+ * - Upload Imagen MODIFICADA por item_index (drag&drop + reemplazar + preview)
+ * - Endpoint: POST /produccion/upload-modificada (order_id, item_index, file)
+ * - Fallback: si no viene imagenes_locales desde detalles, intenta detectar mod_# desde list-general
+ *
+ * ✅ REGLA:
+ * - Solo permite mostrar/subir imagen modificada a:
+ *   (1) productos con imagen del cliente (properties con URL de imagen)
+ *   (2) llaveros (title/sku/variant con "llavero" o "keychain")
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -13,6 +23,9 @@ const ENDPOINT_PULL = `${API_BASE}/produccion/pull`;
 const ENDPOINT_RETURN_ALL = `${API_BASE}/produccion/return-all`;
 const ENDPOINT_UPLOAD_GENERAL = `${API_BASE}/produccion/upload-general`;
 const ENDPOINT_LIST_GENERAL = `${API_BASE}/produccion/list-general`;
+
+// ✅ nuevo endpoint
+const ENDPOINT_UPLOAD_MODIFICADA = `${API_BASE}/produccion/upload-modificada`;
 
 let pedidosCache = [];
 let pedidosFiltrados = [];
@@ -23,6 +36,10 @@ let silentFetch = false;
 let currentDetallesPedidoId = null;  // p.id (interno)
 let currentDetallesShopifyId = null; // shopify_order_id
 let currentDetallesOrderId = null;   // el que llegó al abrir (puede ser shopify o interno)
+let currentKeyForFiles = null;       // ✅ key estable del pedido (para uploads)
+
+// ✅ estado por item para “imagen modificada”
+const modState = new Map(); // index -> { existingUrl, selectedFile, objectUrl, isUploading, isEligible }
 
 // =========================
 // Helpers DOM/UI
@@ -73,6 +90,31 @@ function moneyFormat(v) {
 function esBadgeHtml(valor) {
   const s = String(valor ?? "").trim();
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
+}
+
+// =========================
+// Text helpers (llaveros)
+// =========================
+function normTxt(v) {
+  try {
+    return String(v ?? "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  } catch {
+    return String(v ?? "").toLowerCase();
+  }
+}
+
+function isKeychainItem(item) {
+  const t = normTxt(item?.title || item?.name || "");
+  const sku = normTxt(item?.sku || "");
+  const vt = normTxt(item?.variant_title || item?.variant_name || item?.variant || "");
+  return (
+    t.includes("llavero") || t.includes("keychain") ||
+    sku.includes("llavero") || sku.includes("keychain") ||
+    vt.includes("llavero") || vt.includes("keychain")
+  );
 }
 
 // =========================
@@ -340,7 +382,6 @@ function actualizarListado(pedidos) {
       const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
       const estado = p.estado ?? p.estado_bd ?? "Por producir";
-      const etiquetas = p.etiquetas ?? "";
       const articulos = p.articulos ?? "-";
       const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
       const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
@@ -355,33 +396,18 @@ function actualizarListado(pedidos) {
         `
         : renderEstadoPill(estado);
 
-      const detallesBtn = `
-        <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-          Ver detalles →
-        </button>
-      `;
-
       return `
         <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
                     border-b border-slate-200 hover:bg-slate-50 transition">
 
           <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
-
           <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
-
           <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
-
           <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
-
           <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
-
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
           <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
-
           <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
-
           <div class="min-w-0 gap-x-4 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
 
           <div class="flex justify-end">
@@ -390,16 +416,14 @@ function actualizarListado(pedidos) {
               Ver detalles →
             </button>
           </div>
-
         </div>
       `;
-
     }).join("");
 
     return;
   }
 
-  // TABLE
+  // TABLE ✅ FIX REAL
   if (mode === "table") {
     if (contCards) contCards.classList.add("hidden");
     if (!contTable) return;
@@ -407,7 +431,7 @@ function actualizarListado(pedidos) {
     if (!pedidos || !pedidos.length) {
       contTable.innerHTML = `
         <tr>
-          <td colspan="11" class="px-5 py-8 text-slate-500 text-sm">No tienes pedidos asignados.</td>
+          <td colspan="10" class="px-5 py-8 text-slate-500 text-sm">No tienes pedidos asignados.</td>
         </tr>
       `;
       return;
@@ -423,7 +447,6 @@ function actualizarListado(pedidos) {
       const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
       const estado = p.estado ?? p.estado_bd ?? "Por producir";
-      const etiquetas = p.etiquetas ?? "";
       const articulos = p.articulos ?? "-";
       const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
       const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
@@ -432,45 +455,25 @@ function actualizarListado(pedidos) {
         ? `<button type="button" onclick="window.abrirModal('${escapeJsString(internalId)}')" class="hover:opacity-90">${renderEstadoPill(estado)}</button>`
         : renderEstadoPill(estado);
 
-      const detallesBtn = `
-        <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-          Ver detalles →
-        </button>
-      `;
-
       return `
-        <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
-                    border-b border-slate-200 hover:bg-slate-50 transition">
-
-          <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
-
-          <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
-
-          <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
-
-          <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
-
-          <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
-
-          <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
-          <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
-
-          <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
-
-          <div class="min-w-0 gap-x-4 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
-
-          <div class="flex justify-end">
+        <tr class="hover:bg-slate-50 transition">
+          <td class="px-5 py-4 font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</td>
+          <td class="px-5 py-4 text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</td>
+          <td class="px-5 py-4 min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</td>
+          <td class="px-5 py-4 font-extrabold text-slate-900 whitespace-nowrap">${moneyFormat(total)}</td>
+          <td class="px-5 py-4 whitespace-nowrap">${estadoHtml}</td>
+          <td class="px-5 py-4 min-w-0">${renderLastChangeCompact(p)}</td>
+          <td class="px-5 py-4 text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</td>
+          <td class="px-5 py-4 whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</td>
+          <td class="px-5 py-4 whitespace-nowrap text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</td>
+          <td class="px-5 py-4 text-right whitespace-nowrap">
             <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
               class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
               Ver detalles →
             </button>
-          </div>
-
-        </div>
+          </td>
+        </tr>
       `;
-
     }).join("");
 
     return;
@@ -724,6 +727,7 @@ function cerrarDetallesFull() {
   modal.classList.add("hidden");
   document.documentElement.classList.remove("overflow-hidden");
   document.body.classList.remove("overflow-hidden");
+  cleanupModPreviews();
 }
 
 window.cerrarDetallesFull = cerrarDetallesFull;
@@ -772,309 +776,90 @@ function fmtMoney(v) {
   return n.toFixed(2);
 }
 
-async function abrirDetallesPedido(orderId) {
-  const id = String(orderId || "");
-  if (!id) return;
-
-  abrirDetallesFull();
-  currentDetallesOrderId = id;
-
-  // placeholders
-  setText("detTitle", "Cargando...");
-  setText("detSubtitle", "—");
-  setText("detItemsCount", "0");
-  setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
-  setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detJson", "");
-
-  // fetch detalle robusto
-  let payload = null;
-  let lastErr = null;
-
-  for (const url of buildDetallesEndpoints(id)) {
-    try {
-      const r = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" });
-      if (r.status === 404) continue;
-
-      const text = await r.text();
-      let d = null;
-      try { d = JSON.parse(text); } catch { d = null; }
-
-      if (!r.ok || !d) throw new Error(d?.message || `HTTP ${r.status}`);
-      if (d.success !== true) throw new Error(d.message || "Respuesta inválida (success!=true)");
-
-      payload = d;
-      break;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-
-  if (!payload) {
-    console.error("Detalle error:", lastErr);
-    setText("detTitle", "Error");
-    setText("detSubtitle", "No se pudo cargar el detalle.");
-    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalle del pedido.</div>`);
-    return;
-  }
-
-  const o = payload.order || {};
-  const lineItems = Array.isArray(o.line_items) ? o.line_items : (Array.isArray(o.lineItems) ? o.lineItems : []);
-
-  // ✅ guarda ids reales para upload/list
-  currentDetallesShopifyId = String(o.id || o.shopify_order_id || o.order_id || "").trim() || null;
-  // intento sacar p.id del payload si existe
-  currentDetallesPedidoId = String(payload.pedido_id || payload.id || o.pedido_id || "").trim() || null;
-
-  // ✅ el formulario general debe usar una key estable:
-  // prioridad: shopify_order_id; si no hay, usa pedido_id; si no hay, usa el que se abrió
-  const keyForFiles =
-    (currentDetallesShopifyId && currentDetallesShopifyId !== "0") ? currentDetallesShopifyId :
-    (currentDetallesPedidoId && currentDetallesPedidoId !== "0") ? currentDetallesPedidoId :
-    id;
-
-  const hiddenId = $("generalOrderId");
-  if (hiddenId) hiddenId.value = keyForFiles;
-
-  // ✅ cargar archivos generales con fallback (shopify -> interno)
-  await cargarArchivosGenerales(keyForFiles, {
-    fallbackKey: (keyForFiles === id ? null : id),
-    extraFallbackKey: currentDetallesPedidoId && currentDetallesPedidoId !== keyForFiles ? currentDetallesPedidoId : null,
-  });
-
-  // header
-  const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
-  setText("detTitle", `Detalles ${name}`);
-
-  const clienteHeader = o.customer_name || o.cliente || (() => {
-    const c = o.customer || {};
-    const full = `${c.first_name || ""} ${c.last_name || ""}`.trim();
-    return full || "—";
-  })();
-
-  setText("detSubtitle", `${clienteHeader} · ${o.created_at || "—"}`);
-
-  // JSON
-  try {
-    const json = JSON.stringify(payload, null, 2);
-    setHtml("detJson", escapeHtml(json));
-  } catch {}
-
-  // Cliente
-  const customer = o.customer || {};
-  const clienteNombre = (customer.first_name || customer.last_name)
-    ? `${customer.first_name || ""} ${customer.last_name || ""}`.trim()
-    : (o.customer_name || o.cliente || "—");
-
-  setHtml("detCliente", `
-    <div class="space-y-1">
-      <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre)}</div>
-      <div><span class="text-slate-500 font-bold">Email:</span> ${escapeHtml(o.email || "—")}</div>
-      <div><span class="text-slate-500 font-bold">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
-      <div><span class="text-slate-500 font-bold">Shopify ID:</span> ${escapeHtml(String(o.id || o.shopify_order_id || id || "—"))}</div>
-    </div>
-  `);
-
-  // Envío
-  const a = o.shipping_address || {};
-  setHtml("detEnvio", `
-    <div class="space-y-1">
-      <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
-      <div>${escapeHtml(a.address1 || "")}</div>
-      <div>${escapeHtml(a.address2 || "")}</div>
-      <div>${escapeHtml((a.zip || "") + " " + (a.city || ""))}</div>
-      <div>${escapeHtml(a.province || "")}</div>
-      <div>${escapeHtml(a.country || "")}</div>
-      <div class="pt-2"><span class="text-slate-500 font-bold">Tel envío:</span> ${escapeHtml(a.phone || "—")}</div>
-    </div>
-  `);
-
-  // Resumen
-  const estado = o.estado ?? o.status ?? "—";
-  const tags = String(o.tags ?? o.etiquetas ?? "").trim();
-  const lastInfo = normalizeLastStatusChange(o.last_status_change || payload.last_status_change);
-  const lastText = lastInfo?.changed_at
-    ? `${escapeHtml(lastInfo.user_name || "—")} · ${escapeHtml(formatDateTime(lastInfo.changed_at))}`
-    : "—";
-
-  setHtml("detResumen", `
-    <div class="space-y-2 text-sm">
-      <div><span class="text-slate-500 font-bold">Estado:</span> ${renderEstadoPill(estado)}</div>
-      <div><span class="text-slate-500 font-bold">Etiquetas:</span> ${tags ? escapeHtml(tags) : "—"}</div>
-      <div><span class="text-slate-500 font-bold">Último cambio:</span> ${lastText}</div>
-      <div><span class="text-slate-500 font-bold">Pago:</span> ${escapeHtml(o.financial_status || "—")}</div>
-      <div><span class="text-slate-500 font-bold">Entrega:</span> ${escapeHtml(o.fulfillment_status || o.estado_envio || "—")}</div>
-      <div><span class="text-slate-500 font-bold">Total artículos:</span> ${escapeHtml(String(lineItems.length))}</div>
-    </div>
-  `);
-
-  // Totales
-  const subtotal = o.subtotal_price ?? "0";
-  const envio =
-    o.total_shipping_price_set?.shop_money?.amount ??
-    o.total_shipping_price_set?.presentment_money?.amount ??
-    o.total_shipping_price ??
-    "0";
-  const impuestos = o.total_tax ?? "0";
-  const total = o.total_price ?? "0";
-
-  setHtml("detTotales", `
-    <div class="space-y-1 text-sm">
-      <div><span class="text-slate-500 font-bold">Subtotal:</span> ${escapeHtml(fmtMoney(subtotal))}</div>
-      <div><span class="text-slate-500 font-bold">Envío:</span> ${escapeHtml(fmtMoney(envio))}</div>
-      <div><span class="text-slate-500 font-bold">Impuestos:</span> ${escapeHtml(fmtMoney(impuestos))}</div>
-      <div class="pt-2 text-lg font-extrabold text-slate-900">Total: ${escapeHtml(fmtMoney(total))}</div>
-    </div>
-  `);
-
-  // Items
-  setText("detItemsCount", String(lineItems.length));
-
-  if (!lineItems.length) {
-    setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
-    return;
-  }
-
-  const imagenesLocales = payload.imagenes_locales || {};
-  const productImages = payload.product_images || {};
-
-  const itemsHtml = lineItems.map((item, index) => {
-    const title = item.title || item.name || "Producto";
-    const qty = item.quantity ?? 1;
-    const price = item.price ?? "0";
-    const tot = (Number(qty) * Number(price));
-    const totTxt = Number.isFinite(tot) ? fmtMoney(tot) : "—";
-
-    const props = Array.isArray(item.properties) ? item.properties : [];
-    const propsImg = [];
-    const propsTxt = [];
-
-    for (const p of props) {
-      const name = String(p?.name ?? "").trim() || "Campo";
-      const v = p?.value === null || p?.value === undefined ? "" : String(p.value);
-      if (esImagenUrl(v)) propsImg.push({ name, value: v });
-      else propsTxt.push({ name, value: v });
-    }
-
-    const pid = String(item.product_id || "");
-    const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
-    const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
-
-    const productImgHtml = productImg
-      ? `<a href="${escapeHtml(productImg)}" target="_blank"
-            class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
-           <img src="${escapeHtml(productImg)}" class="h-full w-full object-cover">
-         </a>`
-      : `<div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">🧾</div>`;
-
-    const propsTxtHtml = propsTxt.length ? `
-      <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
-        <div class="space-y-1 text-sm">
-          ${propsTxt.map(({ name, value }) => `
-            <div class="flex gap-2">
-              <div class="min-w-[130px] text-slate-500 font-bold">${escapeHtml(name)}:</div>
-              <div class="flex-1 font-semibold text-slate-900 break-words">${escapeHtml(value || "—")}</div>
-            </div>
-          `).join("")}
-        </div>
-      </div>
-    ` : "";
-
-    const propsImgsHtml = propsImg.length ? `
-      <div class="mt-3">
-        <div class="text-xs font-extrabold text-slate-500 mb-2">Imágenes del cliente</div>
-        <div class="flex flex-wrap gap-3">
-          ${propsImg.map(({ name, value }) => `
-            <a href="${escapeHtml(value)}" target="_blank"
-               class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-              <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
-              <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
-                ${escapeHtml(name)}
-              </div>
-            </a>
-          `).join("")}
-        </div>
-      </div>
-    ` : "";
-
-    const modificadaHtml = localUrl ? `
-      <div class="mt-3">
-        <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
-        <a href="${escapeHtml(localUrl)}" target="_blank"
-           class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-          <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
-        </a>
-      </div>
-    ` : "";
-
-    return `
-      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
-        <div class="flex items-start gap-4">
-          ${productImgHtml}
-          <div class="min-w-0 flex-1">
-            <div class="font-extrabold text-slate-900 truncate">${escapeHtml(title)}</div>
-            <div class="text-sm text-slate-600 mt-1">
-              Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)}</b> · Total: <b>${escapeHtml(totTxt)}</b>
-            </div>
-            ${propsTxtHtml}
-            ${propsImgsHtml}
-            ${modificadaHtml}
-          </div>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  // ✅ ahora sí pintamos los items
-  setHtml("detItems", itemsHtml);
-}
-
-// Hook del botón
-window.verDetallesPedido = function (pedidoId) {
-  abrirDetallesPedido(String(pedidoId));
-};
-
 // =========================
-// Archivos generales (list/upload)
+// ✅ Archivos Generales (fetch con fallback)
 // =========================
-async function cargarArchivosGenerales(orderId, opts = {}) {
-  const list = $("generalFilesList");
-  if (!list) return;
-
+async function fetchGeneralFilesAnyKey(orderId, opts = {}) {
   const tryKey = async (key) => {
     if (!key) return null;
     const url = `${ENDPOINT_LIST_GENERAL}?order_id=${encodeURIComponent(key)}`;
     const r = await fetch(url, { credentials: "same-origin" });
     const d = await r.json().catch(() => null);
     if (!r.ok || !d || d.success !== true) return null;
-    return d;
+    return { data: d, usedKey: key };
   };
+
+  let out = await tryKey(orderId);
+
+  if ((!out || !Array.isArray(out.data?.files) || out.data.files.length === 0) && opts.fallbackKey) {
+    out = await tryKey(opts.fallbackKey);
+  }
+  if ((!out || !Array.isArray(out.data?.files) || out.data.files.length === 0) && opts.extraFallbackKey) {
+    out = await tryKey(opts.extraFallbackKey);
+  }
+  if ((!out || !Array.isArray(out.data?.files) || out.data.files.length === 0) && opts.extraFallbackKey2) {
+    out = await tryKey(opts.extraFallbackKey2);
+  }
+
+  return out;
+}
+
+// =========================
+// ✅ Detectar modificadas desde list-general (fallback)
+// =========================
+function parseModIndexFromFilename(name) {
+  const s = String(name || "").trim();
+  const m = s.match(/^mod_(\d+)_/i);
+  if (!m) return null;
+  const idx = Number(m[1]);
+  return Number.isFinite(idx) ? idx : null;
+}
+
+function pickLatestByCreatedAt(prev, cand) {
+  if (!prev) return cand;
+  const a = parseDateSafe(prev.created_at) || new Date(0);
+  const b = parseDateSafe(cand.created_at) || new Date(0);
+  return b > a ? cand : prev;
+}
+
+async function guessModificadasFromGeneralList(orderId, opts = {}) {
+  const out = await fetchGeneralFilesAnyKey(orderId, opts);
+  if (!out || !out.data) return {};
+
+  const files = Array.isArray(out.data.files) ? out.data.files : [];
+  if (!files.length) return {};
+
+  const best = {}; // idx -> file
+  for (const f of files) {
+    const filename = f.filename || f.original_name || "";
+    const idx = parseModIndexFromFilename(filename);
+    if (idx === null) continue;
+    best[idx] = pickLatestByCreatedAt(best[idx], f);
+  }
+
+  const map = {};
+  for (const [k, f] of Object.entries(best)) {
+    map[k] = f.url || "";
+  }
+  return map;
+}
+
+// =========================
+// Archivos generales (list/upload UI)
+// =========================
+async function cargarArchivosGenerales(orderId, opts = {}) {
+  const list = $("generalFilesList");
+  if (!list) return;
 
   list.innerHTML = `<div class="text-slate-500 text-sm">Cargando...</div>`;
 
-  // 1) key principal
-  let d = await tryKey(orderId);
-
-  // 2) fallback #1
-  if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.fallbackKey) {
-    d = await tryKey(opts.fallbackKey);
-  }
-
-  // 3) fallback #2
-  if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.extraFallbackKey) {
-    d = await tryKey(opts.extraFallbackKey);
-  }
-
-  if (!d) {
+  const out = await fetchGeneralFilesAnyKey(orderId, opts);
+  if (!out || !out.data) {
     list.innerHTML = `<div class="text-rose-600 text-sm font-bold">No se pudo cargar archivos.</div>`;
     return;
   }
 
-  const files = Array.isArray(d.files) ? d.files : [];
+  const files = Array.isArray(out.data.files) ? out.data.files : [];
   if (!files.length) {
     list.innerHTML = `<div class="text-slate-500 text-sm">—</div>`;
     return;
@@ -1127,6 +912,592 @@ async function subirArchivosGenerales(orderId, fileList) {
 }
 
 // =========================
+// ✅ Imagen modificada: helpers + UI
+// =========================
+function getModState(index) {
+  const key = String(index);
+  if (!modState.has(key)) {
+    modState.set(key, { existingUrl: "", selectedFile: null, objectUrl: null, isUploading: false, isEligible: true });
+  }
+  return modState.get(key);
+}
+
+function setModMsg(index, html) {
+  const el = $(`modMsg_${index}`);
+  if (el) el.innerHTML = html || "";
+}
+
+function setModBusy(index, busy) {
+  const zone = $(`modZone_${index}`);
+  const btnUp = $(`modBtnUpload_${index}`);
+  const btnPick = $(`modBtnPick_${index}`);
+  const btnClear = $(`modBtnClear_${index}`);
+  if (zone) zone.classList.toggle("opacity-70", !!busy);
+  if (btnUp) btnUp.disabled = !!busy;
+  if (btnPick) btnPick.disabled = !!busy;
+  if (btnClear) btnClear.disabled = !!busy;
+}
+
+function setModPreview(index, src) {
+  const img = $(`modPrev_${index}`);
+  const ph = $(`modPh_${index}`);
+  if (!img || !ph) return;
+
+  const has = !!src;
+  img.src = src || "";
+  img.classList.toggle("hidden", !has);
+  ph.classList.toggle("hidden", has);
+}
+
+function cleanupModPreviews() {
+  for (const [, st] of modState.entries()) {
+    if (st?.objectUrl) {
+      try { URL.revokeObjectURL(st.objectUrl); } catch {}
+    }
+  }
+  modState.clear();
+}
+
+function validateImageFile(file) {
+  if (!file) return { ok: false, message: "Archivo inválido" };
+  if (!file.type || !file.type.startsWith("image/")) return { ok: false, message: "Solo se permiten imágenes" };
+
+  const max = 12 * 1024 * 1024;
+  if (file.size > max) return { ok: false, message: "La imagen supera 12MB" };
+
+  return { ok: true };
+}
+
+function applySelectedModFile(index, file) {
+  const st = getModState(index);
+
+  if (st.objectUrl) {
+    try { URL.revokeObjectURL(st.objectUrl); } catch {}
+    st.objectUrl = null;
+  }
+
+  st.selectedFile = file;
+
+  const objUrl = URL.createObjectURL(file);
+  st.objectUrl = objUrl;
+
+  setModPreview(index, objUrl);
+  setModMsg(index, `<span class="text-slate-600 font-semibold">Lista para subir: <b>${escapeHtml(file.name)}</b></span>`);
+}
+
+function clearSelectedModFile(index) {
+  const st = getModState(index);
+
+  if (st.objectUrl) {
+    try { URL.revokeObjectURL(st.objectUrl); } catch {}
+    st.objectUrl = null;
+  }
+  st.selectedFile = null;
+
+  setModPreview(index, st.existingUrl || "");
+  setModMsg(
+    index,
+    st.existingUrl
+      ? `<span class="text-slate-600">Usando la imagen ya subida.</span>`
+      : `<span class="text-slate-500">Sin imagen modificada subida.</span>`
+  );
+}
+
+async function uploadModificada(index) {
+  const st = getModState(index);
+
+  // ✅ seguridad extra: no permitir si no es elegible
+  if (st.isEligible === false) {
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">Este producto no permite imagen modificada.</span>`);
+    return;
+  }
+
+  if (st.isUploading) return;
+
+  const orderId = currentKeyForFiles || $("generalOrderId")?.value || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId;
+  if (!orderId) {
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">No se detectó order_id.</span>`);
+    return;
+  }
+
+  const file = st.selectedFile;
+  if (!file) {
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">Primero selecciona o arrastra una imagen.</span>`);
+    return;
+  }
+
+  const check = validateImageFile(file);
+  if (!check.ok) {
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">${escapeHtml(check.message)}</span>`);
+    return;
+  }
+
+  st.isUploading = true;
+  setModBusy(index, true);
+  setModMsg(index, `<span class="text-slate-600">Subiendo imagen…</span>`);
+  setLoader(true);
+
+  try {
+    const fd = new FormData();
+    fd.append("order_id", String(orderId));
+    fd.append("item_index", String(index));
+    fd.append("file", file);
+
+    const res = await fetch(ENDPOINT_UPLOAD_MODIFICADA, {
+      method: "POST",
+      body: fd,
+      headers: { ...getCsrfHeaders() },
+      credentials: "same-origin",
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || data.success !== true) {
+      const err = data?.message || `No se pudo subir (HTTP ${res.status})`;
+      setModMsg(index, `<span class="text-rose-600 font-extrabold">${escapeHtml(err)}</span>`);
+      return;
+    }
+
+    const url = String(data.url || "").trim();
+    if (!url) {
+      setModMsg(index, `<span class="text-rose-600 font-extrabold">Subió, pero no devolvió URL.</span>`);
+      return;
+    }
+
+    st.existingUrl = url;
+
+    if (st.objectUrl) {
+      try { URL.revokeObjectURL(st.objectUrl); } catch {}
+      st.objectUrl = null;
+    }
+    st.selectedFile = null;
+
+    setModPreview(index, url);
+    setModMsg(index, `<span class="text-emerald-700 font-extrabold">Imagen modificada subida ✅</span>`);
+
+    await cargarArchivosGenerales(orderId, {
+      fallbackKey: currentDetallesPedidoId,
+      extraFallbackKey: currentDetallesShopifyId,
+      extraFallbackKey2: currentDetallesOrderId,
+    });
+
+    await cargarMiCola();
+
+  } catch (e) {
+    console.error("uploadModificada error:", e);
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">Error subiendo imagen.</span>`);
+  } finally {
+    st.isUploading = false;
+    setModBusy(index, false);
+    setLoader(false);
+  }
+}
+
+function initModUploadZones() {
+  document.querySelectorAll("[data-mod-zone='1']").forEach((zone) => {
+    const index = String(zone.getAttribute("data-item-index") || "");
+    if (index === "") return;
+
+    const eligible = String(zone.getAttribute("data-eligible") || "0") === "1";
+    const st = getModState(index);
+    st.isEligible = eligible;
+
+    // si no es elegible, por seguridad no hacemos binds
+    if (!eligible) return;
+
+    const existing = String(zone.getAttribute("data-existing-url") || "").trim();
+    st.existingUrl = existing;
+
+    setModPreview(index, existing || "");
+    setModMsg(index, existing ? `<span class="text-slate-600">Usando la imagen ya subida.</span>` : `<span class="text-slate-500">Arrastra una imagen aquí o presiona “Elegir”.</span>`);
+
+    const input = $(`modInput_${index}`);
+    const btnPick = $(`modBtnPick_${index}`);
+    const btnClear = $(`modBtnClear_${index}`);
+    const btnUpload = $(`modBtnUpload_${index}`);
+
+    const pick = () => input && input.click();
+
+    btnPick?.addEventListener("click", (e) => { e.preventDefault(); pick(); });
+
+    btnClear?.addEventListener("click", (e) => {
+      e.preventDefault();
+      clearSelectedModFile(index);
+      if (input) input.value = "";
+    });
+
+    btnUpload?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await uploadModificada(index);
+      if (input) input.value = "";
+    });
+
+    input?.addEventListener("change", () => {
+      const file = input.files && input.files[0] ? input.files[0] : null;
+      if (!file) return;
+      const check = validateImageFile(file);
+      if (!check.ok) {
+        setModMsg(index, `<span class="text-rose-600 font-extrabold">${escapeHtml(check.message)}</span>`);
+        input.value = "";
+        return;
+      }
+      applySelectedModFile(index, file);
+    });
+
+    const prevent = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
+    ["dragenter", "dragover"].forEach((evt) => zone.addEventListener(evt, (ev) => {
+      prevent(ev);
+      zone.classList.add("ring-2", "ring-blue-300", "bg-blue-50");
+    }));
+
+    ["dragleave", "drop"].forEach((evt) => zone.addEventListener(evt, (ev) => {
+      prevent(ev);
+      zone.classList.remove("ring-2", "ring-blue-300", "bg-blue-50");
+    }));
+
+    zone.addEventListener("drop", (ev) => {
+      const dt = ev.dataTransfer;
+      const file = dt?.files && dt.files[0] ? dt.files[0] : null;
+      if (!file) return;
+
+      const check = validateImageFile(file);
+      if (!check.ok) {
+        setModMsg(index, `<span class="text-rose-600 font-extrabold">${escapeHtml(check.message)}</span>`);
+        return;
+      }
+
+      applySelectedModFile(index, file);
+    });
+
+    zone.addEventListener("click", (e) => {
+      const t = e.target;
+      if (t && (t.closest("button") || t.closest("a"))) return;
+      pick();
+    });
+  });
+}
+
+async function abrirDetallesPedido(orderId) {
+  const id = String(orderId || "");
+  if (!id) return;
+
+  abrirDetallesFull();
+  currentDetallesOrderId = id;
+
+  cleanupModPreviews();
+
+  setText("detTitle", "Cargando...");
+  setText("detSubtitle", "—");
+  setText("detItemsCount", "0");
+  setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
+  setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
+  setHtml("detJson", "");
+
+  let payload = null;
+  let lastErr = null;
+
+  for (const url of buildDetallesEndpoints(id)) {
+    try {
+      const r = await fetch(url, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+      if (r.status === 404) continue;
+
+      const text = await r.text();
+      let d = null;
+      try { d = JSON.parse(text); } catch { d = null; }
+
+      if (!r.ok || !d) throw new Error(d?.message || `HTTP ${r.status}`);
+      if (d.success !== true) throw new Error(d.message || "Respuesta inválida (success!=true)");
+
+      payload = d;
+      break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  if (!payload) {
+    console.error("Detalle error:", lastErr);
+    setText("detTitle", "Error");
+    setText("detSubtitle", "No se pudo cargar el detalle.");
+    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalle del pedido.</div>`);
+    return;
+  }
+
+  const o = payload.order || {};
+  const lineItems = Array.isArray(o.line_items) ? o.line_items : (Array.isArray(o.lineItems) ? o.lineItems : []);
+
+  currentDetallesShopifyId = String(o.id || o.shopify_order_id || o.order_id || "").trim() || null;
+  currentDetallesPedidoId = String(payload.pedido_id || payload.id || o.pedido_id || "").trim() || null;
+
+  const keyForFiles =
+    (currentDetallesShopifyId && currentDetallesShopifyId !== "0") ? currentDetallesShopifyId :
+    (currentDetallesPedidoId && currentDetallesPedidoId !== "0") ? currentDetallesPedidoId :
+    id;
+
+  currentKeyForFiles = keyForFiles;
+
+  const hiddenId = $("generalOrderId");
+  if (hiddenId) hiddenId.value = keyForFiles;
+
+  await cargarArchivosGenerales(keyForFiles, {
+    fallbackKey: (keyForFiles === id ? null : id),
+    extraFallbackKey: currentDetallesPedidoId && currentDetallesPedidoId !== keyForFiles ? currentDetallesPedidoId : null,
+    extraFallbackKey2: currentDetallesShopifyId && currentDetallesShopifyId !== keyForFiles ? currentDetallesShopifyId : null,
+  });
+
+  const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
+  setText("detTitle", `Detalles ${name}`);
+
+  const clienteHeader = o.customer_name || o.cliente || (() => {
+    const c = o.customer || {};
+    const full = `${c.first_name || ""} ${c.last_name || ""}`.trim();
+    return full || "—";
+  })();
+
+  setText("detSubtitle", `${clienteHeader} · ${o.created_at || "—"}`);
+
+  try {
+    const json = JSON.stringify(payload, null, 2);
+    setHtml("detJson", escapeHtml(json));
+  } catch {}
+
+  const customer = o.customer || {};
+  const clienteNombre = (customer.first_name || customer.last_name)
+    ? `${customer.first_name || ""} ${customer.last_name || ""}`.trim()
+    : (o.customer_name || o.cliente || "—");
+
+  setHtml("detCliente", `
+    <div class="space-y-1">
+      <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre)}</div>
+      <div><span class="text-slate-500 font-bold">Email:</span> ${escapeHtml(o.email || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Shopify ID:</span> ${escapeHtml(String(o.id || o.shopify_order_id || id || "—"))}</div>
+    </div>
+  `);
+
+  const a = o.shipping_address || {};
+  setHtml("detEnvio", `
+    <div class="space-y-1">
+      <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
+      <div>${escapeHtml(a.address1 || "")}</div>
+      <div>${escapeHtml(a.address2 || "")}</div>
+      <div>${escapeHtml((a.zip || "") + " " + (a.city || ""))}</div>
+      <div>${escapeHtml(a.province || "")}</div>
+      <div>${escapeHtml(a.country || "")}</div>
+      <div class="pt-2"><span class="text-slate-500 font-bold">Tel envío:</span> ${escapeHtml(a.phone || "—")}</div>
+    </div>
+  `);
+
+  const estado = o.estado ?? o.status ?? "—";
+  const tags = String(o.tags ?? o.etiquetas ?? "").trim();
+  const lastInfo = normalizeLastStatusChange(o.last_status_change || payload.last_status_change);
+  const lastText = lastInfo?.changed_at
+    ? `${escapeHtml(lastInfo.user_name || "—")} · ${escapeHtml(formatDateTime(lastInfo.changed_at))}`
+    : "—";
+
+  setHtml("detResumen", `
+    <div class="space-y-2 text-sm">
+      <div><span class="text-slate-500 font-bold">Estado:</span> ${renderEstadoPill(estado)}</div>
+      <div><span class="text-slate-500 font-bold">Etiquetas:</span> ${tags ? escapeHtml(tags) : "—"}</div>
+      <div><span class="text-slate-500 font-bold">Último cambio:</span> ${lastText}</div>
+      <div><span class="text-slate-500 font-bold">Pago:</span> ${escapeHtml(o.financial_status || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Entrega:</span> ${escapeHtml(o.fulfillment_status || o.estado_envio || "—")}</div>
+      <div><span class="text-slate-500 font-bold">Total artículos:</span> ${escapeHtml(String(lineItems.length))}</div>
+    </div>
+  `);
+
+  const subtotal = o.subtotal_price ?? "0";
+  const envio =
+    o.total_shipping_price_set?.shop_money?.amount ??
+    o.total_shipping_price_set?.presentment_money?.amount ??
+    o.total_shipping_price ??
+    "0";
+  const impuestos = o.total_tax ?? "0";
+  const total = o.total_price ?? "0";
+
+  setHtml("detTotales", `
+    <div class="space-y-1 text-sm">
+      <div><span class="text-slate-500 font-bold">Subtotal:</span> ${escapeHtml(fmtMoney(subtotal))}</div>
+      <div><span class="text-slate-500 font-bold">Envío:</span> ${escapeHtml(fmtMoney(envio))}</div>
+      <div><span class="text-slate-500 font-bold">Impuestos:</span> ${escapeHtml(fmtMoney(impuestos))}</div>
+      <div class="pt-2 text-lg font-extrabold text-slate-900">Total: ${escapeHtml(fmtMoney(total))}</div>
+    </div>
+  `);
+
+  setText("detItemsCount", String(lineItems.length));
+
+  if (!lineItems.length) {
+    setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
+    return;
+  }
+
+  const productImages = payload.product_images || {};
+
+  const modFallback = await guessModificadasFromGeneralList(keyForFiles, {
+    fallbackKey: (keyForFiles === id ? null : id),
+    extraFallbackKey: currentDetallesPedidoId && currentDetallesPedidoId !== keyForFiles ? currentDetallesPedidoId : null,
+    extraFallbackKey2: currentDetallesShopifyId && currentDetallesShopifyId !== keyForFiles ? currentDetallesShopifyId : null,
+  });
+
+  const imagenesLocales = {
+    ...(modFallback || {}),
+    ...(payload.imagenes_locales || {}),
+  };
+
+  const itemsHtml = lineItems.map((item, index) => {
+    const title = item.title || item.name || "Producto";
+    const qty = item.quantity ?? 1;
+    const price = item.price ?? "0";
+    const tot = (Number(qty) * Number(price));
+    const totTxt = Number.isFinite(tot) ? fmtMoney(tot) : "—";
+
+    const props = Array.isArray(item.properties) ? item.properties : [];
+    const propsImg = [];
+    const propsTxt = [];
+
+    for (const p of props) {
+      const name = String(p?.name ?? "").trim() || "Campo";
+      const v = p?.value === null || p?.value === undefined ? "" : String(p.value);
+      if (esImagenUrl(v)) propsImg.push({ name, value: v });
+      else propsTxt.push({ name, value: v });
+    }
+
+    const pid = String(item.product_id || "");
+    const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
+    const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
+
+    // ✅ regla: solo si trae imagen del cliente o es llavero
+    const hasCustomerImage = propsImg.length > 0;
+    const isLlavero = isKeychainItem(item);
+    const canUploadMod = hasCustomerImage || isLlavero;
+
+    const productImgHtml = productImg
+      ? `<a href="${escapeHtml(productImg)}" target="_blank"
+            class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
+           <img src="${escapeHtml(productImg)}" class="h-full w-full object-cover">
+         </a>`
+      : `<div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">🧾</div>`;
+
+    const propsTxtHtml = propsTxt.length ? `
+      <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
+        <div class="space-y-1 text-sm">
+          ${propsTxt.map(({ name, value }) => `
+            <div class="flex gap-2">
+              <div class="min-w-[130px] text-slate-500 font-bold">${escapeHtml(name)}:</div>
+              <div class="flex-1 font-semibold text-slate-900 break-words">${escapeHtml(value || "—")}</div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    ` : "";
+
+    const propsImgsHtml = propsImg.length ? `
+      <div class="mt-3">
+        <div class="text-xs font-extrabold text-slate-500 mb-2">Imágenes del cliente</div>
+        <div class="flex flex-wrap gap-3">
+          ${propsImg.map(({ name, value }) => `
+            <a href="${escapeHtml(value)}" target="_blank"
+               class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+              <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
+              <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
+                ${escapeHtml(name)}
+              </div>
+            </a>
+          `).join("")}
+        </div>
+      </div>
+    ` : "";
+
+    // ✅ solo renderizamos uploader si es elegible
+    const modificadaHtml = canUploadMod ? `
+      <div class="mt-4">
+        <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
+
+        <div id="modZone_${index}"
+             data-mod-zone="1"
+             data-eligible="1"
+             data-item-index="${escapeHtml(index)}"
+             data-existing-url="${escapeHtml(localUrl)}"
+             class="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white p-3 cursor-pointer hover:bg-slate-50 transition">
+
+          <div class="flex items-start gap-3">
+            <div class="h-24 w-24 rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center flex-shrink-0">
+              <img id="modPrev_${index}" src="" class="h-full w-full object-cover hidden" />
+              <div id="modPh_${index}" class="text-slate-400 text-xs font-extrabold text-center px-2">
+                Arrastra<br/>o elige
+              </div>
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-extrabold text-slate-900">Subir / Reemplazar</div>
+              <div class="text-xs text-slate-500 mt-1">
+                ${hasCustomerImage ? "Tiene imagen del cliente." : (isLlavero ? "Producto llavero." : "")}
+              </div>
+
+              <input id="modInput_${index}" type="file" accept="image/*" class="hidden" />
+
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button id="modBtnPick_${index}" type="button"
+                  class="h-9 px-3 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-800 transition">
+                  Elegir
+                </button>
+
+                <button id="modBtnUpload_${index}" type="button"
+                  class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+                  Subir
+                </button>
+
+                <button id="modBtnClear_${index}" type="button"
+                  class="h-9 px-3 rounded-2xl bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-100 transition">
+                  Quitar
+                </button>
+
+                ${localUrl ? `
+                  <a href="${escapeHtml(localUrl)}" target="_blank"
+                     class="h-9 px-3 inline-flex items-center rounded-2xl bg-white border border-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-100 transition">
+                    Abrir
+                  </a>
+                ` : ""}
+              </div>
+
+              <div id="modMsg_${index}" class="mt-2 text-xs"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    ` : ``;
+
+    return `
+      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+        <div class="flex items-start gap-4">
+          ${productImgHtml}
+          <div class="min-w-0 flex-1">
+            <div class="font-extrabold text-slate-900 truncate">${escapeHtml(title)}</div>
+            <div class="text-sm text-slate-600 mt-1">
+              Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)}</b> · Total: <b>${escapeHtml(totTxt)}</b>
+            </div>
+            ${propsTxtHtml}
+            ${propsImgsHtml}
+            ${modificadaHtml}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  setHtml("detItems", itemsHtml);
+  initModUploadZones();
+}
+
+// Hook del botón
+window.verDetallesPedido = function (pedidoId) {
+  abrirDetallesPedido(String(pedidoId));
+};
+
+// =========================
 // Eventos
 // =========================
 function bindEventos() {
@@ -1144,7 +1515,6 @@ function bindEventos() {
   $("formGeneralUpload")?.addEventListener("submit", async (e) => {
     e.preventDefault();
 
-    // ✅ usa el hidden si existe, si no cae al último id abierto
     const orderId = $("generalOrderId")?.value || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId;
     const input = $("generalFiles");
     const files = input?.files;
@@ -1164,6 +1534,7 @@ function bindEventos() {
       await cargarArchivosGenerales(orderId, {
         fallbackKey: currentDetallesPedidoId,
         extraFallbackKey: currentDetallesShopifyId,
+        extraFallbackKey2: currentDetallesOrderId,
       });
 
       await cargarMiCola();

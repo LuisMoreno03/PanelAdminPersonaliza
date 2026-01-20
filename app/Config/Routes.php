@@ -43,14 +43,11 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
     $routes->get('pedidos', 'DashboardController::pedidos');
     $routes->get('filter',  'DashboardController::filter');
 
-    // etiquetas / estados disponibles (🔥 IMPORTANTE)
-    $routes->get('etiquetas-disponibles', 'DashboardController::etiquetasDisponibles');
-
     // guardar estado desde dashboard
     $routes->post('guardar-estado', 'DashboardController::guardarEstadoPedido');
 
-    // detalles pedido
-    $routes->get('detalles/(:num)', 'DashboardController::detalles/$1');
+    // detalles pedido (mejor aceptar IDs como string/segment)
+    $routes->get('detalles/(:segment)', 'DashboardController::detalles/$1');
 
     // presencia / usuarios
     $routes->get('ping', 'DashboardController::ping');
@@ -71,10 +68,7 @@ $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $ro
 
     // estados pedidos
     $routes->post('estado/guardar', 'EstadoController::guardar');
-    $routes->get('estado/historial/(:num)', 'EstadoController::historial/$1');
-
-    // etiquetas pedidos
-    $routes->post('estado/etiquetas/guardar', 'DashboardController::guardarEtiquetas');
+    $routes->get('estado/historial/(:segment)', 'EstadoController::historial/$1');
 
     // imágenes pedidos
     $routes->post('pedidos/imagenes/subir', 'PedidosImagenesController::subir');
@@ -92,13 +86,12 @@ $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection
 
     $routes->get('orders', 'ShopifyController::getOrders');
     $routes->get('orders/all', 'ShopifyController::getAllOrders');
-    $routes->get('order/(:num)', 'ShopifyController::getOrder/$1');
+    $routes->get('order/(:segment)', 'ShopifyController::getOrder/$1');
 
     $routes->post('orders/update', 'ShopifyController::updateOrder');
-    $routes->post('orders/update-tags', 'ShopifyController::updateOrderTags');
 
     $routes->get('products', 'ShopifyController::getProducts');
-    $routes->get('products/(:num)', 'ShopifyController::getProduct/$1');
+    $routes->get('products/(:segment)', 'ShopifyController::getProduct/$1');
 
     $routes->get('customers', 'ShopifyController::getCustomers');
     $routes->get('test', 'ShopifyController::test');
@@ -109,17 +102,19 @@ $routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection
 | CONFIRMACIÓN (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->get('confirmacion', 'ConfirmacionController::index');
-$routes->get('confirmacion/my-queue', 'ConfirmacionController::myQueue');
-$routes->post('confirmacion/pull', 'ConfirmacionController::pull');
-$routes->post('confirmacion/return-all', 'ConfirmacionController::returnAll');
+$routes->group('confirmacion', ['filter' => 'auth'], static function (RouteCollection $routes) {
 
-// subir imágenes (cuadros/llaveros) y auto-cambiar estado a Confirmado si corresponde
-$routes->post('confirmacion/upload', 'ConfirmacionController::uploadConfirmacion');
-$routes->get('confirmacion/list', 'ConfirmacionController::listFiles');
-$routes->get('confirmacion/detalles/(:any)', 'ConfirmacionController::detalles/$1');
-$routes->post('confirmacion/guardar-estado', 'ConfirmacionController::guardarEstado');
+    $routes->get('/', 'ConfirmacionController::index');
+    $routes->get('my-queue', 'ConfirmacionController::myQueue');
+    $routes->post('pull', 'ConfirmacionController::pull');
+    $routes->post('return-all', 'ConfirmacionController::returnAll');
 
+    // subir imágenes (cuadros/llaveros) y auto-cambiar estado a Confirmado si corresponde
+    $routes->post('upload', 'ConfirmacionController::uploadConfirmacion');
+    $routes->get('list', 'ConfirmacionController::listFiles');
+    $routes->get('detalles/(:segment)', 'ConfirmacionController::detalles/$1');
+    $routes->post('guardar-estado', 'ConfirmacionController::guardarEstado');
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -137,16 +132,19 @@ $routes->group('pedidos', ['filter' => 'auth'], static function (RouteCollection
 | PRODUCCIÓN (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->get('produccion', 'ProduccionController::index');
-$routes->get('produccion/my-queue', 'ProduccionController::myQueue');
-$routes->post('produccion/pull', 'ProduccionController::pull');
-$routes->post('produccion/return-all', 'ProduccionController::returnAll');
+$routes->group('produccion', ['filter' => 'auth'], static function (RouteCollection $routes) {
 
-// ✅ FIX: Controller correcto
-$routes->post('produccion/upload-general', 'ProduccionController::uploadGeneral');
-$routes->get('produccion/list-general', 'ProduccionController::listGeneral');
+    $routes->get('/', 'ProduccionController::index');
+    $routes->get('my-queue', 'ProduccionController::myQueue');
+    $routes->post('pull', 'ProduccionController::pull');
+    $routes->post('return-all', 'ProduccionController::returnAll');
 
+    // uploads/listado general
+    $routes->post('upload-general', 'ProduccionController::uploadGeneral');
+    $routes->get('list-general', 'ProduccionController::listGeneral');
+    $routes->post('upload-modificada', 'ProduccionController::uploadModificada');
 
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -159,9 +157,6 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
     $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
 
     $routes->group('archivos', static function (RouteCollection $routes) {
-
-
-
 
         $routes->get('listar', 'PlacasArchivosController::listar');
         $routes->get('stats',  'PlacasArchivosController::stats');
@@ -179,15 +174,12 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
         $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
 
         // DESCARGAR JPG/PNG
-       $routes->get('descargar-png/(:num)', 'PlacasArchivosController::descargarPng/$1');
+        $routes->get('descargar-png/(:num)', 'PlacasArchivosController::descargarPng/$1');
         $routes->get('descargar-jpg/(:num)', 'PlacasArchivosController::descargarJpg/$1');
 
         $routes->get('descargar-png-lote/(:any)', 'PlacasArchivosController::descargarPngLote/$1');
         $routes->get('descargar-jpg-lote/(:any)', 'PlacasArchivosController::descargarJpgLote/$1');
-
-        
-       });
-
+    });
 });
 
 /*
@@ -202,20 +194,18 @@ $routes->group('repetir', [
 
     $routes->get('/', 'RepetirController::index');
 
-    // ✅ listado/paginado
+    // listado/paginado
     $routes->get('pedidos', 'RepetirController::pedidos');
     $routes->get('filter',  'RepetirController::filter');
 
-    // ✅ detalles (num o string)
+    // detalles
     $routes->get('detalles/(:segment)', 'RepetirController::detalles/$1');
 
-    // ✅ si dashboard.js los usa
-    $routes->get('etiquetas-disponibles', 'RepetirController::etiquetasDisponibles');
-    $routes->post('guardar-estado',       'RepetirController::guardarEstadoPedido');
-    $routes->get('ping',                  'RepetirController::ping');
-    $routes->get('usuarios-estado',       'RepetirController::usuariosEstado');
+    // si dashboard.js los usa
+    $routes->post('guardar-estado', 'RepetirController::guardarEstadoPedido');
+    $routes->get('ping',            'RepetirController::ping');
+    $routes->get('usuarios-estado', 'RepetirController::usuariosEstado');
 });
-
 
 /*
 |--------------------------------------------------------------------------
@@ -225,7 +215,6 @@ $routes->group('repetir', [
 $routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->get('/', 'Usuario::index');
     $routes->post('crear', 'Usuario::crear');
-    $routes->get('(:num)/tags', 'Usuario::tags/$1');
 });
 
 /*
@@ -235,3 +224,24 @@ $routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollectio
 */
 $routes->get('rtest', static fn () => 'OK ROUTES');
 $routes->get('zz-check-routes', static fn () => 'ROUTES_OK_' . date('Y-m-d_H:i:s'));
+
+
+
+/*
+|--------------------------------------------------------------------------
+| Soporte 
+|--------------------------------------------------------------------------
+*/
+$routes->group('soporte', ['filter' => 'auth'], function($routes) {
+  $routes->get('chat', 'SupportController::chat');
+  $routes->get('tickets', 'SupportController::tickets');
+
+  $routes->get('ticket/(:num)', 'SupportController::ticket/$1');
+
+  $routes->post('ticket', 'SupportController::create');                 // crear ticket (produccion)
+  $routes->post('ticket/(:num)/message', 'SupportController::message/$1'); // enviar mensaje
+  $routes->post('ticket/(:num)/assign', 'SupportController::assign/$1');   // aceptar caso (admin)
+  $routes->post('ticket/(:num)/status', 'SupportController::status/$1');   // cambiar estado (admin)
+
+  $routes->get('attachment/(:num)', 'SupportController::attachment/$1');   // ver imagen
+});

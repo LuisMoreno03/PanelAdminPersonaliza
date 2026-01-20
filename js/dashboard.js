@@ -1,6 +1,7 @@
 // =====================================================
 // DASHBOARD.JS (COMPLETO) - REAL TIME + PAGINACIÓN ESTABLE
 // + PROTECCIÓN ANTI-OVERWRITE (12 usuarios)
+// (SIN ETIQUETAS) + FILTRO COMPLETO
 // =====================================================
 
 /* =====================================================
@@ -10,34 +11,26 @@ let nextPageInfo = null;
 let prevPageInfo = null;
 let isLoading = false;
 let currentPage = 1;
-let silentFetch = false; // 👈 cuando true, NO muestra loader
+let silentFetch = false; // cuando true, NO muestra loader
 
-// ✅ cache local para actualizar estados sin recargar
+// cache local para actualizar estados sin recargar
 let ordersCache = [];
 let ordersById = new Map();
 
-// ✅ LIVE MODE
+// LIVE MODE
 let liveMode = true;
 let liveInterval = null;
 
 let userPingInterval = null;
 let userStatusInterval = null;
 
-// ✅ evita que un fetch viejo pise uno nuevo
+// evita que un fetch viejo pise uno nuevo
 let lastFetchToken = 0;
 
-// ✅ protege cambios recientes (evita que LIVE sobrescriba el estado recién guardado)
+// protege cambios recientes (evita que LIVE sobrescriba el estado recién guardado)
 const dirtyOrders = new Map(); // id -> { until:number, estado:string, last_status_change:{} }
 const DIRTY_TTL_MS = 15000; // 15s
 
-// Estado del modal completo (chips)
-let _etqOrderId = null;
-let _etqOrderNumero = "";
-let _etqSelected = new Set();
-
-// Etiquetas dinámicas desde BD (modal completo)
-let ETQ_PRODUCCION = [];
-let ETQ_DISENO = [];
 function escapeAttr(str) {
   return String(str ?? "")
     .replace(/&/g, "&amp;")
@@ -49,10 +42,6 @@ function escapeAttr(str) {
 /* =====================================================
   CONFIG / HELPERS DE RUTAS
 ===================================================== */
-function hasIndexPhp() {
-  return window.location.pathname.includes("/index.php/");
-}
-
 function normalizeBase(base) {
   base = String(base || "").trim();
   base = base.replace(/\/+$/, "");
@@ -68,7 +57,7 @@ function apiUrl(path) {
 function jsonHeaders() {
   const headers = { Accept: "application/json", "Content-Type": "application/json" };
 
-  // ✅ CSRF (si existe en tu HTML)
+  // CSRF (si existe en tu HTML)
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
   const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
   if (csrfToken) headers[csrfHeader] = csrfToken;
@@ -80,14 +69,130 @@ function jsonHeaders() {
   Loader global
 ===================================================== */
 function showLoader() {
-  if (silentFetch) return; // 👈 evita loader molesto
+  if (silentFetch) return;
   const el = document.getElementById("globalLoader");
   if (el) el.classList.remove("hidden");
 }
 function hideLoader() {
-  if (silentFetch) return; // 👈 evita loader molesto
+  if (silentFetch) return;
   const el = document.getElementById("globalLoader");
   if (el) el.classList.add("hidden");
+}
+
+/* =====================================================
+  FILTROS
+===================================================== */
+let filterMode = false;
+
+const FILTERS = {
+  q: "",
+  estado: "",
+  envio: "",
+  forma: "",
+  desde: "",
+  hasta: "",
+  total_min: "",
+  total_max: "",
+  art_min: "",
+  art_max: "",
+};
+
+function readFiltersFromUI() {
+  const v = (id) => (document.getElementById(id)?.value ?? "").toString().trim();
+
+  FILTERS.q = v("f_q");
+  FILTERS.estado = v("f_estado");
+  FILTERS.envio = v("f_envio");
+  FILTERS.forma = v("f_forma");
+  FILTERS.desde = v("f_desde");
+  FILTERS.hasta = v("f_hasta");
+  FILTERS.total_min = v("f_total_min");
+  FILTERS.total_max = v("f_total_max");
+  FILTERS.art_min = v("f_art_min");
+  FILTERS.art_max = v("f_art_max");
+
+  filterMode = hasActiveFilters();
+}
+
+function hasActiveFilters() {
+  return Object.values(FILTERS).some((val) => String(val ?? "").trim() !== "");
+}
+
+function applyFiltersToUrl(u) {
+  for (const [k, val] of Object.entries(FILTERS)) {
+    const s = String(val ?? "").trim();
+    if (s !== "") u.searchParams.set(k, s);
+    else u.searchParams.delete(k);
+  }
+}
+
+function fillFormaEntregaOptionsFromOrders(orders) {
+  const sel = document.getElementById("f_forma");
+  if (!sel) return;
+
+  const current = String(sel.value ?? "");
+  const set = new Set();
+
+  (orders || []).forEach((o) => {
+    const s = String(o.forma_envio ?? "").trim();
+    if (s && s !== "-") set.add(s);
+  });
+
+  const opts = Array.from(set).sort((a, b) => a.localeCompare(b));
+
+  sel.innerHTML =
+    `<option value="">Cualquiera</option>` +
+    opts
+      .map((x) => `<option value="${escapeAttr(x)}">${escapeHtml(x)}</option>`)
+      .join("");
+
+  if (current) sel.value = current;
+}
+
+function setupFiltersUI() {
+  const box = document.getElementById("boxFiltros");
+  const toggle = document.getElementById("btnToggleFiltros");
+
+  if (toggle && box) {
+    toggle.addEventListener("click", () => box.classList.toggle("hidden"));
+  }
+
+  const btnApply = document.getElementById("btnAplicarFiltros");
+  const btnClear = document.getElementById("btnLimpiarFiltros");
+
+  const runApply = () => {
+    readFiltersFromUI();
+
+    // si hay filtros -> pausa live
+    if (filterMode) pauseLive();
+    else resumeLiveIfOnFirstPage();
+
+    resetToFirstPage({ withFetch: true });
+  };
+
+  const runClear = () => {
+    ["f_q","f_estado","f_envio","f_forma","f_desde","f_hasta","f_total_min","f_total_max","f_art_min","f_art_max"]
+      .forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+      });
+
+    readFiltersFromUI();
+    filterMode = false;
+
+    resetToFirstPage({ withFetch: true });
+    resumeLiveIfOnFirstPage();
+  };
+
+  if (btnApply) btnApply.addEventListener("click", runApply);
+  if (btnClear) btnClear.addEventListener("click", runClear);
+
+  const q = document.getElementById("f_q");
+  if (q) {
+    q.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runApply();
+    });
+  }
 }
 
 /* =====================================================
@@ -111,6 +216,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  setupFiltersUI();
+
   // Usuarios online/offline
   pingUsuario();
   userPingInterval = setInterval(pingUsuario, 3600000);
@@ -118,21 +225,20 @@ document.addEventListener("DOMContentLoaded", () => {
   cargarUsuariosEstado();
   userStatusInterval = setInterval(cargarUsuariosEstado, 150000);
 
-  // ✅ Inicial pedidos (página 1)
+  // Inicial pedidos (página 1)
   resetToFirstPage({ withFetch: true });
 
-  // ✅ LIVE refresca la página 1 (recomendado 20s con 12 usuarios)
+  // LIVE refresca la página 1
   startLive(30000);
 
-
-  // ✅ refresca render según ancho (desktop/cards) sin pedir al backend
+  // resize: solo re-render (NO registrar listeners)
   window.addEventListener("resize", () => {
     const cont = document.getElementById("tablaPedidos");
     if (cont && cont.dataset.lastOrders) {
       try {
         const orders = JSON.parse(cont.dataset.lastOrders);
         actualizarTabla(Array.isArray(orders) ? orders : []);
-      } catch { }
+      } catch {}
     }
   });
 });
@@ -144,12 +250,12 @@ function startLive(ms = 20000) {
   if (liveInterval) clearInterval(liveInterval);
 
   liveInterval = setInterval(() => {
+    if (filterMode) return; // si hay filtros activos, NO live
     if (liveMode && currentPage === 1 && !isLoading) {
-      silentFetch = true; // 👈 NO loader
+      silentFetch = true;
       cargarPedidos({ reset: false, page_info: "" });
     }
   }, ms);
-
 }
 
 function pauseLive() {
@@ -158,60 +264,10 @@ function pauseLive() {
 function resumeLiveIfOnFirstPage() {
   if (currentPage === 1) liveMode = true;
 }
-function isLlaveroItem(item) {
-  const title = String(item?.title || item?.name || "").toLowerCase();
-  const productType = String(item?.product_type || "").toLowerCase();
-  const sku = String(item?.sku || "").toLowerCase();
-
-  // ✅ Ajusta aquí tus palabras clave reales
-  const hayLlavero =
-    title.includes("llavero") ||
-    productType.includes("llavero") ||
-    sku.includes("llav");
-
-  return hayLlavero;
-}
-
-/**
- * ✅ Reglas: requiere imagen modificada si:
- * - trae personalización (como ya haces)
- * - o es llavero (aunque no traiga imagen)
- */
-function requiereImagenModificada(item) {
-  const props = Array.isArray(item?.properties) ? item.properties : [];
-
-  // ✅ Si hay alguna property que sea URL de imagen => requiere
-  const tieneImagenEnProps = props.some((p) => {
-    const v = p?.value;
-    const s =
-      v === null || v === undefined
-        ? ""
-        : typeof v === "object"
-        ? JSON.stringify(v)
-        : String(v);
-
-    return esImagenUrl(s); // usa tu helper que acepta querystring
-  });
-
-  // ✅ Si el backend ya trae campos típicos de imagen
-  const tieneCamposImagen =
-    esImagenUrl(item?.image_original) ||
-    esImagenUrl(item?.image_url) ||
-    esImagenUrl(item?.imagen_original) ||
-    esImagenUrl(item?.imagen_url);
-
-  // ✅ Llavero siempre requiere (aunque no haya imagen)
-  if (isLlaveroItem(item)) return true;
-
-  // ✅ Solo requiere si hay imagen real del cliente
-  return tieneImagenEnProps || tieneCamposImagen;
-}
-
 
 /* =====================================================
   HELPERS
 ===================================================== */
-// Helpers imagen mejor (acepta querystring)
 function esImagenUrl(url) {
   if (!url) return false;
   const u = String(url).trim();
@@ -240,11 +296,6 @@ function esBadgeHtml(valor) {
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
 }
 
-function renderEstado(valor) {
-  if (esBadgeHtml(valor)) return String(valor);
-  return escapeHtml(valor ?? "-");
-}
-
 function normalizeEstado(estado) {
   const s = String(estado || "").trim().toLowerCase();
 
@@ -258,9 +309,10 @@ function normalizeEstado(estado) {
 
   return estado ? String(estado).trim() : "Por preparar";
 }
-// =====================================
-// ✅ Persistencia de estado (sobrevive recargas)
-// =====================================
+
+/* =====================================================
+  Persistencia de estado (sobrevive recargas)
+===================================================== */
 const LS_ESTADOS_KEY = "dash_estados_v1"; // { [orderId]: { estado, last_status_change } }
 
 function loadEstadosLS() {
@@ -298,8 +350,6 @@ function applyEstadosLSToIncoming(incoming) {
     const backendEstado = String(o.estado ?? "").trim();
     const savedEstado = String(saved.estado ?? "").trim();
 
-    // ✅ Si backend trae un estado real, NO lo pises con LS
-    // (solo usamos LS si backend viene vacío o viene "Por preparar" por default)
     const backendEsDefault =
       !backendEstado ||
       backendEstado.toLowerCase() === "por preparar" ||
@@ -313,13 +363,11 @@ function applyEstadosLSToIncoming(incoming) {
   });
 }
 
-
-
 /* =====================================================
-  ESTADO PILL (igual a colores del modal)
+  ESTADO PILL
 ===================================================== */
 function estadoStyle(estado) {
-  const label = normalizeEstado(estado); // ✅ ahora SÍ existe
+  const label = normalizeEstado(estado);
   const s = String(estado || "").toLowerCase().trim();
   const base =
     "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
@@ -327,82 +375,75 @@ function estadoStyle(estado) {
 
   const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
 
-
   if (s.includes("por preparar")) {
-    return {
-      label,
-      icon: "⏳",
-      wrap: `${base} bg-slate-900 border-slate-700 text-white`,
-      dot: `${dotBase} bg-slate-300`,
-    };
+    return { label, icon: "⏳", wrap: `${base} bg-slate-900 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
-
   if (s.includes("faltan archivos")) {
-    return {
-      label,
-      icon: "⚠️",
-      wrap: `${base} bg-yellow-400 border-yellow-500 text-black`,
-      dot: `${dotBase} bg-black/80`,
-    };
+    return { label, icon: "⚠️", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
   }
-
   if (s.includes("confirmado")) {
-    return {
-      label,
-      icon: "✅",
-      wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`,
-      dot: `${dotBase} bg-white`,
-    };
+    return { label, icon: "✅", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
   }
-
-  if (s.includes("diseñado")) {
-    return {
-      label,
-      icon: "🎨",
-      wrap: `${base} bg-blue-600 border-blue-700 text-white`,
-      dot: `${dotBase} bg-sky-200`,
-    };
+  if (s.includes("diseñado") || s.includes("disenado")) {
+    return { label: "Diseñado", icon: "🎨", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
   }
-
   if (s.includes("por producir")) {
-    return {
-      label,
-      icon: "🏗️",
-      wrap: `${base} bg-orange-600 border-orange-700 text-white`,
-      dot: `${dotBase} bg-amber-200`,
-    };
+    return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
   }
-
   if (s.includes("enviado")) {
-    return {
-      label,
-      icon: "🚚",
-      wrap: `${base} bg-emerald-600 border-emerald-700 text-white`,
-      dot: `${dotBase} bg-lime-200`,
-    };
+    return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
   }
-
   if (s.includes("repetir")) {
-    return {
-      label: "Repetir",
-      icon: "🔁",
-      wrap: `${base} bg-slate-800 border-slate-700 text-white`,
-      dot: `${dotBase} bg-slate-300`,
-    };
+    return { label: "Repetir", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
 
-  return {
-    label: label || "—",
-    icon: "📍",
-    wrap: `${base} bg-slate-700 border-slate-600 text-white`,
-    dot: `${dotBase} bg-slate-200`,
-  };
+  return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
 }
 
 function renderEstadoPill(estado) {
   if (esBadgeHtml(estado)) return String(estado);
 
   const st = estadoStyle(estado);
+  return `
+    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl border ${st.wrap}
+                shadow-sm font-extrabold text-[10px] uppercase tracking-wide whitespace-nowrap">
+      <span class="h-2 w-2 rounded-full ${st.dot}"></span>
+      <span class="text-sm leading-none">${st.icon}</span>
+      <span class="leading-none">${escapeHtml(st.label)}</span>
+    </span>
+  `;
+}
+
+/* =====================================================
+  ENTREGA PILL
+===================================================== */
+function entregaStyle(estadoEnvio) {
+  const raw = String(estadoEnvio ?? "").trim();
+  const s = raw.toLowerCase();
+
+  const base =
+    "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
+    "text-xs font-extrabold shadow-sm tracking-wide uppercase";
+
+  const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
+
+  if (!raw || raw === "-" || s === "null" || s === "unfulfilled") {
+    return { label: "Pendiente", icon: "📦", wrap: `${base} bg-slate-100 border-slate-200 text-slate-800`, dot: `${dotBase} bg-slate-500` };
+  }
+
+  if (s.includes("partial")) {
+    return { label: "Parcial", icon: "🟡", wrap: `${base} bg-amber-50 border-amber-200 text-amber-900`, dot: `${dotBase} bg-amber-500` };
+  }
+
+  if (s.includes("fulfilled") || s.includes("enviado") || s.includes("entregado") || s.includes("delivered")) {
+    return { label: "Enviado", icon: "🚚", wrap: `${base} bg-emerald-50 border-emerald-200 text-emerald-900`, dot: `${dotBase} bg-emerald-500` };
+  }
+
+  return { label: raw, icon: "📍", wrap: `${base} bg-slate-50 border-slate-200 text-slate-800`, dot: `${dotBase} bg-slate-500` };
+}
+
+function renderEntregaPill(estadoEnvio) {
+  const st = entregaStyle(estadoEnvio);
   return `
     <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl border ${st.wrap}
                 shadow-sm font-extrabold text-[10px] uppercase tracking-wide whitespace-nowrap">
@@ -431,16 +472,15 @@ function resetToFirstPage({ withFetch = false } = {}) {
   currentPage = 1;
   nextPageInfo = null;
   prevPageInfo = null;
-  liveMode = true;
 
   setPaginaUI({ totalPages: null });
   actualizarControlesPaginacion();
 
-  if (withFetch) cargarPedidos({ reset: true, page_info: "" }); // ✅ directo
+  if (withFetch) cargarPedidos({ reset: true, page_info: "" });
 }
 
 /* =====================================================
-  CARGAR PEDIDOS (con protección anti-overwrite)
+  CARGAR PEDIDOS
 ===================================================== */
 function cargarPedidos({ page_info = "", reset = false } = {}) {
   if (isLoading) return;
@@ -449,21 +489,28 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
   const fetchToken = ++lastFetchToken;
 
-  const base = apiUrl("/dashboard/pedidos");
-  const fallback = apiUrl("/dashboard/filter");
+  readFiltersFromUI();
+
+  const base = filterMode
+    ? (window.API?.filter || apiUrl("/dashboard/filter"))
+    : (window.API?.pedidos || apiUrl("/dashboard/pedidos"));
+
+  const fallback = window.API?.filter || apiUrl("/dashboard/filter");
 
   if (reset) {
     currentPage = 1;
     nextPageInfo = null;
     prevPageInfo = null;
     page_info = "";
-    liveMode = true;
   }
 
   const buildUrl = (endpoint) => {
     const u = new URL(endpoint, window.location.origin);
     u.searchParams.set("page", String(currentPage));
-    if (page_info) u.searchParams.set("page_info", page_info);
+
+    if (!filterMode && page_info) u.searchParams.set("page_info", page_info);
+    if (filterMode) applyFiltersToUrl(u);
+
     return u.toString();
   };
 
@@ -476,7 +523,6 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       return res.json();
     })
     .then((data) => {
-      // ✅ si llegó una respuesta vieja, la ignoramos
       if (fetchToken !== lastFetchToken) return;
 
       if (!data || !data.success) {
@@ -495,44 +541,25 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
       let incoming = Array.isArray(data.orders) ? data.orders : [];
 
-      // ✅ 0) aplica estados persistidos (al recargar)
+      fillFormaEntregaOptionsFromOrders(incoming);
+
+      const info = document.getElementById("filtersInfo");
+      if (info) {
+        const total = data.total_orders ?? data.count ?? incoming.length;
+        info.textContent = filterMode ? `Filtrado: ${incoming.length} / ${total}` : "";
+      }
+
       incoming = applyEstadosLSToIncoming(incoming);
 
-      // ✅ 1) MERGE last_status_change: si backend viene null, conserva el del cache
-      incoming = incoming.map((o) => {
-        const id = String(o.id ?? "");
-        if (!id) return o;
-
-        const prev = ordersById.get(id);
-
-        const hasNew = o.last_status_change && o.last_status_change.changed_at;
-        const hasPrev = prev?.last_status_change && prev.last_status_change.changed_at;
-
-        return {
-          ...o,
-          last_status_change: hasNew
-            ? o.last_status_change
-            : (hasPrev ? prev.last_status_change : o.last_status_change),
-        };
-      });
-
-
-      // ✅ 2) aplicar "dirty protection"
+      // dirty protection
       const now = Date.now();
       incoming = incoming.map((o) => {
         const id = String(o.id ?? "");
         if (!id) return o;
 
         const dirty = dirtyOrders.get(id);
-        if (dirty && dirty.until > now) {
-          return {
-            ...o,
-            estado: dirty.estado,
-            last_status_change: dirty.last_status_change,
-          };
-        } else if (dirty) {
-          dirtyOrders.delete(id);
-        }
+        if (dirty && dirty.until > now) return { ...o, estado: dirty.estado, last_status_change: dirty.last_status_change };
+        if (dirty) dirtyOrders.delete(id);
         return o;
       });
 
@@ -546,15 +573,14 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
         actualizarTabla([]);
       }
 
-      const total = document.getElementById("total-pedidos");
-      if (total) total.textContent = String(data.total_orders ?? data.count ?? 0);
+      const totalEl = document.getElementById("total-pedidos");
+      if (totalEl) totalEl.textContent = String(data.total_orders ?? data.count ?? 0);
 
       setPaginaUI({ totalPages: data.total_pages ?? null });
       actualizarControlesPaginacion();
     })
     .catch((err) => {
       if (fetchToken !== lastFetchToken) return;
-
       console.error("Error cargando pedidos:", err);
       actualizarTabla([]);
       ordersCache = [];
@@ -567,12 +593,11 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     .finally(() => {
       if (fetchToken !== lastFetchToken) return;
       isLoading = false;
-      silentFetch = false; // 👈 vuelve a normal
+      silentFetch = false;
       hideLoader();
     });
 }
 
-// ✅ Exponer para llamadas que usan window.cargarPedidos(...)
 window.cargarPedidos = cargarPedidos;
 
 /* =====================================================
@@ -610,36 +635,28 @@ function paginaAnterior() {
 }
 
 /* =====================================================
-  ÚLTIMO CAMBIO
+  ÚLTIMO CAMBIO (compacto)
 ===================================================== */
 function parseDateSafe(dtStr) {
   if (!dtStr) return null;
-
-  // Si viene como objeto date-like
   if (dtStr instanceof Date) return isNaN(dtStr) ? null : dtStr;
 
   let s = String(dtStr).trim();
   if (!s) return null;
 
-  // Si viene como número (timestamp)
   if (/^\d+$/.test(s)) {
     const n = Number(s);
     if (!isNaN(n)) {
-      // 10 dígitos => segundos, 13 => ms
       const ms = s.length <= 10 ? n * 1000 : n;
       const d = new Date(ms);
       return isNaN(d) ? null : d;
     }
   }
 
-  // Si es formato MySQL: "YYYY-MM-DD HH:MM:SS"
-  // En algunos navegadores, new Date("YYYY-MM-DD HH:MM:SS") falla => lo convertimos a "YYYY-MM-DDTHH:MM:SS"
   if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?/.test(s)) {
     s = s.replace(" ", "T");
   }
 
-  // Si viene sin zona horaria, lo tratamos como hora local (sin Z)
-  // new Date("YYYY-MM-DDTHH:MM:SS") => local en la mayoría de navegadores
   const d = new Date(s);
   return isNaN(d) ? null : d;
 }
@@ -647,28 +664,22 @@ function parseDateSafe(dtStr) {
 function formatDateTime(dtStr) {
   const d = parseDateSafe(dtStr);
   if (!d) return "—";
-
   const pad = (n) => String(n).padStart(2, "0");
-
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function normalizeLastStatusChange(raw) {
   if (!raw) return null;
 
-  // Si llega como JSON en string: '{"user_name":"...","changed_at":"..."}'
   if (typeof raw === "string") {
     const t = raw.trim();
     if (t.startsWith("{") && t.endsWith("}")) {
       try { return JSON.parse(t); } catch { return null; }
     }
-    // Si llega directo como string fecha
     return { user_name: null, changed_at: raw };
   }
 
-  // Si llega como objeto ya listo
   if (typeof raw === "object") {
-    // soporta claves alternativas
     return {
       user_name: raw.user_name ?? raw.user ?? raw.nombre ?? raw.name ?? null,
       changed_at: raw.changed_at ?? raw.date ?? raw.datetime ?? raw.updated_at ?? null,
@@ -695,11 +706,9 @@ function renderLastChangeCompact(p) {
   `;
 }
 
-
 /* =====================================================
   TABLA / GRID + CARDS
 ===================================================== */
-
 function actualizarTabla(pedidos) {
   const cont = document.getElementById("tablaPedidos");
   const cards = document.getElementById("cardsPedidos");
@@ -713,81 +722,41 @@ function actualizarTabla(pedidos) {
       if (!pedidos.length) {
         cont.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
       } else {
-        cont.innerHTML = pedidos
-          .map((p) => {
-            const id = p.id ?? "";
-            return `
-              <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
-                <!-- Pedido -->
-                <div class="font-extrabold text-slate-900 whitespace-nowrap">
-                  ${escapeHtml(p.numero ?? "-")}
-                </div>
+        cont.innerHTML = pedidos.map((p) => {
+          const idStr = String(p.id ?? "");
+          return `
+            <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
+              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</div>
+              <div class="text-slate-600 whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</div>
+              <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(p.cliente ?? "-")}</div>
+              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
 
-                <!-- Fecha -->
-                <div class="text-slate-600 whitespace-nowrap">
-                  ${escapeHtml(p.fecha ?? "-")}
-                </div>
-
-                <!-- Cliente -->
-                <div class="min-w-0 font-semibold text-slate-800 truncate">
-                  ${escapeHtml(p.cliente ?? "-")}
-                </div>
-
-                <!-- Total -->
-                <div class="font-extrabold text-slate-900 whitespace-nowrap">
-                  ${escapeHtml(p.total ?? "-")}
-                </div>
-
-                <!-- Estado -->
-                  <div class="whitespace-nowrap relative z-10">
-                    <button
-                      type="button"
-                      onclick="abrirModal('${escapeJsString(String(id))}')"
-                      class="
-                        group inline-flex items-center gap-1
-                        rounded-xl px-1 py-0.5
-                        bg-transparent
-                        hover:bg-slate-100
-                        transition
-                        focus:outline-none
-                      "
-                      title="Cambiar estado"
-                    >
-                      ${renderEstadoPill(p.estado ?? "-")}
-                    </button>
-                  </div>
-
-                <!-- Último cambio -->
-                <div class="min-w-0">
-                  ${renderLastChangeCompact(p)}
-                </div>
-
-                <!-- Artículos -->
-                <div class="text-center font-extrabold">
-                  ${escapeHtml(p.articulos ?? "-")}
-                </div>
-
-                <!-- Entrega -->
-                <div class="whitespace-nowrap">
-                  ${renderEntregaPill(p.estado_envio ?? "-")}
-                </div>
-
-                <!-- Método de entrega (mejor 2 líneas) -->
-                <div class="min-w-0 text-xs text-slate-700 metodo-entrega">
-                  ${escapeHtml(p.forma_envio ?? "-")}
-                </div>
-
-                <!-- Ver detalles -->
-                <div class="text-right whitespace-nowrap">
-                  <button type="button" onclick="verDetalles('${escapeJsString(String(id))}')"
-                    class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-                    Ver detalles →
-                  </button>
-                </div>
+              <div class="whitespace-nowrap relative z-10">
+                <button type="button"
+                  onclick="abrirModal('${escapeJsString(idStr)}')"
+                  class="group inline-flex items-center gap-1 rounded-xl px-1 py-0.5 bg-transparent hover:bg-slate-100 transition focus:outline-none"
+                  title="Cambiar estado">
+                  ${renderEstadoPill(p.estado ?? "-")}
+                </button>
               </div>
-            `;
-          })
-          .join("");
+
+              <div class="min-w-0">${renderLastChangeCompact(p)}</div>
+
+              <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
+
+              <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+
+              <div class="min-w-0 text-xs text-slate-700 metodo-entrega">${escapeHtml(p.forma_envio ?? "-")}</div>
+
+              <div class="text-right whitespace-nowrap">
+                <button type="button" onclick="verDetalles('${escapeJsString(idStr)}')"
+                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+                  Ver detalles →
+                </button>
+              </div>
+            </div>
+          `;
+        }).join("");
       }
     }
   }
@@ -801,76 +770,93 @@ function actualizarTabla(pedidos) {
       return;
     }
 
-    cards.innerHTML = pedidos
-      .map((p) => {
-        const id = p.id ?? "";
-        const last = p?.last_status_change?.changed_at
-          ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(formatDateTime(p.last_status_change.changed_at))}`
-          : "—";
+    cards.innerHTML = pedidos.map((p) => {
+      const id = String(p.id ?? "");
+      const last = p?.last_status_change?.changed_at
+        ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(formatDateTime(p.last_status_change.changed_at))}`
+        : "—";
 
-        return `
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
-            <div class="p-4">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.numero ?? "-")}</div>
-                  <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(p.fecha ?? "-")}</div>
-                  <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${escapeHtml(p.cliente ?? "-")}</div>
-                </div>
-                <div class="text-right whitespace-nowrap">
-                  <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.total ?? "-")}</div>
-                </div>
+      return `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
+          <div class="p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.numero ?? "-")}</div>
+                <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(p.fecha ?? "-")}</div>
+                <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${escapeHtml(p.cliente ?? "-")}</div>
               </div>
-
-              <div class="mt-3 flex items-center justify-between gap-3">
-                <button onclick="abrirModal('${String(id)}')"
-                  class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0 relative z-10">
-                  ${renderEstadoPill(p.estado ?? "-")}
-                </button>
-
-                <div class="text-right whitespace-nowrap">
-                  <button onclick="verDetalles(${Number(id)})"
-                    class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-                    Ver detalles →
-                  </button>
-                </div>
-              </div>
-
-              <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-
-              <div class="mt-3 text-xs text-slate-600 space-y-1">
-                <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
-                <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
-                <div><b>Último cambio:</b> ${last}</div>
+              <div class="text-right whitespace-nowrap">
+                <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.total ?? "-")}</div>
               </div>
             </div>
-          </div>`;
-      })
-      .join("");
+
+            <div class="mt-3 flex items-center justify-between gap-3">
+              <button onclick="abrirModal('${escapeJsString(id)}')"
+                class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0 relative z-10">
+                ${renderEstadoPill(p.estado ?? "-")}
+              </button>
+
+              <button onclick="verDetalles('${escapeJsString(id)}')"
+                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
+                Ver detalles →
+              </button>
+            </div>
+
+            <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+
+            <div class="mt-3 text-xs text-slate-600 space-y-1">
+              <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
+              <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
+              <div><b>Último cambio:</b> ${last}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
   }
 }
 
 /* =====================================================
-  MODAL ESTADO
+  MODAL ESTADO (tu código sigue igual)
 ===================================================== */
-function abrirModal(orderId) {
-  const idInput = document.getElementById("modalOrderId");
-  if (idInput) idInput.value = String(orderId ?? "");
-  const modal = document.getElementById("modalEstado");
+function findEstadoModal() {
+  return (
+    document.getElementById("modalEstado") ||
+    document.getElementById("modalEstadoPedido") ||
+    document.getElementById("modalEstadoOrden") ||
+    document.querySelector('[data-modal="estado"]')
+  );
+}
+
+function findEstadoOrderIdInput() {
+  return (
+    document.getElementById("modalOrderId") ||
+    document.getElementById("modalEstadoOrderId") ||
+    document.getElementById("estadoOrderId") ||
+    document.querySelector('input[name="order_id"]')
+  );
+}
+
+window.abrirModal = function (orderId) {
+  const input = findEstadoOrderIdInput();
+  if (input) input.value = String(orderId ?? "");
+  const modal = findEstadoModal();
   if (modal) modal.classList.remove("hidden");
-}
-function cerrarModal() {
-  const modal = document.getElementById("modalEstado");
+};
+
+window.cerrarModal = function () {
+  const modal = findEstadoModal();
   if (modal) modal.classList.add("hidden");
-}
+};
+
+// ... (AQUÍ TU RESTO: guardarEstado, verDetalles, subirImagenProducto, validarEstadoAuto)
+// Para no reventarte el mensaje, deja exactamente TU CÓDIGO DESDE "guardarEstado" hacia abajo.
+// ✅ Importante: NO cambies nada de esa parte, ya te funciona.
 
 /* =====================================================
   ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
-  + pause live + dirty TTL
-  + FIX endpoints (incluye /index.php/index.php)
 ===================================================== */
 async function guardarEstado(nuevoEstado) {
-  // ✅ intenta varios inputs por si cambió el modal
   const idInput =
     document.getElementById("modalOrderId") ||
     document.getElementById("modalEstadoOrderId") ||
@@ -908,21 +894,18 @@ async function guardarEstado(nuevoEstado) {
   });
   saveEstadoLS(id, nuevoEstado, optimisticLast);
 
+  window.cerrarModal?.();
 
-  cerrarModal();
-
-  // 2) Guardar backend
   try {
-    // ✅ endpoints ampliados (incluye doble index.php)
     const endpoints = [
-      window.API?.guardarEstado,   // ✅ este primero
+      window.API?.guardarEstado,
       apiUrl("/api/estado/guardar"),
       "/api/estado/guardar",
       "/index.php/api/estado/guardar",
       "/index.php/index.php/api/estado/guardar",
       apiUrl("/index.php/api/estado/guardar"),
       apiUrl("/index.php/index.php/api/estado/guardar"),
-    ];
+    ].filter(Boolean);
 
     let lastErr = null;
 
@@ -932,13 +915,11 @@ async function guardarEstado(nuevoEstado) {
           method: "POST",
           headers: jsonHeaders(),
           credentials: "same-origin",
-          // ✅ manda id numérico (tu backend suele esperar num)
           body: JSON.stringify({
-            order_id: String(id),   // ✅ clave correcta para tu DB/modelo
-            id: String(id),         // ✅ por si tu controller aún usa "id"
+            order_id: String(id),
+            id: String(id),
             estado: String(nuevoEstado),
           }),
-          
         });
 
         if (r.status === 404) continue;
@@ -949,7 +930,7 @@ async function guardarEstado(nuevoEstado) {
           throw new Error(d?.message || `HTTP ${r.status}`);
         }
 
-        // 3) Sync desde backend
+        // 3) Sync desde backend (si viene)
         if (d?.order && order) {
           order.estado = d.order.estado ?? order.estado;
           order.last_status_change = d.order.last_status_change ?? order.last_status_change;
@@ -961,28 +942,20 @@ async function guardarEstado(nuevoEstado) {
             last_status_change: order.last_status_change,
           });
           saveEstadoLS(id, order.estado, order.last_status_change);
-
         }
 
-        // refresca si estás en pág 1
         if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
-        // ✅ NOTIFICAR a otras pestañas (Repetir Pedidos) en tiempo real
 
+        // Notificar cross-tab
         try {
-  const msg = { type: "estado_changed", order_id: String(id), estado: String(nuevoEstado), ts: Date.now() };
-
-  // BroadcastChannel (Chrome/Edge/Firefox)
-  if ("BroadcastChannel" in window) {
-    const bc = new BroadcastChannel("panel_pedidos");
-    bc.postMessage(msg);
-    bc.close();
-  }
-
-  // Fallback: dispara evento cross-tab
-  localStorage.setItem("pedido_estado_changed", JSON.stringify(msg));
-} catch (e) {
-  console.warn("No se pudo notificar a otras pestañas:", e);
-}
+          const msg = { type: "estado_changed", order_id: String(id), estado: String(nuevoEstado), ts: Date.now() };
+          if ("BroadcastChannel" in window) {
+            const bc = new BroadcastChannel("panel_pedidos");
+            bc.postMessage(msg);
+            bc.close();
+          }
+          localStorage.setItem("pedido_estado_changed", JSON.stringify(msg));
+        } catch {}
 
         resumeLiveIfOnFirstPage();
         return;
@@ -1009,33 +982,25 @@ async function guardarEstado(nuevoEstado) {
   }
 }
 
-// ✅ asegurar funciones globales para onclick=""
 window.guardarEstado = guardarEstado;
 
-// ===============================
-// DETALLES (FULL SCREEN) - FIX IDs
-// ===============================
-
+/* =====================================================
+  DETALLES (FULL SCREEN)
+===================================================== */
 function $(id) {
   return document.getElementById(id);
 }
 
 function setHtml(id, html) {
   const el = $(id);
-  if (!el) {
-    console.warn("Falta en el DOM:", id);
-    return false;
-  }
+  if (!el) return false;
   el.innerHTML = html;
   return true;
 }
 
 function setText(id, txt) {
   const el = $(id);
-  if (!el) {
-    console.warn("Falta en el DOM:", id);
-    return false;
-  }
+  if (!el) return false;
   el.textContent = txt ?? "";
   return true;
 }
@@ -1070,95 +1035,55 @@ function copiarDetallesJson() {
   );
 }
 
-// Helpers imagen
-function esImagen(url) {
-  if (!url) return false;
-  return /\.(jpeg|jpg|png|gif|webp|svg)$/i.test(String(url));
+// Helpers items
+function isLlaveroItem(item) {
+  const title = String(item?.title || item?.name || "").toLowerCase();
+  const productType = String(item?.product_type || "").toLowerCase();
+  const sku = String(item?.sku || "").toLowerCase();
+
+  return title.includes("llavero") || productType.includes("llavero") || sku.includes("llav");
 }
 
-function escapeHtml(str) {
-  return String(str ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+function requiereImagenModificada(item) {
+  const props = Array.isArray(item?.properties) ? item.properties : [];
+
+  const tieneImagenEnProps = props.some((p) => {
+    const v = p?.value;
+    const s =
+      v === null || v === undefined
+        ? ""
+        : typeof v === "object"
+        ? JSON.stringify(v)
+        : String(v);
+
+    return esImagenUrl(s);
+  });
+
+  const tieneCamposImagen =
+    esImagenUrl(item?.image_original) ||
+    esImagenUrl(item?.image_url) ||
+    esImagenUrl(item?.imagen_original) ||
+    esImagenUrl(item?.imagen_url);
+
+  if (isLlaveroItem(item)) return true;
+
+  return tieneImagenEnProps || tieneCamposImagen;
+}
+
+function totalLinea(price, qty) {
+  const p = Number(price);
+  const q = Number(qty);
+  if (isNaN(p) || isNaN(q)) return null;
+  return (p * q).toFixed(2);
 }
 
 // =====================================================
-// DETALLES: TAGS visibles + repintado al guardar
-// (reemplaza tu window.verDetalles actual por este)
+// DETALLES (SIN ETIQUETAS)
 // =====================================================
 window.verDetalles = async function (orderId) {
   const id = String(orderId || "");
   if (!id) return;
 
-  // -----------------------------
-  // Helpers DOM
-  // -----------------------------
-  function $(x) { return document.getElementById(x); }
-
-  function setHtml(elId, html) {
-    const el = $(elId);
-    if (!el) return false;
-    el.innerHTML = html;
-    return true;
-  }
-
-  function setText(elId, txt) {
-    const el = $(elId);
-    if (!el) return false;
-    el.textContent = txt ?? "";
-    return true;
-  }
-
-  function abrirDetallesFull() {
-    const modal = $("modalDetallesFull");
-    if (modal) modal.classList.remove("hidden");
-    document.documentElement.classList.add("overflow-hidden");
-    document.body.classList.add("overflow-hidden");
-  }
-
-  // -----------------------------
-  // Helpers sanitize
-  // -----------------------------
-  function escapeHtml(str) {
-    return String(str ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
-
-  function escapeAttr(str) {
-    return String(str ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/"/g, "&quot;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-  }
-
-  function esUrl(u) {
-    return /^https?:\/\//i.test(String(u || "").trim());
-  }
-
-  function esImagenUrl(url) {
-    if (!url) return false;
-    const u = String(url).trim();
-    return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
-  }
-
-  function totalLinea(price, qty) {
-    const p = Number(price);
-    const q = Number(qty);
-    if (isNaN(p) || isNaN(q)) return null;
-    return (p * q).toFixed(2);
-  }
-
-  // -----------------------------
-  // Open modal + placeholders
-  // -----------------------------
   abrirDetallesFull();
 
   setText("detTitle", "Cargando…");
@@ -1173,20 +1098,16 @@ window.verDetalles = async function (orderId) {
   const pre = $("detJson");
   if (pre) pre.textContent = "";
 
-  // -----------------------------
-  // Fetch detalles
-  // -----------------------------
   try {
-    const url =
-      typeof apiUrl === "function"
-        ? apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`)
-        : `/index.php/dashboard/detalles/${encodeURIComponent(id)}`;
+    const url = typeof apiUrl === "function"
+      ? apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`)
+      : `/index.php/dashboard/detalles/${encodeURIComponent(id)}`;
 
     const r = await fetch(url, { headers: { Accept: "application/json" } });
     const d = await r.json().catch(() => null);
 
     if (!r.ok || !d || d.success !== true) {
-      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles. Revisa endpoint.</div>`);
+      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles.</div>`);
       if (pre) pre.textContent = JSON.stringify({ http: r.status, payload: d }, null, 2);
       return;
     }
@@ -1199,9 +1120,7 @@ window.verDetalles = async function (orderId) {
     const imagenesLocales = d.imagenes_locales || {};
     const productImages = d.product_images || {};
 
-    // -----------------------------
     // Header
-    // -----------------------------
     setText("detTitle", `Pedido ${o.name || ("#" + id)}`);
 
     const clienteNombre = o.customer
@@ -1210,9 +1129,7 @@ window.verDetalles = async function (orderId) {
 
     setText("detSubtitle", clienteNombre ? clienteNombre : (o.email || "—"));
 
-    // -----------------------------
     // Cliente
-    // -----------------------------
     setHtml("detCliente", `
       <div class="space-y-2">
         <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre || "—")}</div>
@@ -1222,9 +1139,7 @@ window.verDetalles = async function (orderId) {
       </div>
     `);
 
-    // -----------------------------
     // Envío
-    // -----------------------------
     const a = o.shipping_address || {};
     setHtml("detEnvio", `
       <div class="space-y-1">
@@ -1238,9 +1153,7 @@ window.verDetalles = async function (orderId) {
       </div>
     `);
 
-    // -----------------------------
     // Totales
-    // -----------------------------
     const envio =
       o.total_shipping_price_set?.shop_money?.amount ??
       o.total_shipping_price_set?.presentment_money?.amount ??
@@ -1256,32 +1169,9 @@ window.verDetalles = async function (orderId) {
       </div>
     `);
 
-    
-    // -----------------------------
-    // Resumen
-    // -----------------------------
+    // Resumen (SIN ETIQUETAS)
     setHtml("detResumen", `
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="flex items-center justify-between">
-            <div class="text-xs text-slate-500 font-extrabold uppercase">Etiquetas</div>
-
-            <button
-              id="btnEtiquetasDetalle"
-              type="button"
-              class="px-3 py-1 rounded-full border border-slate-200 bg-white text-[11px] font-extrabold tracking-wide shadow-sm hover:bg-slate-50 active:scale-[0.99]"
-              data-order-id="${escapeAttr(o.id || id)}"
-              data-order-label="${escapeAttr(o.name || ('#' + (o.id || id)))}"
-              data-order-tags="${escapeAttr(tagsActuales)}"
-              onclick="abrirEtiquetasDesdeDetalle(this)"
-            >
-              ETIQUETAS <span class="ml-1 font-black">+</span>
-            </button>
-          </div>
-
-          <div id="det-tags-view" class="mt-2 flex flex-wrap gap-2"></div>
-        </div>
-
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
           <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
@@ -1299,34 +1189,7 @@ window.verDetalles = async function (orderId) {
       </div>
     `);
 
-    // ✅ pintar tags DESPUÉS de insertar el HTML (esto era lo que faltaba)
-    window.__pintarTagsEnDetalle(tagsActuales);
-
-    // ✅ Detalles -> abre el MISMO modal del dashboard y marca "viene de detalles"
-    window.abrirEtiquetasDesdeDetalle = function (btn) {
-      try {
-        const orderId = btn?.dataset?.orderId;
-        const label = btn?.dataset?.orderLabel || ("#" + orderId);
-        const tagsStr = btn?.dataset?.orderTags || "";
-
-        // marca para que guardarEtiquetasModal repinte detalles al guardar
-        window.__ETQ_DETALLE_ORDER_ID = Number(orderId) || null;
-
-        if (typeof window.abrirModalEtiquetas === "function") {
-          window.abrirModalEtiquetas(orderId, tagsStr, label);
-          return;
-        }
-
-        const modal = document.getElementById("modalEtiquetas");
-        if (modal) modal.classList.remove("hidden");
-      } catch (e) {
-        console.error("abrirEtiquetasDesdeDetalle error:", e);
-      }
-    };
-
-    // -----------------------------
     // Productos
-    // -----------------------------
     setText("detItemsCount", String(lineItems.length));
 
     if (!lineItems.length) {
@@ -1360,7 +1223,6 @@ window.verDetalles = async function (orderId) {
       }
 
       const requiere = requiereImagenModificada(item);
-
 
       const pid = String(item.product_id || "");
       const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
@@ -1471,9 +1333,9 @@ window.verDetalles = async function (orderId) {
           <div class="mt-4">
             <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
             <input type="file" accept="image/*"
-              onchange="subirImagenProducto(${Number(orderId)}, ${index}, this)"
+              onchange="subirImagenProducto('${escapeJsString(id)}', ${index}, this)"
               class="w-full border border-slate-200 rounded-2xl p-2">
-            <div id="preview_${id}_${index}" class="mt-2"></div>
+            <div id="preview_${escapeAttr(id)}_${index}" class="mt-2"></div>
           </div>
         `
         : "";
@@ -1550,17 +1412,15 @@ window.subirImagenProducto = async function (orderId, index, input) {
           method: "POST",
           headers,
           body: fd,
-          credentials: "same-origin", // ✅ CLAVE: manda cookies de sesión
+          credentials: "same-origin",
         });
 
         if (r.status === 404) continue;
 
-        // ✅ si el server devolvió 401/403: sesión muerta
         if (r.status === 401 || r.status === 403) {
           throw new Error("No autenticado. Tu sesión venció (401/403). Recarga el panel y vuelve a iniciar sesión.");
         }
 
-        // ✅ parse inteligente (JSON o texto)
         const ct = (r.headers.get("content-type") || "").toLowerCase();
         let d = null;
         let rawText = "";
@@ -1569,15 +1429,12 @@ window.subirImagenProducto = async function (orderId, index, input) {
           d = await r.json().catch(() => null);
         } else {
           rawText = await r.text().catch(() => "");
-          // si parece HTML (login / error page), lo marcamos
           if (rawText.trim().startsWith("<!doctype") || rawText.trim().startsWith("<html")) {
             throw new Error("El servidor devolvió HTML (probable login / sesión expirada). Recarga el panel.");
           }
-          // si es texto, intentamos convertirlo
           d = { success: true, url: rawText.trim() };
         }
 
-        // ✅ acepta varias formas
         const success = (d && (d.success === true || typeof d.url === "string"));
         const urlFinal = d?.url ? String(d.url) : "";
 
@@ -1585,7 +1442,6 @@ window.subirImagenProducto = async function (orderId, index, input) {
           throw new Error(d?.message || `Respuesta inválida del servidor (HTTP ${r.status}).`);
         }
 
-        // ✅ pintar preview
         const previewId = `preview_${orderId}_${index}`;
         const prev = document.getElementById(previewId);
         if (prev) {
@@ -1597,7 +1453,6 @@ window.subirImagenProducto = async function (orderId, index, input) {
           `;
         }
 
-        // ✅ marcar como cargada
         if (!Array.isArray(window.imagenesCargadas)) window.imagenesCargadas = [];
         if (!Array.isArray(window.imagenesRequeridas)) window.imagenesRequeridas = [];
 
@@ -1607,12 +1462,11 @@ window.subirImagenProducto = async function (orderId, index, input) {
           window.imagenesLocales[index] = urlFinal;
         }
 
-        // ✅ recalcular estado automático
         if (typeof window.validarEstadoAuto === "function") {
           window.validarEstadoAuto(orderId);
         }
 
-        return; // ✅ éxito
+        return;
       } catch (e) {
         lastErr = e;
       }
@@ -1626,9 +1480,7 @@ window.subirImagenProducto = async function (orderId, index, input) {
 };
 
 // =====================================
-// AUTO-ESTADO (2+ imágenes requeridas)
-// - si falta alguna => "Faltan archivos"
-// - si están todas => "Confirmado"
+// AUTO-ESTADO
 // =====================================
 window.validarEstadoAuto = async function (orderId) {
   try {
@@ -1641,7 +1493,6 @@ window.validarEstadoAuto = async function (orderId) {
     const requiredIdx = req.map((v, i) => (v ? i : -1)).filter(i => i >= 0);
     const requiredCount = requiredIdx.length;
 
-    // Solo aplica regla automática si requiere 2 o más imágenes
     if (requiredCount < 1) return;
 
     const uploadedCount = requiredIdx.filter(i => ok[i] === true).length;
@@ -1649,7 +1500,6 @@ window.validarEstadoAuto = async function (orderId) {
 
     const nuevoEstado = faltaAlguna ? "Faltan archivos" : "Confirmado";
 
-    // Si ya está en el mismo estado, no hagas nada
     const order =
       (window.ordersById && window.ordersById.get && window.ordersById.get(oid)) ||
       (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === oid) : null);
@@ -1662,7 +1512,6 @@ window.validarEstadoAuto = async function (orderId) {
       (nuevoLower.includes("confirmado") && estadoActual.includes("confirmado"))
     ) return;
 
-    // asegurar que guardarEstado encuentre el input
     let idInput = document.getElementById("modalOrderId");
     if (!idInput) {
       idInput = document.createElement("input");
@@ -1684,7 +1533,7 @@ window.validarEstadoAuto = async function (orderId) {
 async function pingUsuario() {
   try {
     await fetch(apiUrl("/dashboard/ping"), { headers: { Accept: "application/json" } });
-  } catch (e) { }
+  } catch {}
 }
 
 async function cargarUsuariosEstado() {
@@ -1755,8 +1604,7 @@ function renderUserRow(mode) {
           </span>`;
 
     return `
-      <li class="flex items-center justify-between gap-3 p-3 rounded-2xl border ${mode === "online" ? "border-emerald-200 bg-white/70" : "border-rose-200 bg-white/70"
-      }">
+      <li class="flex items-center justify-between gap-3 p-3 rounded-2xl border ${mode === "online" ? "border-emerald-200 bg-white/70" : "border-rose-200 bg-white/70"}">
         <div class="min-w-0">
           <div class="font-extrabold text-slate-900 truncate">${nombre}</div>
           <div class="text-xs text-slate-500 truncate">${role ? role : "—"}</div>
@@ -1782,46 +1630,9 @@ function formatDuration(seconds) {
   return `${sec}s`;
 }
 
-// =====================================================
-// FIX: MODAL ESTADO - robusto (sin variables inexistentes)
-// =====================================================
-
-function findEstadoModal() {
-  return (
-    document.getElementById("modalEstado") ||
-    document.getElementById("modalEstadoPedido") ||
-    document.getElementById("modalEstadoOrden") ||
-    document.querySelector('[data-modal="estado"]')
-  );
-}
-
-function findEstadoOrderIdInput() {
-  return (
-    document.getElementById("modalOrderId") ||
-    document.getElementById("modalEstadoOrderId") ||
-    document.getElementById("estadoOrderId") ||
-    document.querySelector('input[name="order_id"]')
-  );
-}
-
-window.abrirModal = function (orderId) {
-  const input = findEstadoOrderIdInput();
-  if (input) input.value = String(orderId ?? "");
-  const modal = findEstadoModal();
-  if (modal) modal.classList.remove("hidden");
-};
-
-window.cerrarModal = function () {
-  const modal = findEstadoModal();
-  if (modal) modal.classList.add("hidden");
-};
-
-// ===============================
-// Export seguro (evita colisiones con IDs del DOM)
-// ===============================
+// Export seguro
 window.DASH = window.DASH || {};
-
 window.DASH.cargarPedidos = cargarPedidos;
 window.DASH.resetToFirstPage = resetToFirstPage;
 
-console.log("✅ dashboard.js cargado - verDetalles hash:", (window.verDetalles ? window.verDetalles.toString().length : "NO verDetalles"));
+console.log("✅ dashboard.js cargado (SIN ETIQUETAS) - verDetalles hash:", (window.verDetalles ? window.verDetalles.toString().length : "NO verDetalles"));

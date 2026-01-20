@@ -285,6 +285,57 @@
       <?php $item(base_url('usuarios'), $isActive('usuarios'), 'Usuarios',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A8.967 8.967 0 0112 15c2.5 0 4.764 1.02 6.879 2.804M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'
       ); ?>
+            <?php $item(base_url('soporte/chat'), $isActive('soporte'), 'Soporte',
+        '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 12a8 8 0 0116 0v3a3 3 0 01-3 3h-1v-6h4M4 12v3a3 3 0 003 3h1v-6H4"/>
+        </svg>'
+      ); ?>
+
+      <?php $item(base_url('chat'), $isActive('chat'), 'Chat',
+        '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M8 10h8M8 14h5m9-2a8 8 0 01-8 8H7l-4 3V6a8 8 0 018-8h3a8 8 0 018 8z"/>
+        </svg>'
+      ); ?>
+
+      <!-- ✅ AMAZON (DESHABILITADO) -->
+      <div
+        aria-disabled="true"
+        title="Amazon (próximamente)"
+        class="group flex items-center gap-3 px-4 py-3 rounded-2xl relative
+               bg-white/5 ring-1 ring-white/10 opacity-50 cursor-not-allowed select-none"
+      >
+        <span class="text-white/80 shrink-0">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M20 7l-8-4-8 4 8 4 8-4zm0 0v10l-8 4-8-4V7m8 4v10"/>
+          </svg>
+        </span>
+
+        <!-- texto solo expandido -->
+        <span class="font-semibold truncate"
+              x-show="!collapsed"
+              x-transition.opacity
+              style="display:none">
+          Amazon
+        </span>
+
+        <!-- badge "Próximamente" cuando expandido -->
+        <span class="ml-auto text-[11px] font-semibold text-white/70"
+              x-show="!collapsed"
+              x-transition.opacity
+              style="display:none">
+          Próximamente
+        </span>
+
+        <!-- tooltip cuando colapsado -->
+        <span x-show="collapsed" style="display:none"
+              class="pointer-events-none absolute left-[92px] opacity-0 group-hover:opacity-100 transition
+                     bg-slate-950 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-lg">
+          Amazon (Próximamente)
+        </span>
+      </div>
 
       <div class="my-3 border-t border-white/10"></div>
 
