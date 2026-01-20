@@ -139,7 +139,7 @@
             <!-- TABLE XL -->
             <div class="hidden xl:block 2xl:hidden w-full overflow-x-auto soft-scroll">
               <table class="min-w-[1500px] w-full text-sm">
-                <thead class="bg-slate-50 sticky top-0 z-10 border-b border-slate-200">
+                <thead class="bg-slate-50 sticky space-x-4 top-0 z-10 border-b border-slate-200">
                   <tr class="text-left text-[11px] uppercase tracking-wider text-slate-600 font-extrabold">
                     <th class="px-5 py-4">Pedido</th>
                     <th class="px-5 py-4">Fecha</th>
