@@ -55,10 +55,10 @@ class PlacasArchivosController extends BaseController
 
             
 
-                }
-    
-            }    
         }
+    }
+
+}
 
     public function stats()
     {
@@ -780,7 +780,4 @@ private function descargarZipLote($loteId, $format = 'png')
 
     return $this->response->download($tmp, null)
         ->setFileName("lote_{$loteId}_{$format}.zip");
-
-
 }
-
