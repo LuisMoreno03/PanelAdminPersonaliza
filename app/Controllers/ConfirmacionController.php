@@ -14,8 +14,9 @@ class ConfirmacionController extends BaseController
     /* =====================================================
       GET /confirmacion/my-queue
       -> SOLO pedidos asignados a mi user
-      -> SOLO "Por preparar"
+      -> SOLO "Por preparar" O "Faltan archivos"
       -> SOLO NO ENVIADOS (unfulfilled)
+      ✅ Importante: si falta alguna imagen, el pedido debe seguir en tu cola
     ===================================================== */
     public function myQueue()
     {
@@ -30,7 +31,6 @@ class ConfirmacionController extends BaseController
             // Campos reales (no romper si faltan)
             $pFields = $db->getFieldNames('pedidos') ?? [];
             $hasShopifyId = in_array('shopify_order_id', $pFields, true);
-            $hasAssignedAt = in_array('assigned_at', $pFields, true);
 
             // pedidos_estado columnas posibles
             $peFields = $db->getFieldNames('pedidos_estado') ?? [];
@@ -48,9 +48,10 @@ class ConfirmacionController extends BaseController
                          "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect", false)
                 ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
                 ->where('p.assigned_to_user_id', $userId)
-                ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar');
+                // ✅ incluir "faltan archivos" también
+                ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por preparar','faltan archivos')", null, false);
 
-            // ✅ SOLO NO ENVIADOS (Shopify unfulfilled en tu BD suele estar NULL)
+            // ✅ SOLO NO ENVIADOS
             $q->groupStart()
                     ->where('p.estado_envio IS NULL', null, false)
                     ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
@@ -96,7 +97,6 @@ class ConfirmacionController extends BaseController
             $pFields = $db->getFieldNames('pedidos') ?? [];
             $hasShopifyId = in_array('shopify_order_id', $pFields, true);
             if (!$hasShopifyId) {
-                // Si tu BD no tiene shopify_order_id, te lo digo claro (evita asignar mal)
                 return $this->response->setStatusCode(500)->setJSON([
                     'ok' => false,
                     'message' => 'La tabla pedidos no tiene la columna shopify_order_id. Indícame cuál columna guarda el ID de Shopify.'
@@ -109,7 +109,7 @@ class ConfirmacionController extends BaseController
             $candidatos = $db->table('pedidos p')
                 ->select('p.id, p.shopify_order_id')
                 ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
-                ->where("LOWER(COALESCE(pe.estado,'por preparar'))", 'por preparar')
+                ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar')))", 'por preparar')
                 ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)')
                 ->groupStart()
                     ->where('p.estado_envio IS NULL', null, false)
@@ -135,7 +135,7 @@ class ConfirmacionController extends BaseController
                     'assigned_at' => $now
                 ]);
 
-            // Asegurar historial
+            // Asegurar historial/estado
             foreach ($candidatos as $c) {
                 if (empty($c['shopify_order_id'])) continue;
 
@@ -146,7 +146,6 @@ class ConfirmacionController extends BaseController
                     'created_at' => $now
                 ]);
 
-                // Si no existe row en pedidos_estado, crea una (opcional pero recomendable)
                 $existe = $db->table('pedidos_estado')->where('order_id', $c['shopify_order_id'])->countAllResults();
                 if (!$existe) {
                     $db->table('pedidos_estado')->insert([
@@ -199,9 +198,8 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       GET /confirmacion/detalles/{id}
-      -> Busca pedido por id interno o shopify_order_id
-      -> Si tienes pedido_json guardado, úsalo
-      -> Si NO, aquí deberías traerlo de Shopify (te dejo el hook)
+      -> DEVUELVE imagenes_locales con auditoría si existe:
+         { index: { url, modified_by, modified_at } }
     ===================================================== */
     public function detalles($id = null)
     {
@@ -233,28 +231,22 @@ class ConfirmacionController extends BaseController
 
             $shopifyId = $pedido['shopify_order_id'] ?? null;
 
-            // ✅ A) Si existe pedido_json, úsalo
             $orderJson = null;
             if ($hasPedidoJson) {
                 $orderJson = json_decode($pedido['pedido_json'] ?? '', true);
             }
 
-            // ✅ B) Si NO hay pedido_json, deberías traerlo de Shopify aquí
-            // (Dejo el hook. Si quieres, te lo hago con tu token/env exacto)
             if (!$orderJson || (empty($orderJson['line_items']) && empty($orderJson['lineItems']))) {
-                // Ejemplo:
-                // $orderJson = $this->fetchShopifyOrder((string)$shopifyId);
-                // si no quieres aún, al menos devolvemos datos básicos:
                 $orderJson = [
                     'id' => $shopifyId,
                     'name' => $pedido['numero'] ?? ('#'.$shopifyId),
                     'created_at' => $pedido['created_at'] ?? null,
                     'customer' => ['first_name' => $pedido['cliente'] ?? '', 'last_name' => ''],
-                    'line_items' => [], // <-- sin detalle si no hay Shopify fetch
+                    'line_items' => [],
                 ];
             }
 
-            $imagenesLocales = $hasImgLocales ? json_decode($pedido['imagenes_locales'] ?? '[]', true) : [];
+            $imagenesLocales = $hasImgLocales ? json_decode($pedido['imagenes_locales'] ?? '{}', true) : [];
             $productImages   = $hasProdImages ? json_decode($pedido['product_images'] ?? '{}', true) : [];
 
             return $this->response->setJSON([
@@ -274,8 +266,9 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       POST /api/pedidos/imagenes/subir
-      -> Guarda imagen en pedidos.imagenes_locales (si existe)
-      -> Llama validarEstadoAutomatico
+      -> Guarda imagen en pedidos.imagenes_locales con auditoría:
+         imagenes_locales[index] = { url, modified_by, modified_at }
+      -> Recalcula estado automático
     ===================================================== */
     public function subirImagen()
     {
@@ -287,12 +280,23 @@ class ConfirmacionController extends BaseController
         $index   = (int) $this->request->getPost('line_index');
         $file    = $this->request->getFile('file');
 
+        // Auditoría (viene del frontend; si no, fallback a sesión)
+        $modifiedBy = trim((string) $this->request->getPost('modified_by'));
+        $modifiedAt = trim((string) $this->request->getPost('modified_at'));
+        if ($modifiedBy === '') $modifiedBy = session('nombre') ?? 'Sistema';
+        if ($modifiedAt === '') $modifiedAt = date('c'); // ISO 8601
+
         if (!$orderId || !$file || !$file->isValid()) {
             return $this->response->setJSON(['success' => false, 'message' => 'Archivo inválido']);
         }
 
+        $dir = WRITEPATH . 'uploads/confirmacion';
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+
         $name = $file->getRandomName();
-        $file->move(WRITEPATH . 'uploads/confirmacion', $name);
+        $file->move($dir, $name);
         $url = base_url('writable/uploads/confirmacion/' . $name);
 
         $db = \Config\Database::connect();
@@ -305,27 +309,118 @@ class ConfirmacionController extends BaseController
         if ($hasImgLocales) {
             $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
             if (!is_array($imagenes)) $imagenes = [];
-            $imagenes[$index] = $url;
+
+            // ✅ Guardar con auditoría
+            $imagenes[$index] = [
+                'url' => $url,
+                'modified_by' => $modifiedBy,
+                'modified_at' => $modifiedAt,
+            ];
 
             $db->table('pedidos')
                 ->where('shopify_order_id', $orderId)
-                ->update(['imagenes_locales' => json_encode($imagenes)]);
+                ->update(['imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES)]);
         }
 
-        // ✅ Recalcula estado (si tienes pedido_json; si no, no podrá saber requeridas)
+        // ✅ Recalcula estado
         $nuevoEstado = $this->validarEstadoAutomatico((int)$pedido['id'], (string)$pedido['shopify_order_id']);
 
         return $this->response->setJSON([
             'success' => true,
             'url' => $url,
+            'modified_by' => $modifiedBy,
+            'modified_at' => $modifiedAt,
             'estado' => $nuevoEstado
         ]);
     }
 
     /* =====================================================
+      (OPCIONAL PERO RECOMENDADO)
+      POST /api/estado/guardar
+      -> Soporta mantener_asignado=true para NO desasignar en "Faltan archivos"
+      -> JS lo llama como guardarEstado()
+    ===================================================== */
+    public function guardarEstado()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'ok' => false, 'message' => 'No auth']);
+        }
+
+        try {
+            $db = \Config\Database::connect();
+            $payload = $this->request->getJSON(true) ?? [];
+
+            $orderId = (string)($payload['order_id'] ?? $payload['id'] ?? '');
+            $estado  = (string)($payload['estado'] ?? '');
+            $mantener = (bool)($payload['mantener_asignado'] ?? false);
+
+            if ($orderId === '' || $estado === '') {
+                return $this->response->setStatusCode(400)->setJSON(['success' => false, 'ok' => false, 'message' => 'Payload inválido']);
+            }
+
+            $user = session('nombre') ?? 'Sistema';
+            $now  = date('Y-m-d H:i:s');
+
+            // Asegurar que exista pedido
+            $pedido = $db->table('pedidos')->where('shopify_order_id', $orderId)->get()->getRowArray();
+            if (!$pedido) {
+                return $this->response->setStatusCode(404)->setJSON(['success' => false, 'ok' => false, 'message' => 'Pedido no encontrado']);
+            }
+
+            // Upsert pedidos_estado
+            $existe = $db->table('pedidos_estado')->where('order_id', $orderId)->countAllResults();
+
+            if ($existe) {
+                $db->table('pedidos_estado')->where('order_id', $orderId)->update([
+                    'estado' => $estado,
+                    'estado_updated_at' => $now,
+                    'estado_updated_by_name' => $user,
+                ]);
+            } else {
+                $db->table('pedidos_estado')->insert([
+                    'order_id' => $orderId,
+                    'estado' => $estado,
+                    'estado_updated_at' => $now,
+                    'estado_updated_by_name' => $user,
+                ]);
+            }
+
+            // Historial
+            $db->table('pedidos_estado_historial')->insert([
+                'order_id' => $orderId,
+                'estado' => $estado,
+                'user_name' => $user,
+                'created_at' => $now
+            ]);
+
+            // ✅ Solo desasignar si Confirmado.
+            // Si es "Faltan archivos" y mantener_asignado=true => NO tocar asignación.
+            if (mb_strtolower(trim($estado)) === 'confirmado') {
+                $db->table('pedidos')
+                    ->where('shopify_order_id', $orderId)
+                    ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
+            } else {
+                if (!$mantener) {
+                    // Si algún día quieres liberar explícitamente desde frontend, podrías enviar mantener_asignado=false.
+                    // Por defecto NO hacemos nada.
+                }
+            }
+
+            return $this->response->setJSON(['success' => true, 'ok' => true]);
+        } catch (\Throwable $e) {
+            log_message('error', 'guardarEstado() error: '.$e->getMessage());
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'ok' => false,
+                'message' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /* =====================================================
       Estado automático
-      - Si NO tienes pedido_json, esto NO podrá contar requeridas bien.
-      - Recomendación: traer order completo de Shopify o agregar pedido_json.
+      - Ahora soporta imagenes_locales como string (viejo) o objeto con auditoría (nuevo)
+      - NO desasigna cuando es "Faltan archivos" (solo al Confirmar)
     ===================================================== */
     private function validarEstadoAutomatico(int $pedidoId, string $shopifyId): string
     {
@@ -335,7 +430,6 @@ class ConfirmacionController extends BaseController
         $hasImgLocales = in_array('imagenes_locales', $pFields, true);
 
         if (!$hasPedidoJson || !$hasImgLocales) {
-            // no rompemos, pero no podemos calcular real
             return 'Por preparar';
         }
 
@@ -352,20 +446,52 @@ class ConfirmacionController extends BaseController
         foreach (($order['line_items'] ?? []) as $i => $item) {
             if ($this->requiereImagen($item)) {
                 $requeridas++;
-                if (!empty($imagenes[$i])) $cargadas++;
+
+                $val = $imagenes[$i] ?? null;
+                $url = '';
+
+                if (is_string($val)) {
+                    $url = $val;
+                } elseif (is_array($val)) {
+                    $url = (string)($val['url'] ?? $val['value'] ?? '');
+                }
+
+                if (trim($url) !== '') $cargadas++;
             }
         }
 
         $nuevoEstado = ($requeridas > 0 && $requeridas === $cargadas) ? 'Confirmado' : 'Faltan archivos';
+        $now = date('Y-m-d H:i:s');
+        $user = session('nombre') ?? 'Sistema';
 
-        $db->table('pedidos_estado')
-            ->where('order_id', $shopifyId)
-            ->update([
+        // Upsert pedidos_estado
+        $existe = $db->table('pedidos_estado')->where('order_id', $shopifyId)->countAllResults();
+        if ($existe) {
+            $db->table('pedidos_estado')
+                ->where('order_id', $shopifyId)
+                ->update([
+                    'estado' => $nuevoEstado,
+                    'estado_updated_at' => $now,
+                    'estado_updated_by_name' => $user
+                ]);
+        } else {
+            $db->table('pedidos_estado')->insert([
+                'order_id' => $shopifyId,
                 'estado' => $nuevoEstado,
-                'estado_updated_at' => date('Y-m-d H:i:s'),
-                'estado_updated_by_name' => session('nombre') ?? 'Sistema'
+                'estado_updated_at' => $now,
+                'estado_updated_by_name' => $user
             ]);
+        }
 
+        // Historial
+        $db->table('pedidos_estado_historial')->insert([
+            'order_id' => $shopifyId,
+            'estado' => $nuevoEstado,
+            'user_name' => $user,
+            'created_at' => $now
+        ]);
+
+        // ✅ Solo liberar cuando queda confirmado
         if ($nuevoEstado === 'Confirmado') {
             $db->table('pedidos')
                 ->where('id', $pedidoId)
