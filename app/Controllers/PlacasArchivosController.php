@@ -55,8 +55,10 @@ class PlacasArchivosController extends BaseController
 
             
 
+                }
+    
+            }    
         }
-    }
 
     public function stats()
     {
@@ -690,9 +692,18 @@ private function descargarConvertido($archivoId, $format = 'png')
 }
 
 
+// DESCARGAR ZIP POR LOTE (PNG/JPG)
 public function descargarPngLote($loteId)
 {
-    private function descargarZipLote($loteId, $format = 'png')
+    return $this->descargarZipLote($loteId, 'png');
+}
+
+public function descargarJpgLote($loteId)
+{
+    return $this->descargarZipLote($loteId, 'jpg');
+}
+
+private function descargarZipLote($loteId, $format = 'png')
 {
     $format = strtolower($format) === 'jpg' ? 'jpg' : 'png';
 
@@ -769,9 +780,7 @@ public function descargarPngLote($loteId)
 
     return $this->response->download($tmp, null)
         ->setFileName("lote_{$loteId}_{$format}.zip");
-    }
-
-}
 
 
 }
+
