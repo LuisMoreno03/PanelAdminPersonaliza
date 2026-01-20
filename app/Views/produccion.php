@@ -26,16 +26,16 @@
     /* ✅ misma grilla para header y filas (2xl GRID) */
     .prod-grid-cols {
       grid-template-columns:
-        130px
-        135px
-        minmax(140px, 1fr)
+        110px
+        115px
+        minmax(100px, 1fr)
         95px
-        155px
+        185px
         145px
+        180px
+        180px
         120px
-        80px
-        120px
-        150px;
+        110px;
     }
 
     /* Layout menú */
