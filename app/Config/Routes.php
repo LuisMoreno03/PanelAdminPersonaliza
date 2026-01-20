@@ -212,7 +212,7 @@ $routes->group('repetir', [
 |--------------------------------------------------------------------------
 */
 $routes->group('', ['namespace' => 'App\Controllers'], function($routes) {
-    
+    $routes->get('/', 'UsuariosController::index');
     $routes->get('usuarios', 'Usuarios::index');
     $routes->get('usuarios/(:num)/password', 'Usuarios::password/$1');
     $routes->post('usuarios/(:num)/password', 'Usuarios::updatePassword/$1');
