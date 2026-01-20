@@ -431,17 +431,30 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
 
 
 
-    public function listarPorDia()
+  public function listarPorDia()
 {
     try {
-   $fields = $db->getFieldNames('placas_archivos');
-} catch (\Throwable $e) {
-   return $this->response->setStatusCode(500)->setJSON([
-      'success' => false,
-      'message' => 'Error leyendo estructura de placas_archivos',
-      'error' => $e->getMessage(),
-   ]);
-}
+        helper('url');
+        $db = \Config\Database::connect();
+
+        // Detectar columnas disponibles (y si la tabla existe)
+        try {
+            $fields = $db->getFieldNames('placas_archivos');
+        } catch (\Throwable $e) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => 'Error leyendo estructura de placas_archivos (¿tabla no existe?)',
+                'error'   => $e->getMessage(),
+            ]);
+        }
+
+        $hasNombre      = in_array('nombre', $fields, true);
+        $hasOriginal     = in_array('original', $fields, true);
+        $hasOriginalName = in_array('original_name', $fields, true);
+        $hasFilename     = in_array('filename', $fields, true);
+        $hasSize         = in_array('size', $fields, true);
+        $hasSizeKb       = in_array('size_kb', $fields, true);
+        $hasCreatedAt    = in_array('created_at', $fields, true);
 
         $select = [
             '`id`',
@@ -453,6 +466,7 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
 
         if ($hasCreatedAt) $select[] = '`created_at`';
 
+        // original fallback
         if ($hasOriginal || $hasOriginalName || $hasFilename) {
             $origParts = [];
             if ($hasOriginal)     $origParts[] = "NULLIF(`original`, '')";
@@ -463,12 +477,10 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
             $select[] = "NULL AS `original`";
         }
 
-        if ($hasNombre) {
-            $select[] = "`nombre`";
-        } else {
-            $select[] = "NULL AS `nombre`";
-        }
+        // nombre
+        $select[] = $hasNombre ? "`nombre`" : "NULL AS `nombre`";
 
+        // size fallback
         if ($hasSize || $hasSizeKb) {
             $sizeParts = [];
             if ($hasSize)   $sizeParts[] = "NULLIF(`size`, 0)";
@@ -556,6 +568,7 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
         ]);
     }
 }
+
 
 
 
@@ -701,7 +714,7 @@ private function descargarZipLote($loteId, $format = 'png')
     if ($zip->open($tmp, \ZipArchive::CREATE) !== true) {
         return $this->response->setStatusCode(500)->setBody('No se pudo crear ZIP');
     }
-
+}
     foreach ($rows as $r) {
         $ruta = $r['ruta'] ?? '';
         if (!$ruta) continue;
