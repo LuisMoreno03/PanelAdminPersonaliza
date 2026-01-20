@@ -10,6 +10,11 @@
  * - Upload Imagen MODIFICADA por item_index (drag&drop + reemplazar + preview)
  * - Endpoint: POST /produccion/upload-modificada (order_id, item_index, file)
  * - Fallback: si no viene imagenes_locales desde detalles, intenta detectar mod_# desde list-general
+ *
+ * ✅ REGLA:
+ * - Solo permite mostrar/subir imagen modificada a:
+ *   (1) productos con imagen del cliente (properties con URL de imagen)
+ *   (2) llaveros (title/sku/variant con "llavero" o "keychain")
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -34,7 +39,7 @@ let currentDetallesOrderId = null;   // el que llegó al abrir (puede ser shopif
 let currentKeyForFiles = null;       // ✅ key estable del pedido (para uploads)
 
 // ✅ estado por item para “imagen modificada”
-const modState = new Map(); // index -> { existingUrl, selectedFile, objectUrl, isUploading }
+const modState = new Map(); // index -> { existingUrl, selectedFile, objectUrl, isUploading, isEligible }
 
 // =========================
 // Helpers DOM/UI
@@ -85,6 +90,31 @@ function moneyFormat(v) {
 function esBadgeHtml(valor) {
   const s = String(valor ?? "").trim();
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
+}
+
+// =========================
+// Text helpers (llaveros)
+// =========================
+function normTxt(v) {
+  try {
+    return String(v ?? "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  } catch {
+    return String(v ?? "").toLowerCase();
+  }
+}
+
+function isKeychainItem(item) {
+  const t = normTxt(item?.title || item?.name || "");
+  const sku = normTxt(item?.sku || "");
+  const vt = normTxt(item?.variant_title || item?.variant_name || item?.variant || "");
+  return (
+    t.includes("llavero") || t.includes("keychain") ||
+    sku.includes("llavero") || sku.includes("keychain") ||
+    vt.includes("llavero") || vt.includes("keychain")
+  );
 }
 
 // =========================
@@ -393,7 +423,7 @@ function actualizarListado(pedidos) {
     return;
   }
 
-  // TABLE ✅ FIX REAL: tr/td dentro del tbody
+  // TABLE ✅ FIX REAL
   if (mode === "table") {
     if (contCards) contCards.classList.add("hidden");
     if (!contTable) return;
@@ -697,8 +727,6 @@ function cerrarDetallesFull() {
   modal.classList.add("hidden");
   document.documentElement.classList.remove("overflow-hidden");
   document.body.classList.remove("overflow-hidden");
-
-  // ✅ limpiar previews al cerrar
   cleanupModPreviews();
 }
 
@@ -761,20 +789,14 @@ async function fetchGeneralFilesAnyKey(orderId, opts = {}) {
     return { data: d, usedKey: key };
   };
 
-  // 1) key principal
   let out = await tryKey(orderId);
 
-  // 2) fallback #1
   if ((!out || !Array.isArray(out.data?.files) || out.data.files.length === 0) && opts.fallbackKey) {
     out = await tryKey(opts.fallbackKey);
   }
-
-  // 3) fallback #2
   if ((!out || !Array.isArray(out.data?.files) || out.data.files.length === 0) && opts.extraFallbackKey) {
     out = await tryKey(opts.extraFallbackKey);
   }
-
-  // 4) fallback #3 opcional
   if ((!out || !Array.isArray(out.data?.files) || out.data.files.length === 0) && opts.extraFallbackKey2) {
     out = await tryKey(opts.extraFallbackKey2);
   }
@@ -807,7 +829,6 @@ async function guessModificadasFromGeneralList(orderId, opts = {}) {
   const files = Array.isArray(out.data.files) ? out.data.files : [];
   if (!files.length) return {};
 
-  // buscamos filenames tipo mod_{index}_...
   const best = {}; // idx -> file
   for (const f of files) {
     const filename = f.filename || f.original_name || "";
@@ -896,7 +917,7 @@ async function subirArchivosGenerales(orderId, fileList) {
 function getModState(index) {
   const key = String(index);
   if (!modState.has(key)) {
-    modState.set(key, { existingUrl: "", selectedFile: null, objectUrl: null, isUploading: false });
+    modState.set(key, { existingUrl: "", selectedFile: null, objectUrl: null, isUploading: false, isEligible: true });
   }
   return modState.get(key);
 }
@@ -929,7 +950,7 @@ function setModPreview(index, src) {
 }
 
 function cleanupModPreviews() {
-  for (const [idx, st] of modState.entries()) {
+  for (const [, st] of modState.entries()) {
     if (st?.objectUrl) {
       try { URL.revokeObjectURL(st.objectUrl); } catch {}
     }
@@ -941,7 +962,6 @@ function validateImageFile(file) {
   if (!file) return { ok: false, message: "Archivo inválido" };
   if (!file.type || !file.type.startsWith("image/")) return { ok: false, message: "Solo se permiten imágenes" };
 
-  // opcional: límite 12MB
   const max = 12 * 1024 * 1024;
   if (file.size > max) return { ok: false, message: "La imagen supera 12MB" };
 
@@ -951,7 +971,6 @@ function validateImageFile(file) {
 function applySelectedModFile(index, file) {
   const st = getModState(index);
 
-  // limpia objectUrl anterior
   if (st.objectUrl) {
     try { URL.revokeObjectURL(st.objectUrl); } catch {}
     st.objectUrl = null;
@@ -975,13 +994,24 @@ function clearSelectedModFile(index) {
   }
   st.selectedFile = null;
 
-  // vuelve a la existente (si hay)
   setModPreview(index, st.existingUrl || "");
-  setModMsg(index, st.existingUrl ? `<span class="text-slate-600">Usando la imagen ya subida.</span>` : `<span class="text-slate-500">Sin imagen modificada subida.</span>`);
+  setModMsg(
+    index,
+    st.existingUrl
+      ? `<span class="text-slate-600">Usando la imagen ya subida.</span>`
+      : `<span class="text-slate-500">Sin imagen modificada subida.</span>`
+  );
 }
 
 async function uploadModificada(index) {
   const st = getModState(index);
+
+  // ✅ seguridad extra: no permitir si no es elegible
+  if (st.isEligible === false) {
+    setModMsg(index, `<span class="text-rose-600 font-extrabold">Este producto no permite imagen modificada.</span>`);
+    return;
+  }
+
   if (st.isUploading) return;
 
   const orderId = currentKeyForFiles || $("generalOrderId")?.value || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId;
@@ -1033,10 +1063,8 @@ async function uploadModificada(index) {
       return;
     }
 
-    // ✅ set nueva existente
     st.existingUrl = url;
 
-    // limpia selectedFile (ya quedó subida)
     if (st.objectUrl) {
       try { URL.revokeObjectURL(st.objectUrl); } catch {}
       st.objectUrl = null;
@@ -1046,14 +1074,12 @@ async function uploadModificada(index) {
     setModPreview(index, url);
     setModMsg(index, `<span class="text-emerald-700 font-extrabold">Imagen modificada subida ✅</span>`);
 
-    // opcional: recargar archivos generales (por si se guarda en misma carpeta)
     await cargarArchivosGenerales(orderId, {
       fallbackKey: currentDetallesPedidoId,
       extraFallbackKey: currentDetallesShopifyId,
       extraFallbackKey2: currentDetallesOrderId,
     });
 
-    // opcional: refrescar cola
     await cargarMiCola();
 
   } catch (e) {
@@ -1067,18 +1093,20 @@ async function uploadModificada(index) {
 }
 
 function initModUploadZones() {
-  // enganchar todos los zones
   document.querySelectorAll("[data-mod-zone='1']").forEach((zone) => {
     const index = String(zone.getAttribute("data-item-index") || "");
     if (index === "") return;
 
+    const eligible = String(zone.getAttribute("data-eligible") || "0") === "1";
     const st = getModState(index);
+    st.isEligible = eligible;
 
-    // existente viene en data-existing-url
+    // si no es elegible, por seguridad no hacemos binds
+    if (!eligible) return;
+
     const existing = String(zone.getAttribute("data-existing-url") || "").trim();
     st.existingUrl = existing;
 
-    // preview inicial
     setModPreview(index, existing || "");
     setModMsg(index, existing ? `<span class="text-slate-600">Usando la imagen ya subida.</span>` : `<span class="text-slate-500">Arrastra una imagen aquí o presiona “Elegir”.</span>`);
 
@@ -1089,24 +1117,20 @@ function initModUploadZones() {
 
     const pick = () => input && input.click();
 
-    // click en botón
     btnPick?.addEventListener("click", (e) => { e.preventDefault(); pick(); });
 
-    // limpiar selección
     btnClear?.addEventListener("click", (e) => {
       e.preventDefault();
       clearSelectedModFile(index);
       if (input) input.value = "";
     });
 
-    // subir
     btnUpload?.addEventListener("click", async (e) => {
       e.preventDefault();
       await uploadModificada(index);
       if (input) input.value = "";
     });
 
-    // input change
     input?.addEventListener("change", () => {
       const file = input.files && input.files[0] ? input.files[0] : null;
       if (!file) return;
@@ -1119,7 +1143,6 @@ function initModUploadZones() {
       applySelectedModFile(index, file);
     });
 
-    // drag & drop
     const prevent = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
     ["dragenter", "dragover"].forEach((evt) => zone.addEventListener(evt, (ev) => {
       prevent(ev);
@@ -1142,13 +1165,10 @@ function initModUploadZones() {
         return;
       }
 
-      // reflejar también en input (opcional)
       applySelectedModFile(index, file);
     });
 
-    // click en el dropzone abre picker
     zone.addEventListener("click", (e) => {
-      // si clic en botones, no
       const t = e.target;
       if (t && (t.closest("button") || t.closest("a"))) return;
       pick();
@@ -1163,10 +1183,8 @@ async function abrirDetallesPedido(orderId) {
   abrirDetallesFull();
   currentDetallesOrderId = id;
 
-  // reset mod state
   cleanupModPreviews();
 
-  // placeholders
   setText("detTitle", "Cargando...");
   setText("detSubtitle", "—");
   setText("detItemsCount", "0");
@@ -1177,7 +1195,6 @@ async function abrirDetallesPedido(orderId) {
   setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detJson", "");
 
-  // fetch detalle robusto
   let payload = null;
   let lastErr = null;
 
@@ -1211,11 +1228,9 @@ async function abrirDetallesPedido(orderId) {
   const o = payload.order || {};
   const lineItems = Array.isArray(o.line_items) ? o.line_items : (Array.isArray(o.lineItems) ? o.lineItems : []);
 
-  // ✅ ids reales
   currentDetallesShopifyId = String(o.id || o.shopify_order_id || o.order_id || "").trim() || null;
   currentDetallesPedidoId = String(payload.pedido_id || payload.id || o.pedido_id || "").trim() || null;
 
-  // key estable para files
   const keyForFiles =
     (currentDetallesShopifyId && currentDetallesShopifyId !== "0") ? currentDetallesShopifyId :
     (currentDetallesPedidoId && currentDetallesPedidoId !== "0") ? currentDetallesPedidoId :
@@ -1226,14 +1241,12 @@ async function abrirDetallesPedido(orderId) {
   const hiddenId = $("generalOrderId");
   if (hiddenId) hiddenId.value = keyForFiles;
 
-  // ✅ cargar archivos generales (lista)
   await cargarArchivosGenerales(keyForFiles, {
     fallbackKey: (keyForFiles === id ? null : id),
     extraFallbackKey: currentDetallesPedidoId && currentDetallesPedidoId !== keyForFiles ? currentDetallesPedidoId : null,
     extraFallbackKey2: currentDetallesShopifyId && currentDetallesShopifyId !== keyForFiles ? currentDetallesShopifyId : null,
   });
 
-  // header
   const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
   setText("detTitle", `Detalles ${name}`);
 
@@ -1245,13 +1258,11 @@ async function abrirDetallesPedido(orderId) {
 
   setText("detSubtitle", `${clienteHeader} · ${o.created_at || "—"}`);
 
-  // JSON
   try {
     const json = JSON.stringify(payload, null, 2);
     setHtml("detJson", escapeHtml(json));
   } catch {}
 
-  // Cliente
   const customer = o.customer || {};
   const clienteNombre = (customer.first_name || customer.last_name)
     ? `${customer.first_name || ""} ${customer.last_name || ""}`.trim()
@@ -1266,7 +1277,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Envío
   const a = o.shipping_address || {};
   setHtml("detEnvio", `
     <div class="space-y-1">
@@ -1280,7 +1290,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Resumen
   const estado = o.estado ?? o.status ?? "—";
   const tags = String(o.tags ?? o.etiquetas ?? "").trim();
   const lastInfo = normalizeLastStatusChange(o.last_status_change || payload.last_status_change);
@@ -1299,7 +1308,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Totales
   const subtotal = o.subtotal_price ?? "0";
   const envio =
     o.total_shipping_price_set?.shop_money?.amount ??
@@ -1318,7 +1326,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Items
   setText("detItemsCount", String(lineItems.length));
 
   if (!lineItems.length) {
@@ -1326,10 +1333,8 @@ async function abrirDetallesPedido(orderId) {
     return;
   }
 
-  // ✅ imágenes
   const productImages = payload.product_images || {};
 
-  // ✅ imagenesLocales: si dashboard no las manda, intentamos detectarlas con list-general (prefijo mod_)
   const modFallback = await guessModificadasFromGeneralList(keyForFiles, {
     fallbackKey: (keyForFiles === id ? null : id),
     extraFallbackKey: currentDetallesPedidoId && currentDetallesPedidoId !== keyForFiles ? currentDetallesPedidoId : null,
@@ -1362,6 +1367,11 @@ async function abrirDetallesPedido(orderId) {
     const pid = String(item.product_id || "");
     const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
     const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
+
+    // ✅ regla: solo si trae imagen del cliente o es llavero
+    const hasCustomerImage = propsImg.length > 0;
+    const isLlavero = isKeychainItem(item);
+    const canUploadMod = hasCustomerImage || isLlavero;
 
     const productImgHtml = productImg
       ? `<a href="${escapeHtml(productImg)}" target="_blank"
@@ -1401,13 +1411,14 @@ async function abrirDetallesPedido(orderId) {
       </div>
     ` : "";
 
-    // ✅ NUEVO: Zona drag&drop para imagen modificada
-    const modificadaHtml = `
+    // ✅ solo renderizamos uploader si es elegible
+    const modificadaHtml = canUploadMod ? `
       <div class="mt-4">
         <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
 
         <div id="modZone_${index}"
              data-mod-zone="1"
+             data-eligible="1"
              data-item-index="${escapeHtml(index)}"
              data-existing-url="${escapeHtml(localUrl)}"
              class="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white p-3 cursor-pointer hover:bg-slate-50 transition">
@@ -1423,7 +1434,7 @@ async function abrirDetallesPedido(orderId) {
             <div class="min-w-0 flex-1">
               <div class="text-sm font-extrabold text-slate-900">Subir / Reemplazar</div>
               <div class="text-xs text-slate-500 mt-1">
-                Arrastra una imagen aquí o pulsa “Elegir”.
+                ${hasCustomerImage ? "Tiene imagen del cliente." : (isLlavero ? "Producto llavero." : "")}
               </div>
 
               <input id="modInput_${index}" type="file" accept="image/*" class="hidden" />
@@ -1457,7 +1468,7 @@ async function abrirDetallesPedido(orderId) {
           </div>
         </div>
       </div>
-    `;
+    ` : ``;
 
     return `
       <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
@@ -1478,8 +1489,6 @@ async function abrirDetallesPedido(orderId) {
   }).join("");
 
   setHtml("detItems", itemsHtml);
-
-  // ✅ enganchar drag&drop + botones
   initModUploadZones();
 }
 
