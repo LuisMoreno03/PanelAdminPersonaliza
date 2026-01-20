@@ -9,22 +9,16 @@ class UsuariosController extends BaseController
 {
     protected UsuarioModel $usuarioModel;
 
-    public function __construct()
-    {
-        $this->usuarioModel = new UsuarioModel();
-    }
+  public function index()
+{
+    dd(
+        'APPPATH = ' . APPPATH,
+        'View expected: ' . APPPATH . 'Views/usuarios/index.php',
+        'exists? ' . (is_file(APPPATH . 'Views/usuarios/index.php') ? 'YES' : 'NO'),
+        'viewDirectory config: ' . config('Paths')->viewDirectory
+    );
+}
 
-    public function index()
-    {
-        $usuarios = $this->usuarioModel
-            ->select('id, nombre, email, rol, activo, created_at')
-            ->orderBy('id', 'DESC')
-            ->findAll();
-
-        return view('usuarios/index', [
-            'usuarios' => $usuarios,
-        ]);
-    }
 
     public function password(int $id)
     {
