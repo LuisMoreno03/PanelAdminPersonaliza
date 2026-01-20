@@ -28,13 +28,13 @@
       grid-template-columns:
         130px
         135px
-        minmax(150px, 1fr)
+        minmax(140px, 1fr)
         95px
-        185px
+        155px
         145px
         150px
         80px
-        150px
+        140px
         150px
         130px;
     }
