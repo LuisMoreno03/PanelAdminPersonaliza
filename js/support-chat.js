@@ -1,6 +1,6 @@
 document.addEventListener('alpine:init', () => {
   Alpine.data('supportChat', () => ({
-    role: (window.SUPPORT?.role || ''),
+    role: String(window.SUPPORT?.role || '').toLowerCase(),
     userId: (window.SUPPORT?.userId || 0),
     endpoints: (window.SUPPORT?.endpoints || {}),
 
@@ -16,16 +16,18 @@ document.addEventListener('alpine:init', () => {
     files: [],
     sending: false,
 
-    filter: (window.SUPPORT?.role === 'admin') ? 'unassigned' : 'mine',
+    filter: 'unassigned', // admin default
     q: '',
     adminStatus: 'open',
-
     pollTimer: null,
 
-    get isAdmin() { return this.role === 'admin'; },
+    get isAdmin() {
+      const r = String(this.role || '').toLowerCase();
+      return (r === 'admin' || r === 'administrador' || r === 'superadmin');
+    },
 
     get filteredTickets() {
-      let list = this.tickets || [];
+      let list = Array.isArray(this.tickets) ? this.tickets : [];
 
       if (this.q.trim()) {
         const s = this.q.trim().toLowerCase();
@@ -42,30 +44,34 @@ document.addEventListener('alpine:init', () => {
       return list;
     },
 
-    async fetchJSON(url, opts = {}) {
-      const r = await fetch(url, opts);
-      let data = null;
-      try { data = await r.json(); } catch (e) { data = null; }
-      return { r, data };
-    },
-
     async init() {
+      // admin por defecto: sin asignar, produccion: mine no aplica ya que backend filtra
+      if (!this.isAdmin) this.filter = 'all';
+
       await this.loadTickets();
 
+      // auto-open first ticket si existe
       const first = this.filteredTickets[0];
-      if (first && !this.selectedTicketId) {
+      if (first?.id) {
         await this.openTicket(first.id);
       }
     },
 
     async loadTickets() {
-      const { r, data } = await this.fetchJSON(this.endpoints.tickets);
-      if (!r.ok) {
-        console.error('[SupportChat] loadTickets error', r.status, data);
+      try {
+        const r = await fetch(this.endpoints.tickets, { headers: { 'Accept': 'application/json' }});
+        const data = await r.json().catch(() => null);
+
+        if (!r.ok) {
+          console.error('[SupportChat] loadTickets error', r.status, data);
+          this.tickets = [];
+          return;
+        }
+        this.tickets = Array.isArray(data) ? data : [];
+      } catch (e) {
+        console.error('[SupportChat] loadTickets exception', e);
         this.tickets = [];
-        return;
       }
-      this.tickets = Array.isArray(data) ? data : [];
     },
 
     async openTicket(id) {
@@ -78,25 +84,33 @@ document.addEventListener('alpine:init', () => {
     async loadTicket() {
       if (!this.selectedTicketId) return;
 
-      const base = this.endpoints.ticket.endsWith('/') ? this.endpoints.ticket : (this.endpoints.ticket + '/');
-      const { r, data } = await this.fetchJSON(`${base}${this.selectedTicketId}`);
+      try {
+        const r = await fetch(`${this.endpoints.ticket}/${this.selectedTicketId}`, {
+          headers: { 'Accept': 'application/json' }
+        });
+        const data = await r.json().catch(() => ({}));
 
-      if (!r.ok) {
-        console.error('[SupportChat] loadTicket error', r.status, data);
-        alert(data?.error || 'No se pudo abrir el ticket');
-        return;
+        if (!r.ok) {
+          console.error('[SupportChat] loadTicket error', r.status, data);
+          alert(data?.error || 'No se pudo abrir el ticket');
+          return;
+        }
+
+        this.ticket = data.ticket || null;
+        this.messages = Array.isArray(data.messages) ? data.messages : [];
+        this.attachments = data.attachments || {};
+        this.adminStatus = this.ticket?.status || 'open';
+
+        this.scrollToBottom();
+      } catch (e) {
+        console.error('[SupportChat] loadTicket exception', e);
+        alert('Error interno abriendo ticket');
       }
-
-      this.ticket = data?.ticket || null;
-      this.messages = data?.messages || [];
-      this.attachments = data?.attachments || {};
-      this.adminStatus = this.ticket?.status || 'open';
-
-      this.scrollToBottom();
     },
 
     startNew() {
       if (this.isAdmin) return;
+
       this.isCreating = true;
       this.selectedTicketId = null;
       this.ticket = null;
@@ -125,12 +139,13 @@ document.addEventListener('alpine:init', () => {
         fd.append('order_id', this.orderId.trim());
       }
 
-      // ✅ clave "images" (y backend soporta images[] también)
-      this.files.forEach(f => fd.append('images', f));
+      // OJO: backend soporta images y images[]
+      this.files.forEach(f => fd.append('images[]', f));
 
       try {
         if (this.isCreating) {
-          const { r, data } = await this.fetchJSON(this.endpoints.create, { method: 'POST', body: fd });
+          const r = await fetch(this.endpoints.create, { method: 'POST', body: fd });
+          const data = await r.json().catch(() => ({}));
 
           if (!r.ok) {
             console.error('[SupportChat] create error', r.status, data);
@@ -143,10 +158,9 @@ document.addEventListener('alpine:init', () => {
           this.selectedTicketId = data.ticket_id;
           await this.loadTicket();
           this.startPolling();
-
         } else {
-          const base = this.endpoints.message.endsWith('/') ? this.endpoints.message : (this.endpoints.message + '/');
-          const { r, data } = await this.fetchJSON(`${base}${this.selectedTicketId}/message`, { method: 'POST', body: fd });
+          const r = await fetch(`${this.endpoints.message}/${this.selectedTicketId}/message`, { method: 'POST', body: fd });
+          const data = await r.json().catch(() => ({}));
 
           if (!r.ok) {
             console.error('[SupportChat] message error', r.status, data);
@@ -168,8 +182,8 @@ document.addEventListener('alpine:init', () => {
     async acceptCase() {
       if (!this.ticket || !this.isAdmin) return;
 
-      const base = this.endpoints.assign.endsWith('/') ? this.endpoints.assign : (this.endpoints.assign + '/');
-      const { r, data } = await this.fetchJSON(`${base}${this.ticket.id}/assign`, { method: 'POST' });
+      const r = await fetch(`${this.endpoints.assign}/${this.ticket.id}/assign`, { method: 'POST' });
+      const data = await r.json().catch(() => ({}));
 
       if (!r.ok) {
         console.error('[SupportChat] assign error', r.status, data);
@@ -187,8 +201,8 @@ document.addEventListener('alpine:init', () => {
       const fd = new FormData();
       fd.append('status', this.adminStatus);
 
-      const base = this.endpoints.status.endsWith('/') ? this.endpoints.status : (this.endpoints.status + '/');
-      const { r, data } = await this.fetchJSON(`${base}${this.ticket.id}/status`, { method: 'POST', body: fd });
+      const r = await fetch(`${this.endpoints.status}/${this.ticket.id}/status`, { method: 'POST', body: fd });
+      const data = await r.json().catch(() => ({}));
 
       if (!r.ok) {
         console.error('[SupportChat] status error', r.status, data);
@@ -238,7 +252,7 @@ document.addEventListener('alpine:init', () => {
         waiting_customer: 'Esperando info',
         resolved: 'Resuelto',
         closed: 'Cerrado'
-      })[s] || s;
+      })[s] || s || '';
     },
 
     badgeClass(s) {

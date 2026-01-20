@@ -6,7 +6,7 @@ class SoporteController extends BaseController
 {
     protected $db;
 
-    // cache de columnas (para no romper si tu tabla no tiene ciertas columnas)
+    // cache columnas (evita romper si faltan columnas)
     protected array $ticketCols = [];
     protected array $msgCols = [];
     protected array $attCols = [];
@@ -42,28 +42,58 @@ class SoporteController extends BaseController
         return $out;
     }
 
-    // ✅ Vista
-    public function chat()
-{
-    $userId = (int)(session('user_id') ?? 0);
+    // ✅ Rol canónico (SOLUCIÓN al problema admin=produccion)
+    private function canonRole(): string
+    {
+        // lee rol desde varias keys por si tu login usa otra
+        $r = (string)(session('rol') ?? session('role') ?? session('tipo') ?? '');
+        $r = strtolower(trim($r));
 
-    // Intenta leer rol desde tu tabla real de usuarios
-    // Cambia "usuarios" y "rol" si tu tabla/columna se llaman distinto
-    $role = (string)(session('rol') ?? '');
+        $map = [
+            'administrator' => 'admin',
+            'administrador' => 'admin',
+            'admin'         => 'admin',
+            'superadmin'    => 'admin',
+            'root'          => 'admin',
 
-    try {
-        $u = $this->db->table('usuarios')->select('rol')->where('id', $userId)->get()->getRowArray();
-        if ($u && !empty($u['rol'])) {
-            $role = $u['rol'];
-            session()->set('rol', $role); // sincroniza la sesión
-        }
-    } catch (\Throwable $e) {
-        // si falla, se queda con session('rol')
+            'producción'    => 'produccion',
+            'produccion'    => 'produccion',
+            'production'    => 'produccion',
+        ];
+
+        return $map[$r] ?? $r;
     }
 
-    return view('soporte/chat', ['forcedRole' => $role]);
-}
+    private function isAdminRole(): bool
+    {
+        return $this->canonRole() === 'admin';
+    }
 
+    // ✅ Vista
+    public function chat()
+    {
+        $userId = (int)(session('user_id') ?? 0);
+
+        // Parte de sesión
+        $role = $this->canonRole();
+
+        // Opcional: intentar sincronizar rol desde tabla usuarios
+        // (si tu tabla o columna se llaman distinto, cambia aquí)
+        try {
+            $u = $this->db->table('usuarios')->select('rol')->where('id', $userId)->get()->getRowArray();
+            if ($u && !empty($u['rol'])) {
+                $role = strtolower(trim((string)$u['rol']));
+                $role = ($role === 'administrador' || $role === 'administrator') ? 'admin' : $role;
+            }
+        } catch (\Throwable $e) {
+            // si falla, se queda con lo de sesión
+        }
+
+        // 🔥 fuerza rol en sesión para que frontend y backend coincidan
+        session()->set('rol', $role);
+
+        return view('soporte/chat', ['forcedRole' => $role]);
+    }
 
     // ✅ GET /soporte/tickets
     public function tickets()
@@ -75,33 +105,30 @@ class SoporteController extends BaseController
                 ]);
             }
 
-            $role   = (string)(session('rol') ?? '');
-            $userId = (int)(session('user_id') ?? 0);
+            $isAdmin = $this->isAdminRole();
+            $userId  = (int)(session('user_id') ?? 0);
 
-            // Selección segura (solo columnas existentes)
+            // columnas seguras
             $want = ['id','ticket_code','order_id','status','user_id','assigned_to','assigned_at','created_at','updated_at','assigned_name','user_name'];
             $sel = array_values(array_intersect($want, $this->ticketCols));
             if (!in_array('id', $sel, true)) $sel[] = 'id';
 
             $b = $this->db->table('support_tickets')->select(implode(',', $sel));
 
-            if ($role !== 'admin') {
-                if ($this->hasTicketCol('user_id')) {
-                    $b->where('user_id', $userId);
-                }
+            // 🔥 si NO es admin, solo los suyos
+            if (!$isAdmin && $this->hasTicketCol('user_id')) {
+                $b->where('user_id', $userId);
             }
 
-            if ($this->hasTicketCol('updated_at')) {
-                $b->orderBy('updated_at', 'DESC');
-            } else {
-                $b->orderBy('id', 'DESC');
-            }
+            if ($this->hasTicketCol('updated_at')) $b->orderBy('updated_at', 'DESC');
+            else $b->orderBy('id', 'DESC');
 
             $rows = $b->get()->getResultArray();
 
-            // asegurar keys que el frontend usa
+            // normaliza para frontend
             foreach ($rows as &$r) {
-                $r['ticket_code']   = $r['ticket_code']   ?? ('TCK-' . str_pad((string)($r['id'] ?? 0), 6, '0', STR_PAD_LEFT));
+                $rid = (int)($r['id'] ?? 0);
+                $r['ticket_code']   = $r['ticket_code']   ?? ('TCK-' . str_pad((string)$rid, 6, '0', STR_PAD_LEFT));
                 $r['order_id']      = $r['order_id']      ?? null;
                 $r['status']        = $r['status']        ?? 'open';
                 $r['assigned_to']   = $r['assigned_to']   ?? null;
@@ -122,16 +149,15 @@ class SoporteController extends BaseController
     public function ticket($id)
     {
         try {
-            $id     = (int)$id;
-            $role   = (string)(session('rol') ?? '');
-            $userId = (int)(session('user_id') ?? 0);
+            $id      = (int)$id;
+            $isAdmin = $this->isAdminRole();
+            $userId  = (int)(session('user_id') ?? 0);
 
             $t = $this->db->table('support_tickets')->where('id', $id)->get()->getRowArray();
-            if (!$t) {
-                return $this->response->setStatusCode(404)->setJSON(['error' => 'Ticket no encontrado']);
-            }
+            if (!$t) return $this->response->setStatusCode(404)->setJSON(['error' => 'Ticket no encontrado']);
 
-            if ($role !== 'admin' && isset($t['user_id']) && (int)$t['user_id'] !== $userId) {
+            // permisos
+            if (!$isAdmin && isset($t['user_id']) && (int)$t['user_id'] !== $userId) {
                 return $this->response->setStatusCode(403)->setJSON(['error' => 'Sin permisos']);
             }
 
@@ -155,7 +181,7 @@ class SoporteController extends BaseController
                 }
             }
 
-            // attachments
+            // attachments agrupados por message_id
             $grouped = [];
             if (!empty($this->attCols)) {
                 $awant = ['id','ticket_id','message_id','filename','mime','created_at'];
@@ -181,7 +207,7 @@ class SoporteController extends BaseController
                 }
             }
 
-            // normalizar ticket para el frontend
+            // normaliza ticket para frontend
             $t['ticket_code']   = $t['ticket_code']   ?? ('TCK-' . str_pad((string)$id, 6, '0', STR_PAD_LEFT));
             $t['order_id']      = $t['order_id']      ?? null;
             $t['status']        = $t['status']        ?? 'open';
@@ -201,7 +227,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // ✅ POST /soporte/ticket  (crear)
+    // ✅ POST /soporte/ticket  (crear) SOLO PRODUCCION
     public function create()
     {
         try {
@@ -211,22 +237,19 @@ class SoporteController extends BaseController
                 ]);
             }
 
-            $role     = (string)(session('rol') ?? '');
-            $userId   = (int)(session('user_id') ?? 0);
-            $userName = (string)(session('nombre') ?? '');
-
-            if ($role === 'admin') {
+            if ($this->isAdminRole()) {
                 return $this->response->setStatusCode(403)->setJSON(['error' => 'Admin no crea tickets']);
             }
+
+            $userId   = (int)(session('user_id') ?? 0);
+            $userName = (string)(session('nombre') ?? '');
 
             $message = trim((string)$this->request->getPost('message'));
             $orderId = trim((string)$this->request->getPost('order_id'));
 
             // soporta images y images[]
             $imgs = $this->request->getFileMultiple('images');
-            if (!is_array($imgs) || count($imgs) === 0) {
-                $imgs = $this->request->getFileMultiple('images[]');
-            }
+            if (!is_array($imgs) || count($imgs) === 0) $imgs = $this->request->getFileMultiple('images[]');
             if (!is_array($imgs)) $imgs = [];
 
             if ($message === '' && count($imgs) === 0) {
@@ -254,7 +277,6 @@ class SoporteController extends BaseController
             $this->db->table('support_tickets')->insert($ticketData);
             $ticketId = (int)$this->db->insertID();
 
-            // generar código tipo TCK-000002
             $ticketCode = 'TCK-' . str_pad((string)$ticketId, 6, '0', STR_PAD_LEFT);
             if ($this->hasTicketCol('ticket_code')) {
                 $this->db->table('support_tickets')->where('id', $ticketId)->update(['ticket_code' => $ticketCode]);
@@ -269,7 +291,7 @@ class SoporteController extends BaseController
             ]);
             $msgId = (int)$this->db->insertID();
 
-            // adjuntos (si existe tabla)
+            // adjuntos
             if (!empty($this->attCols)) {
                 foreach ($imgs as $img) {
                     if (!$img || !$img->isValid()) continue;
@@ -285,7 +307,6 @@ class SoporteController extends BaseController
                         'created_at' => $now
                     ];
 
-                    // filtrar columnas existentes
                     $out = [];
                     foreach ($att as $k => $v) if ($this->hasAttCol($k)) $out[$k] = $v;
 
@@ -318,23 +339,21 @@ class SoporteController extends BaseController
                 return $this->response->setStatusCode(500)->setJSON(['error' => 'Falta tabla support_messages']);
             }
 
-            $id     = (int)$id;
-            $role   = (string)(session('rol') ?? '');
-            $userId = (int)(session('user_id') ?? 0);
+            $id      = (int)$id;
+            $isAdmin = $this->isAdminRole();
+            $userId  = (int)(session('user_id') ?? 0);
 
             $t = $this->db->table('support_tickets')->where('id', $id)->get()->getRowArray();
             if (!$t) return $this->response->setStatusCode(404)->setJSON(['error' => 'Ticket no existe']);
 
-            if ($role !== 'admin' && isset($t['user_id']) && (int)$t['user_id'] !== $userId) {
+            if (!$isAdmin && isset($t['user_id']) && (int)$t['user_id'] !== $userId) {
                 return $this->response->setStatusCode(403)->setJSON(['error' => 'Sin permisos']);
             }
 
             $message = trim((string)$this->request->getPost('message'));
 
             $imgs = $this->request->getFileMultiple('images');
-            if (!is_array($imgs) || count($imgs) === 0) {
-                $imgs = $this->request->getFileMultiple('images[]');
-            }
+            if (!is_array($imgs) || count($imgs) === 0) $imgs = $this->request->getFileMultiple('images[]');
             if (!is_array($imgs)) $imgs = [];
 
             if ($message === '' && count($imgs) === 0) {
@@ -346,7 +365,7 @@ class SoporteController extends BaseController
             $dir = WRITEPATH . 'uploads/support';
             if (!is_dir($dir)) @mkdir($dir, 0775, true);
 
-            $sender = ($role === 'admin') ? 'admin' : 'user';
+            $sender = $isAdmin ? 'admin' : 'user';
 
             $this->db->transStart();
 
@@ -402,8 +421,7 @@ class SoporteController extends BaseController
     public function assign($id)
     {
         try {
-            $role = (string)(session('rol') ?? '');
-            if ($role !== 'admin') return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
+            if (!$this->isAdminRole()) return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
 
             $id        = (int)$id;
             $adminId   = (int)(session('user_id') ?? 0);
@@ -432,8 +450,7 @@ class SoporteController extends BaseController
     public function status($id)
     {
         try {
-            $role = (string)(session('rol') ?? '');
-            if ($role !== 'admin') return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
+            if (!$this->isAdminRole()) return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
 
             $id = (int)$id;
             $status = (string)$this->request->getPost('status');
@@ -458,7 +475,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // ✅ GET /soporte/attachment/{id} (inline para <img>)
+    // ✅ GET /soporte/attachment/{id}
     public function attachment($id)
     {
         try {
