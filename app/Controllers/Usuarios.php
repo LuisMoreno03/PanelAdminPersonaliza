@@ -14,9 +14,16 @@ class Usuarios extends BaseController
         $this->usuariosModel = new UsuariosModel();
     }
 
-    public function index()
+public function index()
 {
-    return 'Estoy en Usuarios::index - OK';
+    $usuarios = $this->usuarioModel
+        ->select('id, nombre, email, rol, activo, created_at')
+        ->orderBy('id', 'DESC')
+        ->findAll();
+
+    return view('usuarios/index', [
+        'usuarios' => $usuarios,
+    ]);
 }
 
 }
