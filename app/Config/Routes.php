@@ -230,7 +230,7 @@ $routes->get('zz-check-routes', static fn () => 'ROUTES_OK_' . date('Y-m-d_H:i:s
 | Soporte 
 |--------------------------------------------------------------------------
 */
-$routes->get('soporte/chat', 'SupportController::chat');
+$routes->get('soporte', 'SupportController::chat');
 
 // APIs (JSON)
 $routes->get('soporte/tickets', 'SupportController::tickets');
