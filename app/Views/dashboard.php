@@ -166,7 +166,6 @@
               <div>Total</div>
               <div>Estado</div>
               <div>Último cambio</div>
-              <div>Etiquetas</div>
               <div class="text-center">Art</div>
               <div>Entrega</div>
               <div>Método de entrega</div>
