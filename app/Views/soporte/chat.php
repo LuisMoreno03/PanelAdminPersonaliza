@@ -5,10 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Soporte | Chat</title>
 
-  <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Alpine.js (CDN) -->
+  <!-- Si tu panel ya carga Alpine, comenta esta línea -->
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
   <meta name="color-scheme" content="light" />
@@ -17,63 +16,46 @@
 
 <body class="min-h-screen bg-slate-100">
 
-  <!-- MENU (barra izquierda) -->
   <?= view('layouts/menu') ?>
 
-  <!-- MAIN -->
   <main id="mainLayout" class="min-h-screen md:pl-64 transition-all">
     <div class="p-4 md:p-6">
       <div class="mx-auto max-w-7xl">
 
-        <?php $csrf = (function_exists('csrf_hash') && function_exists('csrf_token'))
-          ? ['name' => csrf_token(), 'hash' => csrf_hash()]
-          : null;
-        ?>
-
         <script>
           window.SUPPORT = {
-            role: "<?= esc($forcedRole ?? (session('rol') ?? '')) ?>",
-            isAdmin: <?= json_encode((session('rol') ?? '') === 'admin') ?>,
-            
+            role: "<?= esc($forcedRole ?? (session('rol') ?? '')) ?>", // ✅ canonizado
             userId: <?= (int)(session('user_id') ?? 0) ?>,
             base: "<?= base_url() ?>",
-            csrf: <?= json_encode($csrf) ?>,
             endpoints: {
-                tickets: "<?= base_url('soporte/tickets') ?>",
-                ticket:  "<?= base_url('soporte/ticket') ?>",
-                create:  "<?= base_url('soporte/ticket') ?>",
-                message: "<?= base_url('soporte/ticket') ?>",
-                assign:  "<?= base_url('soporte/ticket') ?>",
-                status:  "<?= base_url('soporte/ticket') ?>",
-                attachment: "<?= base_url('soporte/attachment') ?>"
-                }
-
+              tickets: "<?= base_url('soporte/tickets') ?>",
+              ticket:  "<?= base_url('soporte/ticket') ?>",
+              create:  "<?= base_url('soporte/ticket') ?>",
+              message: "<?= base_url('soporte/ticket') ?>",
+              assign:  "<?= base_url('soporte/ticket') ?>",
+              status:  "<?= base_url('soporte/ticket') ?>",
+              attachment: "<?= base_url('soporte/attachment') ?>"
+            }
           };
-        </script>
-        <script>
-        console.log('ROL SESSION:', "<?= esc(session('rol') ?? '') ?>");
-        console.log('USER ID:', <?= (int)(session('user_id') ?? 0) ?>);
+          console.log('[SUPPORT role]', window.SUPPORT.role);
         </script>
 
-
-        <div class="grid lg:grid-cols-[380px_1fr] gap-4"
-             x-data="supportChat"
-             x-init="init()"
-             x-cloak>
+        <div class="grid lg:grid-cols-[380px_1fr] gap-4" x-data="supportChat" x-init="init()" x-cloak>
 
           <!-- LISTA -->
           <section class="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col min-h-[78vh]">
+
             <div class="p-4 border-b border-slate-200 flex items-center justify-between">
               <div class="flex items-center gap-3 min-w-0">
                 <div class="h-10 w-10 rounded-full bg-slate-900 text-white grid place-items-center font-extrabold shrink-0">S</div>
                 <div class="min-w-0">
                   <div class="font-extrabold text-slate-900 leading-tight truncate">Soporte</div>
-                  <div class="text-xs text-slate-500 truncate" x-text="isAdmin ? 'Vista Admin (todos los tickets)' : 'Mis tickets (producción)'"></div>
+                  <div class="text-xs text-slate-500 truncate"
+                       x-text="isAdmin ? 'Vista Admin (todos los tickets)' : 'Mis tickets (producción)'"></div>
                 </div>
               </div>
 
-              <button x-show="!isAdmin"
-                      @click="startNew()"
+              <button x-show="!isAdmin" @click="startNew()"
                       class="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 hover:bg-slate-50"
                       type="button">
                 Nuevo
@@ -88,9 +70,7 @@
                           d="M21 21l-4.3-4.3m1.3-5.2a7 7 0 11-14 0 7 7 0 0114 0z"/>
                   </svg>
                 </span>
-                <input x-model="q"
-                       type="text"
-                       placeholder="Buscar por ticket o pedido…"
+                <input x-model="q" type="text" placeholder="Buscar por ticket o pedido…"
                        class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm
                               placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200" />
               </div>
@@ -117,36 +97,33 @@
             </div>
 
             <div class="flex-1 overflow-auto">
-              <template x-for="(t,i) in filteredTickets" :key="t.id ?? t.ticket_code ?? i">
-                <button type="button"
-                        @click="t?.id ? openTicket(t.id) : null"
+              <template x-for="(t, i) in filteredTickets" :key="t.id ?? t.ticket_code ?? i">
+                <button type="button" @click="openTicket(t.id)"
                         class="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition flex items-start gap-3"
-                        :class="selectedTicketId===t?.id ? 'bg-slate-50' : ''">
+                        :class="selectedTicketId===t.id ? 'bg-slate-50' : ''">
+
                   <div class="h-11 w-11 rounded-full bg-slate-200 grid place-items-center font-extrabold text-slate-700 shrink-0">#</div>
 
                   <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-2">
-                      <div class="font-bold text-slate-900 truncate" x-text="t?.ticket_code || '—'"></div>
-
+                      <div class="font-bold text-slate-900 truncate" x-text="t.ticket_code"></div>
                       <span class="text-[11px] font-semibold px-2 py-1 rounded-lg"
-                            :class="badgeClass(t?.status)"
-                            x-text="statusLabel(t?.status)"></span>
+                            :class="badgeClass(t.status)"
+                            x-text="statusLabel(t.status)"></span>
                     </div>
 
                     <div class="text-xs text-slate-500 mt-1 truncate">
-                      <template x-if="t?.order_id">
+                      <template x-if="t.order_id">
                         <span>Pedido: <span class="font-semibold" x-text="t.order_id"></span></span>
                       </template>
-                      <template x-if="!t?.order_id">
-                        <span>—</span>
-                      </template>
+                      <template x-if="!t.order_id"><span>—</span></template>
                     </div>
 
                     <div class="text-xs text-slate-500 mt-1" x-show="isAdmin">
-                      <template x-if="t?.assigned_to">
+                      <template x-if="t.assigned_to">
                         <span>Aceptado por <span class="font-semibold" x-text="t.assigned_name || ('#'+t.assigned_to)"></span></span>
                       </template>
-                      <template x-if="!t?.assigned_to">
+                      <template x-if="!t.assigned_to">
                         <span class="text-amber-700 font-semibold">Sin asignar</span>
                       </template>
                     </div>
@@ -174,7 +151,7 @@
 
                 <div class="min-w-0">
                   <div class="font-extrabold text-slate-900 truncate">
-                    <span x-show="ticket" x-text="ticket?.ticket_code || ''"></span>
+                    <span x-show="ticket" x-text="ticket?.ticket_code"></span>
                     <span x-show="isCreating" class="text-slate-600">Nuevo ticket</span>
                     <span x-show="!ticket && !isCreating" class="text-slate-600">Selecciona un ticket</span>
                   </div>
@@ -189,16 +166,15 @@
                     <span x-show="ticket?.assigned_to">
                       · Aceptado por
                       <span class="font-semibold" x-text="ticket?.assigned_name || ('#'+ticket?.assigned_to)"></span>
-                      · <span class="font-semibold" x-text="ticket?.assigned_at ? formatDT(ticket.assigned_at) : ''"></span>
+                      · <span class="font-semibold" x-text="formatDT(ticket?.assigned_at)"></span>
                     </span>
                   </div>
                 </div>
               </div>
 
+              <!-- acciones admin -->
               <div class="flex items-center gap-2" x-show="ticket && isAdmin">
-                <button type="button"
-                        x-show="ticket && !ticket?.assigned_to"
-                        @click="acceptCase()"
+                <button type="button" x-show="ticket && !ticket.assigned_to" @click="acceptCase()"
                         class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:opacity-90">
                   Aceptar caso
                 </button>
@@ -211,8 +187,7 @@
                   <option value="closed">Cerrado</option>
                 </select>
 
-                <button type="button"
-                        @click="updateStatus()"
+                <button type="button" @click="updateStatus()"
                         class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold hover:bg-slate-50">
                   Guardar
                 </button>
@@ -220,6 +195,7 @@
             </div>
 
             <div class="flex-1 overflow-auto px-4 py-4 bg-[#efeae2]" x-ref="thread">
+
               <div class="h-full grid place-items-center text-center px-6" x-show="!ticket && !isCreating">
                 <div class="max-w-sm">
                   <div class="mx-auto h-14 w-14 rounded-full bg-white border border-slate-200 grid place-items-center">
@@ -299,7 +275,6 @@
                 </template>
               </div>
             </form>
-
           </section>
 
         </div>
@@ -307,7 +282,6 @@
     </div>
   </main>
 
-  <!-- JS del chat (TU archivo real está en /js/) -->
-  <script src="<?= base_url('js/support-chat.js') ?>?v=<?= time() ?>"></script>
+  <script src="<?= base_url('js/support-chat.js') ?>"></script>
 </body>
 </html>
