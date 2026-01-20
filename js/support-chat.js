@@ -7,6 +7,7 @@
       role: SUPPORT.role || '',
       userId: SUPPORT.userId || 0,
       endpoints,
+      csrf: SUPPORT.csrf || null,
 
       tickets: [],
       selectedTicketId: null,
@@ -31,7 +32,6 @@
       get filteredTickets() {
         let list = this.tickets;
 
-        // search
         const query = this.q.trim().toLowerCase();
         if (query) {
           list = list.filter(t =>
@@ -52,11 +52,9 @@
           console.error('[SupportChat] endpoints faltantes', this.endpoints);
           return;
         }
-
         await this.loadTickets();
 
-        // auto-open first ticket (solo si tiene id real)
-        const first = this.filteredTickets.find(t => t && (t.id || t.ticket_code));
+        const first = this.filteredTickets.find(t => t?.id);
         if (first?.id && !this.selectedTicketId) {
           await this.openTicket(first.id);
         }
@@ -66,25 +64,25 @@
         const r = await fetch(this.endpoints.tickets);
         const data = await r.json().catch(() => null);
 
-        // soporta array directo o {tickets: []}
-        let list = Array.isArray(data) ? data : (data?.tickets || []);
+        if (!r.ok) {
+          console.error('[SupportChat] loadTickets error', r.status, data);
+          return;
+        }
 
-        // limpia null/undefined
+        let list = Array.isArray(data) ? data : (data?.tickets || []);
         list = list.filter(Boolean);
 
-        // dedupe por id o ticket_code
         const map = new Map();
         for (const t of list) {
           const k = String(t.id ?? t.ticket_code ?? '');
           if (!k) continue;
           if (!map.has(k)) map.set(k, t);
         }
-
         this.tickets = [...map.values()];
       },
 
       async openTicket(id) {
-        if (!id) return; // ✅ nunca abrir sin id
+        if (!id) return;
         this.isCreating = false;
         this.selectedTicketId = id;
         await this.loadTicket();
@@ -92,9 +90,9 @@
       },
 
       async loadTicket() {
-        if (!this.selectedTicketId) return; // ✅ evita /soporte/ticket sin id
+        if (!this.selectedTicketId) return;
 
-        const url = `${this.endpoints.ticket}/${this.selectedTicketId}`;
+        const url = `${this.endpoints.ticket}${this.selectedTicketId}`;
         const r = await fetch(url);
         const data = await r.json().catch(() => ({}));
 
@@ -129,6 +127,12 @@
         this.files = Array.from(e.target.files || []);
       },
 
+      _appendCSRF(fd) {
+        if (this.csrf && this.csrf.name && this.csrf.hash) {
+          fd.append(this.csrf.name, this.csrf.hash);
+        }
+      },
+
       async send() {
         if (this.sending) return;
         if (!this.draft.trim() && this.files.length === 0) return;
@@ -143,6 +147,7 @@
         }
 
         this.files.forEach(f => fd.append('images[]', f));
+        this._appendCSRF(fd);
 
         try {
           if (this.isCreating) {
@@ -155,15 +160,13 @@
               return;
             }
 
-            // ✅ tolera distintos nombres de id
             const newId = data.ticket_id ?? data.id ?? data.ticket?.id ?? null;
 
             await this.loadTickets();
             this.isCreating = false;
 
             if (!newId) {
-              console.warn('[SupportChat] Ticket creado pero sin id en respuesta:', data);
-              alert('Ticket creado, pero el servidor no devolvió el ID para abrirlo.');
+              alert('Ticket creado, pero el servidor no devolvió el ID.');
               return;
             }
 
@@ -173,7 +176,7 @@
           } else {
             if (!this.selectedTicketId) return;
 
-            const r = await fetch(`${this.endpoints.message}/${this.selectedTicketId}/message`, { method: 'POST', body: fd });
+            const r = await fetch(`${this.endpoints.message}${this.selectedTicketId}/message`, { method: 'POST', body: fd });
             const data = await r.json().catch(() => ({}));
 
             if (!r.ok) {
@@ -196,7 +199,7 @@
       async acceptCase() {
         if (!this.ticket || !this.isAdmin) return;
 
-        const r = await fetch(`${this.endpoints.assign}/${this.ticket.id}/assign`, { method: 'POST' });
+        const r = await fetch(`${this.endpoints.assign}${this.ticket.id}/assign`, { method: 'POST' });
         const data = await r.json().catch(() => ({}));
 
         if (!r.ok) {
@@ -213,8 +216,9 @@
 
         const fd = new FormData();
         fd.append('status', this.adminStatus);
+        this._appendCSRF(fd);
 
-        const r = await fetch(`${this.endpoints.status}/${this.ticket.id}/status`, { method: 'POST', body: fd });
+        const r = await fetch(`${this.endpoints.status}${this.ticket.id}/status`, { method: 'POST', body: fd });
         const data = await r.json().catch(() => ({}));
 
         if (!r.ok) {
@@ -249,12 +253,12 @@
       formatTime(dt) {
         if (!dt) return '';
         const t = String(dt).split(' ')[1] || '';
-        return t.slice(0, 5);
+        return t.slice(0,5);
       },
 
       formatDT(dt) {
         if (!dt) return '';
-        return String(dt).slice(0, 16);
+        return String(dt).slice(0,16);
       },
 
       statusLabel(s) {
@@ -264,7 +268,7 @@
           waiting_customer: 'Esperando info',
           resolved: 'Resuelto',
           closed: 'Cerrado'
-        })[s] || s;
+        })[s] || (s || '');
       },
 
       badgeClass(s) {
@@ -283,7 +287,6 @@
     if (!window.Alpine) return;
     if (window.__supportChatRegistered) return;
     window.__supportChatRegistered = true;
-
     window.Alpine.data('supportChat', supportChatFactory);
   }
 

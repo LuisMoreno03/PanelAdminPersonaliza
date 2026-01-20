@@ -12,8 +12,6 @@
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
   <meta name="color-scheme" content="light" />
-
-  <!-- Evita parpadeo de Alpine -->
   <style>[x-cloak]{display:none!important}</style>
 </head>
 
@@ -27,12 +25,17 @@
     <div class="p-4 md:p-6">
       <div class="mx-auto max-w-7xl">
 
-        <!-- contexto global para JS -->
+        <?php $csrf = (function_exists('csrf_hash') && function_exists('csrf_token'))
+          ? ['name' => csrf_token(), 'hash' => csrf_hash()]
+          : null;
+        ?>
+
         <script>
           window.SUPPORT = {
-            role: "<?= esc(session('rol') ?? '') ?>",          // admin | produccion
+            role: "<?= esc(session('rol') ?? '') ?>",
             userId: <?= (int)(session('user_id') ?? 0) ?>,
             base: "<?= base_url() ?>",
+            csrf: <?= json_encode($csrf) ?>,
             endpoints: {
               tickets: "<?= base_url('soporte/tickets') ?>",
               ticket:  "<?= base_url('soporte/ticket/') ?>",
@@ -45,45 +48,31 @@
           };
         </script>
 
-        <div
-          class="grid lg:grid-cols-[380px_1fr] gap-4"
-          x-data="supportChat"
-          x-init="init()"
-          x-cloak
-        >
+        <div class="grid lg:grid-cols-[380px_1fr] gap-4"
+             x-data="supportChat"
+             x-init="init()"
+             x-cloak>
 
-          <!-- =========================
-               LISTA DE TICKETS (estilo WhatsApp)
-               ========================= -->
+          <!-- LISTA -->
           <section class="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col min-h-[78vh]">
-
-            <!-- header -->
             <div class="p-4 border-b border-slate-200 flex items-center justify-between">
               <div class="flex items-center gap-3 min-w-0">
-                <div class="h-10 w-10 rounded-full bg-slate-900 text-white grid place-items-center font-extrabold shrink-0">
-                  S
-                </div>
+                <div class="h-10 w-10 rounded-full bg-slate-900 text-white grid place-items-center font-extrabold shrink-0">S</div>
                 <div class="min-w-0">
                   <div class="font-extrabold text-slate-900 leading-tight truncate">Soporte</div>
-                  <div class="text-xs text-slate-500 truncate"
-                       x-text="isAdmin ? 'Vista Admin (todos los tickets)' : 'Mis tickets (producción)'"></div>
+                  <div class="text-xs text-slate-500 truncate" x-text="isAdmin ? 'Vista Admin (todos los tickets)' : 'Mis tickets (producción)'"></div>
                 </div>
               </div>
 
-              <!-- Nuevo: solo produccion -->
-              <button
-                x-show="!isAdmin"
-                @click="startNew()"
-                class="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 hover:bg-slate-50"
-                type="button"
-              >
+              <button x-show="!isAdmin"
+                      @click="startNew()"
+                      class="px-3 py-2 rounded-xl text-sm font-semibold border border-slate-200 hover:bg-slate-50"
+                      type="button">
                 Nuevo
               </button>
             </div>
 
-            <!-- search + filtros -->
             <div class="p-3 border-b border-slate-200">
-              <!-- search -->
               <div class="relative">
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -91,66 +80,49 @@
                           d="M21 21l-4.3-4.3m1.3-5.2a7 7 0 11-14 0 7 7 0 0114 0z"/>
                   </svg>
                 </span>
-                <input
-                  x-model="q"
-                  type="text"
-                  placeholder="Buscar por ticket o pedido…"
-                  class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm
-                         placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                />
+                <input x-model="q"
+                       type="text"
+                       placeholder="Buscar por ticket o pedido…"
+                       class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-sm
+                              placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200" />
               </div>
 
-              <!-- filtros admin -->
               <div class="mt-3 flex gap-2" x-show="isAdmin">
-                <button
-                  type="button"
-                  @click="filter='unassigned'"
-                  class="px-3 py-2 rounded-xl text-xs font-semibold border"
-                  :class="filter==='unassigned' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'"
-                >
+                <button type="button" @click="filter='unassigned'"
+                        class="px-3 py-2 rounded-xl text-xs font-semibold border"
+                        :class="filter==='unassigned' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'">
                   Sin asignar
                 </button>
 
-                <button
-                  type="button"
-                  @click="filter='mine'"
-                  class="px-3 py-2 rounded-xl text-xs font-semibold border"
-                  :class="filter==='mine' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'"
-                >
+                <button type="button" @click="filter='mine'"
+                        class="px-3 py-2 rounded-xl text-xs font-semibold border"
+                        :class="filter==='mine' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'">
                   Asignados a mí
                 </button>
 
-                <button
-                  type="button"
-                  @click="filter='all'"
-                  class="px-3 py-2 rounded-xl text-xs font-semibold border"
-                  :class="filter==='all' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'"
-                >
+                <button type="button" @click="filter='all'"
+                        class="px-3 py-2 rounded-xl text-xs font-semibold border"
+                        :class="filter==='all' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:bg-slate-50'">
                   Todos
                 </button>
               </div>
             </div>
 
-            <!-- lista -->
             <div class="flex-1 overflow-auto">
-              <template x-for="(t, i) in filteredTickets" :key="t.id ?? t.ticket_code ?? i">
-                <button
-                  type="button"
-                  @click="t?.id ? openTicket(t.id) : null"
-                  class="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition flex items-start gap-3"
-                  :class="selectedTicketId===t?.id ? 'bg-slate-50' : ''"
-                >
+              <template x-for="(t,i) in filteredTickets" :key="t.id ?? t.ticket_code ?? i">
+                <button type="button"
+                        @click="t?.id ? openTicket(t.id) : null"
+                        class="w-full text-left px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition flex items-start gap-3"
+                        :class="selectedTicketId===t?.id ? 'bg-slate-50' : ''">
                   <div class="h-11 w-11 rounded-full bg-slate-200 grid place-items-center font-extrabold text-slate-700 shrink-0">#</div>
 
                   <div class="min-w-0 flex-1">
                     <div class="flex items-center justify-between gap-2">
                       <div class="font-bold text-slate-900 truncate" x-text="t?.ticket_code || '—'"></div>
 
-                      <span
-                        class="text-[11px] font-semibold px-2 py-1 rounded-lg"
-                        :class="badgeClass(t?.status)"
-                        x-text="statusLabel(t?.status)"
-                      ></span>
+                      <span class="text-[11px] font-semibold px-2 py-1 rounded-lg"
+                            :class="badgeClass(t?.status)"
+                            x-text="statusLabel(t?.status)"></span>
                     </div>
 
                     <div class="text-xs text-slate-500 mt-1 truncate">
@@ -185,9 +157,7 @@
             </div>
           </section>
 
-          <!-- =========================
-               CHAT
-               ========================= -->
+          <!-- CHAT -->
           <section class="rounded-2xl border border-slate-200 overflow-hidden flex flex-col bg-white min-h-[78vh]">
 
             <div class="px-4 py-3 border-b border-slate-200 bg-[#f0f2f5] flex items-center justify-between gap-3">
@@ -218,12 +188,10 @@
               </div>
 
               <div class="flex items-center gap-2" x-show="ticket && isAdmin">
-                <button
-                  type="button"
-                  x-show="ticket && !ticket?.assigned_to"
-                  @click="acceptCase()"
-                  class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:opacity-90"
-                >
+                <button type="button"
+                        x-show="ticket && !ticket?.assigned_to"
+                        @click="acceptCase()"
+                        class="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:opacity-90">
                   Aceptar caso
                 </button>
 
@@ -235,7 +203,8 @@
                   <option value="closed">Cerrado</option>
                 </select>
 
-                <button type="button" @click="updateStatus()"
+                <button type="button"
+                        @click="updateStatus()"
                         class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold hover:bg-slate-50">
                   Guardar
                 </button>
@@ -243,7 +212,6 @@
             </div>
 
             <div class="flex-1 overflow-auto px-4 py-4 bg-[#efeae2]" x-ref="thread">
-
               <div class="h-full grid place-items-center text-center px-6" x-show="!ticket && !isCreating">
                 <div class="max-w-sm">
                   <div class="mx-auto h-14 w-14 rounded-full bg-white border border-slate-200 grid place-items-center">
@@ -323,6 +291,7 @@
                 </template>
               </div>
             </form>
+
           </section>
 
         </div>
@@ -330,7 +299,7 @@
     </div>
   </main>
 
-  <!-- JS del chat (tu archivo) -->
+  <!-- JS del chat (TU archivo real está en /js/) -->
   <script src="<?= base_url('js/support-chat.js') ?>?v=<?= time() ?>"></script>
 </body>
 </html>
