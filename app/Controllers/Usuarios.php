@@ -7,7 +7,7 @@ use App\Models\UsuariosModel;
 
 class Usuarios extends BaseController
 {
-    protected UsuarioModel $usuarioModel;
+    protected usuariosModel $usuariosModel;
 
     public function __construct()
     {
@@ -16,7 +16,7 @@ class Usuarios extends BaseController
 
     public function index()
     {
-        $usuarios = $this->usuarioModel
+        $usuarios = $this->usuariosModel
             ->select('id, nombre, email, rol, activo, created_at')
             ->orderBy('id', 'DESC')
             ->findAll();
@@ -28,7 +28,7 @@ class Usuarios extends BaseController
 
     public function password(int $id)
     {
-        $usuario = $this->usuarioModel
+        $usuario = $this->usuariosModel
             ->select('id, nombre, email, rol, activo')
             ->find($id);
 
@@ -44,7 +44,7 @@ class Usuarios extends BaseController
 
     public function updatePassword(int $id)
     {
-        $usuario = $this->usuarioModel->find($id);
+        $usuario = $this->usuariosModel->find($id);
 
         if (!$usuario) {
             return redirect()->to('/usuarios')
@@ -77,7 +77,7 @@ class Usuarios extends BaseController
 
         $password = (string) $this->request->getPost('password');
 
-        $this->usuarioModel->update($id, [
+        $this->usuariosModel->update($id, [
             'password_hash' => password_hash($password, PASSWORD_DEFAULT),
         ]);
 
