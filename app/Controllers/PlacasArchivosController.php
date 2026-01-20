@@ -395,19 +395,14 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
 
         $relative = 'uploads/placas/' . $fecha . '/lote_' . $loteId . '/' . $finalName;
 
-        $id = $archivosModel->insert([
-            'nombre'           => $nombreBase,
-            'lote_id'          => $loteId,
-            'lote_nombre'      => $loteNombre, // ✅ GUARDA TAMBIÉN EN ARCHIVOS (para listar fácil)
-            'ruta'             => $relative,
-            'original_name'    => $original,
-            'size_kb'          => $sizeKb,
-            'mime'             => $mime,
-            'fecha'            => $fecha,
-            'uploaded_by'      => $userId,
-            'uploaded_by_name' => $userName,
-            'created_at'       => $now,
+       $id = $archivosModel->insert([
+        'lote_id'     => $loteId,
+        'lote_nombre' => $loteNombre,
+        'ruta'        => $relative,
+        'mime'        => $mime,
+        'created_at'  => $now,
         ], true);
+
 
         $guardados[] = [
             'id' => $id,
@@ -439,18 +434,14 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
     public function listarPorDia()
 {
     try {
-        helper('url');
-        $db = \Config\Database::connect();
-
-        $fields = $db->getFieldNames('placas_archivos');
-
-        $hasNombre      = in_array('nombre', $fields, true);
-        $hasOriginal     = in_array('original', $fields, true);
-        $hasOriginalName = in_array('original_name', $fields, true);
-        $hasFilename     = in_array('filename', $fields, true);
-        $hasSize         = in_array('size', $fields, true);
-        $hasSizeKb       = in_array('size_kb', $fields, true);
-        $hasCreatedAt    = in_array('created_at', $fields, true);
+   $fields = $db->getFieldNames('placas_archivos');
+} catch (\Throwable $e) {
+   return $this->response->setStatusCode(500)->setJSON([
+      'success' => false,
+      'message' => 'Error leyendo estructura de placas_archivos',
+      'error' => $e->getMessage(),
+   ]);
+}
 
         $select = [
             '`id`',
@@ -566,7 +557,7 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
     }
 }
 
-}
+
 
 // DESCARGAR FOTOS Y ARCHIVOS JPG/PNG (FOTOS) //
 
@@ -773,4 +764,3 @@ private function descargarZipLote($loteId, $format = 'png')
     return $this->response->download($tmp, null)
         ->setFileName("lote_{$loteId}_{$format}.zip");
 }
-
