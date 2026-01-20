@@ -3,11 +3,12 @@
 namespace App\Controllers;
 
 use App\Controllers\BaseController;
+use App\Models\UsuarioModel;
 
-class Usuarios extends BaseController
+class UsuariosController extends BaseController
 {
     public function index()
     {
-        return 'Usuarios::index OK';
+        return 'UsuariosController::index OK';
     }
 }
