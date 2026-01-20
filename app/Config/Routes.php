@@ -222,3 +222,26 @@ $routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollectio
 */
 $routes->get('rtest', static fn () => 'OK ROUTES');
 $routes->get('zz-check-routes', static fn () => 'ROUTES_OK_' . date('Y-m-d_H:i:s'));
+
+
+
+/*
+|--------------------------------------------------------------------------
+| Soporte 
+|--------------------------------------------------------------------------
+*/
+$routes->get('soporte/chat', 'SupportController::chat');
+
+// APIs (JSON)
+$routes->get('soporte/tickets', 'SupportController::tickets');
+$routes->get('soporte/ticket/(:num)', 'SupportController::ticket/$1');
+
+$routes->post('soporte/ticket', 'SupportController::createTicket');
+$routes->post('soporte/ticket/(:num)/message', 'SupportController::sendMessage/$1');
+
+// admin
+$routes->post('soporte/ticket/(:num)/assign', 'SupportController::assign/$1');
+$routes->post('soporte/ticket/(:num)/status', 'SupportController::setStatus/$1');
+
+// adjuntos (sirve imagen de forma segura)
+$routes->get('soporte/attachment/(:num)', 'SupportController::attachment/$1');
