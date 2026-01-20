@@ -73,6 +73,7 @@ class UsuariosController extends BaseController
             'password_hash' => password_hash($password, PASSWORD_DEFAULT),
         ]);
 
-        return redirect()->to('/usuarios')->with('success', 'Contraseña actualizada.');
+        return view('usuarios/index');
+
     }
 }
