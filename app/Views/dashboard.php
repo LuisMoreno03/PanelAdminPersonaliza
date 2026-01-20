@@ -36,62 +36,53 @@
       .layout, .layout.menu-collapsed { padding-left: 0 !important; }
     }
 
-    /* ✅ Grid sin scroll para filas desktop (se adapta a ancho real) */
-    ./* ✅ Fuerza que el contenedor del listado no “recorte” */
-.table-wrap {
-  width: 100%;
-  max-width: 100%;
-}
+    /* ✅ Fuerza que el contenedor del listado no “recorte” */
+    .table-wrap {
+      width: 100%;
+      max-width: 100%;
+    }
 
-/* ✅ GRID responsive real (desktop) */
-.orders-grid {
-  display: grid;
-  align-items: center;
-  gap: .65rem;
-  width: 100%;
-}
+    /* ✅ GRID responsive real (desktop) */
+    .orders-grid {
+      display: grid;
+      align-items: center;
+      gap: .65rem;
+      width: 100%;
+    }
 
-/* ✅ Header + rows usan la misma grilla */
-.orders-grid.cols {
-  grid-template-columns:
-    110px                     /* Pedido */
-    92px                      /* Fecha */
-    minmax(170px, 1.2fr)      /* Cliente */
-    90px                      /* Total */
-    160px                     /* Estado */
-    minmax(140px, 0.9fr)      /* Último cambio */
-    minmax(170px, 1fr)        /* Etiquetas */
-    44px                      /* Art */
-    140px                     /* Entrega */
-    minmax(190px, 1fr)        /* Método entrega */
-    130px;                    /* ✅ Ver detalles */
-}
+    /* ✅ Header + rows usan la misma grilla (SIN ETIQUETAS: 10 columnas) */
+    .orders-grid.cols {
+      grid-template-columns:
+        110px                     /* Pedido */
+        92px                      /* Fecha */
+        minmax(170px, 1.2fr)      /* Cliente */
+        90px                      /* Total */
+        160px                     /* Estado */
+        minmax(140px, 0.9fr)      /* Último cambio */
+        44px                      /* Art */
+        140px                     /* Entrega */
+        minmax(190px, 1fr)        /* Método entrega */
+        130px;                    /* Ver detalles */
+    }
 
-/* ✅ Importante: permite truncar sin romper el grid */
-.orders-grid > div {
-  min-width: 0;
-}
+    /* ✅ Importante: permite truncar sin romper el grid */
+    .orders-grid > div { min-width: 0; }
 
-/* ✅ Para el método de entrega: permite 2 líneas */
-.metodo-entrega {
-  white-space: normal;
-  line-height: 1.1;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;       /* máximo 2 líneas */
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
+    /* ✅ Para el método de entrega: permite 2 líneas */
+    .metodo-entrega {
+      white-space: normal;
+      line-height: 1.1;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;       /* máximo 2 líneas */
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
 
-/* ✅ Si quieres “ver todo sí o sí” cuando el monitor sea pequeño,
-   activa scroll solo en la tabla (opcional) */
-.table-scroll {
-  overflow-x: auto;
-}
-.table-scroll::-webkit-scrollbar { height: 10px; }
-.table-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
-.table-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
-
-
+    /* ✅ Scroll horizontal solo en la tabla (si hace falta) */
+    .table-scroll { overflow-x: auto; }
+    .table-scroll::-webkit-scrollbar { height: 10px; }
+    .table-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    .table-scroll::-webkit-scrollbar-track { background: #eef2ff; border-radius: 999px; }
 
     /* ✅ Cuando el ancho baja demasiado, pasamos a cards */
     @media (max-width: 1180px) {
@@ -119,7 +110,7 @@
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex items-start justify-between gap-4">
             <div>
               <h1 class="text-3xl font-extrabold text-slate-900">Pedidos</h1>
-              <p class="text-slate-500 mt-1">Estados, etiquetas, últimos cambios y detalles</p>
+              <p class="text-slate-500 mt-1">Estados, últimos cambios y detalles</p>
             </div>
           </div>
         </section>
@@ -156,8 +147,8 @@
             <div class="text-xs text-slate-500 hidden sm:block">Todo visible · responsive</div>
           </div>
 
-          <!-- ✅ Wrap que permite scroll opcional si hace falta -->
-          <div class="table-wrap table-scroll">
+          <!-- ✅ Desktop table (oculta en mobile) -->
+          <div class="table-wrap table-scroll desktop-orders">
             <!-- HEADER -->
             <div class="orders-grid cols px-4 py-3 text-[11px] uppercase tracking-wider text-slate-600 bg-slate-50 border-b">
               <div>Pedido</div>
@@ -179,7 +170,6 @@
           <!-- MOBILE/TABLET CARDS -->
           <div id="cardsPedidos" class="mobile-orders p-4"></div>
         </section>
-
 
         <!-- PAGINACIÓN -->
         <section class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -208,9 +198,8 @@
     </div>
   </main>
 
-  
   <!-- =============================================================== -->
-   <!-- MODAL DETALLES PEDIDO -->
+  <!-- MODAL DETALLES PEDIDO -->
   <!-- =============================================================== -->
   <?= view('layouts/modal_detalles') ?>
   <!-- MODALES (SOLO ESTADO) -->
@@ -226,21 +215,17 @@
 
   <!-- ✅ Variables globales (UNA sola vez) -->
   <script>
-  
-  window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
+    window.CURRENT_USER = <?= json_encode(session()->get('nombre') ?? 'Sistema') ?>;
 
-  // ✅ Endpoints correctos (sin concatenaciones peligrosas)
-  window.API = {
-    pedidos: "<?= site_url('dashboard/pedidos') ?>",
-    filter: "<?= site_url('dashboard/filter') ?>",
-    
-    ping: "<?= site_url('dashboard/ping') ?>",
-    usuariosEstado: "<?= site_url('dashboard/usuarios-estado') ?>",
-    guardarEstado: "<?= site_url('dashboard/guardar-estado') ?>",
-    
-  };
-</script>
-
+    // ✅ Endpoints correctos
+    window.API = {
+      pedidos: "<?= site_url('dashboard/pedidos') ?>",
+      filter: "<?= site_url('dashboard/filter') ?>",
+      ping: "<?= site_url('dashboard/ping') ?>",
+      usuariosEstado: "<?= site_url('dashboard/usuarios-estado') ?>",
+      guardarEstado: "<?= site_url('dashboard/guardar-estado') ?>"
+    };
+  </script>
 
   <!-- ✅ romper caché -->
   <script src="<?= base_url('js/dashboard.js?v=' . time()) ?>"></script>
