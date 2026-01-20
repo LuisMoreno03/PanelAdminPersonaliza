@@ -212,8 +212,8 @@ $routes->group('repetir', [
 |--------------------------------------------------------------------------
 */
 $routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollection $routes) {
-    $routes->get('/', 'Usuario::index');
-    $routes->post('crear', 'Usuario::crear');
+    $routes->get('/', 'Usuarios::index');
+    $routes->post('crear', 'Usuarios::crear');
 });
 
 /*
