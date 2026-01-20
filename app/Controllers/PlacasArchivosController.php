@@ -54,55 +54,66 @@ public function listar()
 
 
     public function stats()
-    {
+{
+    try {
+        $db = \Config\Database::connect();
+        $tabla = 'placas_archivos';
+
+        // ✅ si la tabla no existe, devolvemos 0 sin reventar
         try {
-            $db = \Config\Database::connect();
-            $tabla = 'placas_archivos';
-
             $fields = $db->getFieldNames($tabla);
-            $hasCreatedAt = in_array('created_at', $fields, true);
+        } catch (\Throwable $e) {
+            return $this->response->setJSON([
+                'success' => true,
+                'data' => [
+                    'total' => 0,
+                    'por_dia' => []
+                ],
+                'note' => 'Tabla placas_archivos no existe aún'
+            ]);
+        }
 
-            $total = $db->table($tabla)->countAllResults();
+        $hasCreatedAt = in_array('created_at', $fields, true);
 
-            if (!$hasCreatedAt) {
-                return $this->response->setJSON([
-                    'success' => true,
-                    'data' => [
-                        'total' => $total,
-                        'por_dia' => []
-                    ]
-                ]);
-            }
+        $total = $db->table($tabla)->countAllResults();
 
-            $porDia = $db->query("
-                SELECT DATE(created_at) as dia, COUNT(*) as total
-                FROM {$tabla}
-                GROUP BY DATE(created_at)
-                ORDER BY dia DESC
-                LIMIT 14
-            ")->getResultArray();
-
+        if (!$hasCreatedAt) {
             return $this->response->setJSON([
                 'success' => true,
                 'data' => [
                     'total' => $total,
-                    'por_dia' => $porDia
+                    'por_dia' => []
                 ]
             ]);
-
-        } catch (\Throwable $e) {
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ]);
-            
-
-            
-
         }
+
+        $porDia = $db->query("
+            SELECT DATE(created_at) as dia, COUNT(*) as total
+            FROM {$tabla}
+            GROUP BY DATE(created_at)
+            ORDER BY dia DESC
+            LIMIT 14
+        ")->getResultArray();
+
+        return $this->response->setJSON([
+            'success' => true,
+            'data' => [
+                'total' => $total,
+                'por_dia' => $porDia
+            ]
+        ]);
+
+    } catch (\Throwable $e) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
     }
+}
+
+
 
    public function subir()
 {
