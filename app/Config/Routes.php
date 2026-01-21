@@ -252,8 +252,6 @@ $routes->group('soporte', ['filter' => 'auth'], function($routes) {
 
 $routes->get('montaje', 'MontajeController::index');
 $routes->get('montaje/my-queue', 'MontajeController::myQueue');
+$routes->post('montaje/pull', 'MontajeController::pull');
 $routes->post('montaje/subir-pedido', 'MontajeController::subirPedido');
-
-// Opcional (si vas a usar upload/list como en tu ejemplo)
-$routes->post('montaje/upload-general', 'MontajeController::uploadGeneral');
-$routes->get('montaje/list-general', 'MontajeController::listGeneral');
+$routes->post('montaje/return-all', 'MontajeController::returnAll');

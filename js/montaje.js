@@ -1,20 +1,15 @@
 /**
  * montaje.js (CI4) — FULL
- * - Trae pedidos en estado: Diseñado
- * - Botón "Subir pedido" en listado y dentro del modal
- * - Al click: estado -> Por producir (POST /montaje/subir-pedido)
- * - Detalles FULL usando /dashboard/detalles/{id} (fallback)
- * - (Opcional) upload/list general de archivos en montaje
+ * - Pull 5/10 pedidos (solo estado Diseñado)
+ * - Cola (my-queue): solo Diseñado asignados a mí (si aplica)
+ * - Botón "Cargado" (lista) + "Subir pedido" (modal) => estado "Por producir" y sale de la lista
+ * - Detalles FULL (usa /dashboard/detalles/{id} con fallbacks, igual que tu ejemplo)
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
-
 const ENDPOINT_QUEUE = `${API_BASE}/montaje/my-queue`;
+const ENDPOINT_PULL = `${API_BASE}/montaje/pull`;
 const ENDPOINT_SUBIR_PEDIDO = `${API_BASE}/montaje/subir-pedido`;
-
-// opcional (si habilitaste rutas)
-const ENDPOINT_UPLOAD_GENERAL = `${API_BASE}/montaje/upload-general`;
-const ENDPOINT_LIST_GENERAL = `${API_BASE}/montaje/list-general`;
 
 let pedidosCache = [];
 let pedidosFiltrados = [];
@@ -22,10 +17,9 @@ let isLoading = false;
 let liveInterval = null;
 let silentFetch = false;
 
-let currentDetallesPedidoId = null;  // p.id (interno)
+let currentDetallesPedidoId = null;  // p.id interno
 let currentDetallesShopifyId = null; // shopify_order_id
-let currentDetallesOrderId = null;   // el que llegó al abrir (puede ser shopify o interno)
-let currentDetallesKeyForPedido = null;
+let currentDetallesOrderId = null;   // el que llegó al abrir (shopify o interno)
 
 // =========================
 // Helpers DOM/UI
@@ -113,15 +107,11 @@ function formatDateTime(dtStr) {
 // =========================
 function normalizeEstado(estado) {
   const s = String(estado || "").trim().toLowerCase();
-  if (s.includes("por preparar")) return "Por preparar";
-  if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
-  if (s.includes("confirmado")) return "Confirmado";
   if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
   if (s.includes("por producir")) return "Por producir";
   if (s.includes("fabricando")) return "Fabricando";
   if (s.includes("enviado")) return "Enviado";
-  if (s.includes("repetir")) return "Repetir";
-  return estado ? String(estado).trim() : "Por preparar";
+  return estado ? String(estado).trim() : "Diseñado";
 }
 
 function estadoStyle(estado) {
@@ -138,6 +128,13 @@ function estadoStyle(estado) {
   if (s.includes("por producir")) {
     return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
   }
+  if (s.includes("fabricando")) {
+    return { label, icon: "🛠️", wrap: `${base} bg-indigo-600 border-indigo-700 text-white`, dot: `${dotBase} bg-indigo-200` };
+  }
+  if (s.includes("enviado")) {
+    return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
+  }
+
   return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
 }
 
@@ -188,21 +185,29 @@ function renderLastChangeCompact(p) {
 }
 
 // =========================
-// Etiquetas mini
+// Entrega pill (igual que ejemplo)
 // =========================
-function renderEtiquetasMini(etiquetasRaw) {
-  const raw = String(etiquetasRaw || "").trim();
-  const list = raw ? raw.split(",").map(t => t.trim()).filter(Boolean) : [];
-  if (!list.length) return `<span class="text-slate-400">—</span>`;
+function renderEntregaPill(estadoEnvio) {
+  const s = String(estadoEnvio ?? "").toLowerCase().trim();
 
-  const max = 5;
-  const visibles = list.slice(0, max);
-  const rest = list.length - visibles.length;
-
-  const pills = visibles.map((tag) => `<span class="tag-mini">${escapeHtml(tag)}</span>`).join("");
-  const more = rest > 0 ? `<span class="tag-mini">+${rest}</span>` : "";
-
-  return `<div class="tags-wrap-mini">${pills}${more}</div>`;
+  if (!s || s === "-" || s === "null") {
+    return `<span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
+                  bg-slate-100 text-slate-800 border border-slate-200 whitespace-nowrap">⏳ Sin preparar</span>`;
+  }
+  if (s.includes("fulfilled") || s.includes("entregado")) {
+    return `<span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
+                  bg-emerald-100 text-emerald-900 border border-emerald-200 whitespace-nowrap">✅ Preparado / enviado</span>`;
+  }
+  if (s.includes("partial")) {
+    return `<span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
+                  bg-amber-100 text-amber-900 border border-amber-200 whitespace-nowrap">🟡 Parcial</span>`;
+  }
+  if (s.includes("unfulfilled") || s.includes("pend")) {
+    return `<span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
+                  bg-slate-100 text-slate-800 border border-slate-200 whitespace-nowrap">⏳ Pendiente</span>`;
+  }
+  return `<span class="inline-flex items-center px-3 py-1.5 rounded-full text-[11px] font-extrabold
+                bg-white text-slate-900 border border-slate-200 whitespace-nowrap">📦 ${escapeHtml(estadoEnvio)}</span>`;
 }
 
 // =========================
@@ -262,37 +267,53 @@ function getMode() {
 }
 
 // =========================
-// Botón “Subir pedido” (listado)
+// ✅ Acción: CARGADO/SUBIR PEDIDO => Por producir
 // =========================
-window.subirPedidoDesdeListado = function(orderKey, internalId, shopifyId) {
-  subirPedidoAPorProducir({
-    order_key: String(orderKey || ""),
-    pedido_id: String(internalId || ""),
-    shopify_order_id: String(shopifyId || ""),
-    closeModal: false,
-  });
-};
+async function marcarCargado({ pedidoId, shopifyId, orderIdForDetails }) {
+  const ok = confirm("¿Marcar este pedido como CARGADO y pasarlo a POR PRODUCIR?");
+  if (!ok) return;
 
-function renderBtnSubirPedido({ internalId, shopifyId }) {
-  const orderKey = (shopifyId && shopifyId !== "0") ? shopifyId : internalId;
-  return `
-    <button type="button"
-      onclick="subirPedidoDesdeListado('${escapeJsString(orderKey)}','${escapeJsString(internalId)}','${escapeJsString(shopifyId)}')"
-      class="h-9 px-3 rounded-2xl bg-emerald-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-emerald-700 transition">
-      Subir pedido ⬆️
-    </button>
-  `;
+  setLoader(true);
+  try {
+    const payload = {
+      pedido_id: String(pedidoId || ""),
+      shopify_order_id: String(shopifyId || ""),
+      order_id: String(orderIdForDetails || shopifyId || pedidoId || ""),
+    };
+
+    const { res, data, raw } = await apiPost(ENDPOINT_SUBIR_PEDIDO, payload);
+
+    if (!res.ok || !data || data.success !== true) {
+      console.error("subir-pedido FAIL:", res.status, raw, data);
+      alert(data?.message || "No se pudo pasar a Por producir.");
+      return;
+    }
+
+    // quítalo localmente para que desaparezca instantáneo
+    pedidosCache = pedidosCache.filter(p => String(p.id) !== String(pedidoId));
+    pedidosFiltrados = pedidosFiltrados.filter(p => String(p.id) !== String(pedidoId));
+
+    actualizarListado(pedidosFiltrados.length ? pedidosFiltrados : pedidosCache);
+    setTotalPedidos((pedidosFiltrados.length ? pedidosFiltrados : pedidosCache).length);
+
+    // refresca por seguridad
+    await cargarMiCola();
+
+    // si estaba abierto el modal, ciérralo
+    if (typeof window.cerrarDetallesFull === "function") window.cerrarDetallesFull();
+
+  } finally {
+    setLoader(false);
+  }
 }
 
+window.marcarCargado = marcarCargado;
+
 // =========================
-// Listado UI
+// Listado
 // =========================
 function actualizarListado(pedidos) {
   const mode = getMode();
-
-  window.ordersCache = pedidos || [];
-  window.ordersById = new Map((pedidos || []).map(o => [String(o.id), o]));
-  window.ordersByShopify = new Map((pedidos || []).map(o => [String(o.shopify_order_id || ""), o]).filter(([k]) => k && k !== "0"));
 
   const contGrid = $("tablaPedidos");
   const contTable = $("tablaPedidosTable");
@@ -302,31 +323,30 @@ function actualizarListado(pedidos) {
   if (contTable) contTable.innerHTML = "";
   if (contCards) contCards.innerHTML = "";
 
-  // GRID
+  // GRID >=2XL
   if (mode === "grid") {
     if (contGrid) contGrid.classList.remove("hidden");
-    if (contTable) contTable.classList.add("hidden");
     if (contCards) contCards.classList.add("hidden");
     if (!contGrid) return;
 
     if (!pedidos || !pedidos.length) {
-      contGrid.innerHTML = `<div class="p-8 text-center text-slate-500">No hay pedidos en Diseñado.</div>`;
+      contGrid.innerHTML = `<div class="p-8 text-center text-slate-500">No tienes pedidos asignados.</div>`;
       return;
     }
 
     contGrid.innerHTML = pedidos.map((p) => {
       const internalId = String(p.id ?? "");
       const shopifyId = String(p.shopify_order_id ?? "");
-      const idDetalles = (shopifyId && shopifyId !== "0") ? shopifyId : internalId;
+      const idDetalles = shopifyId && shopifyId !== "0" ? shopifyId : internalId;
 
       const numero = String(p.numero ?? ("#" + internalId));
       const fecha = p.fecha ?? p.created_at ?? "—";
-      const cliente = p.cliente ?? p.customer_name ?? "—";
+      const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
       const estado = p.estado ?? p.estado_bd ?? "Diseñado";
-      const etiquetas = p.etiquetas ?? "";
-
-      const subirBtn = renderBtnSubirPedido({ internalId, shopifyId });
+      const articulos = p.articulos ?? "-";
+      const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
+      const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
 
       return `
         <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
@@ -337,104 +357,113 @@ function actualizarListado(pedidos) {
           <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
           <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
 
-          <div class="whitespace-nowrap">${renderEstadoPill(estado)}</div>
+          <div class="whitespace-nowrap relative z-10">${renderEstadoPill(estado)}</div>
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
-          <div class="text-center font-extrabold">${escapeHtml(String(p.articulos ?? "-"))}</div>
-          <div class="whitespace-nowrap text-slate-700">${escapeHtml(String(p.estado_envio ?? "-"))}</div>
-          <div class="min-w-0 text-xs text-slate-700 truncate">${escapeHtml(String(p.forma_envio ?? "—"))}</div>
+          <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
+          <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
+          <div class="min-w-0 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
 
           <div class="flex justify-end gap-2">
-            ${subirBtn}
             <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
               class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
               Ver detalles →
+            </button>
+
+            <button type="button"
+              onclick="marcarCargado({pedidoId:'${escapeJsString(internalId)}', shopifyId:'${escapeJsString(shopifyId)}', orderIdForDetails:'${escapeJsString(idDetalles)}'})"
+              class="h-9 px-3 rounded-2xl bg-emerald-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-emerald-700 transition">
+              Cargado
             </button>
           </div>
 
         </div>
       `;
     }).join("");
+
     return;
   }
 
-  // "TABLE" (misma idea)
+  // TABLE XL..2XL-
   if (mode === "table") {
-    if (contGrid) contGrid.classList.add("hidden");
-    if (contTable) contTable.classList.remove("hidden");
     if (contCards) contCards.classList.add("hidden");
     if (!contTable) return;
 
     if (!pedidos || !pedidos.length) {
-      contTable.innerHTML = `<div class="p-8 text-center text-slate-500">No hay pedidos en Diseñado.</div>`;
+      contTable.innerHTML = `<div class="p-8 text-slate-500 text-sm">No tienes pedidos asignados.</div>`;
       return;
     }
 
     contTable.innerHTML = pedidos.map((p) => {
       const internalId = String(p.id ?? "");
       const shopifyId = String(p.shopify_order_id ?? "");
-      const idDetalles = (shopifyId && shopifyId !== "0") ? shopifyId : internalId;
+      const idDetalles = shopifyId && shopifyId !== "0" ? shopifyId : internalId;
 
       const numero = String(p.numero ?? ("#" + internalId));
       const fecha = p.fecha ?? p.created_at ?? "—";
-      const cliente = p.cliente ?? p.customer_name ?? "—";
+      const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
       const estado = p.estado ?? p.estado_bd ?? "Diseñado";
-
-      const subirBtn = renderBtnSubirPedido({ internalId, shopifyId });
+      const articulos = p.articulos ?? "-";
+      const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
+      const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
 
       return `
         <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
                     border-b border-slate-200 hover:bg-slate-50 transition">
+
           <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
           <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
           <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
           <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
 
-          <div class="whitespace-nowrap">${renderEstadoPill(estado)}</div>
+          <div class="whitespace-nowrap relative z-10">${renderEstadoPill(estado)}</div>
           <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
-          <div class="text-center font-extrabold">${escapeHtml(String(p.articulos ?? "-"))}</div>
-          <div class="whitespace-nowrap text-slate-700">${escapeHtml(String(p.estado_envio ?? "-"))}</div>
-          <div class="min-w-0 text-xs text-slate-700 truncate">${escapeHtml(String(p.forma_envio ?? "—"))}</div>
+          <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
+          <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
+          <div class="min-w-0 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
 
           <div class="flex justify-end gap-2">
-            ${subirBtn}
             <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
               class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
               Ver detalles →
             </button>
+
+            <button type="button"
+              onclick="marcarCargado({pedidoId:'${escapeJsString(internalId)}', shopifyId:'${escapeJsString(shopifyId)}', orderIdForDetails:'${escapeJsString(idDetalles)}'})"
+              class="h-9 px-3 rounded-2xl bg-emerald-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-emerald-700 transition">
+              Cargado
+            </button>
           </div>
+
         </div>
       `;
     }).join("");
+
     return;
   }
 
-  // CARDS
-  if (contGrid) contGrid.classList.add("hidden");
-  if (contTable) contTable.classList.add("hidden");
+  // CARDS <XL
   if (contCards) contCards.classList.remove("hidden");
   if (!contCards) return;
 
   if (!pedidos || !pedidos.length) {
-    contCards.innerHTML = `<div class="p-8 text-center text-slate-500">No hay pedidos en Diseñado.</div>`;
+    contCards.innerHTML = `<div class="p-8 text-center text-slate-500">No tienes pedidos asignados.</div>`;
     return;
   }
 
   contCards.innerHTML = pedidos.map((p) => {
     const internalId = String(p.id ?? "");
     const shopifyId = String(p.shopify_order_id ?? "");
-    const idDetalles = (shopifyId && shopifyId !== "0") ? shopifyId : internalId;
+    const idDetalles = shopifyId && shopifyId !== "0" ? shopifyId : internalId;
 
     const numero = String(p.numero ?? ("#" + internalId));
     const fecha = p.fecha ?? p.created_at ?? "—";
-    const cliente = p.cliente ?? p.customer_name ?? "—";
+    const cliente = p.cliente ?? "—";
     const total = p.total ?? "";
     const estado = p.estado ?? p.estado_bd ?? "Diseñado";
-    const etiquetas = p.etiquetas ?? "";
-
-    const subirBtn = renderBtnSubirPedido({ internalId, shopifyId });
+    const articulos = p.articulos ?? "-";
+    const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
+    const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
 
     return `
       <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
@@ -452,21 +481,24 @@ function actualizarListado(pedidos) {
 
           <div class="mt-3 flex items-center justify-between gap-3">
             ${renderEstadoPill(estado)}
-            <div class="text-right whitespace-nowrap flex gap-2">
-              ${subirBtn}
+            <div class="flex items-center gap-2">
               <button onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
                 class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
                 Ver detalles →
               </button>
+              <button
+                onclick="marcarCargado({pedidoId:'${escapeJsString(internalId)}', shopifyId:'${escapeJsString(shopifyId)}', orderIdForDetails:'${escapeJsString(idDetalles)}'})"
+                class="h-9 px-3 rounded-2xl bg-emerald-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-emerald-700 transition">
+                Cargado
+              </button>
             </div>
           </div>
 
-          <div class="mt-3">
-            <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-1">Etiquetas</div>
-            ${renderEtiquetasMini(etiquetas)}
-          </div>
+          <div class="mt-3">${renderEntregaPill(estadoEnvio)}</div>
 
           <div class="mt-3 text-xs text-slate-600 space-y-1">
+            <div><b>Artículos:</b> ${escapeHtml(String(articulos ?? "-"))}</div>
+            <div><b>Método:</b> ${escapeHtml(String(formaEnvio || "—"))}</div>
             <div><b>Último cambio:</b> ${renderLastChangeCompact(p)}</div>
           </div>
         </div>
@@ -490,9 +522,11 @@ function aplicarFiltroBusqueda() {
   pedidosFiltrados = pedidosCache.filter((p) => {
     const haystack = [
       p.id, p.shopify_order_id, p.numero,
-      p.cliente, p.customer_name,
+      p.cliente,
       p.estado, p.estado_bd,
       p.etiquetas, p.tags,
+      p.forma_envio, p.forma_entrega,
+      p.estado_envio, p.estado_entrega,
     ].map(safeText).join(" ").toLowerCase();
 
     return haystack.includes(q);
@@ -503,7 +537,7 @@ function aplicarFiltroBusqueda() {
 }
 
 // =========================
-// Cargar cola (solo DISEÑADO)
+// Cargar cola
 // =========================
 async function cargarMiCola() {
   if (isLoading) return;
@@ -551,10 +585,7 @@ async function cargarMiCola() {
       },
     }));
 
-    // ✅ Seguridad extra: filtra DISEÑADO sí o sí
-    const onlyDisenado = incoming.filter(p => normalizeEstado(p.estado ?? p.estado_bd) === "Diseñado");
-
-    pedidosCache = onlyDisenado;
+    pedidosCache = incoming;
     pedidosFiltrados = [...pedidosCache];
 
     const q = ($("inputBuscar")?.value || "").trim();
@@ -576,74 +607,37 @@ async function cargarMiCola() {
   }
 }
 
+window.__montajeRefresh = cargarMiCola;
+
 // =========================
-// SUBIR PEDIDO -> Por producir
+// Pull 5/10
 // =========================
-function buildSubirPedidoEndpoints() {
-  return [
-    `${API_BASE}/montaje/subir-pedido`,
-    `/montaje/subir-pedido`,
-    `/index.php/montaje/subir-pedido`,
-  ];
-}
-
-let isSubmittingPedido = false;
-
-async function subirPedidoAPorProducir({ order_key, pedido_id, shopify_order_id, closeModal }) {
-  if (isSubmittingPedido) return;
-
-  const ok = confirm("¿Subir este pedido? Estado → Por producir");
-  if (!ok) return;
-
-  isSubmittingPedido = true;
+async function traerPedidos(count) {
   setLoader(true);
-
   try {
-    const payload = {
-      order_id: order_key || null,
-      pedido_id: pedido_id || null,
-      shopify_order_id: shopify_order_id || null,
-    };
+    const { res, data, raw } = await apiPost(ENDPOINT_PULL, { count });
 
-    let lastErr = null;
-    let success = false;
-    let msgOk = "Pedido subido: Estado → Por producir.";
-
-    for (const url of buildSubirPedidoEndpoints()) {
-      try {
-        const { res, data } = await apiPost(url, payload);
-        const okResp = (data?.success === true) || (data?.ok === true);
-        if (res.ok && okResp) {
-          success = true;
-          msgOk = data?.message || msgOk;
-          break;
-        }
-        lastErr = data?.message || data?.error || `HTTP ${res.status}`;
-      } catch (e) {
-        lastErr = String(e?.message || e);
-      }
-    }
-
-    if (!success) {
-      alert(lastErr || "No se pudo subir el pedido.");
+    if (!res.ok || !data) {
+      console.error("PULL FAIL:", res.status, raw);
+      alert("No se pudo traer pedidos (error de red o sesión).");
       return;
     }
 
-    // recarga (al pasar a Por producir, desaparecerá de Montaje)
+    const ok = data.ok === true || data.success === true;
+    if (!ok) {
+      console.error("PULL backend:", data);
+      alert(data.error || data.message || "Error interno haciendo pull");
+      return;
+    }
+
     await cargarMiCola();
-
-    const m = $("generalUploadMsg");
-    if (m) m.innerHTML = `<span class="text-emerald-700 font-extrabold">${escapeHtml(msgOk)}</span>`;
-
-    if (closeModal) cerrarDetallesFull();
   } finally {
-    isSubmittingPedido = false;
     setLoader(false);
   }
 }
 
 // =========================
-// DETALLES FULL (usa tu dashboard/detalles existente)
+// DETALLES FULL (igual que tu ejemplo)
 // =========================
 function setText(id, v) { const el = $(id); if (el) el.textContent = v ?? ""; }
 function setHtml(id, v) { const el = $(id); if (el) el.innerHTML = v ?? ""; }
@@ -708,88 +702,6 @@ function fmtMoney(v) {
   return n.toFixed(2);
 }
 
-// =========================
-// Archivos generales (list/upload) — opcional
-// =========================
-async function cargarArchivosGenerales(orderId, opts = {}) {
-  const list = $("generalFilesList");
-  if (!list) return;
-
-  const tryKey = async (key) => {
-    if (!key) return null;
-    const url = `${ENDPOINT_LIST_GENERAL}?order_id=${encodeURIComponent(key)}`;
-    const r = await fetch(url, { credentials: "same-origin" });
-    const d = await r.json().catch(() => null);
-    if (!r.ok || !d || d.success !== true) return null;
-    return d;
-  };
-
-  list.innerHTML = `<div class="text-slate-500 text-sm">Cargando...</div>`;
-
-  let d = await tryKey(orderId);
-  if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.fallbackKey) d = await tryKey(opts.fallbackKey);
-  if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.extraFallbackKey) d = await tryKey(opts.extraFallbackKey);
-
-  if (!d) {
-    list.innerHTML = `<div class="text-rose-600 text-sm font-bold">No se pudo cargar archivos.</div>`;
-    return;
-  }
-
-  const files = Array.isArray(d.files) ? d.files : [];
-  if (!files.length) {
-    list.innerHTML = `<div class="text-slate-500 text-sm">—</div>`;
-    return;
-  }
-
-  list.innerHTML = files.map(f => `
-    <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-      <div class="min-w-0">
-        <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(f.original_name || f.filename || "Archivo")}</div>
-        <div class="text-xs text-slate-600">${escapeHtml(f.mime || "")} · ${escapeHtml(String(f.size || ""))}</div>
-      </div>
-      <a href="${escapeHtml(f.url || "#")}" target="_blank"
-         class="shrink-0 px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
-        Abrir
-      </a>
-    </div>
-  `).join("");
-}
-
-async function subirArchivosGenerales(orderId, fileList) {
-  const msg = $("generalUploadMsg");
-  if (msg) msg.innerHTML = `<span class="text-slate-600">Subiendo...</span>`;
-
-  const fd = new FormData();
-  fd.append("order_id", String(orderId));
-  for (const f of fileList) fd.append("files[]", f);
-
-  const res = await fetch(ENDPOINT_UPLOAD_GENERAL, {
-    method: "POST",
-    body: fd,
-    headers: { ...getCsrfHeaders() },
-    credentials: "same-origin",
-  });
-
-  const data = await res.json().catch(() => null);
-
-  if (!res.ok || !data || data.success !== true) {
-    const err = data?.message || "No se pudo subir.";
-    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(err)}</span>`;
-    return false;
-  }
-
-  if (msg) {
-    msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
-      Subido (${data.saved || 0}). Estado → Por producir.
-    </span>`;
-  }
-
-  return true;
-}
-
-// =========================
-// abrirDetallesPedido
-// =========================
 async function abrirDetallesPedido(orderId) {
   const id = String(orderId || "");
   if (!id) return;
@@ -797,7 +709,6 @@ async function abrirDetallesPedido(orderId) {
   abrirDetallesFull();
   currentDetallesOrderId = id;
 
-  // placeholders
   setText("detTitle", "Cargando...");
   setText("detSubtitle", "—");
   setText("detItemsCount", "0");
@@ -808,10 +719,6 @@ async function abrirDetallesPedido(orderId) {
   setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detJson", "");
 
-  const btnSubir = $("btnSubirPedidoDetalle");
-  if (btnSubir) btnSubir.disabled = true;
-
-  // fetch detalle robusto
   let payload = null;
   let lastErr = null;
 
@@ -845,41 +752,9 @@ async function abrirDetallesPedido(orderId) {
   const o = payload.order || {};
   const lineItems = Array.isArray(o.line_items) ? o.line_items : (Array.isArray(o.lineItems) ? o.lineItems : []);
 
-  // ids reales
   currentDetallesShopifyId = String(o.id || o.shopify_order_id || o.order_id || "").trim() || null;
   currentDetallesPedidoId = String(payload.pedido_id || payload.id || o.pedido_id || "").trim() || null;
 
-  // key estable
-  const keyForFiles =
-    (currentDetallesShopifyId && currentDetallesShopifyId !== "0") ? currentDetallesShopifyId :
-    (currentDetallesPedidoId && currentDetallesPedidoId !== "0") ? currentDetallesPedidoId :
-    id;
-
-  currentDetallesKeyForPedido = keyForFiles;
-
-  const hiddenId = $("generalOrderId");
-  if (hiddenId) hiddenId.value = keyForFiles;
-
-  // cargar archivos (si existen endpoints)
-  if (ENDPOINT_LIST_GENERAL) {
-    await cargarArchivosGenerales(keyForFiles, {
-      fallbackKey: (keyForFiles === id ? null : id),
-      extraFallbackKey: currentDetallesPedidoId && currentDetallesPedidoId !== keyForFiles ? currentDetallesPedidoId : null,
-    });
-  }
-
-  // habilita botón subir pedido dentro del modal
-  if (btnSubir) {
-    btnSubir.disabled = false;
-    btnSubir.onclick = () => subirPedidoAPorProducir({
-      order_key: currentDetallesKeyForPedido || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId,
-      pedido_id: currentDetallesPedidoId,
-      shopify_order_id: currentDetallesShopifyId,
-      closeModal: true,
-    });
-  }
-
-  // header
   const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
   setText("detTitle", `Detalles ${name}`);
 
@@ -891,13 +766,11 @@ async function abrirDetallesPedido(orderId) {
 
   setText("detSubtitle", `${clienteHeader} · ${o.created_at || "—"}`);
 
-  // JSON
   try {
     const json = JSON.stringify(payload, null, 2);
     setHtml("detJson", escapeHtml(json));
   } catch {}
 
-  // Cliente
   const customer = o.customer || {};
   const clienteNombre = (customer.first_name || customer.last_name)
     ? `${customer.first_name || ""} ${customer.last_name || ""}`.trim()
@@ -912,7 +785,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Envío
   const a = o.shipping_address || {};
   setHtml("detEnvio", `
     <div class="space-y-1">
@@ -926,7 +798,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Resumen
   const estado = o.estado ?? o.status ?? "—";
   const tags = String(o.tags ?? o.etiquetas ?? "").trim();
   const lastInfo = normalizeLastStatusChange(o.last_status_change || payload.last_status_change);
@@ -945,7 +816,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Totales
   const subtotal = o.subtotal_price ?? "0";
   const envio =
     o.total_shipping_price_set?.shop_money?.amount ??
@@ -964,7 +834,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Items
   setText("detItemsCount", String(lineItems.length));
 
   if (!lineItems.length) {
@@ -1066,7 +935,6 @@ async function abrirDetallesPedido(orderId) {
   setHtml("detItems", itemsHtml);
 }
 
-// Hook del botón
 window.verDetallesPedido = function (pedidoId) {
   abrirDetallesPedido(String(pedidoId));
 };
@@ -1075,6 +943,9 @@ window.verDetallesPedido = function (pedidoId) {
 // Eventos
 // =========================
 function bindEventos() {
+  $("btnTraer5")?.addEventListener("click", () => traerPedidos(5));
+  $("btnTraer10")?.addEventListener("click", () => traerPedidos(10));
+
   $("inputBuscar")?.addEventListener("input", () => aplicarFiltroBusqueda());
   $("btnLimpiarBusqueda")?.addEventListener("click", () => {
     const el = $("inputBuscar");
@@ -1082,37 +953,15 @@ function bindEventos() {
     aplicarFiltroBusqueda();
   });
 
-  // Upload (opcional)
-  $("formGeneralUpload")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
+  // ✅ Botón dentro del modal: Subir pedido
+  $("btnSubirPedidoDetalles")?.addEventListener("click", async () => {
+    const pedidoId = currentDetallesPedidoId || "";
+    const shopifyId = currentDetallesShopifyId || "";
+    const orderIdForDetails = currentDetallesOrderId || shopifyId || pedidoId;
 
-    const orderId = $("generalOrderId")?.value || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId;
-    const input = $("generalFiles");
-    const files = input?.files;
+    if (!pedidoId && !shopifyId && !orderIdForDetails) return;
 
-    if (!orderId) return;
-    if (!files || !files.length) {
-      const msg = $("generalUploadMsg");
-      if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona uno o más archivos.</span>`;
-      return;
-    }
-
-    setLoader(true);
-    try {
-      const ok = await subirArchivosGenerales(orderId, files);
-      if (!ok) return;
-
-      await cargarArchivosGenerales(orderId, {
-        fallbackKey: currentDetallesPedidoId,
-        extraFallbackKey: currentDetallesShopifyId,
-      });
-
-      // si upload cambia a Por producir, este pedido ya no debe aparecer
-      await cargarMiCola();
-    } finally {
-      if (input) input.value = "";
-      setLoader(false);
-    }
+    await marcarCargado({ pedidoId, shopifyId, orderIdForDetails });
   });
 
   window.addEventListener("resize", () => {
