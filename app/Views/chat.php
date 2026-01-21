@@ -125,136 +125,70 @@
         </section>
 
         <section class="mb-6">
+  <!-- CHAT INTERNO -->
+<section class="mb-6">
   <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
-    <h3 class="text-lg font-extrabold text-slate-900 mb-4">Cambiar clave</h3>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="flex items-start justify-between gap-4 mb-4">
       <div>
-        <label class="text-sm font-semibold text-slate-700">Clave actual</label>
-        <input id="currentPassword" type="password" autocomplete="current-password"
-               class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300"
-               placeholder="••••••••">
+        <h3 class="text-lg font-extrabold text-slate-900">Chat Interno</h3>
+        <p class="text-slate-500 text-sm mt-1">Selecciona un usuario y escribe en tiempo real.</p>
       </div>
-
-      <div>
-        <label class="text-sm font-semibold text-slate-700">Nueva clave</label>
-        <input id="newPassword" type="password" autocomplete="new-password"
-               class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300"
-               placeholder="Mínimo 8 caracteres">
-      </div>
-
-      <div>
-        <label class="text-sm font-semibold text-slate-700">Confirmar nueva clave</label>
-        <input id="confirmPassword" type="password" autocomplete="new-password"
-               class="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300"
-               placeholder="Repite la nueva clave">
-      </div>
+      <span id="socketStatus" class="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-700">
+        Desconectado
+      </span>
     </div>
 
-    <div class="mt-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-      <p id="passMsg" class="text-sm"></p>
+    <div class="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
+      <!-- Lista usuarios -->
+      <div class="rounded-2xl border border-slate-200 bg-slate-50">
+        <div class="p-3 border-b border-slate-200 flex items-center gap-2">
+          <input id="userSearch" type="text" placeholder="Buscar usuario..."
+                 class="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300 bg-white">
+        </div>
 
-      <button id="btnChangePass"
-              class="rounded-xl px-4 py-2 font-bold bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
-        Guardar clave
-      </button>
+        <div id="usersList" class="p-2 h-[520px] overflow-y-auto soft-scroll">
+          <!-- items dinámicos -->
+          <div class="text-sm text-slate-500 p-3">Cargando usuarios...</div>
+        </div>
+      </div>
+
+      <!-- Chat -->
+      <div class="rounded-2xl border border-slate-200 bg-white flex flex-col">
+        <!-- Header chat -->
+        <div class="p-4 border-b border-slate-200 flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div id="activeUserName" class="font-extrabold text-slate-900 truncate">Selecciona un usuario</div>
+            <div id="activeUserMeta" class="text-xs text-slate-500 truncate"></div>
+          </div>
+          <button id="btnRefreshMessages"
+                  class="rounded-xl px-3 py-2 text-sm font-bold bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60">
+            Refrescar
+          </button>
+        </div>
+
+        <!-- Mensajes -->
+        <div id="messagesBox" class="p-4 flex-1 overflow-y-auto soft-scroll bg-slate-50">
+          <div class="text-sm text-slate-500">Abre una conversación para ver mensajes.</div>
+        </div>
+
+        <!-- Input -->
+        <div class="p-4 border-t border-slate-200 bg-white">
+          <div class="flex gap-2">
+            <input id="messageInput" type="text" placeholder="Escribe un mensaje..."
+                   class="flex-1 rounded-xl border border-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300"
+                   disabled>
+            <button id="btnSend"
+                    class="rounded-xl px-4 py-2 font-bold bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60"
+                    disabled>
+              Enviar
+            </button>
+          </div>
+          <p id="chatMsg" class="text-xs mt-2 text-slate-500"></p>
+        </div>
+      </div>
     </div>
   </div>
 </section>
-<script>
-  (function () {
-    const csrfTokenMeta  = document.querySelector('meta[name="csrf-token"]');
-    const csrfHeaderMeta = document.querySelector('meta[name="csrf-header"]');
 
-    function csrf() {
-      return {
-        token: csrfTokenMeta ? csrfTokenMeta.getAttribute('content') : '',
-        header: csrfHeaderMeta ? csrfHeaderMeta.getAttribute('content') : 'X-CSRF-TOKEN'
-      };
-    }
-
-    function setMsg(type, text) {
-      const el = document.getElementById('passMsg');
-      if (!el) return;
-      el.textContent = text || '';
-      el.className = 'text-sm ' + (type === 'ok' ? 'text-emerald-700' : 'text-rose-600');
-    }
-
-    const btn = document.getElementById('btnChangePass');
-    if (!btn) return;
-
-    btn.addEventListener('click', async () => {
-      setMsg('', '');
-
-      const currentPassword = document.getElementById('currentPassword').value.trim();
-      const newPassword     = document.getElementById('newPassword').value.trim();
-      const confirmPassword = document.getElementById('confirmPassword').value.trim();
-
-      if (!currentPassword || !newPassword || !confirmPassword) {
-        setMsg('err', 'Completa todos los campos.');
-        return;
-      }
-      if (newPassword.length < 8) {
-        setMsg('err', 'La nueva clave debe tener al menos 8 caracteres.');
-        return;
-      }
-      if (newPassword !== confirmPassword) {
-        setMsg('err', 'La confirmación no coincide con la nueva clave.');
-        return;
-      }
-      if (currentPassword === newPassword) {
-        setMsg('err', 'La nueva clave no puede ser igual a la actual.');
-        return;
-      }
-
-      btn.disabled = true;
-      btn.textContent = 'Guardando...';
-
-      try {
-        const c = csrf();
-
-        const res = await fetch('<?= base_url("usuarios/cambiar-clave") ?>', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            [c.header]: c.token
-          },
-          body: JSON.stringify({ currentPassword, newPassword })
-        });
-
-        const data = await res.json().catch(() => ({}));
-
-        // Si CI regenera csrf, lo refrescamos en el meta
-        if (data && data.csrf && csrfTokenMeta) {
-          csrfTokenMeta.setAttribute('content', data.csrf);
-        }
-
-        if (!res.ok || !data.ok) {
-          setMsg('err', data.message || 'No se pudo actualizar la clave.');
-          return;
-        }
-
-        setMsg('ok', data.message || 'Clave actualizada.');
-        document.getElementById('currentPassword').value = '';
-        document.getElementById('newPassword').value = '';
-        document.getElementById('confirmPassword').value = '';
-      } catch (e) {
-        setMsg('err', 'Error de red. Intenta de nuevo.');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Guardar clave';
-      }
-    });
-  })();
-</script>
-
-
-   
-</script>
-
-
-
-  </script>
-
-</body>
-</html>
+<!-- Socket.io client -->
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
