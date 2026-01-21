@@ -6,7 +6,7 @@
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
   <meta name="csrf-header" content="<?= csrf_header() ?>">
 
-  <title>Usuarios - Panel</title>
+  <title>Chat Interno - Panel</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/alpinejs" defer></script>
@@ -118,8 +118,8 @@
         <section class="mb-6">
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex items-start justify-between gap-4">
             <div>
-              <h1 class="text-3xl font-extrabold text-slate-900">Usuarios</h1>
-              <p class="text-slate-500 mt-1">Mi Cuenta</p>
+              <h1 class="text-3xl font-extrabold text-slate-900">Chat Interno</h1>
+              <p class="text-slate-500 mt-1">Comunicación Laboral</p>
             </div>
           </div>
         </section>
