@@ -13,7 +13,7 @@ class UsuariosController extends BaseController
 
 
     // Solo muestra el botón (sin tabla)
-    return view('usuarios/index');
+    return view('usuarios');
 }
 
 
