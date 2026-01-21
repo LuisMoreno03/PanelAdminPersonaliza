@@ -1132,17 +1132,40 @@ async function subirArchivosGenerales(orderId, fileList) {
     return false;
   }
 
-  // ✅ NUEVO: tras upload, setea estado a "Diseñado" (si existe endpoint; si no, no rompe)
-  await setEstadoTrasUpload(orderId, "Diseñado");
+  // ✅ 1) Confirmar qué estado dejó el backend realmente (upload-general)
+  const backendEstado = String(data.new_estado || data.estado || "").trim();
+  const wanted = "Diseñado";
 
+  // ✅ 2) Si el backend NO guardó Diseñado, intentamos set-estado (si existe)
+  let forced = false;
+  if (backendEstado.toLowerCase() !== wanted.toLowerCase()) {
+    console.warn(
+      "[upload-general] Backend dejó estado diferente al esperado:",
+      { backendEstado, wanted, data }
+    );
+
+    // intento extra: set-estado (si existe). Si no existe, no rompe
+    forced = await setEstadoTrasUpload(orderId, wanted);
+  }
+
+  // ✅ 3) Mensaje UI claro (para que sepas si realmente cambió o no)
   if (msg) {
-    msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
-      Subido (${data.saved || 0}). Estado → Diseñado. Pedido desasignado.
-    </span>`;
+    if (backendEstado.toLowerCase() === wanted.toLowerCase() || forced) {
+      msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
+        Subido (${data.saved || 0}). Estado → ${escapeHtml(wanted)}. Pedido desasignado.
+      </span>`;
+    } else {
+      // ⚠️ Esto confirma que debes cambiar el PHP (uploadGeneral) sí o sí
+      msg.innerHTML = `<span class="text-amber-700 font-extrabold">
+        Subido (${data.saved || 0}), pero el backend dejó estado → ${escapeHtml(backendEstado || "Por producir")}.
+        (Debes cambiarlo en ProduccionController::uploadGeneral).
+      </span>`;
+    }
   }
 
   return true;
 }
+
 
 // =========================
 // Eventos
