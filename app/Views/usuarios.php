@@ -9,16 +9,13 @@
 <body>
 <div class="container py-4">
 
-  <div class="mb-3">
-    <a href="<?= site_url('usuarios') ?>" class="btn btn-sm btn-outline-secondary">← Volver</a>
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h3 class="mb-0">Usuarios</h3>
   </div>
 
-  <h3 class="mb-2">Cambiar contraseña</h3>
-  <p class="text-muted mb-4">
-    Usuario: <strong><?= esc($usuario['nombre'] ?? '-') ?></strong> (<?= esc($usuario['email'] ?? '-') ?>)
-  </p>
-
-  <?php $errors = session()->getFlashdata('validation') ?? []; ?>
+  <?php if (session()->getFlashdata('success')): ?>
+    <div class="alert alert-success"><?= esc(session()->getFlashdata('success')) ?></div>
+  <?php endif; ?>
 
   <?php if (session()->getFlashdata('error')): ?>
     <div class="alert alert-danger"><?= esc(session()->getFlashdata('error')) ?></div>
@@ -26,32 +23,51 @@
 
   <div class="card">
     <div class="card-body">
-      <form method="post" action="<?= site_url('usuarios/'.$usuario['id'].'/password') ?>">
-        <?= csrf_field() ?>
-
-        <div class="mb-3">
-          <label class="form-label">Nueva contraseña</label>
-          <input type="password" name="password"
-                 class="form-control <?= isset($errors['password']) ? 'is-invalid' : '' ?>"
-                 minlength="8" required>
-          <?php if (isset($errors['password'])): ?>
-            <div class="invalid-feedback"><?= esc($errors['password']) ?></div>
+      <div class="table-responsive">
+        <table class="table table-striped align-middle">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Nombre</th>
+              <th>Email</th>
+              <th>Rol</th>
+              <th>Activo</th>
+              <th>Creado</th>
+              <th class="text-end">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+          <?php if (!empty($usuarios)): ?>
+            <?php foreach ($usuarios as $u): ?>
+              <tr>
+                <td><?= esc($u['id']) ?></td>
+                <td><?= esc($u['nombre'] ?? '-') ?></td>
+                <td><?= esc($u['email'] ?? '-') ?></td>
+                <td><?= esc($u['rol'] ?? '-') ?></td>
+                <td>
+                  <?php if ((int)($u['activo'] ?? 0) === 1): ?>
+                    <span class="badge bg-success">Sí</span>
+                  <?php else: ?>
+                    <span class="badge bg-secondary">No</span>
+                  <?php endif; ?>
+                </td>
+                <td><?= esc($u['created_at'] ?? '-') ?></td>
+                <td class="text-end">
+                  <a class="btn btn-sm btn-outline-primary"
+                     href="<?= site_url('usuarios/'.$u['id'].'/password') ?>">
+                    Cambiar contraseña
+                  </a>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          <?php else: ?>
+            <tr>
+              <td colspan="7" class="text-center text-muted py-4">No hay usuarios.</td>
+            </tr>
           <?php endif; ?>
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label">Confirmar contraseña</label>
-          <input type="password" name="password_confirm"
-                 class="form-control <?= isset($errors['password_confirm']) ? 'is-invalid' : '' ?>"
-                 minlength="8" required>
-          <?php if (isset($errors['password_confirm'])): ?>
-            <div class="invalid-feedback"><?= esc($errors['password_confirm']) ?></div>
-          <?php endif; ?>
-        </div>
-
-        <button class="btn btn-primary" type="submit">Guardar</button>
-        <a class="btn btn-outline-secondary" href="<?= site_url('usuarios') ?>">Cancelar</a>
-      </form>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
