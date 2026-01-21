@@ -8,7 +8,8 @@ use App\Models\PedidosEstadoModel;
 class ProduccionController extends BaseController
 {
     private string $estadoEntrada = 'Confirmado';
-    private string $estadoProduccion = 'Por producir';
+    // ✅ CAMBIO: antes 'Por producir'
+    private string $estadoProduccion = 'Diseñado';
 
     public function index()
     {
@@ -457,13 +458,16 @@ class ProduccionController extends BaseController
 
         // ------------------------------------------------------------
         // 3) Acciones post-upload:
-        //    - Cambiar estado a "Por producir"
+        //    - Cambiar estado a "Diseñado" ✅
         //    - Quitar asignación
         //    - Registrar historial
         // ------------------------------------------------------------
         $didUnassign = false;
         $didEstado = false;
         $didHist = false;
+
+        // ✅ estado centralizado (según property)
+        $estadoNuevo = $this->estadoProduccion; // 'Diseñado'
 
         try {
             $userId   = (int)(session('user_id') ?? 0);
@@ -486,7 +490,7 @@ class ProduccionController extends BaseController
                     $estadoModel = new PedidosEstadoModel();
                     $didEstado = (bool) $estadoModel->setEstadoPedido(
                         (string)$shopifyOrderId,
-                        'Por producir',
+                        $estadoNuevo,            // ✅ Diseñado
                         $userId ?: null,
                         $userName
                     );
@@ -494,7 +498,7 @@ class ProduccionController extends BaseController
                     // 3.3) historial
                     $okHist = $db->table('pedidos_estado_historial')->insert([
                         'order_id'   => (string)$shopifyOrderId,
-                        'estado'     => 'Por producir',
+                        'estado'     => $estadoNuevo, // ✅ Diseñado
                         'user_id'    => $userId ?: null,
                         'user_name'  => $userName,
                         'created_at' => $now,
@@ -546,7 +550,7 @@ class ProduccionController extends BaseController
             'estado_set' => $didEstado,
             'historial_inserted' => $didHist,
             'unassigned' => $didUnassign,
-            'new_estado' => 'Por producir',
+            'new_estado' => $estadoNuevo, // ✅ Diseñado
         ])->setStatusCode(200);
     }
 
