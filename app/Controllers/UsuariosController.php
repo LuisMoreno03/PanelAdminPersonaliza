@@ -186,12 +186,46 @@ if ($hashActual === '' || !password_verify($currentPassword, $hashActual)) {
     ]);
 }
 
+$stored = (string)($user['password'] ?? '');
+
+// Detectar bcrypt (hash)
+$isBcrypt = str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$') || str_starts_with($stored, '$2b$');
+
+// Validar clave actual
+$okCurrent = $isBcrypt
+    ? password_verify($currentPassword, $stored)
+    : hash_equals($stored, $currentPassword); // texto plano
+
+if (!$okCurrent) {
+    return $this->response->setStatusCode(401)->setJSON([
+        'ok' => false,
+        'message' => 'La clave actual no es correcta.',
+        'csrf' => csrf_hash(),
+    ]);
+}
+
+// Guardar SIEMPRE como hash seguro
 $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
 
 $ok = $table->where('id', $userId)->update([
     'password' => $newHash,
-    // usa created_at/last_seen/is_online si no tienes password_changed_at
+    'password_changed_at' => date('Y-m-d H:i:s'), // esta columna ya la añadiste
 ]);
+
+if (!$ok) {
+    return $this->response->setStatusCode(500)->setJSON([
+        'ok' => false,
+        'message' => 'No se pudo guardar la nueva clave.',
+        'csrf' => csrf_hash(),
+    ]);
+}
+
+return $this->response->setJSON([
+    'ok' => true,
+    'message' => 'Clave actualizada correctamente.',
+    'csrf' => csrf_hash(),
+]);
+
 
 
     } catch (\Throwable $e) {
