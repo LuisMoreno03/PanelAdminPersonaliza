@@ -777,7 +777,7 @@ function actualizarTabla(pedidos) {
                 </button>
               </div>
 
-              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
+              <div class="min-w-0 text-xs text-slate-700 metodo-entrega">${escapeHtml(p.forma_envio ?? "-")}</div>
 
               <div class="whitespace-nowrap relative z-10">
                 <button type="button"
@@ -794,7 +794,7 @@ function actualizarTabla(pedidos) {
 
               <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
 
-              <div class="min-w-0 text-xs text-slate-700 metodo-entrega">${escapeHtml(p.forma_envio ?? "-")}</div>
+              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
 
               <!-- ✅ BOTÓN ELIMINADO (mantengo la columna vacía para no romper el grid) -->
               <div class="text-right whitespace-nowrap"></div>
@@ -850,7 +850,8 @@ function actualizarTabla(pedidos) {
               </div>
 
               <div class="text-right whitespace-nowrap">
-                <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.total ?? "-")}</div>
+                <div class="text-xs font-extrabold text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
+
               </div>
             </div>
 
@@ -867,7 +868,7 @@ function actualizarTabla(pedidos) {
 
             <div class="mt-3 text-xs text-slate-600 space-y-1">
               <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
-              <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
+              <div><b>Total:</b> ${escapeHtml(p.total ?? "-")}</div>
               <div><b>Último cambio:</b> ${last}</div>
             </div>
           </div>
