@@ -253,9 +253,11 @@ window.supportChat = function () {
 
           if (!r.ok) {
             console.error('[SupportChat] message error', r.status, data);
+            if (data?.debug) console.error('DEBUG BACKEND:', data.debug); // <-- verás EXACTO el motivo
             alert(data?.error || 'Error enviando mensaje');
             return;
           }
+
 
           await this.loadTicket();
           await this.loadTickets();
