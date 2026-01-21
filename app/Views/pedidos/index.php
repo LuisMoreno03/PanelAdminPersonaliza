@@ -35,5 +35,8 @@
     };
   </script>
 
-  <script src="<?= base_url('js/tours/pedidos.tour.js') ?>"></script>
+  <script src="<?= base_url('js/vendor/shepherd/shepherd.min.js') ?>"></script>
+<script src="<?= base_url('js/tours/pedidos.tour.js') ?>"></script>
+
+  
 <?= $this->endSection() ?>
