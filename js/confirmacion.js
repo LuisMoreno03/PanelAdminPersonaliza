@@ -963,11 +963,17 @@ function actualizarResumenAuto() {
 ===================================================== */
 window.guardarEstado = async function (orderId, nuevoEstado, opts = {}) {
   const endpoints = [
-    window.API?.guardarEstado,
-    "/api/estado/guardar",
-    "/index.php/api/estado/guardar",
-    "/index.php/index.php/api/estado/guardar",
-  ].filter(Boolean);
+  window.API?.guardarEstado,
+  "/confirmacion/guardar-estado",
+  "/index.php/confirmacion/guardar-estado",
+  "/index.php/index.php/confirmacion/guardar-estado",
+
+  // (deja estos de fallback si quieres)
+  "/api/estado/guardar",
+  "/index.php/api/estado/guardar",
+  "/index.php/index.php/api/estado/guardar",
+].filter(Boolean);
+
 
   let lastErr = null;
 
