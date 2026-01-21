@@ -7,7 +7,7 @@ use CodeIgniter\HTTP\ResponseInterface;
 use App\Models\PedidoImagenModel;
 use App\Models\PedidosEstadoModel;
 
-class UsuariosController extends Controller
+class ChatController extends Controller
 {
    
     public function __construct()
@@ -64,7 +64,7 @@ class UsuariosController extends Controller
             if (!empty(trim($token))) $this->token = $token;
             if (!empty(trim($ver)))   $this->apiVersion = $ver;
         } catch (\Throwable $e) {
-            log_message('error', 'UsuariosController loadShopifyFromEnv ERROR: ' . $e->getMessage());
+            log_message('error', 'ChatController loadShopifyFromEnv ERROR: ' . $e->getMessage());
         }
     }
 
@@ -81,7 +81,7 @@ class UsuariosController extends Controller
             $this->token      = (string) ($cfg['token'] ?? $this->token);
             $this->apiVersion = (string) ($cfg['apiVersion'] ?? $cfg['version'] ?? $this->apiVersion);
         } catch (\Throwable $e) {
-            log_message('error', 'UsuariosController loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
+            log_message('error', 'ChatController loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
         }
     }
 
@@ -100,7 +100,7 @@ class UsuariosController extends Controller
             return redirect()->to('/');
         }
 
-        return view('usuarios');
+        return view('chat');
     }
 
 
