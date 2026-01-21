@@ -215,6 +215,8 @@ $routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollectio
 $routes->get('/', 'UsuariosController::index');
 $routes->post('cambiar-clave', 'UsuariosController::cambiarClave');
 
+$routes->post('usuarios/cambiar-clave', 'UsuariosController::cambiarClave');
+$routes->post('usuario/cambiar-clave',  'UsuariosController::cambiarClave');
 
 });
 /*
