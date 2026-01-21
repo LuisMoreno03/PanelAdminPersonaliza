@@ -273,13 +273,13 @@
             <span class="text-sm font-semibold text-white/90">Diseño</span>
           </a>
 
-          <!-- ✅ Montaje (nuevo debajo de Diseño) -->
-           <div
-        aria-disabled="true" class="opacity-50 cursor-not-allowed select-none">
-          <a href="<?= base_url('montaje') ?>"
-             @click="close()"
-             class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
-                    <?= $isActive('montaje') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
+          <!-- ✅ Montaje (DESHABILITADO: sin href) -->
+          <div
+            aria-disabled="true"
+            title="Montaje (próximamente)"
+            class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
+                   bg-white/5 ring-1 ring-white/10 opacity-50 cursor-not-allowed select-none"
+          >
             <span class="text-white/85 shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -288,26 +288,53 @@
               </svg>
             </span>
             <span class="text-sm font-semibold text-white/90">Montaje</span>
-          </a>
           </div>
+
         </div>
       </div>
 
       <?php $item(base_url('placas'),   $isActive('placas'),   'Placas',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4 8 4 8-4zm0 0v10l-8 4-8-4V7m8 4v10"/></svg>'
       ); ?>
+
+      <!-- ✅ Por Producir (DESHABILITADO: sin href) -->
       <div
-        aria-disabled="true" class="opacity-50 cursor-not-allowed select-none">
-      <?php $item(base_url('por-producir'), $isActive('por-producir'), 'Por Producir',
-        '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-18h8v6h-8V3z"/></svg>'
-      ); ?>
+        aria-disabled="true"
+        title="Por Producir (próximamente)"
+        class="group flex items-center gap-3 px-4 py-3 rounded-2xl relative
+               bg-white/5 ring-1 ring-white/10 opacity-50 cursor-not-allowed select-none"
+      >
+        <span class="text-white/90 shrink-0">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-18h8v6h-8V3z"/>
+          </svg>
+        </span>
+
+        <!-- texto solo expandido -->
+        <span class="font-semibold truncate"
+              x-show="!collapsed"
+              x-transition.opacity
+              style="display:none">
+          Por Producir
+        </span>
+
+        <!-- tooltip cuando colapsado -->
+        <span x-show="collapsed" style="display:none"
+              class="pointer-events-none absolute left-[92px] opacity-0 group-hover:opacity-100 transition
+                     bg-slate-950 text-white text-xs font-semibold px-3 py-2 rounded-xl shadow-lg">
+          Por Producir
+        </span>
       </div>
+
       <?php $item(base_url('repetir'), $isActive('repetir'), 'Repetir Pedidos',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>'
       ); ?>
+
       <?php $item(base_url('usuarios'), $isActive('usuarios'), 'Usuarios',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A8.967 8.967 0 0112 15c2.5 0 4.764 1.02 6.879 2.804M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'
       ); ?>
+
       <?php $item(base_url('soporte/chat'), $isActive('soporte'), 'Soporte',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
