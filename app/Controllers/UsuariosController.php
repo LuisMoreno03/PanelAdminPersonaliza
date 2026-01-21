@@ -11,9 +11,6 @@ class UsuariosController extends BaseController
 {
 
 
-public function index()
-
-
 {
     // Solo muestra el botón (sin tabla)
     return view('usuarios/index');
