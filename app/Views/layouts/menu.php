@@ -197,14 +197,14 @@
 
       <!-- ✅ MI ÁREA DE TRABAJO -->
       <div
-        x-data="{ areaOpen: <?= ($isActive('produccion') || $isActive('confirmados')) ? 'true' : 'false' ?> }"
+        x-data="{ areaOpen: <?= ($isActive('produccion') || $isActive('confirmacion') || $isActive('montaje')) ? 'true' : 'false' ?> }"
         class="relative"
       >
         <button
           type="button"
           @click="areaOpen = !areaOpen"
           class="group w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition relative
-                 <?= ($isActive('produccion') || $isActive('confirmados')) ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>"
+                 <?= ($isActive('produccion') || $isActive('confirmacion') || $isActive('montaje')) ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>"
         >
           <span class="text-white/90 shrink-0">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -245,6 +245,21 @@
           style="display:none"
           class="mt-1 ml-3 pl-3 border-l border-white/10 space-y-1"
         >
+          <!-- ✅ Confirmación (arriba de Diseño) -->
+          <a href="<?= base_url('confirmacion') ?>"
+             @click="close()"
+             class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
+                    <?= $isActive('confirmacion') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
+            <span class="text-white/85 shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M20 12v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8m16 0V8a2 2 0 00-2-2H6a2 2 0 00-2 2v4m16 0H4m8-8v16"/>
+              </svg>
+            </span>
+            <span class="text-sm font-semibold text-white/90">Confirmación</span>
+          </a>
+
+          <!-- ✅ Diseño -->
           <a href="<?= base_url('produccion') ?>"
              @click="close()"
              class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
@@ -258,18 +273,21 @@
             <span class="text-sm font-semibold text-white/90">Diseño</span>
           </a>
 
-          <a href="<?= base_url('confirmacion') ?>"
+          <!-- ✅ Montaje (nuevo debajo de Diseño) -->
+          <a href="<?= base_url('montaje') ?>"
              @click="close()"
              class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
-                    <?= $isActive('confirmacion') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
+                    <?= $isActive('montaje') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
             <span class="text-white/85 shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M20 12v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8m16 0V8a2 2 0 00-2-2H6a2 2 0 00-2 2v4m16 0H4m8-8v16"/>
+                      d="M14.7 6.3a1 1 0 011.4 0l1.6 1.6a1 1 0 010 1.4l-7.9 7.9-3.3.9.9-3.3 7.9-7.9z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-2 2"/>
               </svg>
             </span>
-            <span class="text-sm font-semibold text-white/90">Confirmación</span>
+            <span class="text-sm font-semibold text-white/90">Montaje</span>
           </a>
+
         </div>
       </div>
 
@@ -278,14 +296,14 @@
       ); ?>
       <?php $item(base_url('por_producir'), $isActive('por_producir'), 'Por Producir',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-18h8v6h-8V3z"/></svg>'
-      ); ?>
+      ); ?> 
       <?php $item(base_url('repetir'), $isActive('repetir'), 'Repetir Pedidos',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>'
       ); ?>
       <?php $item(base_url('usuarios'), $isActive('usuarios'), 'Usuarios',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A8.967 8.967 0 0112 15c2.5 0 4.764 1.02 6.879 2.804M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>'
       ); ?>
-            <?php $item(base_url('soporte/chat'), $isActive('soporte'), 'Soporte',
+      <?php $item(base_url('soporte/chat'), $isActive('soporte'), 'Soporte',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M4 12a8 8 0 0116 0v3a3 3 0 01-3 3h-1v-6h4M4 12v3a3 3 0 003 3h1v-6H4"/>

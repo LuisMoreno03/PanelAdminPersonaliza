@@ -109,6 +109,26 @@ class SoporteController extends BaseController
         }
         return null;
     }
+    private function safeMimeFromUpload($file): string
+{
+    // No usa finfo_file => no depende de /tmp
+    $m = '';
+    try { $m = (string)$file->getClientMimeType(); } catch (\Throwable $e) { $m = ''; }
+    $m = strtolower(trim($m));
+
+    if ($m !== '') return $m;
+
+    // fallback por extensión
+    $ext = strtolower((string)$file->getClientExtension());
+    return match ($ext) {
+        'png'  => 'image/png',
+        'webp' => 'image/webp',
+        'gif'  => 'image/gif',
+        'jpeg', 'jpg' => 'image/jpeg',
+        default => 'application/octet-stream',
+    };
+}
+
 
     private function jsonFail(int $code, string $msg, array $extra = [])
     {
@@ -395,7 +415,8 @@ class SoporteController extends BaseController
                     if ($this->attMap['filename']) $attData[$this->attMap['filename']] = $newName;
                     if ($this->attMap['path']) $attData[$this->attMap['path']] = 'uploads/support/' . $newName;
 
-                    if ($this->attMap['mime']) $attData[$this->attMap['mime']] = $img->getMimeType();
+                    if ($this->attMap['mime']) $attData[$this->attMap['mime']] = $this->safeMimeFromUpload($img);
+
                     if ($this->attMap['created_at']) $attData[$this->attMap['created_at']] = $now;
 
                     $okA = $this->db->table('support_attachments')->insert($attData);
