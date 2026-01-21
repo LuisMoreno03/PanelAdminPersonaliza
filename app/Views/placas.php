@@ -263,16 +263,12 @@
 
     <!-- Body -->
     <div class="p-6 space-y-3">
-      <!-- ✅ Producto -->
-      <input id="cargaProducto" type="text" placeholder="Producto (opcional)"
-             class="w-full border rounded-xl px-3 py-2">
-
       <!-- ✅ Nombre del lote (visible) -->
       <input id="cargaLoteNombre" type="text" placeholder="Nombre del lote (ej: Pedido #9095 - Lámparas)"
              class="w-full border rounded-xl px-3 py-2">
 
       <!-- ✅ Número de placa (si lo quieres mantener opcional) -->
-      <input id="cargaNumero" type="text" placeholder="Número de placa (opcional)"
+      <input id="cargaNumero" type="text" placeholder="Productos (opcional)"
              class="w-full border rounded-xl px-3 py-2">
 
       <!-- Archivos -->
