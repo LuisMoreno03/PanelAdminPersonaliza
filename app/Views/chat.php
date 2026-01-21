@@ -408,6 +408,7 @@
     }
   }
 
+
   // ===== Socket =====
   function initSocket() {
     socket = io(SOCKET_URL, { transports: ["websocket"] });
@@ -428,6 +429,11 @@
       }
       renderUsers(users);
     });
+
+        <?= base_url('chat/users') ?>
+        <?= base_url('chat/messages') ?>/id
+        <?= base_url('chat/send') ?>
+        <?= base_url('chat/mark-read') ?>
 
     // Mensaje entrante de usuario (para admin)
     socket.on("message:receive:admin", (payload) => {
