@@ -21,6 +21,7 @@ class DashboardController extends Controller
         'Por producir',
         'Enviado',
         'Repetir',
+        'Cancelado',
     ];
 
     public function __construct()
@@ -168,8 +169,7 @@ class DashboardController extends Controller
         ];
     }
 
-
-        private function pedidosFiltradosDb(): ResponseInterface
+    private function pedidosFiltradosDb(): ResponseInterface
     {
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
@@ -209,7 +209,6 @@ class DashboardController extends Controller
             $cb = $db->table('pedidos p');
             $cb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
 
-            // filtros reutilizados
             $this->applyDbFilters($cb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
 
             $countRow = $cb->select('COUNT(1) AS cnt', false)->get()->getRowArray();
@@ -233,9 +232,9 @@ class DashboardController extends Controller
             $this->applyDbFilters($qb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
 
             $rows = $qb->orderBy('p.created_at', 'DESC')
-                    ->limit($limit, $offset)
-                    ->get()
-                    ->getResultArray();
+                ->limit($limit, $offset)
+                ->get()
+                ->getResultArray();
 
             $orders = [];
             foreach ($rows as $r) {
@@ -344,9 +343,9 @@ class DashboardController extends Controller
             $this->applyDbFilters($qb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
 
             $rows = $qb->orderBy('p.created_at', 'DESC')
-                    ->limit($limit, $offset)
-                    ->get()
-                    ->getResultArray();
+                ->limit($limit, $offset)
+                ->get()
+                ->getResultArray();
 
             $orders = [];
             foreach ($rows as $r) {
@@ -382,7 +381,6 @@ class DashboardController extends Controller
                 ];
             }
 
-            // next/prev para habilitar botones (en filtro no usamos page_info real)
             $next = ($page < $totalPages) ? '1' : null;
             $prev = ($page > 1) ? '1' : null;
 
@@ -412,9 +410,9 @@ class DashboardController extends Controller
     {
         if ($q !== '') {
             $b->groupStart()
-            ->like('p.numero', $q)
-            ->orLike('p.cliente', $q)
-            ->groupEnd();
+                ->like('p.numero', $q)
+                ->orLike('p.cliente', $q)
+                ->groupEnd();
         }
 
         if ($estado !== '') {
@@ -424,10 +422,10 @@ class DashboardController extends Controller
         if ($envio !== '') {
             if ($envio === '__none__') {
                 $b->groupStart()
-                ->where('p.estado_envio IS NULL', null, false)
-                ->orWhere('p.estado_envio', '')
-                ->orWhere('p.estado_envio', '-')
-                ->groupEnd();
+                    ->where('p.estado_envio IS NULL', null, false)
+                    ->orWhere('p.estado_envio', '')
+                    ->orWhere('p.estado_envio', '-')
+                    ->groupEnd();
             } else {
                 $b->where('p.estado_envio', $envio);
             }
@@ -447,9 +445,8 @@ class DashboardController extends Controller
         if ($artMax !== null) $b->where('p.articulos <=', $artMax);
     }
 
-
     // ============================================================
-    // ✅ NORMALIZAR ESTADOS (viejos -> nuevos)
+    // ✅ NORMALIZAR ESTADOS (viejos -> nuevos) + CANCELADO
     // ============================================================
 
     private function normalizeEstado(?string $estado): string
@@ -494,6 +491,14 @@ class DashboardController extends Controller
             'reimpresion'      => 'Repetir',
             'reimpresión'      => 'Repetir',
             'rehacer'          => 'Repetir',
+
+            // ✅ CANCELADO (variantes)
+            'cancelado'        => 'Cancelado',
+            'cancelada'        => 'Cancelado',
+            'canceled'         => 'Cancelado',
+            'cancelled'        => 'Cancelado',
+            'anulado'          => 'Cancelado',
+            'anulada'          => 'Cancelado',
         ];
 
         if (isset($map[$lower])) return $map[$lower];
@@ -524,7 +529,6 @@ class DashboardController extends Controller
 
     /**
      * ✅ Sync a tabla "pedidos" (SIN ETIQUETAS/TAGS)
-     * - Fix importante: placeholders/columnas ahora coinciden (9 columnas / 9 values)
      */
     private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): void
     {
@@ -613,9 +617,6 @@ class DashboardController extends Controller
         if (!session()->get('logged_in')) {
             return redirect()->to('/');
         }
-
-        // Si aquí renderizas una vista, cámbiala por la tuya:
-        // return view('dashboard/index');
         return view('dashboard');
     }
 
@@ -627,6 +628,7 @@ class DashboardController extends Controller
     {
         return $this->pedidosPaginados();
     }
+
     private function pedidosPaginados(): ResponseInterface
     {
         if (!session()->get('logged_in')) {
@@ -792,7 +794,6 @@ class DashboardController extends Controller
                             $ord2['estado_bd'] = $ord2['estado'];
                         }
 
-                        // ✅ FIX CLAVE: tu tabla guarda fecha en "actualizado"
                         $changedAt = $rowEstado['estado_updated_at'] ?? null;
                         if (!$changedAt && !empty($rowEstado['actualizado'])) {
                             $changedAt = $rowEstado['actualizado'];
@@ -900,6 +901,27 @@ class DashboardController extends Controller
                 $userId ? (int)$userId : null,
                 (string)$userName
             );
+
+            // ✅ DESASIGNAR cuando Cancelado o Confirmado (para que salga de colas por usuario)
+            if ($ok && in_array($estado, ['Cancelado', 'Confirmado'], true)) {
+                try {
+                    $db = \Config\Database::connect();
+
+                    $hasAssignedUser = $db->fieldExists('assigned_to_user_id', 'pedidos');
+                    $hasAssignedAt   = $db->fieldExists('assigned_at', 'pedidos');
+                    $hasShopifyId    = $db->fieldExists('shopify_order_id', 'pedidos');
+
+                    if ($hasShopifyId && ($hasAssignedUser || $hasAssignedAt)) {
+                        $upd = [];
+                        if ($hasAssignedUser) $upd['assigned_to_user_id'] = null;
+                        if ($hasAssignedAt)   $upd['assigned_at'] = null;
+
+                        $db->table('pedidos')->where('shopify_order_id', (string)$orderId)->update($upd);
+                    }
+                } catch (\Throwable $e) {
+                    log_message('error', 'DashboardController unassign ERROR: ' . $e->getMessage());
+                }
+            }
 
             // ✅ guardar también en historial (solo si OK)
             if ($ok) {
