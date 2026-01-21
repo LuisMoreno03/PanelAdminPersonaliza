@@ -709,112 +709,152 @@
   /* =====================================================
     TABLA / GRID + CARDS
   ===================================================== */
-  function actualizarTabla(pedidos) {
-    const cont = document.getElementById("tablaPedidos");
-    const cards = document.getElementById("cardsPedidos");
+  /* =====================================================
+  TABLA / GRID + CARDS
+===================================================== */
+function actualizarTabla(pedidos) {
+  const cont = document.getElementById("tablaPedidos");
+  const cards = document.getElementById("cardsPedidos");
 
-    if (cont) cont.dataset.lastOrders = JSON.stringify(pedidos || []);
-    const useCards = window.innerWidth <= 1180;
+  if (cont) cont.dataset.lastOrders = JSON.stringify(pedidos || []);
+  const useCards = window.innerWidth <= 1180;
 
-    if (cont) {
-      cont.innerHTML = "";
-      if (!useCards) {
-        if (!pedidos.length) {
-          cont.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
-        } else {
-          cont.innerHTML = pedidos.map((p) => {
+  if (cont) {
+    cont.innerHTML = "";
+    if (!useCards) {
+      if (!pedidos.length) {
+        cont.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
+      } else {
+        cont.innerHTML = pedidos
+          .map((p) => {
             const idStr = String(p.id ?? "");
+
+            const clickNumero = `onclick="verDetalles('${escapeJsString(idStr)}')"`;
+            const clickCliente = `onclick="verDetalles('${escapeJsString(idStr)}')"`;
+
             return `
-              <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
-                <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.numero ?? "-")}</div>
-                <div class="text-slate-600 whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</div>
-                <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(p.cliente ?? "-")}</div>
-                <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
+            <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
 
-                <div class="whitespace-nowrap relative z-10">
-                  <button type="button"
-                    onclick="abrirModal('${escapeJsString(idStr)}')"
-                    class="group inline-flex items-center gap-1 rounded-xl px-1 py-0.5 bg-transparent hover:bg-slate-100 transition focus:outline-none"
-                    title="Cambiar estado">
-                    ${renderEstadoPill(p.estado ?? "-")}
-                  </button>
-                </div>
-
-                <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
-                <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
-
-                <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-
-                <div class="min-w-0 text-xs text-slate-700 metodo-entrega">${escapeHtml(p.forma_envio ?? "-")}</div>
-
-                <div class="text-right whitespace-nowrap">
-                  <button type="button" onclick="verDetalles('${escapeJsString(idStr)}')"
-                    class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-                    Ver detalles →
-                  </button>
-                </div>
+              <!-- ✅ CLICK EN NÚMERO -->
+              <div class="font-extrabold text-slate-900 whitespace-nowrap">
+                <button type="button"
+                  ${clickNumero}
+                  class="text-left font-extrabold text-slate-900 hover:underline underline-offset-2 cursor-pointer">
+                  ${escapeHtml(p.numero ?? "-")}
+                </button>
               </div>
-            `;
-          }).join("");
-        }
+
+              <div class="text-slate-600 whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</div>
+
+              <!-- ✅ CLICK EN NOMBRE (en tu caso es CLIENTE) -->
+              <div class="min-w-0 font-semibold text-slate-800 truncate">
+                <button type="button"
+                  ${clickCliente}
+                  class="text-left min-w-0 truncate font-semibold text-slate-800 hover:underline underline-offset-2 cursor-pointer">
+                  ${escapeHtml(p.cliente ?? "-")}
+                </button>
+              </div>
+
+              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
+
+              <div class="whitespace-nowrap relative z-10">
+                <button type="button"
+                  onclick="abrirModal('${escapeJsString(idStr)}')"
+                  class="group inline-flex items-center gap-1 rounded-xl px-1 py-0.5 bg-transparent hover:bg-slate-100 transition focus:outline-none"
+                  title="Cambiar estado">
+                  ${renderEstadoPill(p.estado ?? "-")}
+                </button>
+              </div>
+
+              <div class="min-w-0">${renderLastChangeCompact(p)}</div>
+
+              <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
+
+              <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+
+              <div class="min-w-0 text-xs text-slate-700 metodo-entrega">${escapeHtml(p.forma_envio ?? "-")}</div>
+
+              <!-- ✅ BOTÓN ELIMINADO (mantengo la columna vacía para no romper el grid) -->
+              <div class="text-right whitespace-nowrap"></div>
+            </div>
+          `;
+          })
+          .join("");
       }
     }
+  }
 
-    if (cards) {
-      cards.innerHTML = "";
-      if (!useCards) return;
+  if (cards) {
+    cards.innerHTML = "";
+    if (!useCards) return;
 
-      if (!pedidos.length) {
-        cards.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
-        return;
-      }
+    if (!pedidos.length) {
+      cards.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
+      return;
+    }
 
-      cards.innerHTML = pedidos.map((p) => {
+    cards.innerHTML = pedidos
+      .map((p) => {
         const id = String(p.id ?? "");
+
         const last = p?.last_status_change?.changed_at
-          ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(formatDateTime(p.last_status_change.changed_at))}`
+          ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(
+              formatDateTime(p.last_status_change.changed_at)
+            )}`
           : "—";
 
         return `
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
-            <div class="p-4">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.numero ?? "-")}</div>
-                  <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(p.fecha ?? "-")}</div>
-                  <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${escapeHtml(p.cliente ?? "-")}</div>
-                </div>
-                <div class="text-right whitespace-nowrap">
-                  <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.total ?? "-")}</div>
-                </div>
-              </div>
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
+          <div class="p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
 
-              <div class="mt-3 flex items-center justify-between gap-3">
-                <button onclick="abrirModal('${escapeJsString(id)}')"
-                  class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0 relative z-10">
-                  ${renderEstadoPill(p.estado ?? "-")}
+                <!-- ✅ CLICK EN NÚMERO -->
+                <button type="button"
+                  onclick="verDetalles('${escapeJsString(id)}')"
+                  class="text-left text-sm font-extrabold text-slate-900 hover:underline underline-offset-2 cursor-pointer">
+                  ${escapeHtml(p.numero ?? "-")}
                 </button>
 
-                <button onclick="verDetalles('${escapeJsString(id)}')"
-                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-                  Ver detalles →
+                <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(p.fecha ?? "-")}</div>
+
+                <!-- ✅ CLICK EN NOMBRE (CLIENTE) -->
+                <button type="button"
+                  onclick="verDetalles('${escapeJsString(id)}')"
+                  class="text-left text-sm font-semibold text-slate-800 mt-1 truncate hover:underline underline-offset-2 cursor-pointer">
+                  ${escapeHtml(p.cliente ?? "-")}
                 </button>
               </div>
 
-              <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-
-              <div class="mt-3 text-xs text-slate-600 space-y-1">
-                <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
-                <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
-                <div><b>Último cambio:</b> ${last}</div>
+              <div class="text-right whitespace-nowrap">
+                <div class="text-sm font-extrabold text-slate-900">${escapeHtml(p.total ?? "-")}</div>
               </div>
             </div>
+
+            <div class="mt-3 flex items-center justify-between gap-3">
+              <button onclick="abrirModal('${escapeJsString(id)}')"
+                class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0 relative z-10">
+                ${renderEstadoPill(p.estado ?? "-")}
+              </button>
+
+              <!-- ✅ BOTÓN ELIMINADO -->
+            </div>
+
+            <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
+
+            <div class="mt-3 text-xs text-slate-600 space-y-1">
+              <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
+              <div><b>Forma:</b> ${escapeHtml(p.forma_envio ?? "-")}</div>
+              <div><b>Último cambio:</b> ${last}</div>
+            </div>
           </div>
-        `;
-      }).join("");
-    }
+        </div>
+      `;
+      })
+      .join("");
   }
+}
+
 
   /* =====================================================
     MODAL ESTADO (tu código sigue igual)
