@@ -206,9 +206,10 @@
   }
 
   // ===== Config =====
-  const SOCKET_URL = "https://paneladministrativopersonaliza.com:3001";
-  const ADMIN_ID = <?= (int)session('user_id') ?>;       // <-- ajusta a tu sesión real
-  const ADMIN_NAME = "<?= esc(session('nombre') ?? 'Admin') ?>";
+ // ===== Config =====
+    const SOCKET_URL = "https://paneladministrativopersonaliza.com:3001"; // o tu subdominio real
+    const ADMIN_ID = <?= (int)session('user_id') ?>;
+    const ADMIN_NAME = "<?= esc(session('nombre') ?? 'Admin') ?>";
 
   // ===== UI refs =====
   const elUsersList = document.getElementById("usersList");
