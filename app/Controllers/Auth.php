@@ -29,10 +29,35 @@ class Auth extends BaseController
             return redirect()->back()->with('error', 'El usuario no existe.');
         }
 
-        // VALIDAR contraseñas en texto plano
-        if ($password !== $user['password']) {
-            return redirect()->back()->with('error', 'Contraseña incorrecta.');
-        }
+        // VALIDAR contraseñas ACTUALIZADAS
+        $stored = (string)($user['password'] ?? '');
+
+            // Detectar si ya es bcrypt
+        $isBcrypt = str_starts_with($stored, '$2y$')
+         || str_starts_with($stored, '$2a$')
+         || str_starts_with($stored, '$2b$');
+
+        $ok = $isBcrypt
+    ? password_verify($password, $stored)          // hash
+    : hash_equals($stored, $password);             // texto plano
+
+    if (!$ok) {
+    return redirect()->back()->with('error', 'Contraseña incorrecta.');
+}
+
+        // ✅ Si estaba en texto plano y entró, migrar automáticamente a hash
+    if (!$isBcrypt) {
+    try {
+        $newHash = password_hash($password, PASSWORD_DEFAULT);
+        $userModel->update($user['id'], [
+            'password' => $newHash,
+            'password_changed_at' => date('Y-m-d H:i:s'), // si existe la columna
+        ]);
+    } catch (\Throwable $e) {
+        // No bloquees el login si falla la migración
+        log_message('error', 'Login migrate password hash: ' . $e->getMessage());
+    }
+}
 
         // Crear sesión
         session()->set([
