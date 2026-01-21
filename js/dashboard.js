@@ -431,7 +431,7 @@ function estadoStyle(estado) {
     return { label: "Repetir", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
 
-  // ✅ NUEVO: CANCELADO
+  // ✅ CANCELADO
   if (
     s.includes("cancelado") ||
     s.includes("cancelada") ||
@@ -440,11 +440,17 @@ function estadoStyle(estado) {
     s.includes("anulado") ||
     s.includes("anulada")
   ) {
-    return { label: "Cancelado", icon: "⛔", wrap: `${base} bg-rose-600 border-rose-700 text-white`, dot: `${dotBase} bg-rose-200` };
+    return {
+      label: "Cancelado",
+      icon: "⛔",
+      wrap: `${base} bg-rose-600 border-rose-700 text-white`,
+      dot: `${dotBase} bg-rose-200`
+    };
   }
 
   return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
 }
+
 
 function renderEstadoPill(estado) {
   if (esBadgeHtml(estado)) return String(estado);
