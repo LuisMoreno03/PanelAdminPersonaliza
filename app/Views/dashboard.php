@@ -287,13 +287,12 @@
               <div>Pedido</div>
               <div>Fecha</div>
               <div>Cliente</div>
-              <div>Total</div>
+              <div>Método de entrega</div>
               <div>Estado</div>
               <div>Último cambio</div>
               <div class="text-center">Art</div>
               <div>Entrega</div>
-              <div>Método de entrega</div>
-              <div class="text-right">Ver</div>
+              <div>Total</div>
             </div>
 
             <!-- ROWS -->
