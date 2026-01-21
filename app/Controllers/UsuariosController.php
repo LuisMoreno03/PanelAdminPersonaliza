@@ -157,86 +157,75 @@ class UsuariosController extends Controller
         ]);
     }
 
-    try {
-        $db = \Config\Database::connect();
+   try {
+    $db = \Config\Database::connect();
+    $table = $db->table('users');
 
-        // ✅ AJUSTA AQUÍ: tabla + campo de password
-        $table = $db->table('users');
+    $user = $table->select('id, password')
+                  ->where('id', $userId)
+                  ->get()
+                  ->getRowArray();
 
-$user = $table->select('id, password')
-              ->where('id', $userId)
-              ->get()
-              ->getRowArray();
-
-if (!$user) {
-    return $this->response->setStatusCode(404)->setJSON([
-        'ok' => false,
-        'message' => 'Usuario no encontrado.',
-        'csrf' => csrf_hash(),
-    ]);
-}
-
-$hashActual = (string)($user['password'] ?? '');
-
-if ($hashActual === '' || !password_verify($currentPassword, $hashActual)) {
-    return $this->response->setStatusCode(401)->setJSON([
-        'ok' => false,
-        'message' => 'La clave actual no es correcta.',
-        'csrf' => csrf_hash(),
-    ]);
-}
-
-$stored = (string)($user['password'] ?? '');
-
-// Detectar bcrypt (hash)
-$isBcrypt = str_starts_with($stored, '$2y$') || str_starts_with($stored, '$2a$') || str_starts_with($stored, '$2b$');
-
-// Validar clave actual
-$okCurrent = $isBcrypt
-    ? password_verify($currentPassword, $stored)
-    : hash_equals($stored, $currentPassword); // texto plano
-
-if (!$okCurrent) {
-    return $this->response->setStatusCode(401)->setJSON([
-        'ok' => false,
-        'message' => 'La clave actual no es correcta.',
-        'csrf' => csrf_hash(),
-    ]);
-}
-
-// Guardar SIEMPRE como hash seguro
-$newHash = password_hash($newPassword, PASSWORD_DEFAULT);
-
-$ok = $table->where('id', $userId)->update([
-    'password' => $newHash,
-    'password_changed_at' => date('Y-m-d H:i:s'), // esta columna ya la añadiste
-]);
-
-if (!$ok) {
-    return $this->response->setStatusCode(500)->setJSON([
-        'ok' => false,
-        'message' => 'No se pudo guardar la nueva clave.',
-        'csrf' => csrf_hash(),
-    ]);
-}
-
-return $this->response->setJSON([
-    'ok' => true,
-    'message' => 'Clave actualizada correctamente.',
-    'csrf' => csrf_hash(),
-]);
-
-
-
-    } catch (\Throwable $e) {
-        log_message('error', 'cambiarClave ERROR: ' . $e->getMessage());
-
-        return $this->response->setStatusCode(500)->setJSON([
+    if (!$user) {
+        return $this->response->setStatusCode(404)->setJSON([
             'ok' => false,
-            'message' => 'Error interno actualizando clave.',
+            'message' => 'Usuario no encontrado.',
             'csrf' => csrf_hash(),
         ]);
     }
+
+    $stored = (string)($user['password'] ?? '');
+
+    // Detectar bcrypt (hash)
+    $isBcrypt = str_starts_with($stored, '$2y$')
+             || str_starts_with($stored, '$2a$')
+             || str_starts_with($stored, '$2b$');
+
+    // Validar clave actual (hash o texto plano)
+    $okCurrent = $isBcrypt
+        ? password_verify($currentPassword, $stored)
+        : hash_equals($stored, $currentPassword);
+
+    if (!$okCurrent) {
+        return $this->response->setStatusCode(401)->setJSON([
+            'ok' => false,
+            'message' => 'La clave actual no es correcta.',
+            'csrf' => csrf_hash(),
+        ]);
+    }
+
+    // Guardar SIEMPRE como hash seguro
+    $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
+
+    $ok = $table->where('id', $userId)->update([
+        'password' => $newHash,
+        'password_changed_at' => date('Y-m-d H:i:s'),
+    ]);
+
+    if (!$ok) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'ok' => false,
+            'message' => 'No se pudo guardar la nueva clave.',
+            'csrf' => csrf_hash(),
+        ]);
+    }
+
+    return $this->response->setJSON([
+        'ok' => true,
+        'message' => 'Clave actualizada correctamente.',
+        'csrf' => csrf_hash(),
+    ]);
+
+} catch (\Throwable $e) {
+    log_message('error', 'cambiarClave ERROR: ' . $e->getMessage());
+
+    return $this->response->setStatusCode(500)->setJSON([
+        'ok' => false,
+        'message' => 'Error interno actualizando clave.',
+        'csrf' => csrf_hash(),
+    ]);
+}
+
 }
 
 }
