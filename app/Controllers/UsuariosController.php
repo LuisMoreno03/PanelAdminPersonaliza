@@ -9,22 +9,7 @@ use App\Models\PedidosEstadoModel;
 
 class UsuariosController extends Controller
 {
-    private string $shop = '';
-    private string $token = '';
-    private string $apiVersion = '2025-10';
-
-    // ✅ Estados permitidos (los del modal)
-    private array $allowedEstados = [
-        'Por preparar',
-        'Faltan archivos',
-        'Confirmado',
-        'Diseñado',
-        'Por producir',
-        'Enviado',
-        'Repetir',
-    ];
-
-
+   
     public function __construct()
     {
         // 1) Config/Shopify.php $estadoModel
