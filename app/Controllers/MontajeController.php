@@ -7,15 +7,59 @@ use App\Models\PedidosEstadoModel;
 
 class MontajeController extends BaseController
 {
-    // ✅ Montaje toma pedidos que estén en Diseñado
+    // ✅ Montaje: ENTRADA = Diseñado
     private string $estadoEntrada = 'Diseñado';
 
-    // ✅ Al marcar "Cargado" pasan a Por producir
+    // ✅ Al marcar "Cargado": SALIDA = Por producir
     private string $estadoSalida = 'Por producir';
 
     public function index()
     {
-        return view('montaje'); // tu vista montaje
+        return view('montaje');
+    }
+
+    // =========================================================
+    // Helper: último estado (historial -> pedidos_estado -> null)
+    // =========================================================
+    private function sqlEstadoActualExpr(): string
+    {
+        // OJO: no usamos p.estado ni p.estado_bd (porque no existen en tu DB)
+        return "LOWER(TRIM(
+            CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
+            COLLATE utf8mb4_uca1400_ai_ci
+        ))";
+    }
+
+    // =========================================================
+    // Helper: condición "NO ENVIADOS"
+    // =========================================================
+    private function buildCondNoEnviados(\CodeIgniter\Database\BaseConnection $db): string
+    {
+        $fields = $db->getFieldNames('pedidos') ?? [];
+        $hasEstadoEnvio = in_array('estado_envio', $fields, true);
+        $hasFulfillment = in_array('fulfillment_status', $fields, true);
+
+        if ($hasEstadoEnvio) {
+            return "
+                AND (
+                    p.estado_envio IS NULL
+                    OR TRIM(COALESCE(p.estado_envio,'')) = ''
+                    OR LOWER(TRIM(p.estado_envio)) = 'unfulfilled'
+                )
+            ";
+        }
+
+        if ($hasFulfillment) {
+            return "
+                AND (
+                    p.fulfillment_status IS NULL
+                    OR TRIM(COALESCE(p.fulfillment_status,'')) = ''
+                    OR LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'
+                )
+            ";
+        }
+
+        return "";
     }
 
     // =========================
@@ -41,33 +85,11 @@ class MontajeController extends BaseController
         try {
             $db = \Config\Database::connect();
 
-            // ✅ detectar columnas reales
-            $fields = $db->getFieldNames('pedidos') ?? [];
-            $hasEstadoEnvio = in_array('estado_envio', $fields, true);
-            $hasFulfillment = in_array('fulfillment_status', $fields, true);
+            $condNoEnviados = $this->buildCondNoEnviados($db);
 
-            // ✅ condición NO ENVIADOS
-            $condNoEnviados = "";
-            if ($hasEstadoEnvio) {
-                $condNoEnviados = "
-                    AND (
-                        p.estado_envio IS NULL
-                        OR TRIM(COALESCE(p.estado_envio,'')) = ''
-                        OR LOWER(TRIM(p.estado_envio)) = 'unfulfilled'
-                    )
-                ";
-            } elseif ($hasFulfillment) {
-                $condNoEnviados = "
-                    AND (
-                        p.fulfillment_status IS NULL
-                        OR TRIM(COALESCE(p.fulfillment_status,'')) = ''
-                        OR LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'
-                    )
-                ";
-            }
-
-            $estadoEntradaLower1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
-            $estadoEntradaLower2 = 'disenado'; // fallback sin ñ
+            $estadoExpr = $this->sqlEstadoActualExpr();
+            $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
+            $e2 = 'disenado'; // fallback
 
             $rows = $db->query("
                 SELECT
@@ -84,6 +106,7 @@ class MontajeController extends BaseController
                     p.assigned_to_user_id,
                     p.assigned_at,
 
+                    -- estado actual (para pintar en UI)
                     COALESCE(
                         CAST(h.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
                         CAST(pe.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
@@ -115,20 +138,11 @@ class MontajeController extends BaseController
                 )
 
                 WHERE p.assigned_to_user_id = ?
-                  AND (
-                        LOWER(TRIM(
-                            CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
-                            COLLATE utf8mb4_uca1400_ai_ci
-                        )) = ?
-                        OR LOWER(TRIM(
-                            CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
-                            COLLATE utf8mb4_uca1400_ai_ci
-                        )) = ?
-                  )
+                  AND ({$estadoExpr} = ? OR {$estadoExpr} = ?)
                   {$condNoEnviados}
 
                 ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
-            ", [$userId, $estadoEntradaLower1, $estadoEntradaLower2])->getResultArray();
+            ", [$userId, $e1, $e2])->getResultArray();
 
             return $this->response->setJSON([
                 'ok' => true,
@@ -139,7 +153,7 @@ class MontajeController extends BaseController
             log_message('error', 'MontajeController myQueue ERROR: ' . $e->getMessage());
             return $this->response->setJSON([
                 'ok' => false,
-                'error' => 'Error interno cargando cola',
+                'error' => 'Error interno cargando cola de montaje',
                 'debug' => $e->getMessage(),
             ]);
         }
@@ -147,7 +161,7 @@ class MontajeController extends BaseController
 
     // =========================
     // POST /montaje/pull
-    // Trae 5 o 10 pedidos en Diseñado (no enviados) y los asigna
+    // Trae 5 o 10 pedidos en Diseñado (no enviados)
     // =========================
     public function pull()
     {
@@ -172,33 +186,11 @@ class MontajeController extends BaseController
             $db = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // ✅ detectar columnas reales
-            $fields = $db->getFieldNames('pedidos') ?? [];
-            $hasEstadoEnvio = in_array('estado_envio', $fields, true);
-            $hasFulfillment = in_array('fulfillment_status', $fields, true);
+            $condNoEnviados = $this->buildCondNoEnviados($db);
 
-            // ✅ condición NO ENVIADOS
-            $condNoEnviados = "";
-            if ($hasEstadoEnvio) {
-                $condNoEnviados = "
-                    AND (
-                        p.estado_envio IS NULL
-                        OR TRIM(COALESCE(p.estado_envio,'')) = ''
-                        OR LOWER(TRIM(p.estado_envio)) = 'unfulfilled'
-                    )
-                ";
-            } elseif ($hasFulfillment) {
-                $condNoEnviados = "
-                    AND (
-                        p.fulfillment_status IS NULL
-                        OR TRIM(COALESCE(p.fulfillment_status,'')) = ''
-                        OR LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'
-                    )
-                ";
-            }
-
-            $estadoEntradaLower1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
-            $estadoEntradaLower2 = 'disenado';
+            $estadoExpr = $this->sqlEstadoActualExpr();
+            $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
+            $e2 = 'disenado';
 
             // ✅ candidatos: estado actual = Diseñado (historial o pedidos_estado), no enviados, no asignados
             $candidatos = $db->query("
@@ -227,21 +219,12 @@ class MontajeController extends BaseController
                 )
 
                 WHERE (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-                  AND (
-                        LOWER(TRIM(
-                            CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
-                            COLLATE utf8mb4_uca1400_ai_ci
-                        )) = ?
-                        OR LOWER(TRIM(
-                            CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
-                            COLLATE utf8mb4_uca1400_ai_ci
-                        )) = ?
-                  )
+                  AND ({$estadoExpr} = ? OR {$estadoExpr} = ?)
                   {$condNoEnviados}
 
                 ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC, p.id ASC
                 LIMIT {$count}
-            ", [$estadoEntradaLower1, $estadoEntradaLower2])->getResultArray();
+            ", [$e1, $e2])->getResultArray();
 
             if (!$candidatos) {
                 return $this->response->setJSON([
@@ -255,7 +238,6 @@ class MontajeController extends BaseController
 
             $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
 
-            // 1) asignar en pedidos
             $db->table('pedidos')
                 ->whereIn('id', $ids)
                 ->where("(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)", null, false)
@@ -275,7 +257,7 @@ class MontajeController extends BaseController
                 ]);
             }
 
-            // 2) opcional (igual que tu producción): insertar historial con el mismo estado para que quede "último cambio" por usuario
+            // (opcional) historial: dejar registrado que “tomaste” esos pedidos en Diseñado
             foreach ($candidatos as $c) {
                 $shopifyId = trim((string)($c['shopify_order_id'] ?? ''));
                 if ($shopifyId === '' || $shopifyId === '0') continue;
@@ -302,7 +284,7 @@ class MontajeController extends BaseController
             log_message('error', 'MontajeController pull ERROR: ' . $e->getMessage());
             return $this->response->setJSON([
                 'ok' => false,
-                'error' => 'Error interno asignando pedidos',
+                'error' => 'Error interno haciendo pull en montaje',
                 'debug' => $e->getMessage(),
             ]);
         }
@@ -310,7 +292,7 @@ class MontajeController extends BaseController
 
     // =========================
     // POST /montaje/cargado
-    // Marca como "Por producir" + desasigna + historial
+    // Cargado => Por producir + desasigna + historial
     // =========================
     public function cargado()
     {
@@ -320,6 +302,7 @@ class MontajeController extends BaseController
 
         $userId = (int)(session('user_id') ?? 0);
         $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
+
         if (!$userId) {
             return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
         }
@@ -336,7 +319,6 @@ class MontajeController extends BaseController
             $db = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // localizar pedido por id o shopify_order_id
             $pedido = $db->table('pedidos')
                 ->select('id, shopify_order_id, assigned_to_user_id')
                 ->groupStart()
@@ -359,7 +341,7 @@ class MontajeController extends BaseController
 
             $db->transBegin();
 
-            // 1) desasignar
+            // 1) desasignar (para que desaparezca de la lista)
             $db->table('pedidos')
                 ->where('id', $pedidoId)
                 ->update([
@@ -367,17 +349,16 @@ class MontajeController extends BaseController
                     'assigned_at' => null,
                 ]);
 
-            // 2) set estado oficial (pedidos_estado) si existe el modelo
-            $estadoModel = new PedidosEstadoModel();
+            // 2) set estado a Por producir + historial
             if ($shopifyId !== '' && $shopifyId !== '0') {
+                $estadoModel = new PedidosEstadoModel();
                 $estadoModel->setEstadoPedido(
                     (string)$shopifyId,
-                    $this->estadoSalida,     // Por producir
+                    $this->estadoSalida, // Por producir
                     $userId ?: null,
                     $userName
                 );
 
-                // 3) historial
                 $db->table('pedidos_estado_historial')->insert([
                     'order_id'   => (string)$shopifyId,
                     'estado'     => $this->estadoSalida,
@@ -390,19 +371,14 @@ class MontajeController extends BaseController
 
             if ($db->transStatus() === false) {
                 $db->transRollback();
-                return $this->response->setJSON([
-                    'ok' => false,
-                    'error' => 'Falló la transacción (cargado)',
-                ]);
+                return $this->response->setJSON(['ok' => false, 'error' => 'Falló la transacción']);
             }
 
             $db->transCommit();
 
             return $this->response->setJSON([
                 'ok' => true,
-                'message' => 'Pedido marcado como Cargado → Por producir',
-                'pedido_id' => $pedidoId,
-                'shopify_order_id' => $shopifyId,
+                'message' => 'Cargado → Por producir',
                 'new_estado' => $this->estadoSalida,
             ]);
 
