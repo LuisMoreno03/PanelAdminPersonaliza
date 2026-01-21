@@ -368,7 +368,7 @@ function actualizarListado(pedidos) {
       const fecha = p.fecha ?? p.created_at ?? "—";
       const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
-      const estado = p.estado ?? p.estado_bd ?? "Por producir";
+      const estado = p.estado ?? p.estado_bd ?? "Diseñado";
       const etiquetas = p.etiquetas ?? "";
       const articulos = p.articulos ?? "-";
       const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
@@ -444,7 +444,7 @@ function actualizarListado(pedidos) {
       const fecha = p.fecha ?? p.created_at ?? "—";
       const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
-      const estado = p.estado ?? p.estado_bd ?? "Por producir";
+      const estado = p.estado ?? p.estado_bd ?? "Diseñado";
       const articulos = p.articulos ?? "-";
       const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
       const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
@@ -509,7 +509,7 @@ function actualizarListado(pedidos) {
     const fecha = p.fecha ?? p.created_at ?? "—";
     const cliente = p.cliente ?? "—";
     const total = p.total ?? "";
-    const estado = p.estado ?? p.estado_bd ?? "Por producir";
+    const estado = p.estado ?? p.estado_bd ?? "Diseñado";
     const etiquetas = p.etiquetas ?? "";
     const articulos = p.articulos ?? "-";
     const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
@@ -631,7 +631,7 @@ async function cargarMiCola() {
       fecha: r.fecha ?? r.created_at ?? r.order_date ?? null,
       cliente: r.cliente ?? r.customer_name ?? r.customer ?? null,
       total: r.total ?? r.total_price ?? null,
-      estado: r.estado ?? r.estado_bd ?? "Por producir",
+      estado: r.estado ?? r.estado_bd ?? "Diseñado",
       estado_bd: r.estado_bd ?? r.estado ?? null,
       etiquetas: r.etiquetas ?? r.tags ?? "",
       articulos: r.articulos ?? r.items_count ?? r.items ?? "",
