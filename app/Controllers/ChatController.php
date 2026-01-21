@@ -315,3 +315,5 @@ public function markRead(): ResponseInterface
 
     return $this->response->setJSON(['ok'=>true, 'csrf'=>csrf_hash()]);
 }
+
+}
