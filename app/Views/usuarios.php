@@ -9,68 +9,22 @@
 <body>
 <div class="container py-4">
 
-  <div class="d-flex align-items-center justify-content-between mb-3">
-    <h3 class="mb-0">Usuarios</h3>
+ <?= $this->extend('layout/panel') ?> 
+<?= $this->section('content') ?>
+
+<div class="card" style="border-radius:16px;">
+  <div class="card-body">
+    <h2 class="mb-1" style="font-weight:800;">Usuarios</h2>
+    <p class="text-muted mb-4">Gestión de contraseña</p>
+
+    <?php if (session()->getFlashdata('success')): ?>
+      <div class="alert alert-success"><?= esc(session()->getFlashdata('success')) ?></div>
+    <?php endif; ?>
+
+    <a href="<?= site_url('usuarios/password') ?>" class="btn btn-primary" style="border-radius:999px; padding:.6rem 1.2rem; font-weight:700;">
+      Cambiar contraseña
+    </a>
   </div>
-
-  <?php if (session()->getFlashdata('success')): ?>
-    <div class="alert alert-success"><?= esc(session()->getFlashdata('success')) ?></div>
-  <?php endif; ?>
-
-  <?php if (session()->getFlashdata('error')): ?>
-    <div class="alert alert-danger"><?= esc(session()->getFlashdata('error')) ?></div>
-  <?php endif; ?>
-
-  <div class="card">
-    <div class="card-body">
-      <div class="table-responsive">
-        <table class="table table-striped align-middle">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Nombre</th>
-              <th>Email</th>
-              <th>Rol</th>
-              <th>Activo</th>
-              <th>Creado</th>
-              <th class="text-end">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-          <?php if (!empty($usuarios)): ?>
-            <?php foreach ($usuarios as $u): ?>
-              <tr>
-                <td><?= esc($u['id']) ?></td>
-                <td><?= esc($u['nombre'] ?? '-') ?></td>
-                <td><?= esc($u['email'] ?? '-') ?></td>
-                <td><?= esc($u['rol'] ?? '-') ?></td>
-                <td>
-                  <?php if ((int)($u['activo'] ?? 0) === 1): ?>
-                    <span class="badge bg-success">Sí</span>
-                  <?php else: ?>
-                    <span class="badge bg-secondary">No</span>
-                  <?php endif; ?>
-                </td>
-                <td><?= esc($u['created_at'] ?? '-') ?></td>
-                <td class="text-end">
-                  <a class="btn btn-sm btn-outline-primary"
-                     href="<?= site_url('usuarios/'.$u['id'].'/password') ?>">
-                    Cambiar contraseña
-                  </a>
-                </td>
-              </tr>
-            <?php endforeach; ?>
-          <?php else: ?>
-            <tr>
-              <td colspan="7" class="text-center text-muted py-4">No hay usuarios.</td>
-            </tr>
-          <?php endif; ?>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
 </div>
-</body>
-</html>
+
+<?= $this->endSection() ?>

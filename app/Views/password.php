@@ -9,27 +9,26 @@
 <body>
 <div class="container py-4">
 
-  <div class="mb-3">
-    <a href="<?= site_url('usuarios') ?>" class="btn btn-sm btn-outline-secondary">← Volver</a>
-  </div>
+  <?= $this->extend('layout/panel') ?>
+<?= $this->section('content') ?>
 
-  <h3 class="mb-2">Cambiar contraseña</h3>
-  <p class="text-muted mb-4">
-    Usuario: <strong><?= esc($usuario['nombre'] ?? '-') ?></strong> (<?= esc($usuario['email'] ?? '-') ?>)
-  </p>
+<div class="card" style="border-radius:16px;">
+  <div class="card-body">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div>
+        <h2 class="mb-1" style="font-weight:800;">Cambiar contraseña</h2>
+        <div class="text-muted">Usuario: <?= esc($usuario['nombre'] ?? '-') ?> (<?= esc($usuario['email'] ?? '-') ?>)</div>
+      </div>
+      <a href="<?= site_url('usuarios') ?>" class="btn btn-outline-secondary" style="border-radius:999px;">Volver</a>
+    </div>
 
-  <?php $errors = session()->getFlashdata('validation') ?? []; ?>
+    <?php $errors = session()->getFlashdata('validation') ?? []; ?>
 
-  <?php if (session()->getFlashdata('error')): ?>
-    <div class="alert alert-danger"><?= esc(session()->getFlashdata('error')) ?></div>
-  <?php endif; ?>
+    <form method="post" action="<?= site_url('usuarios/password') ?>">
+      <?= csrf_field() ?>
 
-  <div class="card">
-    <div class="card-body">
-      <form method="post" action="<?= site_url('usuarios/'.$usuario['id'].'/password') ?>">
-        <?= csrf_field() ?>
-
-        <div class="mb-3">
+      <div class="row g-3">
+        <div class="col-md-6">
           <label class="form-label">Nueva contraseña</label>
           <input type="password" name="password"
                  class="form-control <?= isset($errors['password']) ? 'is-invalid' : '' ?>"
@@ -39,7 +38,7 @@
           <?php endif; ?>
         </div>
 
-        <div class="mb-3">
+        <div class="col-md-6">
           <label class="form-label">Confirmar contraseña</label>
           <input type="password" name="password_confirm"
                  class="form-control <?= isset($errors['password_confirm']) ? 'is-invalid' : '' ?>"
@@ -48,13 +47,20 @@
             <div class="invalid-feedback"><?= esc($errors['password_confirm']) ?></div>
           <?php endif; ?>
         </div>
+      </div>
 
-        <button class="btn btn-primary" type="submit">Guardar</button>
-        <a class="btn btn-outline-secondary" href="<?= site_url('usuarios') ?>">Cancelar</a>
-      </form>
-    </div>
+      <div class="mt-4 d-flex gap-2">
+        <button class="btn btn-primary" style="border-radius:999px; padding:.6rem 1.2rem; font-weight:700;" type="submit">
+          Guardar
+        </button>
+        <a class="btn btn-outline-secondary" style="border-radius:999px;" href="<?= site_url('usuarios') ?>">Cancelar</a>
+      </div>
+    </form>
   </div>
+</div>
 
+<?= $this->endSection() ?>
 </div>
 </body>
 </html>
+
