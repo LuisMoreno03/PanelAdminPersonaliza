@@ -451,7 +451,6 @@ function estadoStyle(estado) {
   return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
 }
 
-
 function renderEstadoPill(estado) {
   if (esBadgeHtml(estado)) return String(estado);
 
@@ -823,7 +822,7 @@ function actualizarTabla(pedidos) {
 
               <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
 
-              <!-- ✅ BOTÓN ELIMINADO (mantengo la columna vacía para no romper el grid) -->
+              <!-- ✅ COLUMNA VACÍA (alineación) -->
               <div class="text-right whitespace-nowrap"></div>
             </div>
           `;
@@ -877,7 +876,6 @@ function actualizarTabla(pedidos) {
 
               <div class="text-right whitespace-nowrap">
                 <div class="text-xs font-extrabold text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
-
               </div>
             </div>
 
@@ -886,8 +884,6 @@ function actualizarTabla(pedidos) {
                 class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0 relative z-10">
                 ${renderEstadoPill(p.estado ?? "-")}
               </button>
-
-              <!-- ✅ BOTÓN ELIMINADO -->
             </div>
 
             <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
@@ -937,10 +933,6 @@ window.cerrarModal = function () {
   const modal = findEstadoModal();
   if (modal) modal.classList.add("hidden");
 };
-
-// ... (AQUÍ TU RESTO: guardarEstado, verDetalles, subirImagenProducto, validarEstadoAuto)
-// Para no reventarte el mensaje, deja exactamente TU CÓDIGO DESDE "guardarEstado" hacia abajo.
-// ✅ Importante: NO cambies nada de esa parte, ya te funciona.
 
 /* =====================================================
   ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
@@ -1595,6 +1587,16 @@ window.validarEstadoAuto = async function (orderId) {
 
     const estadoActual = String(order?.estado || "").toLowerCase().trim();
     const nuevoLower = nuevoEstado.toLowerCase();
+
+    // ✅ NO sobrescribir si está CANCELADO
+    if (
+      estadoActual.includes("cancelado") ||
+      estadoActual.includes("cancelada") ||
+      estadoActual.includes("canceled") ||
+      estadoActual.includes("cancelled") ||
+      estadoActual.includes("anulado") ||
+      estadoActual.includes("anulada")
+    ) return;
 
     if (
       (nuevoLower.includes("faltan") && (estadoActual.includes("faltan archivos") || estadoActual.includes("faltan_archivos"))) ||
