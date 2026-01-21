@@ -161,67 +161,38 @@ class UsuariosController extends Controller
         $db = \Config\Database::connect();
 
         // ✅ AJUSTA AQUÍ: tabla + campo de password
-        $table = $db->table('usuarios');
+        $table = $db->table('users');
 
-        // Opción 1 (recomendada): password_hash
-        $user = $table->select('id, password_hash')
-                      ->where('id', $userId)
-                      ->get()
-                      ->getRowArray();
+$user = $table->select('id, password')
+              ->where('id', $userId)
+              ->get()
+              ->getRowArray();
 
-        // --- Si tu campo se llama "password" en vez de password_hash, usa esto:
-        // $user = $table->select('id, password')
-        //               ->where('id', $userId)
-        //               ->get()
-        //               ->getRowArray();
+if (!$user) {
+    return $this->response->setStatusCode(404)->setJSON([
+        'ok' => false,
+        'message' => 'Usuario no encontrado.',
+        'csrf' => csrf_hash(),
+    ]);
+}
 
-        if (!$user) {
-            return $this->response->setStatusCode(404)->setJSON([
-                'ok' => false,
-                'message' => 'Usuario no encontrado.',
-                'csrf' => csrf_hash(),
-            ]);
-        }
+$hashActual = (string)($user['password'] ?? '');
 
-        $hashActual = (string)($user['password_hash'] ?? '');
-        // --- Si usas "password":
-        // $hashActual = (string)($user['password'] ?? '');
+if ($hashActual === '' || !password_verify($currentPassword, $hashActual)) {
+    return $this->response->setStatusCode(401)->setJSON([
+        'ok' => false,
+        'message' => 'La clave actual no es correcta.',
+        'csrf' => csrf_hash(),
+    ]);
+}
 
-        if ($hashActual === '' || !password_verify($currentPassword, $hashActual)) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'ok' => false,
-                'message' => 'La clave actual no es correcta.',
-                'csrf' => csrf_hash(),
-            ]);
-        }
+$newHash = password_hash($newPassword, PASSWORD_DEFAULT);
 
-        $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
+$ok = $table->where('id', $userId)->update([
+    'password' => $newHash,
+    // usa created_at/last_seen/is_online si no tienes password_changed_at
+]);
 
-        // ✅ Guarda en BD (tiempo real)
-        $ok = $table->where('id', $userId)->update([
-            'password_hash' => $newHash,
-            'password_changed_at' => date('Y-m-d H:i:s'),
-        ]);
-
-        // --- Si tu campo es "password":
-        // $ok = $table->where('id', $userId)->update([
-        //     'password' => $newHash,
-        //     'password_changed_at' => date('Y-m-d H:i:s'),
-        // ]);
-
-        if (!$ok) {
-            return $this->response->setStatusCode(500)->setJSON([
-                'ok' => false,
-                'message' => 'No se pudo guardar la nueva clave.',
-                'csrf' => csrf_hash(),
-            ]);
-        }
-
-        return $this->response->setJSON([
-            'ok' => true,
-            'message' => 'Clave actualizada correctamente.',
-            'csrf' => csrf_hash(),
-        ]);
 
     } catch (\Throwable $e) {
         log_message('error', 'cambiarClave ERROR: ' . $e->getMessage());
