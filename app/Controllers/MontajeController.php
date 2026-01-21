@@ -9,7 +9,16 @@ class MontajeController extends Controller
     protected $db;
     protected $table = 'pedidos';
 
-    // Candidatos para “asignación” (ajusta aquí si tu BD tiene otro nombre)
+    // Columnas candidatas
+    protected $estadoCandidates = [
+        'estado_bd',
+        'estado',
+        'status',
+        'estado_pedido',
+        'estado_produccion',
+        'estado_montaje',
+    ];
+
     protected $assignCandidates = [
         'montaje_user_id',
         'montaje_user',
@@ -20,7 +29,6 @@ class MontajeController extends Controller
         'user_id',
     ];
 
-    // Candidatos para “timestamp de asignación” (opcional)
     protected $assignAtCandidates = [
         'montaje_assigned_at',
         'assigned_at',
@@ -28,48 +36,90 @@ class MontajeController extends Controller
         'montaje_fecha_asignado',
     ];
 
+    // Campos opcionales para SELECT
+    protected $selectCandidates = [
+        'id',
+        'shopify_order_id',
+        'order_id',
+        'numero',
+        'name',
+        'created_at',
+        'fecha',
+        'cliente',
+        'customer_name',
+        'total',
+        'total_price',
+        'etiquetas',
+        'tags',
+        'articulos',
+        'items_count',
+        'estado_envio',
+        'estado_entrega',
+        'fulfillment_status',
+        'forma_envio',
+        'forma_entrega',
+        'shipping_method',
+        'metodo_entrega',
+        'last_status_change',
+    ];
+
+    protected $fieldsMap = [];   // lower => realName
+    protected $estadoCol = null;
     protected $assignCol = null;
     protected $assignAtCol = null;
 
     public function __construct()
     {
         $this->db = \Config\Database::connect();
-        $this->resolveAssignColumns();
+        $this->resolveColumns();
     }
 
-    protected function resolveAssignColumns()
+    protected function resolveColumns()
     {
         try {
             $fields = $this->db->getFieldNames($this->table);
-            $fields = array_map('strtolower', $fields);
+            $map = [];
+            foreach ($fields as $f) $map[strtolower($f)] = $f;
+            $this->fieldsMap = $map;
 
-            foreach ($this->assignCandidates as $c) {
-                if (in_array(strtolower($c), $fields, true)) {
-                    $this->assignCol = $c;
-                    break;
-                }
-            }
-
-            foreach ($this->assignAtCandidates as $c) {
-                if (in_array(strtolower($c), $fields, true)) {
-                    $this->assignAtCol = $c;
-                    break;
-                }
-            }
+            $this->estadoCol  = $this->pickField($this->estadoCandidates);
+            $this->assignCol  = $this->pickField($this->assignCandidates);
+            $this->assignAtCol = $this->pickField($this->assignAtCandidates);
         } catch (\Throwable $e) {
+            $this->fieldsMap = [];
+            $this->estadoCol = null;
             $this->assignCol = null;
             $this->assignAtCol = null;
         }
     }
 
-    protected function getUserKey()
+    protected function pickField(array $candidates)
     {
-        // intenta sacar algo estable del usuario logueado
+        foreach ($candidates as $c) {
+            $k = strtolower($c);
+            if (isset($this->fieldsMap[$k])) return $this->fieldsMap[$k];
+        }
+        return null;
+    }
+
+    protected function fieldExists(string $name): bool
+    {
+        return isset($this->fieldsMap[strtolower($name)]);
+    }
+
+    protected function getUserKey(): string
+    {
         $uid = session('user_id') ?? session('id') ?? session('uid');
         if ($uid !== null && $uid !== '') return (string)$uid;
 
         $u = session('username') ?? session('user_name') ?? session('user') ?? session('email');
         return $u ? (string)$u : 'Sistema';
+    }
+
+    protected function estadosDisenado(): array
+    {
+        // si tu BD guarda sin tilde también
+        return ['Diseñado', 'Disenado', 'DISENADO', 'DISEÑADO'];
     }
 
     public function index()
@@ -79,30 +129,51 @@ class MontajeController extends Controller
 
     // =========================
     // GET /montaje/my-queue
-    // Devuelve SOLO Diseñado y asignados a mi (si existe campo)
+    // SOLO Diseñado + asignados a mí (si existe columna de asignación)
     // =========================
     public function myQueue()
     {
         try {
+            if (!$this->estadoCol) {
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'No se encontró la columna de estado en la tabla pedidos.',
+                ]);
+            }
+
             $userKey = $this->getUserKey();
 
+            // select solo columnas existentes (evita Unknown column)
+            $select = [];
+            foreach ($this->selectCandidates as $c) {
+                if ($this->fieldExists($c)) $select[] = $this->fieldsMap[strtolower($c)];
+            }
+            // asegurar id
+            if (!$select || !in_array($this->fieldsMap['id'] ?? 'id', $select, true)) {
+                $select[] = $this->fieldExists('id') ? $this->fieldsMap['id'] : 'id';
+            }
+
             $b = $this->db->table($this->table)
-                ->select('id, shopify_order_id, numero, created_at, cliente, total, estado_bd, etiquetas, articulos, estado_envio, forma_envio, last_status_change')
-                ->groupStart()
-                    ->where('estado_bd', 'Diseñado')
-                    ->orWhere('estado_bd', 'Disenado')
-                ->groupEnd()
+                ->select(implode(',', $select))
+                ->whereIn($this->estadoCol, $this->estadosDisenado())
                 ->orderBy('id', 'DESC');
 
             if ($this->assignCol) {
                 $b->where($this->assignCol, $userKey);
             }
 
-            $rows = $b->get()->getResultArray();
+            $q = $b->get();
+            if ($q === false) {
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'Error consultando cola de montaje',
+                    'error'   => (string)$this->db->error()['message'],
+                ]);
+            }
 
             return $this->response->setJSON([
                 'success' => true,
-                'orders'  => $rows,
+                'orders'  => $q->getResultArray(),
             ]);
         } catch (\Throwable $e) {
             return $this->response->setStatusCode(500)->setJSON([
@@ -116,11 +187,18 @@ class MontajeController extends Controller
     // =========================
     // POST /montaje/pull
     // body: {count: 5|10}
-    // Toma pedidos Diseñado (no asignados si existe campo) y los asigna al usuario
+    // Trae pedidos Diseñado (no asignados si existe campo) y los asigna al usuario
     // =========================
     public function pull()
     {
         try {
+            if (!$this->estadoCol) {
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'No se encontró la columna de estado en la tabla pedidos.',
+                ]);
+            }
+
             $payload = $this->request->getJSON(true) ?? [];
             $count = (int)($payload['count'] ?? 0);
             if (!in_array($count, [5, 10], true)) $count = 5;
@@ -131,15 +209,11 @@ class MontajeController extends Controller
 
             $b = $this->db->table($this->table)
                 ->select('id')
-                ->groupStart()
-                    ->where('estado_bd', 'Diseñado')
-                    ->orWhere('estado_bd', 'Disenado')
-                ->groupEnd()
+                ->whereIn($this->estadoCol, $this->estadosDisenado())
                 ->orderBy('id', 'ASC')
                 ->limit($count);
 
             if ($this->assignCol) {
-                // solo no asignados
                 $b->groupStart()
                     ->where($this->assignCol, null)
                     ->orWhere($this->assignCol, '')
@@ -147,7 +221,18 @@ class MontajeController extends Controller
                 ->groupEnd();
             }
 
-            $ids = array_map(fn($r) => (int)$r['id'], $b->get()->getResultArray());
+            $q = $b->get();
+            if ($q === false) {
+                $this->db->transRollback();
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'Error consultando pedidos para pull',
+                    'error'   => (string)$this->db->error()['message'],
+                ]);
+            }
+
+            $rows = $q->getResultArray();
+            $ids = array_map(fn($r) => (int)$r['id'], $rows);
 
             if (!$ids) {
                 $this->db->transComplete();
@@ -165,10 +250,7 @@ class MontajeController extends Controller
             if ($update) {
                 $this->db->table($this->table)
                     ->whereIn('id', $ids)
-                    ->groupStart()
-                        ->where('estado_bd', 'Diseñado')
-                        ->orWhere('estado_bd', 'Disenado')
-                    ->groupEnd()
+                    ->whereIn($this->estadoCol, $this->estadosDisenado())
                     ->update($update);
             }
 
@@ -190,31 +272,38 @@ class MontajeController extends Controller
 
     // =========================
     // POST /montaje/subir-pedido
-    // Marca el pedido como "Por producir" y lo saca de tu lista
+    // => estado "Por producir" y sale de tu lista
     // body JSON: { pedido_id, shopify_order_id, order_id }
     // =========================
     public function subirPedido()
     {
         try {
+            if (!$this->estadoCol) {
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'No se encontró la columna de estado en la tabla pedidos.',
+                ]);
+            }
+
             $data = $this->request->getJSON(true) ?? [];
 
             $pedidoId  = trim((string)($data['pedido_id'] ?? ''));
             $shopifyId = trim((string)($data['shopify_order_id'] ?? ''));
             $orderId   = trim((string)($data['order_id'] ?? ''));
 
-            $b = $this->db->table($this->table);
             $pedido = null;
 
-            if ($shopifyId !== '' && $shopifyId !== '0') {
-                $pedido = $b->where('shopify_order_id', $shopifyId)->get()->getRowArray();
+            // buscar por shopify_order_id si existe la columna
+            if ($shopifyId !== '' && $shopifyId !== '0' && $this->fieldExists('shopify_order_id')) {
+                $pedido = $this->db->table($this->table)->where($this->fieldsMap['shopify_order_id'], $shopifyId)->get()->getRowArray();
             }
 
             if (!$pedido && $pedidoId !== '' && $pedidoId !== '0') {
                 $pedido = $this->db->table($this->table)->where('id', $pedidoId)->get()->getRowArray();
             }
 
-            if (!$pedido && $orderId !== '') {
-                $pedido = $this->db->table($this->table)->where('shopify_order_id', $orderId)->get()->getRowArray();
+            if (!$pedido && $orderId !== '' && $this->fieldExists('shopify_order_id')) {
+                $pedido = $this->db->table($this->table)->where($this->fieldsMap['shopify_order_id'], $orderId)->get()->getRowArray();
                 if (!$pedido && ctype_digit($orderId)) {
                     $pedido = $this->db->table($this->table)->where('id', (int)$orderId)->get()->getRowArray();
                 }
@@ -230,18 +319,22 @@ class MontajeController extends Controller
             $id = (int)$pedido['id'];
             $userKey = $this->getUserKey();
 
-            $last = json_encode([
-                'user_name'  => $userKey,
-                'changed_at' => date('Y-m-d H:i:s'),
-            ], JSON_UNESCAPED_UNICODE);
-
             $update = [
-                'estado_bd'          => 'Por producir',
-                'last_status_change' => $last,
+                $this->estadoCol => 'Por producir',
             ];
 
-            // opcional: “desasignar” para liberar tu cola
-            if ($this->assignCol) $update[$this->assignCol] = null;
+            // last_status_change si existe
+            if ($this->fieldExists('last_status_change')) {
+                $update[$this->fieldsMap['last_status_change']] = json_encode([
+                    'user_name'  => $userKey,
+                    'changed_at' => date('Y-m-d H:i:s'),
+                ], JSON_UNESCAPED_UNICODE);
+            }
+
+            // desasignar para que no aparezca más en tu cola
+            if ($this->assignCol) {
+                $update[$this->assignCol] = null;
+            }
 
             $this->db->table($this->table)->where('id', $id)->update($update);
 
