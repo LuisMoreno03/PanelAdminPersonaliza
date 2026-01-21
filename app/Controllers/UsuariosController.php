@@ -50,77 +50,57 @@ class UsuariosController extends Controller
         $this->apiVersion = trim($this->apiVersion ?: '2025-10');
     }
 
-   
-
     // =====================================================
-    // HELPERS    
+    // CONFIG LOADERS  dashboard
     // =====================================================
 
-    private function parseLinkHeaderForPageInfo(?string $linkHeader): array
+    private function loadShopifyFromConfig(): void
     {
-        $next = null;
-        $prev = null;
+        try {
+            $cfg = config('Shopify');
+            if (!$cfg) return;
 
-        if (!$linkHeader) return [$next, $prev];
-
-        if (preg_match('/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="next"/', $linkHeader, $m)) {
-            $next = urldecode($m[1]);
+            $this->shop       = (string) ($cfg->shop ?? $cfg->SHOP ?? $this->shop);
+            $this->token      = (string) ($cfg->token ?? $cfg->TOKEN ?? $this->token);
+            $this->apiVersion = (string) ($cfg->apiVersion ?? $cfg->version ?? $cfg->API_VERSION ?? $this->apiVersion);
+        } catch (\Throwable $e) {
+            log_message('error', 'DRepetirController loadShopifyFromConfig ERROR: ' . $e->getMessage());
         }
-        if (preg_match('/<[^>]*[?&]page_info=([^&>]+)[^>]*>; rel="previous"/', $linkHeader, $m2)) {
-            $prev = urldecode($m2[1]);
-        }
-        return [$next, $prev];
     }
 
-    private function curlShopify(string $url, string $method = 'GET', ?array $payload = null): array
+    private function loadShopifyFromEnv(): void
     {
-        $headers = [];
+        try {
+            $shop  = (string) env('SHOPIFY_STORE_DOMAIN');
+            $token = (string) env('SHOPIFY_ADMIN_TOKEN');
+            $ver   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
 
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 30,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_CUSTOMREQUEST  => $method,
-            CURLOPT_HTTPHEADER     => [
-                "Accept: application/json",
-                "Content-Type: application/json",
-                "X-Shopify-Access-Token: {$this->token}",
-            ],
-            CURLOPT_HEADERFUNCTION => function ($curl, $headerLine) use (&$headers) {
-                $len = strlen($headerLine);
-                $headerLine = trim($headerLine);
-                if ($headerLine === '' || strpos($headerLine, ':') === false) return $len;
-
-                [$name, $value] = explode(':', $headerLine, 2);
-                $name = strtolower(trim($name));
-                $value = trim($value);
-
-                if (!isset($headers[$name])) $headers[$name] = $value;
-                else {
-                    if (is_array($headers[$name])) $headers[$name][] = $value;
-                    else $headers[$name] = [$headers[$name], $value];
-                }
-                return $len;
-            },
-        ]);
-
-        if ($payload !== null) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+            if (!empty(trim($shop)))  $this->shop = $shop;
+            if (!empty(trim($token))) $this->token = $token;
+            if (!empty(trim($ver)))   $this->apiVersion = $ver;
+        } catch (\Throwable $e) {
+            log_message('error', 'UsuariosController loadShopifyFromEnv ERROR: ' . $e->getMessage());
         }
-
-        $body   = curl_exec($ch);
-        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $err    = curl_error($ch);
-        curl_close($ch);
-
-        return [
-            'status'  => $status,
-            'body'    => is_string($body) ? $body : '',
-            'headers' => $headers,
-            'error'   => $err ?: null,
-        ];
     }
+
+    private function loadShopifySecretsFromFile(): void
+    {
+        try {
+            $path = '/home/u756064303/.secrets/shopify.php';
+            if (!is_file($path)) return;
+
+            $cfg = require $path;
+            if (!is_array($cfg)) return;
+
+            $this->shop       = (string) ($cfg['shop'] ?? $this->shop);
+            $this->token      = (string) ($cfg['token'] ?? $this->token);
+            $this->apiVersion = (string) ($cfg['apiVersion'] ?? $cfg['version'] ?? $this->apiVersion);
+        } catch (\Throwable $e) {
+            log_message('error', 'UsuariosController loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
+        }
+    }
+
+ 
 
 
    
