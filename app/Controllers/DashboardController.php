@@ -21,6 +21,7 @@ class DashboardController extends Controller
         'Por producir',
         'Enviado',
         'Repetir',
+        'Cancelado',
     ];
 
     public function __construct()
