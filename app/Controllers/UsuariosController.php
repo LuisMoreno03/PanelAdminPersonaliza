@@ -16,6 +16,10 @@ class UsuariosController extends BaseController
     return view('usuarios/index');
 }
 
+
+
+
+{
 public function password()
 {
     // Si tu login guarda el usuario en sesión con una clave distinta,
