@@ -213,7 +213,7 @@ $routes->group('repetir', [
 */
 $routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollection $routes) {
 $routes->get('/', 'UsuariosController::index');
-$routes->post('usuarios/cambiar-clave', 'UsuariosController::cambiarClave', ['filter' => 'csrf']);
+$routes->post('cambiar-clave', 'UsuariosController::cambiarClave');
 
 
 });
