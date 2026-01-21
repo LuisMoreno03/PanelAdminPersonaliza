@@ -242,6 +242,7 @@ $routes->group('soporte', ['filter' => 'auth'], function($routes) {
 
   $routes->post('ticket/(:num)/assign', 'SoporteController::assign/$1');   // aceptar caso (admin)
   $routes->post('ticket/(:num)/status', 'SoporteController::status/$1');   // cambiar estado (admin)
+  $routes->get('whoami', 'SoporteController::whoami');
 
   $routes->get('attachment/(:num)', 'SoporteController::attachment/$1');   // ver imagen
 });

@@ -14,9 +14,12 @@ class SoporteController extends BaseController
     public function __construct()
     {
         $this->db = \Config\Database::connect();
+
         $this->ticketCols = $this->safeFields('support_tickets');
         $this->msgCols    = $this->safeFields('support_messages');
         $this->attCols    = $this->safeFields('support_attachments');
+
+        // intenta tabla usuarios (si no existe, queda vacío)
         $this->userCols   = $this->safeFields('usuarios');
     }
 
@@ -34,6 +37,15 @@ class SoporteController extends BaseController
         return in_array($c, $cols, true);
     }
 
+    private function onlyExisting(array $data, array $cols): array
+    {
+        $out = [];
+        foreach ($data as $k => $v) {
+            if ($this->has($cols, $k)) $out[$k] = $v;
+        }
+        return $out;
+    }
+
     private function normRole(?string $r): string
     {
         $r = strtolower(trim((string)$r));
@@ -45,8 +57,9 @@ class SoporteController extends BaseController
     {
         $role = $this->normRole((string)(session('rol') ?? ''));
 
+        // intenta leer rol desde DB si existe tabla/columna
         try {
-            if (!empty($this->userCols)) {
+            if ($userId > 0 && !empty($this->userCols)) {
                 $col = $this->has($this->userCols, 'rol') ? 'rol' : ($this->has($this->userCols, 'role') ? 'role' : null);
                 if ($col) {
                     $row = $this->db->table('usuarios')->select($col)->where('id', $userId)->get()->getRowArray();
@@ -58,7 +71,8 @@ class SoporteController extends BaseController
             }
         } catch (\Throwable $e) {}
 
-        return $role ?: 'produccion';
+        // si sigue vacío, NO forzar admin; default produccion
+        return $role !== '' ? $role : 'produccion';
     }
 
     private function resolveUserName(int $userId): string
@@ -67,7 +81,7 @@ class SoporteController extends BaseController
         if ($name !== '') return $name;
 
         try {
-            if (!empty($this->userCols)) {
+            if ($userId > 0 && !empty($this->userCols)) {
                 $col = $this->has($this->userCols, 'nombre') ? 'nombre' : ($this->has($this->userCols, 'name') ? 'name' : null);
                 if ($col) {
                     $row = $this->db->table('usuarios')->select($col)->where('id', $userId)->get()->getRowArray();
@@ -79,7 +93,7 @@ class SoporteController extends BaseController
         return '';
     }
 
-    // ✅ MIME seguro (sin finfo_file /tmp) + compatible PHP 7.x (sin match)
+    // ✅ MIME seguro (sin finfo_file /tmp) compatible hosting
     private function safeMimeFromUpload($file): string
     {
         $m = '';
@@ -120,10 +134,24 @@ class SoporteController extends BaseController
             if (!count($imgs) && isset($files['images[]']) && is_array($files['images[]'])) $imgs = $files['images[]'];
         }
 
-        // limpia nulos
         $out = [];
         foreach ($imgs as $f) if ($f) $out[] = $f;
         return $out;
+    }
+
+    // ✅ Debug opcional
+    public function whoami()
+    {
+        $userId = (int)(session('user_id') ?? 0);
+        $roleSession = (string)(session('rol') ?? '');
+        $roleResolved = $this->resolveRole($userId);
+
+        return $this->response->setJSON([
+            'user_id' => $userId,
+            'session_rol' => $roleSession,
+            'resolved_rol' => $roleResolved,
+            'nombre' => (string)(session('nombre') ?? ''),
+        ]);
     }
 
     // ✅ Vista
@@ -138,14 +166,20 @@ class SoporteController extends BaseController
     public function tickets()
     {
         try {
+            $userId = (int)(session('user_id') ?? 0);
+            if ($userId <= 0) return $this->response->setStatusCode(401)->setJSON(['error' => 'Sesión inválida']);
+
             if (empty($this->ticketCols)) {
                 return $this->response->setStatusCode(500)->setJSON(['error' => 'Tabla support_tickets no existe']);
             }
 
-            $userId = (int)(session('user_id') ?? 0);
-            $role   = $this->resolveRole($userId);
+            $role = $this->resolveRole($userId);
 
-            $b = $this->db->table('support_tickets');
+            $want = ['id','ticket_code','order_id','status','user_id','assigned_to','assigned_at','assigned_name','user_name','created_at','updated_at'];
+            $sel  = array_values(array_intersect($want, $this->ticketCols));
+            if (!in_array('id', $sel, true)) $sel[] = 'id';
+
+            $b = $this->db->table('support_tickets')->select(implode(',', $sel));
 
             if ($role !== 'admin' && $this->has($this->ticketCols, 'user_id')) {
                 $b->where('user_id', $userId);
@@ -171,7 +205,10 @@ class SoporteController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'tickets() ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON(['error' => 'Error interno cargando tickets']);
+            return $this->response->setStatusCode(500)->setJSON([
+                'error' => 'Error interno cargando tickets',
+                'debug' => $e->getMessage()
+            ]);
         }
     }
 
@@ -179,9 +216,11 @@ class SoporteController extends BaseController
     public function ticket($id)
     {
         try {
-            $id     = (int)$id;
             $userId = (int)(session('user_id') ?? 0);
-            $role   = $this->resolveRole($userId);
+            if ($userId <= 0) return $this->response->setStatusCode(401)->setJSON(['error' => 'Sesión inválida']);
+
+            $id   = (int)$id;
+            $role = $this->resolveRole($userId);
 
             $t = $this->db->table('support_tickets')->where('id', $id)->get()->getRowArray();
             if (!$t) return $this->response->setStatusCode(404)->setJSON(['error' => 'Ticket no encontrado']);
@@ -192,7 +231,12 @@ class SoporteController extends BaseController
 
             $messages = [];
             if (!empty($this->msgCols)) {
+                $mwant = ['id','ticket_id','sender','message','created_at'];
+                $msel  = array_values(array_intersect($mwant, $this->msgCols));
+                if (!in_array('id', $msel, true)) $msel[] = 'id';
+
                 $messages = $this->db->table('support_messages')
+                    ->select(implode(',', $msel))
                     ->where('ticket_id', $id)
                     ->orderBy('id', 'ASC')
                     ->get()->getResultArray();
@@ -206,7 +250,12 @@ class SoporteController extends BaseController
 
             $grouped = [];
             if (!empty($this->attCols)) {
+                $awant = ['id','ticket_id','message_id','filename','mime','created_at'];
+                $asel  = array_values(array_intersect($awant, $this->attCols));
+                if (!in_array('id', $asel, true)) $asel[] = 'id';
+
                 $atts = $this->db->table('support_attachments')
+                    ->select(implode(',', $asel))
                     ->where('ticket_id', $id)
                     ->orderBy('id', 'ASC')
                     ->get()->getResultArray();
@@ -239,21 +288,25 @@ class SoporteController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'ticket() ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON(['error' => 'Error interno abriendo ticket']);
+            return $this->response->setStatusCode(500)->setJSON([
+                'error' => 'Error interno abriendo ticket',
+                'debug' => $e->getMessage()
+            ]);
         }
     }
 
-    // ✅ POST /soporte/ticket (crear - produccion)
+    // ✅ POST /soporte/ticket (crear - producción)
     public function create()
     {
         try {
+            $userId = (int)(session('user_id') ?? 0);
+            if ($userId <= 0) return $this->response->setStatusCode(401)->setJSON(['error' => 'Sesión inválida']);
+
             if (empty($this->ticketCols) || empty($this->msgCols)) {
-                return $this->response->setStatusCode(500)->setJSON(['error' => 'Faltan tablas soporte']);
+                return $this->response->setStatusCode(500)->setJSON(['error' => 'Faltan tablas support_tickets o support_messages']);
             }
 
-            $userId = (int)(session('user_id') ?? 0);
-            $role   = $this->resolveRole($userId);
-
+            $role = $this->resolveRole($userId);
             if ($role === 'admin') {
                 return $this->response->setStatusCode(403)->setJSON(['error' => 'Admin no crea tickets']);
             }
@@ -263,7 +316,7 @@ class SoporteController extends BaseController
             $imgs = $this->getUploadsArray();
 
             if ($message === '' && count($imgs) === 0) {
-                return $this->response->setStatusCode(400)->setJSON(['error' => 'Escribe un mensaje o adjunta una imagen']);
+                return $this->response->setStatusCode(400)->setJSON(['error' => 'Mensaje o imagen requerida']);
             }
 
             $now = date('Y-m-d H:i:s');
@@ -274,7 +327,7 @@ class SoporteController extends BaseController
 
             $this->db->transStart();
 
-            $this->db->table('support_tickets')->insert([
+            $ticketData = [
                 'ticket_code' => 'TCK-TMP',
                 'user_id' => $userId,
                 'user_name' => ($userName !== '' ? $userName : null),
@@ -282,18 +335,26 @@ class SoporteController extends BaseController
                 'status' => 'open',
                 'created_at' => $now,
                 'updated_at' => $now,
-            ]);
+            ];
+            $ticketData = $this->onlyExisting($ticketData, $this->ticketCols);
+
+            $this->db->table('support_tickets')->insert($ticketData);
             $ticketId = (int)$this->db->insertID();
 
             $ticketCode = 'TCK-' . str_pad((string)$ticketId, 6, '0', STR_PAD_LEFT);
-            $this->db->table('support_tickets')->where('id', $ticketId)->update(['ticket_code' => $ticketCode]);
+            if ($this->has($this->ticketCols, 'ticket_code')) {
+                $this->db->table('support_tickets')->where('id', $ticketId)->update(['ticket_code' => $ticketCode]);
+            }
 
-            $this->db->table('support_messages')->insert([
+            $msgData = [
                 'ticket_id' => $ticketId,
                 'sender' => 'user',
                 'message' => $message,
                 'created_at' => $now
-            ]);
+            ];
+            $msgData = $this->onlyExisting($msgData, $this->msgCols);
+
+            $this->db->table('support_messages')->insert($msgData);
             $msgId = (int)$this->db->insertID();
 
             if (!empty($this->attCols) && count($imgs)) {
@@ -307,13 +368,16 @@ class SoporteController extends BaseController
                         continue;
                     }
 
-                    $this->db->table('support_attachments')->insert([
+                    $att = [
                         'ticket_id' => $ticketId,
                         'message_id' => $msgId,
                         'filename' => $newName,
                         'mime' => $this->safeMimeFromUpload($img),
                         'created_at' => $now
-                    ]);
+                    ];
+                    $att = $this->onlyExisting($att, $this->attCols);
+
+                    $this->db->table('support_attachments')->insert($att);
                 }
             }
 
@@ -323,11 +387,17 @@ class SoporteController extends BaseController
                 return $this->response->setStatusCode(500)->setJSON(['error' => 'No se pudo crear el ticket']);
             }
 
-            return $this->response->setJSON(['ticket_id' => $ticketId, 'ticket_code' => $ticketCode]);
+            return $this->response->setJSON([
+                'ticket_id' => $ticketId,
+                'ticket_code' => $ticketCode
+            ]);
 
         } catch (\Throwable $e) {
             log_message('error', 'create() ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON(['error' => 'Error interno creando ticket']);
+            return $this->response->setStatusCode(500)->setJSON([
+                'error' => 'Error interno creando ticket',
+                'debug' => $e->getMessage()
+            ]);
         }
     }
 
@@ -335,13 +405,15 @@ class SoporteController extends BaseController
     public function message($id)
     {
         try {
+            $userId = (int)(session('user_id') ?? 0);
+            if ($userId <= 0) return $this->response->setStatusCode(401)->setJSON(['error' => 'Sesión inválida']);
+
             if (empty($this->msgCols)) {
                 return $this->response->setStatusCode(500)->setJSON(['error' => 'Falta tabla support_messages']);
             }
 
-            $id     = (int)$id;
-            $userId = (int)(session('user_id') ?? 0);
-            $role   = $this->resolveRole($userId);
+            $id   = (int)$id;
+            $role = $this->resolveRole($userId);
 
             $t = $this->db->table('support_tickets')->where('id', $id)->get()->getRowArray();
             if (!$t) return $this->response->setStatusCode(404)->setJSON(['error' => 'Ticket no existe']);
@@ -354,7 +426,7 @@ class SoporteController extends BaseController
             $imgs = $this->getUploadsArray();
 
             if ($message === '' && count($imgs) === 0) {
-                return $this->response->setStatusCode(400)->setJSON(['error' => 'Escribe un mensaje o adjunta una imagen']);
+                return $this->response->setStatusCode(400)->setJSON(['error' => 'Mensaje o imagen requerida']);
             }
 
             $now = date('Y-m-d H:i:s');
@@ -365,12 +437,15 @@ class SoporteController extends BaseController
 
             $this->db->transStart();
 
-            $this->db->table('support_messages')->insert([
+            $msgData = [
                 'ticket_id' => $id,
                 'sender' => $sender,
                 'message' => $message,
                 'created_at' => $now
-            ]);
+            ];
+            $msgData = $this->onlyExisting($msgData, $this->msgCols);
+
+            $this->db->table('support_messages')->insert($msgData);
             $msgId = (int)$this->db->insertID();
 
             if (!empty($this->attCols) && count($imgs)) {
@@ -384,17 +459,22 @@ class SoporteController extends BaseController
                         continue;
                     }
 
-                    $this->db->table('support_attachments')->insert([
+                    $att = [
                         'ticket_id' => $id,
                         'message_id' => $msgId,
                         'filename' => $newName,
                         'mime' => $this->safeMimeFromUpload($img),
                         'created_at' => $now
-                    ]);
+                    ];
+                    $att = $this->onlyExisting($att, $this->attCols);
+
+                    $this->db->table('support_attachments')->insert($att);
                 }
             }
 
-            $this->db->table('support_tickets')->where('id', $id)->update(['updated_at' => $now]);
+            if ($this->has($this->ticketCols, 'updated_at')) {
+                $this->db->table('support_tickets')->where('id', $id)->update(['updated_at' => $now]);
+            }
 
             $this->db->transComplete();
 
@@ -406,64 +486,82 @@ class SoporteController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'message() ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON(['error' => 'Error interno enviando mensaje']);
+            return $this->response->setStatusCode(500)->setJSON([
+                'error' => 'Error interno enviando mensaje',
+                'debug' => $e->getMessage()
+            ]);
         }
     }
 
-    // ✅ POST /soporte/ticket/{id}/assign
+    // ✅ POST /soporte/ticket/{id}/assign (admin)
     public function assign($id)
     {
         try {
             $adminId = (int)(session('user_id') ?? 0);
+            if ($adminId <= 0) return $this->response->setStatusCode(401)->setJSON(['error' => 'Sesión inválida']);
+
             $role = $this->resolveRole($adminId);
             if ($role !== 'admin') return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
 
-            $id = (int)$id;
+            $id  = (int)$id;
             $now = date('Y-m-d H:i:s');
+
             $adminName = $this->resolveUserName($adminId);
 
-            $this->db->table('support_tickets')->where('id', $id)->update([
+            $upd = [
                 'assigned_to' => $adminId,
                 'assigned_at' => $now,
                 'assigned_name' => ($adminName !== '' ? $adminName : null),
                 'updated_at' => $now,
-            ]);
+            ];
+            $upd = $this->onlyExisting($upd, $this->ticketCols);
+
+            $this->db->table('support_tickets')->where('id', $id)->update($upd);
 
             return $this->response->setJSON(['ok' => true]);
 
         } catch (\Throwable $e) {
             log_message('error', 'assign() ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON(['error' => 'Error interno asignando caso']);
+            return $this->response->setStatusCode(500)->setJSON([
+                'error' => 'Error interno asignando caso',
+                'debug' => $e->getMessage()
+            ]);
         }
     }
 
-    // ✅ POST /soporte/ticket/{id}/status
+    // ✅ POST /soporte/ticket/{id}/status (admin)
     public function status($id)
     {
         try {
             $adminId = (int)(session('user_id') ?? 0);
+            if ($adminId <= 0) return $this->response->setStatusCode(401)->setJSON(['error' => 'Sesión inválida']);
+
             $role = $this->resolveRole($adminId);
             if ($role !== 'admin') return $this->response->setStatusCode(403)->setJSON(['error' => 'Solo admin']);
 
             $id = (int)$id;
             $status = strtolower(trim((string)$this->request->getPost('status')));
-            $allowed = ['open','in_progress','waiting_customer','resolved','closed'];
 
+            $allowed = ['open','in_progress','waiting_customer','resolved','closed'];
             if (!in_array($status, $allowed, true)) {
                 return $this->response->setStatusCode(400)->setJSON(['error' => 'Estado inválido']);
             }
 
             $now = date('Y-m-d H:i:s');
-            $this->db->table('support_tickets')->where('id', $id)->update([
-                'status' => $status,
-                'updated_at' => $now
-            ]);
+
+            $upd = ['status' => $status, 'updated_at' => $now];
+            $upd = $this->onlyExisting($upd, $this->ticketCols);
+
+            $this->db->table('support_tickets')->where('id', $id)->update($upd);
 
             return $this->response->setJSON(['ok' => true]);
 
         } catch (\Throwable $e) {
             log_message('error', 'status() ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON(['error' => 'Error interno actualizando estado']);
+            return $this->response->setStatusCode(500)->setJSON([
+                'error' => 'Error interno actualizando estado',
+                'debug' => $e->getMessage()
+            ]);
         }
     }
 
@@ -472,6 +570,7 @@ class SoporteController extends BaseController
     {
         try {
             $id = (int)$id;
+            if (empty($this->attCols)) return $this->response->setStatusCode(404)->setBody('No encontrado');
 
             $a = $this->db->table('support_attachments')->where('id', $id)->get()->getRowArray();
             if (!$a) return $this->response->setStatusCode(404)->setBody('No encontrado');

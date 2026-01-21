@@ -22,6 +22,15 @@ document.addEventListener('alpine:init', () => {
     q: '',
     adminStatus: 'open',
 
+    // ✅ Notificaciones
+    notifyEnabled: false,
+    lastMsgIdSeen: 0,
+    pollTimer: null,
+
+    // ✅ Emoji picker
+    emojiPicker: null,
+    emojiOpen: false,
+
     get isAdmin() { return this.role === 'admin'; },
 
     get filteredTickets() {
@@ -36,16 +45,125 @@ document.addEventListener('alpine:init', () => {
       }
 
       if (!this.isAdmin) return list;
-
       if (this.filter === 'unassigned') return list.filter(t => !t.assigned_to);
       if (this.filter === 'mine') return list.filter(t => String(t.assigned_to) === String(this.userId));
       return list;
     },
 
     async init() {
+      console.log('[SupportChat] role=', this.role, 'userId=', this.userId);
+
+      // notifs persisted
+      this.notifyEnabled = localStorage.getItem('support_notify') === '1' && Notification?.permission === 'granted';
+
+      // emoji picker
+      this.setupEmojiPicker();
+
       await this.loadTickets();
       const first = this.filteredTickets[0];
       if (first && first.id) await this.openTicket(first.id);
+
+      // polling para refrescar ticket abierto (y disparar notificación)
+      this.startPolling();
+    },
+
+    setupEmojiPicker() {
+      try {
+        if (!window.EmojiButton) return;
+        this.emojiPicker = new window.EmojiButton({
+          position: 'top-start',
+          zIndex: 9999
+        });
+        this.emojiPicker.on('emoji', (emoji) => {
+          this.draft = (this.draft || '') + emoji;
+        });
+      } catch (e) {
+        console.warn('Emoji picker error', e);
+      }
+    },
+
+    toggleEmojiPicker() {
+      if (!this.emojiPicker) return;
+      // abre cerca del botón (evento no llega aquí), así que lo abrimos centrado en body
+      this.emojiPicker.togglePicker(document.body);
+    },
+
+    startPolling() {
+      if (this.pollTimer) clearInterval(this.pollTimer);
+      this.pollTimer = setInterval(async () => {
+        // refresca lista cada cierto tiempo (por si llegan tickets nuevos)
+        await this.loadTickets();
+
+        // si hay un ticket abierto, refrescar y notificar
+        if (this.selectedTicketId) {
+          await this.pollOpenTicket();
+        }
+      }, 5000);
+    },
+
+    async pollOpenTicket() {
+      const { ok, data } = await this.api(`${this.endpoints.ticket}/${this.selectedTicketId}`);
+      if (!ok) return;
+
+      const newMessages = data.messages || [];
+      const last = newMessages.length ? newMessages[newMessages.length - 1] : null;
+      const lastId = last?.id ? Number(last.id) : 0;
+
+      // primera vez
+      if (!this.lastMsgIdSeen) this.lastMsgIdSeen = lastId;
+
+      // si llegó uno nuevo
+      if (lastId > this.lastMsgIdSeen) {
+        const isMine = this.isMine(last);
+
+        // actualiza UI
+        this.ticket = data.ticket || this.ticket;
+        this.messages = newMessages;
+        this.attachments = data.attachments || {};
+        this.adminStatus = this.ticket?.status || this.adminStatus;
+
+        // notifica si NO es mío
+        if (!isMine) {
+          this.notify(`Nuevo mensaje (${this.ticket?.ticket_code || 'Soporte'})`, last?.message || 'Te enviaron una imagen');
+        }
+
+        this.lastMsgIdSeen = lastId;
+        this.scrollToBottom();
+      }
+    },
+
+    notify(title, body) {
+      if (!this.notifyEnabled) return;
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+
+      try {
+        new Notification(title, { body });
+      } catch (e) {}
+    },
+
+    async toggleNotifications() {
+      if (!('Notification' in window)) {
+        this.errorText = 'Tu navegador no soporta notificaciones.';
+        return;
+      }
+
+      if (Notification.permission === 'granted') {
+        this.notifyEnabled = !this.notifyEnabled;
+        localStorage.setItem('support_notify', this.notifyEnabled ? '1' : '0');
+        return;
+      }
+
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        this.notifyEnabled = true;
+        localStorage.setItem('support_notify', '1');
+        this.notify('Notificaciones activadas', 'Te avisaré cuando llegue un mensaje.');
+      } else {
+        this.notifyEnabled = false;
+        localStorage.setItem('support_notify', '0');
+        this.errorText = 'Permiso de notificaciones denegado.';
+      }
     },
 
     async api(url, options = {}) {
@@ -61,6 +179,7 @@ document.addEventListener('alpine:init', () => {
       if (!ok) {
         this.tickets = [];
         this.errorText = data?.error || 'Error cargando tickets';
+        if (data?.debug) console.warn('[tickets debug]', data.debug);
         return;
       }
       this.tickets = Array.isArray(data) ? data : [];
@@ -78,6 +197,7 @@ document.addEventListener('alpine:init', () => {
       const { ok, data } = await this.api(`${this.endpoints.ticket}/${this.selectedTicketId}`);
       if (!ok) {
         this.errorText = data?.error || 'No se pudo abrir el ticket';
+        if (data?.debug) console.warn('[ticket debug]', data.debug);
         return;
       }
 
@@ -85,6 +205,10 @@ document.addEventListener('alpine:init', () => {
       this.messages = data.messages || [];
       this.attachments = data.attachments || {};
       this.adminStatus = this.ticket?.status || 'open';
+
+      // para notificaciones
+      const last = this.messages.length ? this.messages[this.messages.length - 1] : null;
+      this.lastMsgIdSeen = last?.id ? Number(last.id) : 0;
 
       this.scrollToBottom();
     },
@@ -99,8 +223,10 @@ document.addEventListener('alpine:init', () => {
       this.draft = '';
       this.orderId = '';
       this.files = [];
+      this.previews.forEach(p => URL.revokeObjectURL(p.url));
       this.previews = [];
       this.errorText = '';
+      this.lastMsgIdSeen = 0;
     },
 
     pickFiles(e) {
@@ -121,6 +247,7 @@ document.addEventListener('alpine:init', () => {
     },
 
     isMine(m) {
+      if (!m) return false;
       if (this.isAdmin) return m.sender === 'admin';
       return m.sender === 'user';
     },
@@ -129,7 +256,7 @@ document.addEventListener('alpine:init', () => {
       this.errorText = '';
       if (this.sending) return;
 
-      // ✅ evita /ticket/null/message
+      // evita /ticket/null/message
       if (!this.isCreating && !this.ticket) {
         this.errorText = 'Selecciona un ticket o crea uno nuevo.';
         return;
@@ -159,6 +286,7 @@ document.addEventListener('alpine:init', () => {
           const { ok, data, status } = await this.api(this.endpoints.create, { method: 'POST', body: fd });
           if (!ok) {
             this.errorText = data?.error || `Error creando ticket (${status})`;
+            if (data?.debug) console.warn('[create debug]', data.debug);
             return;
           }
 
@@ -170,6 +298,7 @@ document.addEventListener('alpine:init', () => {
           const { ok, data, status } = await this.api(`${this.endpoints.message}/${this.selectedTicketId}/message`, { method: 'POST', body: fd });
           if (!ok) {
             this.errorText = data?.error || `Error enviando mensaje (${status})`;
+            if (data?.debug) console.warn('[message debug]', data.debug);
             return;
           }
 
@@ -194,6 +323,7 @@ document.addEventListener('alpine:init', () => {
       const { ok, data } = await this.api(`${this.endpoints.assign}/${this.ticket.id}/assign`, { method: 'POST' });
       if (!ok) {
         this.errorText = data?.error || 'No se pudo aceptar el caso';
+        if (data?.debug) console.warn('[assign debug]', data.debug);
         return;
       }
 
@@ -210,6 +340,7 @@ document.addEventListener('alpine:init', () => {
       const { ok, data } = await this.api(`${this.endpoints.status}/${this.ticket.id}/status`, { method: 'POST', body: fd });
       if (!ok) {
         this.errorText = data?.error || 'No se pudo cambiar el estado';
+        if (data?.debug) console.warn('[status debug]', data.debug);
         return;
       }
 
