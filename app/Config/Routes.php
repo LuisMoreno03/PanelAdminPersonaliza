@@ -257,14 +257,14 @@ $routes->post('montaje/subir-pedido', 'MontajeController::subirPedido');
 $routes->post('montaje/return-all', 'MontajeController::returnAll');
 
 
-// ✅ Vista Por Producir
-$routes->get('por-producir', 'PorProducir::index');
+$routes->group('montaje', function($routes) {
+    $routes->get('/', 'MontajeController::index');
+    $routes->get('my-queue', 'MontajeController::myQueue');
+    $routes->post('pull', 'MontajeController::pull');
+    $routes->post('subir-pedido', 'MontajeController::subirPedido');
 
-// ✅ API Por Producir
-$routes->group('api/por-producir', static function ($routes) {
-    $routes->get('mine', 'Api\PorProducir::mine');
-    $routes->post('claim', 'Api\PorProducir::claim');     // 50/100
-    $routes->post('return', 'Api\PorProducir::returnAll');
-    $routes->post('check', 'Api\PorProducir::check');     // auto remove enviados
+    // Debug (temporal)
+    $routes->get('debug-status', 'MontajeController::debugStatus');
 });
+
 
