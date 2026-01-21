@@ -9,7 +9,6 @@ class MontajeController extends Controller
     protected $db;
     protected $table = 'pedidos';
 
-    // Columnas candidatas
     protected $estadoCandidates = [
         'estado_bd',
         'estado',
@@ -17,6 +16,8 @@ class MontajeController extends Controller
         'estado_pedido',
         'estado_produccion',
         'estado_montaje',
+        'estado_proceso',
+        'estado_general',
     ];
 
     protected $assignCandidates = [
@@ -36,7 +37,6 @@ class MontajeController extends Controller
         'montaje_fecha_asignado',
     ];
 
-    // Campos opcionales para SELECT
     protected $selectCandidates = [
         'id',
         'shopify_order_id',
@@ -63,7 +63,8 @@ class MontajeController extends Controller
         'last_status_change',
     ];
 
-    protected $fieldsMap = [];   // lower => realName
+    protected $fields = [];     // lista real
+    protected $fieldsMap = [];  // lower => real
     protected $estadoCol = null;
     protected $assignCol = null;
     protected $assignAtCol = null;
@@ -78,14 +79,17 @@ class MontajeController extends Controller
     {
         try {
             $fields = $this->db->getFieldNames($this->table);
+            $this->fields = $fields ?: [];
+
             $map = [];
-            foreach ($fields as $f) $map[strtolower($f)] = $f;
+            foreach ($this->fields as $f) $map[strtolower($f)] = $f;
             $this->fieldsMap = $map;
 
-            $this->estadoCol  = $this->pickField($this->estadoCandidates);
-            $this->assignCol  = $this->pickField($this->assignCandidates);
+            $this->estadoCol   = $this->detectEstadoCol();
+            $this->assignCol   = $this->pickField($this->assignCandidates);
             $this->assignAtCol = $this->pickField($this->assignAtCandidates);
         } catch (\Throwable $e) {
+            $this->fields = [];
             $this->fieldsMap = [];
             $this->estadoCol = null;
             $this->assignCol = null;
@@ -99,6 +103,48 @@ class MontajeController extends Controller
             $k = strtolower($c);
             if (isset($this->fieldsMap[$k])) return $this->fieldsMap[$k];
         }
+        return null;
+    }
+
+    protected function detectEstadoCol()
+    {
+        // 1) candidatos exactos
+        $exact = $this->pickField($this->estadoCandidates);
+        if ($exact) return $exact;
+
+        // 2) heurística: contiene "estado"
+        $estadoLike = [];
+        foreach ($this->fields as $f) {
+            $lf = strtolower($f);
+            if (strpos($lf, 'estado') !== false) $estadoLike[] = $f;
+        }
+        if (!empty($estadoLike)) {
+            // preferir columnas más específicas
+            usort($estadoLike, function ($a, $b) {
+                $la = strtolower($a);
+                $lb = strtolower($b);
+
+                $score = function ($x) {
+                    $x = strtolower($x);
+                    $s = 0;
+                    if (strpos($x, 'pedido') !== false) $s += 3;
+                    if (strpos($x, 'produ') !== false) $s += 2;
+                    if (strpos($x, 'mont') !== false) $s += 2;
+                    if (strpos($x, 'shopify') !== false) $s += 1;
+                    return $s;
+                };
+
+                return $score($lb) <=> $score($la);
+            });
+            return $estadoLike[0];
+        }
+
+        // 3) heurística: contiene "status"
+        foreach ($this->fields as $f) {
+            $lf = strtolower($f);
+            if (strpos($lf, 'status') !== false) return $f;
+        }
+
         return null;
     }
 
@@ -118,8 +164,7 @@ class MontajeController extends Controller
 
     protected function estadosDisenado(): array
     {
-        // si tu BD guarda sin tilde también
-        return ['Diseñado', 'Disenado', 'DISENADO', 'DISEÑADO'];
+        return ['Diseñado', 'Disenado', 'DISEÑADO', 'DISENADO'];
     }
 
     public function index()
@@ -127,10 +172,20 @@ class MontajeController extends Controller
         return view('montaje/index');
     }
 
-    // =========================
+    // ✅ DEBUG: mira columnas reales y cuál detectó
+    public function debugColumns()
+    {
+        return $this->response->setJSON([
+            'success' => true,
+            'table' => $this->table,
+            'columns' => $this->fields,
+            'estado_col_detectada' => $this->estadoCol,
+            'assign_col_detectada' => $this->assignCol,
+            'assign_at_col_detectada' => $this->assignAtCol,
+        ]);
+    }
+
     // GET /montaje/my-queue
-    // SOLO Diseñado + asignados a mí (si existe columna de asignación)
-    // =========================
     public function myQueue()
     {
         try {
@@ -138,57 +193,48 @@ class MontajeController extends Controller
                 return $this->response->setStatusCode(500)->setJSON([
                     'success' => false,
                     'message' => 'No se encontró la columna de estado en la tabla pedidos.',
+                    'columns' => $this->fields, // ✅ para que veas cómo se llama realmente
                 ]);
             }
 
             $userKey = $this->getUserKey();
 
-            // select solo columnas existentes (evita Unknown column)
             $select = [];
             foreach ($this->selectCandidates as $c) {
                 if ($this->fieldExists($c)) $select[] = $this->fieldsMap[strtolower($c)];
             }
-            // asegurar id
-            if (!$select || !in_array($this->fieldsMap['id'] ?? 'id', $select, true)) {
-                $select[] = $this->fieldExists('id') ? $this->fieldsMap['id'] : 'id';
-            }
+            if (!in_array('id', array_map('strtolower', $select), true)) $select[] = $this->fieldExists('id') ? $this->fieldsMap['id'] : 'id';
 
             $b = $this->db->table($this->table)
                 ->select(implode(',', $select))
                 ->whereIn($this->estadoCol, $this->estadosDisenado())
                 ->orderBy('id', 'DESC');
 
-            if ($this->assignCol) {
-                $b->where($this->assignCol, $userKey);
-            }
+            if ($this->assignCol) $b->where($this->assignCol, $userKey);
 
             $q = $b->get();
             if ($q === false) {
                 return $this->response->setStatusCode(500)->setJSON([
                     'success' => false,
                     'message' => 'Error consultando cola de montaje',
-                    'error'   => (string)$this->db->error()['message'],
+                    'error' => (string)$this->db->error()['message'],
                 ]);
             }
 
             return $this->response->setJSON([
                 'success' => true,
-                'orders'  => $q->getResultArray(),
+                'orders' => $q->getResultArray(),
             ]);
         } catch (\Throwable $e) {
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
                 'message' => 'Error cargando cola de montaje',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
 
-    // =========================
-    // POST /montaje/pull
-    // body: {count: 5|10}
-    // Trae pedidos Diseñado (no asignados si existe campo) y los asigna al usuario
-    // =========================
+    // POST /montaje/pull {count:5|10}
     public function pull()
     {
         try {
@@ -196,6 +242,7 @@ class MontajeController extends Controller
                 return $this->response->setStatusCode(500)->setJSON([
                     'success' => false,
                     'message' => 'No se encontró la columna de estado en la tabla pedidos.',
+                    'columns' => $this->fields,
                 ]);
             }
 
@@ -227,7 +274,7 @@ class MontajeController extends Controller
                 return $this->response->setStatusCode(500)->setJSON([
                     'success' => false,
                     'message' => 'Error consultando pedidos para pull',
-                    'error'   => (string)$this->db->error()['message'],
+                    'error' => (string)$this->db->error()['message'],
                 ]);
             }
 
@@ -238,7 +285,7 @@ class MontajeController extends Controller
                 $this->db->transComplete();
                 return $this->response->setJSON([
                     'success' => true,
-                    'pulled'  => 0,
+                    'pulled' => 0,
                     'message' => 'No hay pedidos en Diseñado disponibles.',
                 ]);
             }
@@ -258,23 +305,19 @@ class MontajeController extends Controller
 
             return $this->response->setJSON([
                 'success' => true,
-                'pulled'  => count($ids),
+                'pulled' => count($ids),
             ]);
         } catch (\Throwable $e) {
             if ($this->db->transStatus() === false) $this->db->transRollback();
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
                 'message' => 'Error haciendo pull',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
 
-    // =========================
-    // POST /montaje/subir-pedido
-    // => estado "Por producir" y sale de tu lista
-    // body JSON: { pedido_id, shopify_order_id, order_id }
-    // =========================
+    // POST /montaje/subir-pedido => Por producir y se desasigna
     public function subirPedido()
     {
         try {
@@ -282,6 +325,7 @@ class MontajeController extends Controller
                 return $this->response->setStatusCode(500)->setJSON([
                     'success' => false,
                     'message' => 'No se encontró la columna de estado en la tabla pedidos.',
+                    'columns' => $this->fields,
                 ]);
             }
 
@@ -293,7 +337,6 @@ class MontajeController extends Controller
 
             $pedido = null;
 
-            // buscar por shopify_order_id si existe la columna
             if ($shopifyId !== '' && $shopifyId !== '0' && $this->fieldExists('shopify_order_id')) {
                 $pedido = $this->db->table($this->table)->where($this->fieldsMap['shopify_order_id'], $shopifyId)->get()->getRowArray();
             }
@@ -323,18 +366,14 @@ class MontajeController extends Controller
                 $this->estadoCol => 'Por producir',
             ];
 
-            // last_status_change si existe
             if ($this->fieldExists('last_status_change')) {
                 $update[$this->fieldsMap['last_status_change']] = json_encode([
-                    'user_name'  => $userKey,
+                    'user_name' => $userKey,
                     'changed_at' => date('Y-m-d H:i:s'),
                 ], JSON_UNESCAPED_UNICODE);
             }
 
-            // desasignar para que no aparezca más en tu cola
-            if ($this->assignCol) {
-                $update[$this->assignCol] = null;
-            }
+            if ($this->assignCol) $update[$this->assignCol] = null;
 
             $this->db->table($this->table)->where('id', $id)->update($update);
 
@@ -346,7 +385,7 @@ class MontajeController extends Controller
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
                 'message' => 'Error pasando a Por producir',
-                'error'   => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
