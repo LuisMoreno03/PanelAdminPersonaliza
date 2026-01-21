@@ -268,7 +268,7 @@
              class="w-full border rounded-xl px-3 py-2">
 
       <!-- ✅ Número de placa (si lo quieres mantener opcional) -->
-      <input id="cargaNumero" type="text" placeholder="Número de placa (opcional)"
+      <input id="cargaNumero" type="text" placeholder="Productos (opcional)"
              class="w-full border rounded-xl px-3 py-2">
 
       <!-- Archivos -->
