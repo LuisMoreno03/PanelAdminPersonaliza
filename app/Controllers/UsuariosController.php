@@ -88,4 +88,4 @@ public function updatePassword()
     return redirect()->to('/usuarios')->with('success', 'Contraseña actualizada correctamente.');
 }
 }
-return view('usuarios/index');
+return view('usuarios');
