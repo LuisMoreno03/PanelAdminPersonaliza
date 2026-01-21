@@ -29,22 +29,22 @@ class SoporteController extends BaseController
         }
     }
 
-    private function has(array $cols, string $c): bool { return in_array($c, $cols, true); }
+    private function has(array $cols, string $c): bool
+    {
+        return in_array($c, $cols, true);
+    }
 
     private function normRole(?string $r): string
     {
         $r = strtolower(trim((string)$r));
-        // por si tu DB guarda "Administrador", etc.
         if ($r === 'administrator' || $r === 'administrador') return 'admin';
         return $r;
     }
 
     private function resolveRole(int $userId): string
     {
-        // 1) sesión
         $role = $this->normRole((string)(session('rol') ?? ''));
 
-        // 2) DB (si existe)
         try {
             if (!empty($this->userCols)) {
                 $col = $this->has($this->userCols, 'rol') ? 'rol' : ($this->has($this->userCols, 'role') ? 'role' : null);
@@ -79,7 +79,7 @@ class SoporteController extends BaseController
         return '';
     }
 
-    // ✅ IMPORTANTÍSIMO: no usa finfo_file => no depende de /tmp
+    // ✅ MIME seguro (sin finfo_file /tmp) + compatible PHP 7.x (sin match)
     private function safeMimeFromUpload($file): string
     {
         $m = '';
@@ -88,18 +88,18 @@ class SoporteController extends BaseController
         if ($m !== '') return $m;
 
         $ext = strtolower((string)$file->getClientExtension());
-        return match ($ext) {
-            'png'  => 'image/png',
-            'webp' => 'image/webp',
-            'gif'  => 'image/gif',
-            'jpeg', 'jpg' => 'image/jpeg',
-            default => 'application/octet-stream',
-        };
+        switch ($ext) {
+            case 'png':  return 'image/png';
+            case 'webp': return 'image/webp';
+            case 'gif':  return 'image/gif';
+            case 'jpeg':
+            case 'jpg':  return 'image/jpeg';
+            default:     return 'application/octet-stream';
+        }
     }
 
     private function getUploadsArray(): array
     {
-        // Lee bien tanto images como images[]
         $imgs = [];
 
         try {
@@ -115,17 +115,18 @@ class SoporteController extends BaseController
         }
 
         if (!count($imgs)) {
-            // fallback ultra seguro
             $files = $this->request->getFiles();
             if (isset($files['images']) && is_array($files['images'])) $imgs = $files['images'];
             if (!count($imgs) && isset($files['images[]']) && is_array($files['images[]'])) $imgs = $files['images[]'];
         }
 
-        // limpiar nulos
-        return array_values(array_filter($imgs, fn($f) => $f));
+        // limpia nulos
+        $out = [];
+        foreach ($imgs as $f) if ($f) $out[] = $f;
+        return $out;
     }
 
-    // ✅ VISTA
+    // ✅ Vista
     public function chat()
     {
         $userId = (int)(session('user_id') ?? 0);
@@ -189,7 +190,6 @@ class SoporteController extends BaseController
                 return $this->response->setStatusCode(403)->setJSON(['error' => 'Sin permisos']);
             }
 
-            // mensajes
             $messages = [];
             if (!empty($this->msgCols)) {
                 $messages = $this->db->table('support_messages')
@@ -204,7 +204,6 @@ class SoporteController extends BaseController
                 }
             }
 
-            // adjuntos agrupados por message_id
             $grouped = [];
             if (!empty($this->attCols)) {
                 $atts = $this->db->table('support_attachments')
@@ -225,7 +224,6 @@ class SoporteController extends BaseController
                 }
             }
 
-            // normalizar ticket
             $t['ticket_code']   = $t['ticket_code'] ?? ('TCK-' . str_pad((string)$id, 6, '0', STR_PAD_LEFT));
             $t['status']        = $t['status'] ?? 'open';
             $t['order_id']      = $t['order_id'] ?? null;
@@ -245,7 +243,7 @@ class SoporteController extends BaseController
         }
     }
 
-    // ✅ POST /soporte/ticket (crear ticket - produccion)
+    // ✅ POST /soporte/ticket (crear - produccion)
     public function create()
     {
         try {
@@ -262,7 +260,6 @@ class SoporteController extends BaseController
 
             $message = trim((string)$this->request->getPost('message'));
             $orderId = trim((string)$this->request->getPost('order_id'));
-
             $imgs = $this->getUploadsArray();
 
             if ($message === '' && count($imgs) === 0) {
@@ -270,7 +267,6 @@ class SoporteController extends BaseController
             }
 
             $now = date('Y-m-d H:i:s');
-
             $dir = WRITEPATH . 'uploads/support';
             if (!is_dir($dir)) @mkdir($dir, 0775, true);
 
@@ -305,7 +301,11 @@ class SoporteController extends BaseController
                     if (!$img || !$img->isValid()) continue;
 
                     $newName = $img->getRandomName();
-                    if (!$img->move($dir, $newName)) continue;
+                    try {
+                        if (!$img->move($dir, $newName)) continue;
+                    } catch (\Throwable $e) {
+                        continue;
+                    }
 
                     $this->db->table('support_attachments')->insert([
                         'ticket_id' => $ticketId,
@@ -323,10 +323,7 @@ class SoporteController extends BaseController
                 return $this->response->setStatusCode(500)->setJSON(['error' => 'No se pudo crear el ticket']);
             }
 
-            return $this->response->setJSON([
-                'ticket_id' => $ticketId,
-                'ticket_code' => $ticketCode
-            ]);
+            return $this->response->setJSON(['ticket_id' => $ticketId, 'ticket_code' => $ticketCode]);
 
         } catch (\Throwable $e) {
             log_message('error', 'create() ERROR: {msg}', ['msg' => $e->getMessage()]);
@@ -381,7 +378,11 @@ class SoporteController extends BaseController
                     if (!$img || !$img->isValid()) continue;
 
                     $newName = $img->getRandomName();
-                    if (!$img->move($dir, $newName)) continue;
+                    try {
+                        if (!$img->move($dir, $newName)) continue;
+                    } catch (\Throwable $e) {
+                        continue;
+                    }
 
                     $this->db->table('support_attachments')->insert([
                         'ticket_id' => $id,
@@ -447,6 +448,7 @@ class SoporteController extends BaseController
             $id = (int)$id;
             $status = strtolower(trim((string)$this->request->getPost('status')));
             $allowed = ['open','in_progress','waiting_customer','resolved','closed'];
+
             if (!in_array($status, $allowed, true)) {
                 return $this->response->setStatusCode(400)->setJSON(['error' => 'Estado inválido']);
             }

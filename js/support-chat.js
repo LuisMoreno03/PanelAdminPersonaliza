@@ -1,11 +1,9 @@
 document.addEventListener('alpine:init', () => {
   Alpine.data('supportChat', () => ({
-    // session/env
     role: (String(window.SUPPORT?.role || '')).toLowerCase().trim(),
     userId: Number(window.SUPPORT?.userId || 0),
     endpoints: (window.SUPPORT?.endpoints || {}),
 
-    // ui state
     tickets: [],
     selectedTicketId: null,
     ticket: null,
@@ -20,20 +18,9 @@ document.addEventListener('alpine:init', () => {
     sending: false,
     errorText: '',
 
-    // admin filters
     filter: 'unassigned',
     q: '',
     adminStatus: 'open',
-
-    // notifications
-    notifyEnabled: (localStorage.getItem('supportNotify') === '1'),
-    lastMsgIdByTicket: {},
-
-    // emojis
-    showEmoji: false,
-    quickEmojis: ['😀','😅','😂','😍','😎','🤝','🙏','🔥','✅','⚠️','❌','📦','🖼️','📝','📌','🚀'],
-
-    pollTimer: null,
 
     get isAdmin() { return this.role === 'admin'; },
 
@@ -56,19 +43,11 @@ document.addEventListener('alpine:init', () => {
     },
 
     async init() {
-      // normaliza rol (por si viene "Admin")
-      this.role = (this.role || '').toLowerCase().trim();
-
       await this.loadTickets();
-
-      // abre primero si existe
       const first = this.filteredTickets[0];
       if (first && first.id) await this.openTicket(first.id);
-
-      this.startPolling();
     },
 
-    // ---------- helpers fetch ----------
     async api(url, options = {}) {
       const r = await fetch(url, options);
       let data = {};
@@ -76,17 +55,14 @@ document.addEventListener('alpine:init', () => {
       return { ok: r.ok, status: r.status, data };
     },
 
-    // -------- API ----------
     async loadTickets() {
       this.errorText = '';
       const { ok, data } = await this.api(this.endpoints.tickets);
-
       if (!ok) {
         this.tickets = [];
         this.errorText = data?.error || 'Error cargando tickets';
         return;
       }
-
       this.tickets = Array.isArray(data) ? data : [];
     },
 
@@ -110,10 +86,6 @@ document.addEventListener('alpine:init', () => {
       this.attachments = data.attachments || {};
       this.adminStatus = this.ticket?.status || 'open';
 
-      // guardar último id para notificar solo nuevos
-      const last = this.messages[this.messages.length - 1];
-      if (last?.id) this.lastMsgIdByTicket[this.selectedTicketId] = last.id;
-
       this.scrollToBottom();
     },
 
@@ -135,41 +107,20 @@ document.addEventListener('alpine:init', () => {
       const list = Array.from(e.target.files || []);
       this.files = list;
 
-      // previews tipo whatsapp
       this.previews.forEach(p => URL.revokeObjectURL(p.url));
-      this.previews = list.map(f => ({
-        name: f.name,
-        url: URL.createObjectURL(f),
-      }));
+      this.previews = list.map(f => ({ name: f.name, url: URL.createObjectURL(f) }));
 
-      // reset input para permitir seleccionar el mismo archivo otra vez
       e.target.value = '';
     },
 
     removePreview(idx) {
       const p = this.previews[idx];
       if (p?.url) URL.revokeObjectURL(p.url);
-
       this.previews.splice(idx, 1);
       this.files.splice(idx, 1);
     },
 
-    addEmoji(e) {
-      this.draft = (this.draft || '') + e;
-    },
-
-    handleEnter(ev) {
-      // Enter envía / Shift+Enter salto
-      if (ev.shiftKey) {
-        this.draft += '\n';
-        return;
-      }
-      this.send();
-    },
-
     isMine(m) {
-      // producción: sender=user es mío
-      // admin: sender=admin es mío
       if (this.isAdmin) return m.sender === 'admin';
       return m.sender === 'user';
     },
@@ -177,6 +128,12 @@ document.addEventListener('alpine:init', () => {
     async send() {
       this.errorText = '';
       if (this.sending) return;
+
+      // ✅ evita /ticket/null/message
+      if (!this.isCreating && !this.ticket) {
+        this.errorText = 'Selecciona un ticket o crea uno nuevo.';
+        return;
+      }
 
       const hasText = (this.draft || '').trim().length > 0;
       const hasFiles = this.files.length > 0;
@@ -195,13 +152,11 @@ document.addEventListener('alpine:init', () => {
         fd.append('order_id', (this.orderId || '').trim());
       }
 
-      // IMPORTANTE: usar images[] para PHP, CI lo leerá como images
       this.files.forEach(f => fd.append('images[]', f));
 
       try {
         if (this.isCreating) {
           const { ok, data, status } = await this.api(this.endpoints.create, { method: 'POST', body: fd });
-
           if (!ok) {
             this.errorText = data?.error || `Error creando ticket (${status})`;
             return;
@@ -213,7 +168,6 @@ document.addEventListener('alpine:init', () => {
           await this.loadTicket();
         } else {
           const { ok, data, status } = await this.api(`${this.endpoints.message}/${this.selectedTicketId}/message`, { method: 'POST', body: fd });
-
           if (!ok) {
             this.errorText = data?.error || `Error enviando mensaje (${status})`;
             return;
@@ -223,13 +177,11 @@ document.addEventListener('alpine:init', () => {
           await this.loadTickets();
         }
 
-        // limpiar
         this.draft = '';
         this.orderId = '';
         this.files = [];
         this.previews.forEach(p => URL.revokeObjectURL(p.url));
         this.previews = [];
-        this.showEmoji = false;
 
       } finally {
         this.sending = false;
@@ -265,65 +217,6 @@ document.addEventListener('alpine:init', () => {
       await this.loadTickets();
     },
 
-    // -------- polling + notificaciones ----------
-    startPolling() {
-      this.stopPolling();
-      this.pollTimer = setInterval(async () => {
-        // recarga ticket abierto
-        if (this.selectedTicketId) {
-          const beforeId = this.lastMsgIdByTicket[this.selectedTicketId] || 0;
-
-          await this.loadTicket();
-
-          const last = this.messages[this.messages.length - 1];
-          const afterId = last?.id || 0;
-
-          if (this.notifyEnabled && afterId && afterId > beforeId) {
-            // notifica solo si el último mensaje NO es mío
-            if (last && !this.isMine(last)) {
-              this.notify(`Nuevo mensaje · ${this.ticket?.ticket_code || 'Soporte'}`, last.message || '📷 Imagen');
-            }
-            this.lastMsgIdByTicket[this.selectedTicketId] = afterId;
-          }
-        }
-
-        // recarga lista
-        await this.loadTickets();
-      }, 4000);
-    },
-
-    stopPolling() {
-      if (this.pollTimer) clearInterval(this.pollTimer);
-      this.pollTimer = null;
-    },
-
-    async toggleNotifications() {
-      if (!("Notification" in window)) {
-        this.errorText = 'Tu navegador no soporta notificaciones.';
-        return;
-      }
-
-      if (!this.notifyEnabled) {
-        const perm = await Notification.requestPermission();
-        if (perm !== 'granted') {
-          this.errorText = 'Permiso de notificaciones denegado.';
-          return;
-        }
-      }
-
-      this.notifyEnabled = !this.notifyEnabled;
-      localStorage.setItem('supportNotify', this.notifyEnabled ? '1' : '0');
-      this.errorText = '';
-    },
-
-    notify(title, body) {
-      try {
-        if (Notification.permission !== 'granted') return;
-        new Notification(title, { body });
-      } catch (e) {}
-    },
-
-    // -------- UI helpers ----------
     scrollToBottom() {
       this.$nextTick(() => {
         const el = this.$refs.thread;
