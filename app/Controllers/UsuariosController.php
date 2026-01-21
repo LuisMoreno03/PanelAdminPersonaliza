@@ -11,15 +11,14 @@ class UsuariosController extends BaseController
 {
 
 
-
-    // Solo muestra el botón (sin tabla)
-    return view('usuarios');
-}
-
-
+public function index()
 
 
 {
+    // Solo muestra el botón (sin tabla)
+    return view('usuarios/index');
+}
+
 public function password()
 {
     // Si tu login guarda el usuario en sesión con una clave distinta,
