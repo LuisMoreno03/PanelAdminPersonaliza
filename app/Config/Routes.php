@@ -224,7 +224,15 @@ $routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollectio
 $routes->get('rtest', static fn () => 'OK ROUTES');
 $routes->get('zz-check-routes', static fn () => 'ROUTES_OK_' . date('Y-m-d_H:i:s'));
 
+/*
+|--------------------------------------------------------------------------
+| CHAT INTERNO (PROTEGIDO)
+|--------------------------------------------------------------------------
+*/
+$routes->group('chat', ['filter' => 'auth'], static function (RouteCollection $routes) {
+    $routes->get('/', 'ChatController::index');
 
+});
 
 /*
 |--------------------------------------------------------------------------
