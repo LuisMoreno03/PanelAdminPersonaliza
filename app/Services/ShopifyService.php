@@ -91,6 +91,64 @@ class ShopifyService
     return $json['data'] ?? [];
 }
 
+public function searchOrdersByQueryPage(string $q, int $first = 100, ?string $after = null): array
+{
+    $query = <<<'GQL'
+query($q: String!, $first: Int!, $after: String) {
+  orders(query: $q, first: $first, after: $after, sortKey: CREATED_AT, reverse: false) {
+    edges {
+      cursor
+      node {
+        id
+        name
+        createdAt
+        displayFinancialStatus
+        displayFulfillmentStatus
+        tags
+        totalPriceSet { shopMoney { amount currencyCode } }
+        customer { firstName lastName }
+        lineItems(first: 1) { totalCount }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+GQL;
+
+    $data = $this->graphql($query, ['q' => $q, 'first' => $first, 'after' => $after]);
+
+    $edges = $data['orders']['edges'] ?? [];
+    $pi    = $data['orders']['pageInfo'] ?? [];
+
+    $orders = [];
+    foreach ($edges as $e) {
+        $n = $e['node'];
+
+        $orders[] = [
+            'id' => $n['id'],
+            'id_num' => $this->gidToId($n['id']),
+            'name' => $n['name'],
+            'created_at' => $n['createdAt'],
+            'financial_status' => $n['displayFinancialStatus'],
+            'fulfillment_status' => $n['displayFulfillmentStatus'],
+            'tags' => $n['tags'] ?? [],
+            'total' => (float)($n['totalPriceSet']['shopMoney']['amount'] ?? 0),
+            'currency' => $n['totalPriceSet']['shopMoney']['currencyCode'] ?? 'EUR',
+            'cliente_nombre' => trim(($n['customer']['firstName'] ?? '') . ' ' . ($n['customer']['lastName'] ?? '')) ?: '—',
+            'items_count' => (int)($n['lineItems']['totalCount'] ?? 0),
+            'cursor' => $e['cursor'] ?? null,
+        ];
+    }
+
+    return [
+        'orders' => $orders,
+        'hasNextPage' => (bool)($pi['hasNextPage'] ?? false),
+        'endCursor' => $pi['endCursor'] ?? null,
+    ];
+}
+
+
+
 public function searchOrdersByTag(string $tag, int $max = 300): array
 {
     $query = <<<'GQL'

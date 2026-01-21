@@ -44,40 +44,58 @@ class PorProducir extends BaseController
     }
 
     public function claim()
-    {
+{
+    try {
         $payload = $this->request->getJSON(true) ?? [];
         $limit = (int)($payload['limit'] ?? 50);
         if (!in_array($limit, [50, 100], true)) $limit = 50;
 
         $user = $this->currentUser();
-        $now = date('Y-m-d H:i:s');
+        $now  = date('Y-m-d H:i:s');
 
-        // 1) Pedimos a Shopify “candidatos” (un poco más para filtrar asignados)
-        //    Si tienes MUCHOS pedidos, sube el 300->500.
-        $candidates = $this->shopify->searchOrdersByTag($this->TAG_POR_PRODUCIR, 300);
-
-        // 2) Filtramos: no asignados en cola
         $claimed = [];
-        foreach ($candidates as $o) {
-            if (count($claimed) >= $limit) break;
 
-            // si está enviado, ni lo metemos
-            if ($this->isEnviado($o)) continue;
+        $after = null;
+        $tries = 0;
 
-            // intentamos insertar (unique por order_id evita duplicados)
-            try {
-                $this->queue->insert([
-                    'order_id' => (string)$o['id_num'],
-                    'order_name' => $o['name'] ?? null,
-                    'assigned_to' => $user,
-                    'assigned_at' => $now,
-                ]);
+        // ✅ Loop: seguimos pidiendo páginas hasta llenar el cupo o no haya más
+        while (count($claimed) < $limit && $tries < 20) {
+            $tries++;
 
-                $claimed[] = $o;
-            } catch (\Throwable $e) {
-                // ya estaba asignado por otro usuario, lo saltamos
-                continue;
+            // ✅ IMPORTANTE: status:any para que no falten pedidos
+            $page = $this->shopify->searchOrdersByQueryPage(
+                'tag:"Por producir" status:any',
+                100,
+                $after
+            );
+
+            $orders = $page['orders'] ?? [];
+            $after  = $page['endCursor'] ?? null;
+            $hasNext = (bool)($page['hasNextPage'] ?? false);
+
+            foreach ($orders as $o) {
+                if (count($claimed) >= $limit) break;
+
+                // si ya está enviado, no lo metas
+                if ($this->isEnviado($o)) continue;
+
+                // insert único para que no se pisen usuarios
+                try {
+                    $this->queue->insert([
+                        'order_id'    => (string)$o['id_num'],
+                        'order_name'  => $o['name'] ?? null,
+                        'assigned_to' => $user,
+                        'assigned_at' => $now,
+                    ]);
+                    $claimed[] = $o;
+                } catch (\Throwable $e) {
+                    // duplicado / ya asignado -> saltar
+                    continue;
+                }
             }
+
+            if (!$hasNext) break;
+            if (!$after) break;
         }
 
         return $this->response->setJSON([
@@ -85,7 +103,16 @@ class PorProducir extends BaseController
             'claimed' => count($claimed),
             'data' => $claimed,
         ]);
+
+    } catch (\Throwable $e) {
+        log_message('error', 'PorProducir claim error: ' . $e->getMessage());
+        return $this->response->setStatusCode(500)->setJSON([
+            'ok' => false,
+            'error' => $e->getMessage(), // en prod puedes ocultarlo
+        ]);
     }
+}
+
 
     public function returnAll()
     {
