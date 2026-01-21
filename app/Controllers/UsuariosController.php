@@ -7,7 +7,7 @@ use CodeIgniter\HTTP\ResponseInterface;
 use App\Models\PedidoImagenModel;
 use App\Models\PedidosEstadoModel;
 
-class RepetirController extends Controller
+class UsuariosController extends Controller
 {
     private string $shop = '';
     private string $token = '';
