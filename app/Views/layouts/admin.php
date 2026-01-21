@@ -6,10 +6,10 @@
 
   <title><?= esc($title ?? 'Panel') ?></title>
 
-  <!-- Shepherd (vendor local) -->
-  <link rel="stylesheet" href="<?= base_url('assets/vendor/shepherd/shepherd.css') ?>">
+  <!-- Shepherd CSS -->
+  <link rel="stylesheet" href="<?= base_url('css/vendor/shepherd/shepherd.css') ?>">
   <!-- Tu tema -->
-  <link rel="stylesheet" href="<?= base_url('assets/css/tour.css') ?>">
+  <link rel="stylesheet" href="<?= base_url('css/tour.css') ?>">
 
   <?= $this->renderSection('styles') ?>
 </head>

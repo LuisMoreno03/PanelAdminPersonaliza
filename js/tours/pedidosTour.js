@@ -11,7 +11,7 @@
 
   function addStepIfExists(tour, { id, title, text, selector, position = "bottom", buttons }) {
     const el = selector ? document.querySelector(selector) : null;
-    if (selector && !el) return; // si no existe, no añade el paso
+    if (selector && !el) return;
 
     tour.addStep({
       id,
@@ -32,13 +32,13 @@
     const tour = new Shepherd.Tour({
       defaultStepOptions: {
         cancelIcon: { enabled: true },
-        modalOverlayOpeningPadding: 8,
-        modalOverlayOpeningRadius: 10,
         useModalOverlay: true,
+        modalOverlayOpeningPadding: 8,
+        modalOverlayOpeningRadius: 10
       },
     });
 
-    const buttons = {
+    const b = {
       next: { text: "Siguiente", action: tour.next },
       back: { text: "Atrás", action: tour.back, classes: "shepherd-button-secondary" },
       skip: { text: "Saltar", action: tour.cancel, classes: "shepherd-button-secondary" },
@@ -48,73 +48,61 @@
     tour.on("complete", setSeen);
     tour.on("cancel", setSeen);
 
-    // 1) Bienvenida
     addStepIfExists(tour, {
       id: "welcome",
-      title: "Bienvenido al panel",
+      title: "Tutorial de Pedidos",
       text: `
         <div>
-          <p>Este tutorial te muestra para qué sirve cada parte de <b>Pedidos</b>.</p>
-          <p>Puedes <b>Saltar</b> el tour cuando quieras.</p>
+          <p>Te muestro para qué sirve cada parte de esta pantalla.</p>
+          <p>Puedes <b>saltar</b> cuando quieras.</p>
         </div>
       `,
       selector: null,
-      buttons: [buttons.skip, buttons.next],
+      buttons: [b.skip, b.next],
     });
 
-    // 2) Título
     addStepIfExists(tour, {
       id: "page-title",
-      title: "Sección: Pedidos",
-      text: `
-        <div>
-          <p>Aquí controlas pedidos, cambios, estados y totales.</p>
-        </div>
-      `,
+      title: "Sección Pedidos",
+      text: `<div><p>Aquí controlas estados, cambios, entrega y totales.</p></div>`,
       selector: '[data-tour="page-title"]',
       position: "bottom",
-      buttons: [buttons.back, buttons.next],
+      buttons: [b.back, b.next],
     });
 
-    // 3) Filtros
     addStepIfExists(tour, {
       id: "filters",
       title: "Filtros",
       text: `
         <div>
-          <p>Esta zona sirve para encontrar pedidos rápido:</p>
+          <p>Zona para localizar pedidos rápido:</p>
           <ul style="margin:8px 0 0 16px;">
-            <li><b>Buscar</b>: por pedido/cliente/ID</li>
+            <li><b>Buscar</b>: pedido/cliente/ID</li>
             <li><b>Filtro</b>: opciones avanzadas (estado, fecha, entrega)</li>
           </ul>
         </div>
       `,
       selector: '[data-tour="filters"]',
       position: "bottom",
-      buttons: [buttons.back, buttons.next],
+      buttons: [b.back, b.next],
     });
 
     addStepIfExists(tour, {
       id: "search-input",
-      title: "Búsqueda",
-      text: `
-        <div>
-          <p>Escribe el número de pedido o el nombre del cliente.</p>
-          <p>Ejemplo: <b>#PEDIDO010769</b> o “Marina”.</p>
-        </div>
-      `,
+      title: "Campo de búsqueda",
+      text: `<div><p>Escribe un número de pedido o el nombre del cliente.</p></div>`,
       selector: '[data-tour="search-input"]',
       position: "bottom",
-      buttons: [buttons.back, buttons.next],
+      buttons: [b.back, b.next],
     });
 
     addStepIfExists(tour, {
       id: "search-button",
       title: "Botón BUSCAR",
-      text: `<div><p>Ejecuta la búsqueda con lo que hayas escrito.</p></div>`,
+      text: `<div><p>Ejecuta la búsqueda con el texto introducido.</p></div>`,
       selector: '[data-tour="search-button"]',
       position: "bottom",
-      buttons: [buttons.back, buttons.next],
+      buttons: [b.back, b.next],
     });
 
     addStepIfExists(tour, {
@@ -123,69 +111,52 @@
       text: `<div><p>Abre filtros avanzados para acotar el listado.</p></div>`,
       selector: '[data-tour="filter-button"]',
       position: "left",
-      buttons: [buttons.back, buttons.next],
+      buttons: [b.back, b.next],
     });
 
-    // 4) Tabla
     addStepIfExists(tour, {
       id: "orders-table",
       title: "Listado de pedidos",
       text: `
         <div>
-          <p>En el listado ves la información clave:</p>
+          <p>Aquí ves la información clave:</p>
           <ul style="margin:8px 0 0 16px;">
-            <li><b>Pedido / Fecha / Cliente</b></li>
-            <li><b>Método de entrega</b></li>
-            <li><b>Estado</b> (producción)</li>
-            <li><b>Último cambio</b></li>
-            <li><b>Entrega</b> y <b>Total</b></li>
+            <li>Pedido / Fecha / Cliente</li>
+            <li>Método de entrega</li>
+            <li>Estado y último cambio</li>
+            <li>Entrega y total</li>
           </ul>
         </div>
       `,
       selector: '[data-tour="orders-table"]',
       position: "top",
-      buttons: [buttons.back, buttons.next],
+      buttons: [b.back, b.next],
     });
 
-    // 5) Estados (si existen en DOM)
     addStepIfExists(tour, {
       id: "estado-produccion",
       title: "Estado de producción",
-      text: `
-        <div>
-          <p>Indica en qué punto está el pedido (ej. Diseñado / Confirmado / Por preparar).</p>
-        </div>
-      `,
+      text: `<div><p>Indica en qué punto está el pedido (Diseñado, Confirmado, Por preparar…).</p></div>`,
       selector: '[data-tour="estado-produccion"]',
       position: "top",
-      buttons: [buttons.back, buttons.next],
+      buttons: [b.back, b.next],
     });
 
     addStepIfExists(tour, {
       id: "estado-entrega",
       title: "Estado de entrega",
-      text: `
-        <div>
-          <p>Indica el estado logístico (pendiente, enviado, etc.).</p>
-        </div>
-      `,
+      text: `<div><p>Indica el estado logístico (pendiente, enviado, entregado…).</p></div>`,
       selector: '[data-tour="estado-entrega"]',
       position: "top",
-      buttons: [buttons.back, buttons.next],
+      buttons: [b.back, b.next],
     });
 
-    // 6) Final
     addStepIfExists(tour, {
       id: "done",
       title: "Listo ✅",
-      text: `
-        <div>
-          <p>Ya sabes qué hace cada parte de la sección.</p>
-          <p>Si quieres repetirlo, pulsa el botón <b>¿Cómo funciona?</b>.</p>
-        </div>
-      `,
+      text: `<div><p>Si quieres verlo otra vez, pulsa <b>¿Cómo funciona?</b>.</p></div>`,
       selector: null,
-      buttons: [buttons.back, buttons.done],
+      buttons: [b.back, b.done],
     });
 
     return tour;
@@ -193,18 +164,13 @@
 
   function start({ force = false } = {}) {
     if (!force && hasSeen()) return;
-
     const tour = buildTour();
     if (!tour) return;
     tour.start();
   }
 
-  // Arranque automático al cargar la página
   document.addEventListener("DOMContentLoaded", function () {
     start();
-
-    // Botón para relanzar
-    const helpBtn = document.getElementById("btn-ayuda");
-    if (helpBtn) helpBtn.addEventListener("click", () => start({ force: true }));
+    document.getElementById("btn-ayuda")?.addEventListener("click", () => start({ force: true }));
   });
 })();
