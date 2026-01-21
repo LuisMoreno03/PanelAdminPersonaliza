@@ -100,7 +100,7 @@
   function readFiltersFromUI() {
     const v = (id) => (document.getElementById(id)?.value ?? "").toString().trim();
 
-    FILTERS.q = v("f_q");
+    FILTERS.q = v("f_q_top") || v("f_q");
     FILTERS.estado = v("f_estado");
     FILTERS.envio = v("f_envio");
     FILTERS.forma = v("f_forma");
@@ -193,6 +193,27 @@
         if (e.key === "Enter") runApply();
       });
     }
+      // ✅ buscador top (siempre visible)
+  const qTop = document.getElementById("f_q_top");
+  const btnBuscarTop = document.getElementById("btnBuscarTop");
+
+  const runApplyTop = () => {
+    readFiltersFromUI();
+
+    if (filterMode) pauseLive();
+    else resumeLiveIfOnFirstPage();
+
+    resetToFirstPage({ withFetch: true });
+  };
+
+  if (btnBuscarTop) btnBuscarTop.addEventListener("click", runApplyTop);
+
+  if (qTop) {
+    qTop.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") runApplyTop();
+    });
+  }
+
   }
 
   /* =====================================================

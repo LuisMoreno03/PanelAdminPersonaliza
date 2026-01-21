@@ -140,26 +140,44 @@
           </div>
         </section>
         <!-- FILTROS -->
+       <!-- FILTROS -->
         <section class="mb-6">
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
-            <div class="flex items-center justify-between gap-3">
-              <div class="font-extrabold text-slate-900 text-lg">Filtros</div>
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
 
+              <!-- IZQUIERDA: TITULO + BUSCADOR TOP -->
+              <div class="flex items-center gap-3 w-full">
+                <div class="font-extrabold text-slate-900 text-lg whitespace-nowrap">Filtros</div>
+
+                <!-- ✅ Buscador siempre visible -->
+                <div class="flex items-center gap-2 w-full sm:max-w-[520px]">
+                  <div class="relative flex-1">
+                    <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">🔎</span>
+                    <input id="f_q_top" type="text" placeholder="Buscar pedido, cliente, ID…"
+                      class="w-full rounded-2xl border border-slate-200 pl-11 pr-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
+                  </div>
+
+                  <button id="btnBuscarTop"
+                    type="button"
+                    class="px-4 py-3 rounded-2xl bg-blue-600 text-white text-xs font-extrabold uppercase tracking-wide hover:bg-blue-700">
+                    Buscar
+                  </button>
+                </div>
+              </div>
+
+              <!-- DERECHA: BOTON FILTRO -->
               <button id="btnToggleFiltros"
                 type="button"
-                class="px-4 py-2 rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 text-xs font-extrabold uppercase tracking-wide hover:bg-slate-100">
-                Mostrar / Ocultar
+                class="px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 text-xs font-extrabold uppercase tracking-wide hover:bg-slate-100 whitespace-nowrap">
+                Filtro
               </button>
             </div>
 
-            <div id="boxFiltros" class="mt-4">
+            <!-- ✅ Panel completo oculto por defecto -->
+            <div id="boxFiltros" class="mt-4 hidden">
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
 
-                <div>
-                  <label class="text-xs font-extrabold text-slate-600 uppercase">Buscar</label>
-                  <input id="f_q" type="text" placeholder="Pedido, cliente, ID…"
-                    class="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
-                </div>
+                <!-- ❌ Quitamos el buscador viejo (f_q) porque ya está arriba -->
 
                 <div>
                   <label class="text-xs font-extrabold text-slate-600 uppercase">Estado interno</label>
@@ -253,6 +271,7 @@
             </div>
           </div>
         </section>
+
 
         <!-- PEDIDOS -->
         <section class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
