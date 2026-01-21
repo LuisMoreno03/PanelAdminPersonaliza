@@ -25,12 +25,17 @@
 
     .prod-grid-cols {
       grid-template-columns:
-        110px 115px minmax(100px, 1fr) 95px 185px 145px 180px 180px 120px 110px;
+        110px 115px minmax(100px, 1fr) 95px 185px 145px 180px 180px 120px_toggle 110px;
     }
+    /* ↑ Si tu Producción ya tiene prod-grid-cols correcto, cópialo tal cual.
+       Si esto te rompe, reemplaza por el que usas en Producción. */
 
     .layout { transition: padding-left .2s ease; padding-left: 16rem; }
     .layout.menu-collapsed { padding-left: 5.25rem; }
     @media (max-width: 768px) { .layout, .layout.menu-collapsed { padding-left: 0 !important; } }
+
+    .tag-mini{display:inline-flex;align-items:center;padding:.2rem .55rem;border-radius:999px;border:1px solid #e2e8f0;background:#f8fafc;font-size:11px;font-weight:800;color:#0f172a}
+    .tags-wrap-mini{display:flex;gap:.35rem;flex-wrap:wrap}
   </style>
 </head>
 
@@ -51,7 +56,7 @@
 
             <div class="hidden sm:flex items-center gap-2">
               <span class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
-                Pedidos: <span id="total-pedidos-top">0</span>
+                Pedidos: <span id="total-pedidos">0</span>
               </span>
             </div>
           </div>
@@ -102,7 +107,10 @@
             </div>
           </div>
 
+          <!-- LISTADO -->
           <div class="w-full">
+
+            <!-- GRID 2XL -->
             <div class="hidden 2xl:block w-full overflow-x-auto soft-scroll">
               <div class="bg-slate-50 border-b border-slate-200 min-w-[1500px]">
                 <div class="grid prod-grid-cols space-x-4 items-center gap-3 px-4 py-3
@@ -122,6 +130,7 @@
               <div id="tablaPedidos" class="min-w-[1500px]"></div>
             </div>
 
+            <!-- TABLE XL -->
             <div class="hidden xl:block 2xl:hidden w-full overflow-x-auto soft-scroll">
               <table class="min-w-[1500px] w-full text-sm">
                 <thead class="bg-slate-50 sticky space-x-4 top-0 z-10 border-b border-slate-200">
@@ -138,22 +147,20 @@
                     <th class="px-5 py-4 text-right">Detalles</th>
                   </tr>
                 </thead>
-
                 <tbody id="tablaPedidosTable" class="divide-y divide-slate-100 text-slate-800"></tbody>
               </table>
             </div>
 
+            <!-- CARDS <XL -->
             <div id="cardsPedidos" class="block xl:hidden p-3"></div>
+
           </div>
 
           <div class="px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div class="text-xs text-slate-500">
-              Consejo: en desktop verás grid/tabla; en móvil verás tarjetas.
-            </div>
-
+            <div class="text-xs text-slate-500">Consejo: en desktop verás grid/tabla; en móvil verás tarjetas.</div>
             <div class="flex items-center gap-2">
               <span class="px-4 py-2 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm">
-                Total: <span id="total-pedidos-bottom">0</span>
+                Total: <span id="total-pedidos">0</span>
               </span>
             </div>
           </div>
@@ -163,6 +170,11 @@
       </div>
     </div>
   </main>
+
+  <!-- ✅ Modales (los mismos que usas en Producción) -->
+  <?= view('layouts/modal_detalles') ?>
+  <?= view('layouts/modal_info_cliente') ?>
+  <?= view('layouts/modales_estados') ?>
 
   <!-- LOADER -->
   <div id="globalLoader" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]">

@@ -257,3 +257,15 @@ $routes->post('montaje/return-all', 'MontajeController::returnAll');
 $routes->post('montaje/cargado', 'MontajeController::cargado');
 
 
+// ✅ Vista Por producir
+$routes->get('por-producir', 'PorProducir::index');
+
+// ✅ API Por producir
+$routes->group('api/por-producir', static function ($routes) {
+    $routes->get('mine', 'Api\PorProducir::mine');
+    $routes->post('claim', 'Api\PorProducir::claim');     // 50/100
+    $routes->post('return', 'Api\PorProducir::returnAll');
+    $routes->post('check', 'Api\PorProducir::check');     // auto remover enviados
+});
+
+
