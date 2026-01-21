@@ -154,6 +154,8 @@ public function users(): ResponseInterface
         LIMIT 300
     ", [$adminId, $adminId])->getResultArray();
 
+    
+
     // isOnline lo setea Socket.IO en el frontend (real-time), aquí solo default
     foreach ($rows as &$r) {
         $r['isOnline'] = false;

@@ -191,9 +191,7 @@
 </section>
 
 <!-- Socket.io client -->
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js">
-
-</script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
 <script>
 (function() {
@@ -208,9 +206,10 @@
   }
 
   // ===== Config =====
-  const SOCKET_URL = "https://TU-DOMINIO-SOCKETS:3001"; // <-- cámbialo
-  const ADMIN_ID = <?= (int)session('user_id') ?>;       // <-- ajusta a tu sesión real
-  const ADMIN_NAME = "<?= esc(session('nombre') ?? 'Admin') ?>";
+ // ===== Config =====
+    const SOCKET_URL = "https://paneladministrativopersonaliza.com:3001"; // o tu subdominio real
+    const ADMIN_ID = <?= (int)session('user_id') ?>;
+    const ADMIN_NAME = "<?= esc(session('nombre') ?? 'Admin') ?>";
 
   // ===== UI refs =====
   const elUsersList = document.getElementById("usersList");
@@ -410,6 +409,7 @@
     }
   }
 
+
   // ===== Socket =====
   function initSocket() {
     socket = io(SOCKET_URL, { transports: ["websocket"] });
@@ -430,6 +430,11 @@
       }
       renderUsers(users);
     });
+
+        <?= base_url('chat/users') ?>
+        <?= base_url('chat/messages') ?>/id
+        <?= base_url('chat/send') ?>
+        <?= base_url('chat/mark-read') ?>
 
     // Mensaje entrante de usuario (para admin)
     socket.on("message:receive:admin", (payload) => {
