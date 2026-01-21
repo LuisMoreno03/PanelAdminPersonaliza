@@ -169,7 +169,6 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
         $routes->post('eliminar',  'PlacasArchivosController::eliminar');
 
         $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
-        $routes->post('lote/eliminar',  'PlacasArchivosController::eliminarLote');
 
         $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
 
@@ -212,10 +211,13 @@ $routes->group('repetir', [
 | USUARIOS (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->group('usuarios', ['filter' => 'auth'], static function (RouteCollection $routes) {
-    $routes->get('/', 'Usuario::index');
-    $routes->post('crear', 'Usuario::crear');
+$routes->group('', ['namespace' => 'App\Controllers'], function($routes) {
+    $routes->get('usuarios', 'UsuariosController::index');
+    $routes->get('usuarios/(:num)/password', 'UsuariosController::password/$1');
+    $routes->post('usuarios/(:num)/password', 'UsuariosController::updatePassword/$1');
 });
+
+
 
 /*
 |--------------------------------------------------------------------------

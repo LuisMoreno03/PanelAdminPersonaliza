@@ -54,55 +54,66 @@ public function listar()
 
 
     public function stats()
-    {
+{
+    try {
+        $db = \Config\Database::connect();
+        $tabla = 'placas_archivos';
+
+        // ✅ si la tabla no existe, devolvemos 0 sin reventar
         try {
-            $db = \Config\Database::connect();
-            $tabla = 'placas_archivos';
-
             $fields = $db->getFieldNames($tabla);
-            $hasCreatedAt = in_array('created_at', $fields, true);
+        } catch (\Throwable $e) {
+            return $this->response->setJSON([
+                'success' => true,
+                'data' => [
+                    'total' => 0,
+                    'por_dia' => []
+                ],
+                'note' => 'Tabla placas_archivos no existe aún'
+            ]);
+        }
 
-            $total = $db->table($tabla)->countAllResults();
+        $hasCreatedAt = in_array('created_at', $fields, true);
 
-            if (!$hasCreatedAt) {
-                return $this->response->setJSON([
-                    'success' => true,
-                    'data' => [
-                        'total' => $total,
-                        'por_dia' => []
-                    ]
-                ]);
-            }
+        $total = $db->table($tabla)->countAllResults();
 
-            $porDia = $db->query("
-                SELECT DATE(created_at) as dia, COUNT(*) as total
-                FROM {$tabla}
-                GROUP BY DATE(created_at)
-                ORDER BY dia DESC
-                LIMIT 14
-            ")->getResultArray();
-
+        if (!$hasCreatedAt) {
             return $this->response->setJSON([
                 'success' => true,
                 'data' => [
                     'total' => $total,
-                    'por_dia' => $porDia
+                    'por_dia' => []
                 ]
             ]);
-
-        } catch (\Throwable $e) {
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-            ]);
-            
-
-            
-
         }
+
+        $porDia = $db->query("
+            SELECT DATE(created_at) as dia, COUNT(*) as total
+            FROM {$tabla}
+            GROUP BY DATE(created_at)
+            ORDER BY dia DESC
+            LIMIT 14
+        ")->getResultArray();
+
+        return $this->response->setJSON([
+            'success' => true,
+            'data' => [
+                'total' => $total,
+                'por_dia' => $porDia
+            ]
+        ]);
+
+    } catch (\Throwable $e) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
     }
+}
+
+
 
    public function subir()
 {
@@ -395,19 +406,14 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
 
         $relative = 'uploads/placas/' . $fecha . '/lote_' . $loteId . '/' . $finalName;
 
-        $id = $archivosModel->insert([
-            'nombre'           => $nombreBase,
-            'lote_id'          => $loteId,
-            'lote_nombre'      => $loteNombre, // ✅ GUARDA TAMBIÉN EN ARCHIVOS (para listar fácil)
-            'ruta'             => $relative,
-            'original_name'    => $original,
-            'size_kb'          => $sizeKb,
-            'mime'             => $mime,
-            'fecha'            => $fecha,
-            'uploaded_by'      => $userId,
-            'uploaded_by_name' => $userName,
-            'created_at'       => $now,
+       $id = $archivosModel->insert([
+        'lote_id'     => $loteId,
+        'lote_nombre' => $loteNombre,
+        'ruta'        => $relative,
+        'mime'        => $mime,
+        'created_at'  => $now,
         ], true);
+
 
         $guardados[] = [
             'id' => $id,
@@ -427,17 +433,31 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
         'lote_nombre' => $loteNombre,
         'fecha' => $fecha,
         'items' => $guardados
-    ]);
-}
-    
-    public function listarPorDia()
+        ]);
+
+    }
+
+
+
+
+
+
+  public function listarPorDia()
 {
     try {
         helper('url');
         $db = \Config\Database::connect();
 
-        // Detectar columnas disponibles
-        $fields = $db->getFieldNames('placas_archivos');
+        // Detectar columnas disponibles (y si la tabla existe)
+        try {
+            $fields = $db->getFieldNames('placas_archivos');
+        } catch (\Throwable $e) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => 'Error leyendo estructura de placas_archivos (¿tabla no existe?)',
+                'error'   => $e->getMessage(),
+            ]);
+        }
 
         $hasNombre      = in_array('nombre', $fields, true);
         $hasOriginal     = in_array('original', $fields, true);
@@ -457,7 +477,7 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
 
         if ($hasCreatedAt) $select[] = '`created_at`';
 
-        // ✅ ORIGINAL fallback con backticks
+        // original fallback
         if ($hasOriginal || $hasOriginalName || $hasFilename) {
             $origParts = [];
             if ($hasOriginal)     $origParts[] = "NULLIF(`original`, '')";
@@ -468,14 +488,10 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
             $select[] = "NULL AS `original`";
         }
 
-        // ✅ nombre si existe
-        if ($hasNombre) {
-            $select[] = "`nombre`";
-        } else {
-            $select[] = "NULL AS `nombre`";
-        }
+        // nombre
+        $select[] = $hasNombre ? "`nombre`" : "NULL AS `nombre`";
 
-        // ✅ size fallback con backticks
+        // size fallback
         if ($hasSize || $hasSizeKb) {
             $sizeParts = [];
             if ($hasSize)   $sizeParts[] = "NULLIF(`size`, 0)";
@@ -498,12 +514,10 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
             $created = $r['created_at'] ?? null;
             $fecha = $created ? date('Y-m-d', strtotime($created)) : 'sin-fecha';
 
-           $loteId = (string)($r['lote_id'] ?? 'sin-lote');
+            $loteId = (string)($r['lote_id'] ?? 'sin-lote');
 
             $loteNombre = trim((string)($r['lote_nombre'] ?? ''));
-        if ($loteNombre === '') {
-            $loteNombre = 'Sin nombre'; // ✅ sin fallback al número
-}
+            if ($loteNombre === '') $loteNombre = 'Sin nombre';
 
             if (!isset($out[$fecha])) {
                 $out[$fecha] = [
@@ -567,7 +581,7 @@ $loteNombreManual = trim((string) $this->request->getPost('lote_nombre'));
 }
 
 
-}
+
 
 // DESCARGAR FOTOS Y ARCHIVOS JPG/PNG (FOTOS) //
 
@@ -775,3 +789,4 @@ private function descargarZipLote($loteId, $format = 'png')
         ->setFileName("lote_{$loteId}_{$format}.zip");
 }
 
+}
