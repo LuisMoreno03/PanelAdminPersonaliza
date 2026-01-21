@@ -64,7 +64,7 @@ class Auth extends BaseController
             'user_id'   => $user['id'],
             'nombre'    => $user['nombre'],
             'email'     => $user['email'],
-            'role'      => $user['role'],
+             'rol'     => strtolower(trim($user['rol'] ?? $user['role'] ?? 'produccion')), // <- CLAVE
             'logged_in' => true
         ]);
 
