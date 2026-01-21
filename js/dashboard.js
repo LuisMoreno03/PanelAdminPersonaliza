@@ -717,7 +717,8 @@
     const exact = formatDateTime(info.changed_at);
     if (exact === "—") return "—";
 
-    const user = info.user_name ? escapeHtml(info.user_name) : "—";
+    const user = info.user_name ? escapeHtml(String(info.user_name).toUpperCase()) : "—";
+
 
     return `
       <div class="leading-tight min-w-0 pointer-events-none select-none">
@@ -819,10 +820,11 @@ function actualizarTabla(pedidos) {
         const id = String(p.id ?? "");
 
         const last = p?.last_status_change?.changed_at
-          ? `${escapeHtml(p.last_status_change.user_name ?? "—")} · ${escapeHtml(
+          ? `${escapeHtml(String(p.last_status_change.user_name ?? "—").toUpperCase())} · ${escapeHtml(
               formatDateTime(p.last_status_change.changed_at)
             )}`
           : "—";
+
 
         return `
         <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
