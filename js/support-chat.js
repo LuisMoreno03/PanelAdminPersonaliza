@@ -16,36 +16,30 @@ window.supportChat = function () {
     isCreating: false,
     draft: '',
     orderId: '',
-
-    // preview
     files: [],
     sending: false,
 
-    // admin
-    filter: 'unassigned',
+    filter: 'all',
     q: '',
     adminStatus: 'open',
 
-    // polling
     pollTimer: null,
 
-    // notifications
     notifyEnabled: (localStorage.getItem('support_notify') === '1'),
     lastMaxMsgId: 0,
 
-    // emoji
     emojiOpen: false,
     emojis: ["😀","😁","😂","🤣","😊","😍","😘","😎","🤔","😅","😭","😡","👍","👎","🙏","👏","🔥","🎉","✅","❌","⭐","💡","🛠️","📦","📌","📎","📷","🧾","💬","🧠","🕒","🚀","❤️","💚","💛","💙","🤝","🙌","🤯","😴","🥳"],
 
     get isAdmin() {
       const r = String(this.role || '').toLowerCase();
-      return (r.includes('admin') || r === 'administrador' || r === 'administrator' || r === 'superadmin' || r === 'root' || r === '1');
+      return (r.includes('admin') || r === 'administrador' || r === 'superadmin' || r === 'root' || r === '1');
     },
 
     get filteredTickets() {
       let list = Array.isArray(this.tickets) ? this.tickets : [];
-
       const s = this.q.trim().toLowerCase();
+
       if (s) {
         list = list.filter(t =>
           String(t.ticket_code || '').toLowerCase().includes(s) ||
@@ -61,11 +55,10 @@ window.supportChat = function () {
     },
 
     async init() {
-      // si entras como admin, por defecto ves TODO
-      if (this.isAdmin) this.filter = 'all';
+      // si admin: por defecto ver todo
+      this.filter = this.isAdmin ? 'all' : 'mine';
 
       await this.loadTickets();
-
       const first = this.filteredTickets[0];
       if (first && first.id) await this.openTicket(first.id);
 
@@ -167,14 +160,14 @@ window.supportChat = function () {
         const data = await r.json().catch(() => null);
 
         if (!r.ok) {
-          console.error('[SupportChat] tickets error', r.status, data);
+          console.error('[SupportChat] loadTickets error', r.status, data);
           this.tickets = [];
           return;
         }
 
         this.tickets = Array.isArray(data) ? data : [];
       } catch (e) {
-        console.error('[SupportChat] tickets exception', e);
+        console.error('[SupportChat] loadTickets exception', e);
         this.tickets = [];
       }
     },
@@ -193,7 +186,7 @@ window.supportChat = function () {
         const data = await r.json().catch(() => ({}));
 
         if (!r.ok) {
-          console.error('[SupportChat] ticket error', r.status, data);
+          console.error('[SupportChat] loadTicket error', r.status, data);
           alert(data?.error || 'No se pudo abrir el ticket');
           return;
         }
@@ -203,7 +196,7 @@ window.supportChat = function () {
         this.attachments = data.attachments || {};
         this.adminStatus = (this.ticket && this.ticket.status) ? this.ticket.status : 'open';
 
-        // 🔔 detectar mensaje nuevo (del otro lado)
+        // notify incoming
         const maxId = this.messages.reduce((acc, m) => Math.max(acc, Number(m.id || 0)), 0);
         if (this.lastMaxMsgId && maxId > this.lastMaxMsgId) {
           const last = this.messages.find(m => Number(m.id) === maxId) || this.messages[this.messages.length - 1];
@@ -212,14 +205,13 @@ window.supportChat = function () {
           const incoming = this.isAdmin ? (sender === 'user') : (sender === 'admin');
           if (incoming) {
             const txt = String(last?.message || '').trim();
-            const body = txt ? txt.slice(0, 80) : '📷 Imagen / adjunto';
+            const body = txt ? txt.slice(0, 90) : '📷 Imagen / adjunto';
             this.notify(`Nuevo mensaje · ${this.ticket?.ticket_code || 'Soporte'}`, body);
           }
         }
         this.lastMaxMsgId = maxId;
 
         this.scrollToBottom();
-
       } catch (e) {
         console.error('[SupportChat] loadTicket exception', e);
         alert('Error interno abriendo ticket');
@@ -237,8 +229,7 @@ window.supportChat = function () {
 
       if (this.isCreating && this.orderId.trim()) fd.append('order_id', this.orderId.trim());
 
-      // ⚠️ name="images[]" en PHP suele ser más compatible:
-      // lo enviamos como images[] (y el controller lo lee como images[])
+      // name images[] (CI4 normalmente lo lee con getFileMultiple('images'))
       this.files.forEach(x => fd.append('images[]', x.file));
 
       try {
