@@ -154,6 +154,12 @@ public function users(): ResponseInterface
         LIMIT 300
     ", [$adminId, $adminId])->getResultArray();
 
+        <?= base_url('chat/users') ?>
+        <?= base_url('chat/messages') ?>/id
+        <?= base_url('chat/send') ?>
+        <?= base_url('chat/mark-read') ?>
+
+
     // isOnline lo setea Socket.IO en el frontend (real-time), aquí solo default
     foreach ($rows as &$r) {
         $r['isOnline'] = false;

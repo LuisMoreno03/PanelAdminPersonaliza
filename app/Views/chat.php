@@ -191,9 +191,7 @@
 </section>
 
 <!-- Socket.io client -->
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js">
-
-</script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
 <script>
 (function() {
@@ -208,7 +206,7 @@
   }
 
   // ===== Config =====
-  const SOCKET_URL = "https://TU-DOMINIO-SOCKETS:3001"; // <-- cámbialo
+  const SOCKET_URL = "https://paneladministrativopersonaliza.com:3001";
   const ADMIN_ID = <?= (int)session('user_id') ?>;       // <-- ajusta a tu sesión real
   const ADMIN_NAME = "<?= esc(session('nombre') ?? 'Admin') ?>";
 
