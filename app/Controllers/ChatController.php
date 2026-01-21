@@ -108,124 +108,210 @@ class ChatController extends Controller
 
 
 
-    public function cambiarClave(): ResponseInterface
+public function users(): ResponseInterface
 {
     if (!session()->get('logged_in')) {
-        return $this->response->setStatusCode(401)->setJSON([
-            'ok' => false,
-            'message' => 'No autenticado',
-            'csrf' => csrf_hash(),
-        ]);
+        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
     }
 
-    $userId = (int) (session()->get('user_id') ?? 0);
-    if ($userId <= 0) {
-        return $this->response->setStatusCode(401)->setJSON([
-            'ok' => false,
-            'message' => 'Sesión inválida (sin user_id).',
-            'csrf' => csrf_hash(),
-        ]);
+    $adminId = (int)(session()->get('user_id') ?? 0);
+    if ($adminId <= 0) {
+        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
     }
 
-    $data = $this->request->getJSON(true);
-    if (!is_array($data)) $data = [];
-
-    $currentPassword = trim((string)($data['currentPassword'] ?? ''));
-    $newPassword     = trim((string)($data['newPassword'] ?? ''));
-
-    if ($currentPassword === '' || $newPassword === '') {
-        return $this->response->setStatusCode(400)->setJSON([
-            'ok' => false,
-            'message' => 'Completa todos los campos.',
-            'csrf' => csrf_hash(),
-        ]);
-    }
-
-    if (strlen($newPassword) < 8) {
-        return $this->response->setStatusCode(400)->setJSON([
-            'ok' => false,
-            'message' => 'La nueva clave debe tener al menos 8 caracteres.',
-            'csrf' => csrf_hash(),
-        ]);
-    }
-
-    if ($currentPassword === $newPassword) {
-        return $this->response->setStatusCode(400)->setJSON([
-            'ok' => false,
-            'message' => 'La nueva clave no puede ser igual a la actual.',
-            'csrf' => csrf_hash(),
-        ]);
-    }
-
-   try {
     $db = \Config\Database::connect();
-    $table = $db->table('users');
 
-    $user = $table->select('id, password')
-                  ->where('id', $userId)
-                  ->get()
-                  ->getRowArray();
+    // Ajusta si tienes un campo role distinto
+    // Aquí asumo que users tiene: id, nombre, email, role
+    $rows = $db->query("
+        SELECT 
+            u.id,
+            u.nombre AS name,
+            u.email,
 
-    if (!$user) {
-        return $this->response->setStatusCode(404)->setJSON([
-            'ok' => false,
-            'message' => 'Usuario no encontrado.',
-            'csrf' => csrf_hash(),
-        ]);
-    }
+            -- último mensaje (texto)
+            (
+              SELECT m.message
+              FROM chat_conversations c
+              JOIN chat_messages m ON m.conversation_id = c.id
+              WHERE c.user_id = u.id AND c.admin_id = ?
+              ORDER BY m.id DESC
+              LIMIT 1
+            ) AS lastMessage,
 
-    $stored = (string)($user['password'] ?? '');
+            -- no leídos (solo mensajes del usuario)
+            (
+              SELECT COUNT(*)
+              FROM chat_conversations c
+              JOIN chat_messages m ON m.conversation_id = c.id
+              WHERE c.user_id = u.id AND c.admin_id = ?
+                AND m.sender_type = 'user'
+                AND m.read_at IS NULL
+            ) AS unread
+        FROM users u
+        WHERE (u.role IS NULL OR u.role <> 'admin')  -- ajusta esto a tu sistema
+        ORDER BY unread DESC, u.id DESC
+        LIMIT 300
+    ", [$adminId, $adminId])->getResultArray();
 
-    // Detectar bcrypt (hash)
-    $isBcrypt = str_starts_with($stored, '$2y$')
-             || str_starts_with($stored, '$2a$')
-             || str_starts_with($stored, '$2b$');
-
-    // Validar clave actual (hash o texto plano)
-    $okCurrent = $isBcrypt
-        ? password_verify($currentPassword, $stored)
-        : hash_equals($stored, $currentPassword);
-
-    if (!$okCurrent) {
-        return $this->response->setStatusCode(401)->setJSON([
-            'ok' => false,
-            'message' => 'La clave actual no es correcta.',
-            'csrf' => csrf_hash(),
-        ]);
-    }
-
-    // Guardar SIEMPRE como hash seguro
-    $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
-
-    $ok = $table->where('id', $userId)->update([
-        'password' => $newHash,
-        'password_changed_at' => date('Y-m-d H:i:s'),
-    ]);
-
-    if (!$ok) {
-        return $this->response->setStatusCode(500)->setJSON([
-            'ok' => false,
-            'message' => 'No se pudo guardar la nueva clave.',
-            'csrf' => csrf_hash(),
-        ]);
+    // isOnline lo setea Socket.IO en el frontend (real-time), aquí solo default
+    foreach ($rows as &$r) {
+        $r['isOnline'] = false;
+        $r['unread'] = (int)($r['unread'] ?? 0);
+        $r['lastMessage'] = (string)($r['lastMessage'] ?? '');
     }
 
     return $this->response->setJSON([
         'ok' => true,
-        'message' => 'Clave actualizada correctamente.',
-        'csrf' => csrf_hash(),
-    ]);
-
-} catch (\Throwable $e) {
-    log_message('error', 'cambiarClave ERROR: ' . $e->getMessage());
-
-    return $this->response->setStatusCode(500)->setJSON([
-        'ok' => false,
-        'message' => 'Error interno actualizando clave.',
+        'users' => $rows,
         'csrf' => csrf_hash(),
     ]);
 }
 
+public function messages($userId): ResponseInterface
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
+    }
+
+    $adminId = (int)(session()->get('user_id') ?? 0);
+    $userId  = (int)$userId;
+
+    if ($adminId <= 0 || $userId <= 0) {
+        return $this->response->setStatusCode(400)->setJSON(['ok'=>false, 'message'=>'IDs inválidos', 'csrf'=>csrf_hash()]);
+    }
+
+    $db = \Config\Database::connect();
+
+    // Buscar o crear conversación
+    $conv = $db->query("
+        SELECT id FROM chat_conversations
+        WHERE user_id = ? AND admin_id = ?
+        LIMIT 1
+    ", [$userId, $adminId])->getRowArray();
+
+    if (!$conv) {
+        $db->query("
+            INSERT INTO chat_conversations (user_id, admin_id, created_at, updated_at)
+            VALUES (?, ?, NOW(), NOW())
+        ", [$userId, $adminId]);
+
+        $convId = (int)$db->insertID();
+    } else {
+        $convId = (int)$conv['id'];
+    }
+
+    $msgs = $db->query("
+        SELECT sender_type, message, DATE_FORMAT(created_at, '%d/%m/%Y %H:%i') AS created_at
+        FROM chat_messages
+        WHERE conversation_id = ?
+        ORDER BY id ASC
+        LIMIT 500
+    ", [$convId])->getResultArray();
+
+    return $this->response->setJSON([
+        'ok' => true,
+        'messages' => $msgs,
+        'csrf' => csrf_hash(),
+    ]);
 }
 
+
+public function send(): ResponseInterface
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
+    }
+
+    $adminId = (int)(session()->get('user_id') ?? 0);
+    if ($adminId <= 0) {
+        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
+    }
+
+    $data = $this->request->getJSON(true);
+    $userId = (int)($data['userId'] ?? 0);
+    $message = trim((string)($data['message'] ?? ''));
+
+    if ($userId <= 0 || $message === '') {
+        return $this->response->setStatusCode(400)->setJSON([
+            'ok' => false,
+            'message' => 'Datos incompletos.',
+            'csrf' => csrf_hash()
+        ]);
+    }
+
+    $db = \Config\Database::connect();
+
+    // Conversación
+    $conv = $db->query("
+        SELECT id FROM chat_conversations
+        WHERE user_id = ? AND admin_id = ?
+        LIMIT 1
+    ", [$userId, $adminId])->getRowArray();
+
+    if (!$conv) {
+        $db->query("
+            INSERT INTO chat_conversations (user_id, admin_id, created_at, updated_at)
+            VALUES (?, ?, NOW(), NOW())
+        ", [$userId, $adminId]);
+
+        $convId = (int)$db->insertID();
+    } else {
+        $convId = (int)$conv['id'];
+    }
+
+    $db->query("
+        INSERT INTO chat_messages (conversation_id, sender_type, sender_id, message, created_at)
+        VALUES (?, 'admin', ?, ?, NOW())
+    ", [$convId, $adminId, $message]);
+
+    $db->query("UPDATE chat_conversations SET updated_at = NOW() WHERE id = ?", [$convId]);
+
+    return $this->response->setJSON([
+        'ok' => true,
+        'createdAt' => date('d/m/Y H:i'),
+        'csrf' => csrf_hash(),
+    ]);
+}
+
+
+public function markRead(): ResponseInterface
+{
+    if (!session()->get('logged_in')) {
+        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
+    }
+
+    $adminId = (int)(session()->get('user_id') ?? 0);
+    if ($adminId <= 0) {
+        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
+    }
+
+    $data = $this->request->getJSON(true);
+    $userId = (int)($data['userId'] ?? 0);
+
+    if ($userId <= 0) {
+        return $this->response->setStatusCode(400)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
+    }
+
+    $db = \Config\Database::connect();
+
+    $conv = $db->query("
+        SELECT id FROM chat_conversations
+        WHERE user_id = ? AND admin_id = ?
+        LIMIT 1
+    ", [$userId, $adminId])->getRowArray();
+
+    if (!$conv) {
+        return $this->response->setJSON(['ok'=>true, 'csrf'=>csrf_hash()]);
+    }
+
+    $db->query("
+        UPDATE chat_messages
+        SET read_at = NOW()
+        WHERE conversation_id = ?
+          AND sender_type = 'user'
+          AND read_at IS NULL
+    ", [(int)$conv['id']]);
+
+    return $this->response->setJSON(['ok'=>true, 'csrf'=>csrf_hash()]);
 }
