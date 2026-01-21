@@ -50,55 +50,7 @@ class UsuariosController extends Controller
         $this->apiVersion = trim($this->apiVersion ?: '2025-10');
     }
 
-    // =====================================================
-    // CONFIG LOADERS  dashboard
-    // =====================================================
-
-    private function loadShopifyFromConfig(): void
-    {
-        try {
-            $cfg = config('Shopify');
-            if (!$cfg) return;
-
-            $this->shop       = (string) ($cfg->shop ?? $cfg->SHOP ?? $this->shop);
-            $this->token      = (string) ($cfg->token ?? $cfg->TOKEN ?? $this->token);
-            $this->apiVersion = (string) ($cfg->apiVersion ?? $cfg->version ?? $cfg->API_VERSION ?? $this->apiVersion);
-        } catch (\Throwable $e) {
-            log_message('error', 'DRepetirController loadShopifyFromConfig ERROR: ' . $e->getMessage());
-        }
-    }
-
-    private function loadShopifyFromEnv(): void
-    {
-        try {
-            $shop  = (string) env('SHOPIFY_STORE_DOMAIN');
-            $token = (string) env('SHOPIFY_ADMIN_TOKEN');
-            $ver   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
-
-            if (!empty(trim($shop)))  $this->shop = $shop;
-            if (!empty(trim($token))) $this->token = $token;
-            if (!empty(trim($ver)))   $this->apiVersion = $ver;
-        } catch (\Throwable $e) {
-            log_message('error', 'UsuariosController loadShopifyFromEnv ERROR: ' . $e->getMessage());
-        }
-    }
-
-    private function loadShopifySecretsFromFile(): void
-    {
-        try {
-            $path = '/home/u756064303/.secrets/shopify.php';
-            if (!is_file($path)) return;
-
-            $cfg = require $path;
-            if (!is_array($cfg)) return;
-
-            $this->shop       = (string) ($cfg['shop'] ?? $this->shop);
-            $this->token      = (string) ($cfg['token'] ?? $this->token);
-            $this->apiVersion = (string) ($cfg['apiVersion'] ?? $cfg['version'] ?? $this->apiVersion);
-        } catch (\Throwable $e) {
-            log_message('error', 'UsuariosController loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
-        }
-    }
+   
 
     // =====================================================
     // HELPERS    
