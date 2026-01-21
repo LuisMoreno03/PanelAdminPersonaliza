@@ -172,13 +172,18 @@ function renderPedidos(pedidos) {
 
   wrap.innerHTML = "";
 
-  if (!Array.isArray(pedidos) || !pedidos.length) {
+  // ✅ Ocultar cancelados en la lista (por si backend los devuelve)
+  const visibles = Array.isArray(pedidos)
+    ? pedidos.filter((p) => !String(p?.estado || "").toLowerCase().includes("cancel"))
+    : [];
+
+  if (!visibles.length) {
     wrap.innerHTML = `<div class="p-8 text-center text-slate-500">No hay pedidos</div>`;
     setTextSafe("total-pedidos", 0);
     return;
   }
 
-  pedidos.forEach((p) => {
+  visibles.forEach((p) => {
     const row = document.createElement("div");
     row.className = "orders-grid cols px-4 py-3 border-b items-center";
 
@@ -205,10 +210,26 @@ function renderPedidos(pedidos) {
 
     const orderKey = p.shopify_order_id || p.id;
 
+    // ✅ Ahora el # pedido y el cliente abren detalles
     row.innerHTML = `
-      <div class="font-extrabold">${escapeHtml(numero)}</div>
+      <div>
+        <button type="button"
+          onclick="verDetalles('${escapeHtml(orderKey)}')"
+          class="text-left font-extrabold text-slate-900 hover:underline cursor-pointer">
+          ${escapeHtml(numero)}
+        </button>
+      </div>
+
       <div>${escapeHtml(fecha || "—")}</div>
-      <div class="truncate">${escapeHtml(cliente)}</div>
+
+      <div class="truncate">
+        <button type="button"
+          onclick="verDetalles('${escapeHtml(orderKey)}')"
+          class="text-left font-bold text-slate-900 hover:underline cursor-pointer truncate">
+          ${escapeHtml(cliente)}
+        </button>
+      </div>
+
       <div class="font-bold">${total.toFixed(2)} €</div>
       <div>${estadoPill}</div>
       <div>${escapeHtml(p.estado_por || "—")}</div>
@@ -216,18 +237,17 @@ function renderPedidos(pedidos) {
       <div class="text-center">${escapeHtml(p.articulos || "—")}</div>
       <div>${envioPill}</div>
       <div class="truncate">${escapeHtml(p.forma_envio || "-")}</div>
-      <div class="text-right">
-        <button type="button" onclick="verDetalles('${escapeHtml(orderKey)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-          Ver detalles →
-        </button>
-      </div>
+
+      <!-- ✅ Columna final: ya no hay botón -->
+      <div class="text-right"></div>
     `;
+
     wrap.appendChild(row);
   });
 
-  setTextSafe("total-pedidos", pedidos.length);
+  setTextSafe("total-pedidos", visibles.length);
 }
+
 
 /* =====================================================
    CARGA / ACCIONES
@@ -902,6 +922,15 @@ function actualizarResumenAuto() {
       <div class="${ok === total ? "text-emerald-600" : "text-amber-600"} font-bold">
         ${ok === total ? "🟢 Todo listo" : "🟡 Faltan imágenes"}
       </div>
+
+      <!-- ✅ Botón cancelar debajo de la confirmación -->
+      <div class="mt-4">
+        <button type="button"
+          onclick="cancelarPedidoActual()"
+          class="px-4 py-2 rounded-2xl bg-rose-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-rose-700 transition">
+          Cancelar pedido
+        </button>
+      </div>
     `
   );
 }
@@ -909,7 +938,7 @@ function actualizarResumenAuto() {
 /* =====================================================
    GUARDAR ESTADO (backend)
 ===================================================== */
-window.guardarEstado = async function (orderId, nuevoEstado) {
+window.guardarEstado = async function (orderId, nuevoEstado, opts = {}) {
   const endpoints = [
     window.API?.guardarEstado,
     "/api/estado/guardar",
@@ -918,6 +947,12 @@ window.guardarEstado = async function (orderId, nuevoEstado) {
   ].filter(Boolean);
 
   let lastErr = null;
+
+  // ✅ por defecto: mantener asignado SOLO si es "Faltan archivos"
+  const mantener_asignado =
+    typeof opts?.mantener_asignado === "boolean"
+      ? opts.mantener_asignado
+      : String(nuevoEstado || "").toLowerCase().includes("faltan");
 
   for (const url of endpoints) {
     try {
@@ -929,9 +964,7 @@ window.guardarEstado = async function (orderId, nuevoEstado) {
           order_id: String(orderId),
           id: String(orderId),
           estado: String(nuevoEstado),
-
-          // CLAVE para que tu backend NO desasigne al poner "Faltan archivos"
-          mantener_asignado: true,
+          mantener_asignado,
         }),
       });
 
@@ -948,6 +981,39 @@ window.guardarEstado = async function (orderId, nuevoEstado) {
 
   console.error("guardarEstado failed:", lastErr);
   return false;
+};
+
+
+
+window.cancelarPedidoActual = async function () {
+  const oid = String(pedidoActualId || "");
+  if (!oid) return;
+
+  if (!confirm("¿Seguro que deseas CANCELAR este pedido? Pasará a estado 'Cancelado' y se quitará de tu lista.")) {
+    return;
+  }
+
+  setLoader(true);
+
+  try {
+    const ok = await window.guardarEstado(oid, "Cancelado", { mantener_asignado: false });
+    if (!ok) throw new Error("No se pudo guardar el estado.");
+
+    // actualizar cache local
+    const pedidoLocal = Array.isArray(pedidosCache)
+      ? pedidosCache.find((p) => String(p.shopify_order_id) === oid || String(p.id) === oid)
+      : null;
+
+    if (pedidoLocal) pedidoLocal.estado = "Cancelado";
+
+    await cargarMiCola();        // recarga lista
+    cerrarModalDetalles();       // cierra modal
+  } catch (e) {
+    console.error("cancelarPedidoActual error:", e);
+    alert("Error cancelando pedido: " + (e?.message || e));
+  } finally {
+    setLoader(false);
+  }
 };
 
 /* =====================================================
