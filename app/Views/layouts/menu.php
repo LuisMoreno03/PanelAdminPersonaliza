@@ -274,6 +274,8 @@
           </a>
 
           <!-- ✅ Montaje (nuevo debajo de Diseño) -->
+           <div
+        aria-disabled="true">
           <a href="<?= base_url('montaje') ?>"
              @click="close()"
              class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
@@ -287,16 +289,19 @@
             </span>
             <span class="text-sm font-semibold text-white/90">Montaje</span>
           </a>
-
+          </div>
         </div>
       </div>
 
       <?php $item(base_url('placas'),   $isActive('placas'),   'Placas',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4 8 4 8-4zm0 0v10l-8 4-8-4V7m8 4v10"/></svg>'
       ); ?>
+      <div
+        aria-disabled="true">
       <?php $item(base_url('por-producir'), $isActive('por-producir'), 'Por Producir',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 13h8V3H3v10zm10 8h8V11h-8v10zM3 21h8v-6H3v6zm10-18h8v6h-8V3z"/></svg>'
       ); ?>
+      </div>
       <?php $item(base_url('repetir'), $isActive('repetir'), 'Repetir Pedidos',
         '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>'
       ); ?>
