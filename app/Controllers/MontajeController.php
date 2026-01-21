@@ -2,508 +2,449 @@
 
 namespace App\Controllers;
 
-use CodeIgniter\Controller;
+use App\Controllers\BaseController;
+use App\Models\PedidosEstadoModel;
 
-class MontajeController extends Controller
+class MontajeController extends BaseController
 {
-    protected $db;
-    protected $table = 'pedidos';
+    // ✅ Montaje toma pedidos que estén en Diseñado
+    private string $estadoEntrada = 'Diseñado';
 
-    public function __construct()
-    {
-        $this->db = \Config\Database::connect();
-    }
+    // ✅ Al marcar "Cargado" pasan a Por producir
+    private string $estadoSalida = 'Por producir';
 
-    // =========================
-    // VIEW
-    // =========================
     public function index()
     {
-        // Tu vista actual (si ya la tienes, deja esto igual)
-        return view('montaje/index');
+        return view('montaje'); // tu vista montaje
     }
 
     // =========================
-    // API: MY QUEUE (solo Diseñado + asignados a mí)
     // GET /montaje/my-queue
     // =========================
     public function myQueue()
     {
-        try {
-            [$estadoCol, $assignCol] = $this->resolveColumns();
-            if (!$estadoCol) {
-                return $this->jsonFail("No se pudo detectar la columna de estado en la tabla {$this->table}.");
-            }
-
-            $userKey = $this->getUserKey();
-
-            $builder = $this->db->table($this->table);
-
-            // Filtro por estado "Diseñado" (tolerante a Diseñ/Disen, mayúsculas/minúsculas)
-            $this->whereEstadoDisenado($builder, $estadoCol);
-
-            // Si existe columna de asignación, filtramos por mi usuario
-            if ($assignCol && $userKey !== null && $userKey !== '') {
-                $builder->where($assignCol, $userKey);
-            }
-
-            // Orden (si existe updated_at o id)
-            $fields = $this->db->getFieldNames($this->table);
-            if (in_array('updated_at', $fields, true)) $builder->orderBy('updated_at', 'DESC');
-            elseif (in_array('id', $fields, true)) $builder->orderBy('id', 'DESC');
-
-            // Selección segura de campos existentes
-            $select = $this->buildSafeSelect($fields, $estadoCol);
-
-            $rows = $builder->select($select)->limit(200)->get()->getResultArray();
-
-            // Normaliza salida para el JS
-            $orders = array_map(function ($r) use ($estadoCol) {
-                return $this->normalizeOrderRow($r, $estadoCol);
-            }, $rows);
-
-            return $this->jsonOk([
-                'orders' => $orders,
-                'meta' => [
-                    'estado_col' => $estadoCol,
-                    'assign_col' => $assignCol,
-                    'user_key'   => $this->safeMeta($this->getUserKey()),
-                ],
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'ok' => false,
+                'error' => 'No autenticado',
             ]);
+        }
+
+        $userId = (int)(session('user_id') ?? 0);
+        if (!$userId) {
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Sin user_id en sesión',
+            ]);
+        }
+
+        try {
+            $db = \Config\Database::connect();
+
+            // ✅ detectar columnas reales
+            $fields = $db->getFieldNames('pedidos') ?? [];
+            $hasEstadoEnvio = in_array('estado_envio', $fields, true);
+            $hasFulfillment = in_array('fulfillment_status', $fields, true);
+
+            // ✅ condición NO ENVIADOS
+            $condNoEnviados = "";
+            if ($hasEstadoEnvio) {
+                $condNoEnviados = "
+                    AND (
+                        p.estado_envio IS NULL
+                        OR TRIM(COALESCE(p.estado_envio,'')) = ''
+                        OR LOWER(TRIM(p.estado_envio)) = 'unfulfilled'
+                    )
+                ";
+            } elseif ($hasFulfillment) {
+                $condNoEnviados = "
+                    AND (
+                        p.fulfillment_status IS NULL
+                        OR TRIM(COALESCE(p.fulfillment_status,'')) = ''
+                        OR LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'
+                    )
+                ";
+            }
+
+            $estadoEntradaLower1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
+            $estadoEntradaLower2 = 'disenado'; // fallback sin ñ
+
+            $rows = $db->query("
+                SELECT
+                    p.id,
+                    p.numero,
+                    p.cliente,
+                    p.total,
+                    p.estado_envio,
+                    p.forma_envio,
+                    p.etiquetas,
+                    p.articulos,
+                    p.created_at,
+                    p.shopify_order_id,
+                    p.assigned_to_user_id,
+                    p.assigned_at,
+
+                    COALESCE(
+                        CAST(h.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
+                        CAST(pe.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
+                        'por preparar'
+                    ) AS estado_bd,
+
+                    COALESCE(h.created_at, pe.estado_updated_at, p.created_at) AS estado_actualizado,
+                    COALESCE(h.user_name, pe.estado_updated_by_name) AS estado_por
+
+                FROM pedidos p
+
+                LEFT JOIN pedidos_estado pe
+                    ON (pe.order_id = p.id OR pe.order_id = p.shopify_order_id)
+
+                LEFT JOIN (
+                    SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
+                    FROM pedidos_estado_historial h1
+                    INNER JOIN (
+                        SELECT order_id, MAX(created_at) AS max_created
+                        FROM pedidos_estado_historial
+                        GROUP BY order_id
+                    ) hx
+                    ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
+                ) h
+                ON (
+                    h.order_id = p.id
+                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
+                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                )
+
+                WHERE p.assigned_to_user_id = ?
+                  AND (
+                        LOWER(TRIM(
+                            CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
+                            COLLATE utf8mb4_uca1400_ai_ci
+                        )) = ?
+                        OR LOWER(TRIM(
+                            CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
+                            COLLATE utf8mb4_uca1400_ai_ci
+                        )) = ?
+                  )
+                  {$condNoEnviados}
+
+                ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
+            ", [$userId, $estadoEntradaLower1, $estadoEntradaLower2])->getResultArray();
+
+            return $this->response->setJSON([
+                'ok' => true,
+                'data' => $rows ?: [],
+            ]);
+
         } catch (\Throwable $e) {
-            return $this->jsonFail("Error cargando cola de montaje", $e->getMessage());
+            log_message('error', 'MontajeController myQueue ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno cargando cola',
+                'debug' => $e->getMessage(),
+            ]);
         }
     }
 
     // =========================
-    // API: PULL (trae 5 o 10 en Diseñado)
-    // POST /montaje/pull {count}
+    // POST /montaje/pull
+    // Trae 5 o 10 pedidos en Diseñado (no enviados) y los asigna
     // =========================
     public function pull()
     {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
+        }
+
+        $userId = (int)(session('user_id') ?? 0);
+        $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
+
+        if (!$userId) {
+            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
+        }
+
+        $data = $this->request->getJSON(true);
+        if (!is_array($data)) $data = [];
+
+        $count = (int)($data['count'] ?? 5);
+        if (!in_array($count, [5, 10], true)) $count = 5;
+
         try {
-            $payload = $this->request->getJSON(true) ?? $this->request->getPost();
-            $count = (int)($payload['count'] ?? 5);
-            if ($count !== 5 && $count !== 10) $count = 5;
+            $db = \Config\Database::connect();
+            $now = date('Y-m-d H:i:s');
 
-            [$estadoCol, $assignCol] = $this->resolveColumns();
-            if (!$estadoCol) {
-                return $this->jsonFail("No se pudo detectar la columna de estado en la tabla {$this->table}.");
+            // ✅ detectar columnas reales
+            $fields = $db->getFieldNames('pedidos') ?? [];
+            $hasEstadoEnvio = in_array('estado_envio', $fields, true);
+            $hasFulfillment = in_array('fulfillment_status', $fields, true);
+
+            // ✅ condición NO ENVIADOS
+            $condNoEnviados = "";
+            if ($hasEstadoEnvio) {
+                $condNoEnviados = "
+                    AND (
+                        p.estado_envio IS NULL
+                        OR TRIM(COALESCE(p.estado_envio,'')) = ''
+                        OR LOWER(TRIM(p.estado_envio)) = 'unfulfilled'
+                    )
+                ";
+            } elseif ($hasFulfillment) {
+                $condNoEnviados = "
+                    AND (
+                        p.fulfillment_status IS NULL
+                        OR TRIM(COALESCE(p.fulfillment_status,'')) = ''
+                        OR LOWER(TRIM(p.fulfillment_status)) = 'unfulfilled'
+                    )
+                ";
             }
 
-            $userKey = $this->getUserKey();
-            if (($assignCol) && ($userKey === null || $userKey === '')) {
-                // si hay asignación por usuario, necesitamos userKey para asignar
-                return $this->jsonFail("Sesión inválida: no se detectó user_id para asignar pedidos.");
-            }
+            $estadoEntradaLower1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
+            $estadoEntradaLower2 = 'disenado';
 
-            $fields = $this->db->getFieldNames($this->table);
-            $idCol  = $this->detectIdCol($fields);
-            if (!$idCol) {
-                return $this->jsonFail("No se pudo detectar la PK (id/pedido_id) en {$this->table}.");
-            }
+            // ✅ candidatos: estado actual = Diseñado (historial o pedidos_estado), no enviados, no asignados
+            $candidatos = $db->query("
+                SELECT
+                    p.id,
+                    p.shopify_order_id
+                FROM pedidos p
 
-            $this->db->transStart();
+                LEFT JOIN pedidos_estado pe
+                    ON (pe.order_id = p.id OR pe.order_id = p.shopify_order_id)
 
-            // 1) Buscar candidatos en Diseñado y NO asignados (si existe assignCol)
-            $b = $this->db->table($this->table);
-            $this->whereEstadoDisenado($b, $estadoCol);
+                LEFT JOIN (
+                    SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
+                    FROM pedidos_estado_historial h1
+                    INNER JOIN (
+                        SELECT order_id, MAX(created_at) AS max_created
+                        FROM pedidos_estado_historial
+                        GROUP BY order_id
+                    ) hx
+                    ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
+                ) h
+                ON (
+                    h.order_id = p.id
+                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
+                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                )
 
-            if ($assignCol) {
-                $b->groupStart()
-                    ->where($assignCol, null)
-                    ->orWhere($assignCol, '')
-                    ->orWhere($assignCol, 0)
-                  ->groupEnd();
-            }
+                WHERE (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
+                  AND (
+                        LOWER(TRIM(
+                            CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
+                            COLLATE utf8mb4_uca1400_ai_ci
+                        )) = ?
+                        OR LOWER(TRIM(
+                            CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
+                            COLLATE utf8mb4_uca1400_ai_ci
+                        )) = ?
+                  )
+                  {$condNoEnviados}
 
-            // Orden
-            if (in_array('updated_at', $fields, true)) $b->orderBy('updated_at', 'ASC');
-            elseif (in_array('created_at', $fields, true)) $b->orderBy('created_at', 'ASC');
-            else $b->orderBy($idCol, 'ASC');
+                ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC, p.id ASC
+                LIMIT {$count}
+            ", [$estadoEntradaLower1, $estadoEntradaLower2])->getResultArray();
 
-            $rows = $b->select($idCol)->limit($count)->get()->getResultArray();
-            $ids = array_values(array_filter(array_map(fn($r) => $r[$idCol] ?? null, $rows)));
-
-            if (!$ids) {
-                $this->db->transComplete();
-                return $this->jsonOk([
-                    'pulled' => 0,
-                    'message' => 'No hay pedidos disponibles en Diseñado para asignar.',
+            if (!$candidatos) {
+                return $this->response->setJSON([
+                    'ok' => true,
+                    'message' => 'No hay pedidos disponibles para asignar (no enviados + diseñados)',
+                    'assigned' => 0,
                 ]);
             }
 
-            // 2) Asignar a este usuario (si existe columna de asignación)
-            if ($assignCol) {
-                $upd = [$assignCol => $userKey];
-                // si hay columna de timestamp de asignación
-                if (in_array('montaje_assigned_at', $fields, true)) $upd['montaje_assigned_at'] = date('Y-m-d H:i:s');
-                if (in_array('assigned_at', $fields, true))        $upd['assigned_at'] = date('Y-m-d H:i:s');
+            $db->transStart();
 
-                $this->db->table($this->table)->whereIn($idCol, $ids)->update($upd);
+            $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
+
+            // 1) asignar en pedidos
+            $db->table('pedidos')
+                ->whereIn('id', $ids)
+                ->where("(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)", null, false)
+                ->update([
+                    'assigned_to_user_id' => $userId,
+                    'assigned_at' => $now,
+                ]);
+
+            $affected = (int)$db->affectedRows();
+
+            if ($affected <= 0) {
+                $db->transComplete();
+                return $this->response->setJSON([
+                    'ok' => false,
+                    'error' => 'No se asignó nada (affectedRows=0).',
+                    'debug' => ['ids' => $ids],
+                ]);
             }
 
-            $this->db->transComplete();
+            // 2) opcional (igual que tu producción): insertar historial con el mismo estado para que quede "último cambio" por usuario
+            foreach ($candidatos as $c) {
+                $shopifyId = trim((string)($c['shopify_order_id'] ?? ''));
+                if ($shopifyId === '' || $shopifyId === '0') continue;
 
-            if ($this->db->transStatus() === false) {
-                return $this->jsonFail("No se pudo completar el pull (transacción fallida).");
-            }
-
-            return $this->jsonOk([
-                'pulled' => count($ids),
-                'ids'    => $ids,
-            ]);
-        } catch (\Throwable $e) {
-            return $this->jsonFail("Error haciendo pull", $e->getMessage());
-        }
-    }
-
-    // =========================
-    // API: CARGADO -> pasa a "Por producir" y lo quita de tu cola
-    // POST /montaje/subir-pedido {order_id}
-    // =========================
-    public function subirPedido()
-    {
-        try {
-            $payload = $this->request->getJSON(true) ?? $this->request->getPost();
-
-            $orderId = trim((string)($payload['order_id'] ?? $payload['pedido_id'] ?? $payload['shopify_order_id'] ?? ''));
-            if ($orderId === '') return $this->jsonFail("order_id es requerido.");
-
-            [$estadoCol, $assignCol] = $this->resolveColumns();
-            if (!$estadoCol) {
-                return $this->jsonFail("No se pudo detectar la columna de estado en la tabla {$this->table}.");
-            }
-
-            $fields = $this->db->getFieldNames($this->table);
-            $idCol  = $this->detectIdCol($fields);
-
-            // Resolver registro por: shopify_order_id si existe, si no por PK
-            $b = $this->db->table($this->table);
-
-            $shopifyCol = $this->detectShopifyCol($fields);
-            if ($shopifyCol) {
-                $b->groupStart()
-                    ->where($shopifyCol, $orderId)
-                    ->orWhere(($idCol ?: 'id'), $orderId)
-                  ->groupEnd();
-            } else {
-                if (!$idCol) return $this->jsonFail("No se detectó columna id ni shopify_order_id para actualizar.");
-                $b->where($idCol, $orderId);
-            }
-
-            // Update: estado -> Por producir + desasignar
-            $upd = [
-                $estadoCol => 'Por producir',
-            ];
-
-            if ($assignCol) $upd[$assignCol] = null;
-
-            // last change (si existen columnas típicas)
-            $now = date('Y-m-d H:i:s');
-            if (in_array('estado_actualizado', $fields, true)) $upd['estado_actualizado'] = $now;
-            if (in_array('estado_changed_at', $fields, true))  $upd['estado_changed_at'] = $now;
-
-            $userName = $this->getUserName();
-            if (in_array('estado_por', $fields, true))         $upd['estado_por'] = $userName;
-            if (in_array('estado_changed_by', $fields, true))  $upd['estado_changed_by'] = $userName;
-
-            // JSON last_status_change si existe
-            if (in_array('last_status_change', $fields, true)) {
-                $upd['last_status_change'] = json_encode([
+                $db->table('pedidos_estado_historial')->insert([
+                    'order_id'   => (string)$shopifyId,
+                    'estado'     => $this->estadoEntrada, // Diseñado
+                    'user_id'    => $userId,
                     'user_name'  => $userName,
-                    'changed_at' => $now,
-                    'from'       => 'Diseñado',
-                    'to'         => 'Por producir',
-                ], JSON_UNESCAPED_UNICODE);
+                    'created_at' => $now,
+                    'pedido_json'=> null,
+                ]);
             }
 
-            $ok = $b->update($upd);
+            $db->transComplete();
 
-            if (!$ok) {
-                $err = $this->db->error();
-                return $this->jsonFail("No se pudo actualizar el pedido.", $err['message'] ?? null);
-            }
-
-            return $this->jsonOk([
-                'message' => 'Pedido marcado como Cargado → Por producir.',
-                'new_estado' => 'Por producir',
+            return $this->response->setJSON([
+                'ok' => true,
+                'assigned' => $affected,
+                'ids' => $ids,
             ]);
+
         } catch (\Throwable $e) {
-            return $this->jsonFail("Error marcando como cargado", $e->getMessage());
+            log_message('error', 'MontajeController pull ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno asignando pedidos',
+                'debug' => $e->getMessage(),
+            ]);
         }
     }
 
     // =========================
-    // DEBUG (para saber qué columna está usando)
-    // GET /montaje/debug-status
+    // POST /montaje/cargado
+    // Marca como "Por producir" + desasigna + historial
     // =========================
-    public function debugStatus()
+    public function cargado()
     {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
+        }
+
+        $userId = (int)(session('user_id') ?? 0);
+        $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
+        if (!$userId) {
+            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
+        }
+
+        $data = $this->request->getJSON(true);
+        if (!is_array($data)) $data = [];
+
+        $orderIdRaw = trim((string)($data['order_id'] ?? ''));
+        if ($orderIdRaw === '' || $orderIdRaw === '0') {
+            return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'error' => 'order_id requerido']);
+        }
+
         try {
-            [$estadoCol, $assignCol] = $this->resolveColumns(true);
+            $db = \Config\Database::connect();
+            $now = date('Y-m-d H:i:s');
 
-            $fields = $this->db->getFieldNames($this->table);
-            $idCol  = $this->detectIdCol($fields);
+            // localizar pedido por id o shopify_order_id
+            $pedido = $db->table('pedidos')
+                ->select('id, shopify_order_id, assigned_to_user_id')
+                ->groupStart()
+                    ->where('id', $orderIdRaw)
+                    ->orWhere('shopify_order_id', $orderIdRaw)
+                ->groupEnd()
+                ->get()
+                ->getRowArray();
 
-            $sample = [];
-            if ($estadoCol) {
-                $b = $this->db->table($this->table);
-
-                $sel = [$estadoCol . ' AS estado'];
-                if ($idCol) $sel[] = $idCol . ' AS id';
-                if ($assignCol) $sel[] = $assignCol . ' AS asignado';
-
-                $rows = $b->select(implode(',', $sel))
-                    ->where($estadoCol . ' IS NOT NULL', null, false)
-                    ->limit(30)
-                    ->get()->getResultArray();
-
-                $sample = $rows;
+            if (!$pedido) {
+                return $this->response->setStatusCode(404)->setJSON(['ok' => false, 'error' => 'Pedido no encontrado']);
             }
 
-            return $this->jsonOk([
-                'table' => $this->table,
-                'estado_col' => $estadoCol,
-                'assign_col' => $assignCol,
-                'fields_count' => count($fields),
-                'sample' => $sample,
+            if ((int)($pedido['assigned_to_user_id'] ?? 0) !== $userId) {
+                return $this->response->setStatusCode(403)->setJSON(['ok' => false, 'error' => 'Este pedido no está asignado a tu usuario']);
+            }
+
+            $pedidoId = (int)$pedido['id'];
+            $shopifyId = trim((string)($pedido['shopify_order_id'] ?? ''));
+
+            $db->transBegin();
+
+            // 1) desasignar
+            $db->table('pedidos')
+                ->where('id', $pedidoId)
+                ->update([
+                    'assigned_to_user_id' => null,
+                    'assigned_at' => null,
+                ]);
+
+            // 2) set estado oficial (pedidos_estado) si existe el modelo
+            $estadoModel = new PedidosEstadoModel();
+            if ($shopifyId !== '' && $shopifyId !== '0') {
+                $estadoModel->setEstadoPedido(
+                    (string)$shopifyId,
+                    $this->estadoSalida,     // Por producir
+                    $userId ?: null,
+                    $userName
+                );
+
+                // 3) historial
+                $db->table('pedidos_estado_historial')->insert([
+                    'order_id'   => (string)$shopifyId,
+                    'estado'     => $this->estadoSalida,
+                    'user_id'    => $userId,
+                    'user_name'  => $userName,
+                    'created_at' => $now,
+                    'pedido_json'=> null,
+                ]);
+            }
+
+            if ($db->transStatus() === false) {
+                $db->transRollback();
+                return $this->response->setJSON([
+                    'ok' => false,
+                    'error' => 'Falló la transacción (cargado)',
+                ]);
+            }
+
+            $db->transCommit();
+
+            return $this->response->setJSON([
+                'ok' => true,
+                'message' => 'Pedido marcado como Cargado → Por producir',
+                'pedido_id' => $pedidoId,
+                'shopify_order_id' => $shopifyId,
+                'new_estado' => $this->estadoSalida,
             ]);
+
         } catch (\Throwable $e) {
-            return $this->jsonFail("debugStatus error", $e->getMessage());
+            log_message('error', 'MontajeController cargado ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno marcando como cargado',
+                'debug' => $e->getMessage(),
+            ]);
         }
     }
 
     // =========================
-    // Helpers
+    // POST /montaje/return-all
     // =========================
-    private function resolveColumns(bool $forceRecalc = false): array
+    public function returnAll()
     {
-        static $cache = null;
-        if ($cache && !$forceRecalc) return $cache;
-
-        $fields = $this->db->getFieldNames($this->table);
-
-        // 1) Detect estado column by VALUES (más confiable)
-        $estadoCol = $this->detectEstadoColByValues($fields);
-
-        // 2) Detect assign column (montaje)
-        $assignCol = $this->detectAssignCol($fields);
-
-        $cache = [$estadoCol, $assignCol];
-        return $cache;
-    }
-
-    private function detectEstadoColByValues(array $fields): ?string
-    {
-        // candidatos: columnas con "estado"/"status" + algunas comunes
-        $candidates = [];
-        $preferred = [
-            'estado', 'estado_pedido', 'estado_produccion', 'estado_bd',
-            'status', 'pedido_estado', 'workflow_estado', 'stage', 'fase',
-        ];
-
-        foreach ($preferred as $c) {
-            if (in_array($c, $fields, true)) $candidates[] = $c;
-        }
-        foreach ($fields as $f) {
-            $lf = strtolower($f);
-            if (str_contains($lf, 'estado') || str_contains($lf, 'status') || str_contains($lf, 'stage') || str_contains($lf, 'fase')) {
-                if (!in_array($f, $candidates, true)) $candidates[] = $f;
-            }
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
         }
 
-        if (!$candidates) return null;
-
-        // scoring por valores reales
-        $best = null;
-        $bestScore = -1;
-
-        foreach ($candidates as $col) {
-            try {
-                $rows = $this->db->table($this->table)
-                    ->select($col . ' AS v')
-                    ->where($col . ' IS NOT NULL', null, false)
-                    ->limit(200)
-                    ->get()->getResultArray();
-
-                $vals = array_map(fn($r) => strtolower(trim((string)($r['v'] ?? ''))), $rows);
-                $vals = array_values(array_filter($vals, fn($x) => $x !== ''));
-
-                if (!$vals) continue;
-
-                $score = 0;
-
-                // puntos por encontrar estados típicos del workflow
-                foreach ($vals as $v) {
-                    if (str_contains($v, 'dise')) $score += 5;            // Diseñado / Diseño / Disenado
-                    if (str_contains($v, 'por producir')) $score += 4;
-                    if (str_contains($v, 'confirm')) $score += 2;
-                    if (str_contains($v, 'fabric')) $score += 2;
-                    if (str_contains($v, 'enviado')) $score += 1;
-                    if (str_contains($v, 'repetir')) $score += 1;
-                }
-
-                // penaliza si parece numérico puro
-                $numericish = 0;
-                foreach (array_slice($vals, 0, 50) as $v) {
-                    if ($v !== '' && ctype_digit(str_replace(['-', '_'], '', $v))) $numericish++;
-                }
-                if ($numericish > 10) $score -= 5;
-
-                if ($score > $bestScore) {
-                    $bestScore = $score;
-                    $best = $col;
-                }
-            } catch (\Throwable $e) {
-                // ignora columna si falla
-            }
+        $userId = (int)(session('user_id') ?? 0);
+        if (!$userId) {
+            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
         }
 
-        return $best;
-    }
+        try {
+            $db = \Config\Database::connect();
 
-    private function detectAssignCol(array $fields): ?string
-    {
-        // Prioriza columnas específicas de montaje
-        $preferred = [
-            'montaje_user_id', 'montaje_usuario_id', 'montaje_asignado_a', 'montaje_asignado',
-            'assigned_montaje', 'asignado_montaje', 'usuario_montaje',
-            'assigned_to', 'asignado_a', 'user_id_asignado',
-        ];
+            $db->table('pedidos')
+                ->where('assigned_to_user_id', $userId)
+                ->update([
+                    'assigned_to_user_id' => null,
+                    'assigned_at' => null,
+                ]);
 
-        foreach ($preferred as $c) {
-            if (in_array($c, $fields, true)) return $c;
+            return $this->response->setJSON(['ok' => true, 'message' => 'Pedidos devueltos']);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'MontajeController returnAll ERROR: ' . $e->getMessage());
+            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno devolviendo pedidos']);
         }
-
-        // Heurística: contiene montaje y user/usuario
-        foreach ($fields as $f) {
-            $lf = strtolower($f);
-            if (str_contains($lf, 'montaje') && (str_contains($lf, 'user') || str_contains($lf, 'usuario') || str_contains($lf, 'asign'))) {
-                return $f;
-            }
-        }
-
-        return null;
-    }
-
-    private function detectIdCol(array $fields): ?string
-    {
-        $candidates = ['id', 'pedido_id', 'order_id'];
-        foreach ($candidates as $c) {
-            if (in_array($c, $fields, true)) return $c;
-        }
-        return null;
-    }
-
-    private function detectShopifyCol(array $fields): ?string
-    {
-        $candidates = ['shopify_order_id', 'shopifyId', 'shopify_id'];
-        foreach ($candidates as $c) {
-            if (in_array($c, $fields, true)) return $c;
-        }
-        return null;
-    }
-
-    private function whereEstadoDisenado($builder, string $estadoCol): void
-    {
-        // tolerante: Diseñ* o Disen* (sin acento)
-        $builder->groupStart()
-            ->like($estadoCol, 'Diseñ', 'both', null, true)
-            ->orLike($estadoCol, 'Disen', 'both', null, true)
-            ->orLike($estadoCol, 'Dise',  'both', null, true)
-        ->groupEnd();
-    }
-
-    private function buildSafeSelect(array $fields, string $estadoCol): string
-    {
-        $want = [
-            'id', 'pedido_id', 'shopify_order_id',
-            'numero', 'name',
-            'fecha', 'created_at',
-            'cliente', 'customer_name',
-            'total', 'total_price',
-            'articulos', 'items_count',
-            'estado_envio', 'fulfillment_status',
-            'forma_envio', 'shipping_method',
-            'last_status_change', 'estado_por', 'estado_actualizado',
-        ];
-
-        $select = [];
-        foreach ($want as $c) {
-            if (in_array($c, $fields, true)) $select[] = $c;
-        }
-
-        // siempre incluir la columna de estado detectada
-        if (!in_array($estadoCol, $select, true)) $select[] = $estadoCol;
-
-        // si no hay nada, fallback
-        if (!$select) return '*';
-
-        return implode(',', array_unique($select));
-    }
-
-    private function normalizeOrderRow(array $r, string $estadoCol): array
-    {
-        $id = $r['id'] ?? $r['pedido_id'] ?? null;
-
-        return [
-            'id' => $id,
-            'shopify_order_id' => $r['shopify_order_id'] ?? $r['order_id'] ?? null,
-            'numero' => $r['numero'] ?? $r['name'] ?? ($id ? "#".$id : ""),
-            'fecha' => $r['fecha'] ?? $r['created_at'] ?? null,
-            'cliente' => $r['cliente'] ?? $r['customer_name'] ?? null,
-            'total' => $r['total'] ?? $r['total_price'] ?? null,
-            'estado' => $r[$estadoCol] ?? null,
-            'articulos' => $r['articulos'] ?? $r['items_count'] ?? null,
-            'estado_envio' => $r['estado_envio'] ?? $r['fulfillment_status'] ?? null,
-            'forma_envio' => $r['forma_envio'] ?? $r['shipping_method'] ?? null,
-            'last_status_change' => $r['last_status_change'] ?? [
-                'user_name' => $r['estado_por'] ?? null,
-                'changed_at' => $r['estado_actualizado'] ?? null,
-            ],
-        ];
-    }
-
-    private function getUserKey()
-    {
-        // Ajusta a tu sesión real. Esto cubre la mayoría de setups.
-        $s = session();
-        return $s->get('user_id')
-            ?? $s->get('id')
-            ?? $s->get('usuario_id')
-            ?? $s->get('uid')
-            ?? $s->get('email')
-            ?? $s->get('username')
-            ?? null;
-    }
-
-    private function getUserName(): string
-    {
-        $s = session();
-        return (string)($s->get('nombre') ?? $s->get('name') ?? $s->get('username') ?? 'Sistema');
-    }
-
-    private function safeMeta($v)
-    {
-        // evita filtrar datos sensibles por accidente; solo para debug
-        if ($v === null) return null;
-        $s = (string)$v;
-        if (strlen($s) > 32) return substr($s, 0, 10) . '…';
-        return $s;
-    }
-
-    private function jsonOk(array $data = [])
-    {
-        // compat: success + ok
-        $payload = array_merge(['success' => true, 'ok' => true], $data);
-        return $this->response->setJSON($payload);
-    }
-
-    private function jsonFail(string $message, ?string $error = null)
-    {
-        $payload = ['success' => false, 'ok' => false, 'message' => $message];
-        if ($error) $payload['error'] = $error;
-        return $this->response->setStatusCode(500)->setJSON($payload);
     }
 }

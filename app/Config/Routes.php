@@ -253,18 +253,7 @@ $routes->group('soporte', ['filter' => 'auth'], function($routes) {
 $routes->get('montaje', 'MontajeController::index');
 $routes->get('montaje/my-queue', 'MontajeController::myQueue');
 $routes->post('montaje/pull', 'MontajeController::pull');
-$routes->post('montaje/subir-pedido', 'MontajeController::subirPedido');
 $routes->post('montaje/return-all', 'MontajeController::returnAll');
-
-
-$routes->group('montaje', function($routes) {
-    $routes->get('/', 'MontajeController::index');
-    $routes->get('my-queue', 'MontajeController::myQueue');
-    $routes->post('pull', 'MontajeController::pull');
-    $routes->post('subir-pedido', 'MontajeController::subirPedido');
-
-    // Debug (temporal)
-    $routes->get('debug-status', 'MontajeController::debugStatus');
-});
+$routes->post('montaje/cargado', 'MontajeController::cargado');
 
 
