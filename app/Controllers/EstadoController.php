@@ -10,7 +10,7 @@ class EstadoController extends BaseController
     private string $estadoTable  = 'pedidos_estado';
     private string $usersTable   = 'users';
 
-    // ✅ Estados "por hacer" permitidos (DASHBOARD)
+    // ✅ Estados permitidos
     private array $allowedEstados = [
         'Por preparar',
         'Faltan archivos',
@@ -19,10 +19,10 @@ class EstadoController extends BaseController
         'Por producir',
         'Enviado',
         'Repetir',
+        'Cancelado', // ✅ NUEVO
     ];
 
     // ✅ Normaliza estados (viejos / tildes / mayúsculas)
-    // Basado en tu normalizeEstado() de dashboard.js, pero extendido para compatibilidad
     private function normalizeEstado(?string $estado): string
     {
         $s = trim((string)($estado ?? ''));
@@ -41,28 +41,27 @@ class EstadoController extends BaseController
             'por producir'      => 'Por producir',
             'enviado'           => 'Enviado',
             'repetir'           => 'Repetir',
+            'cancelado'         => 'Cancelado', // ✅ AHORA SÍ
 
-            // ✅ tolerancia extra (tildes / variantes)
+            // ✅ tolerancia extra
             'por produccion'    => 'Por producir',
             'por producción'    => 'Por producir',
 
             // ✅ viejos -> nuevos (compat)
-            'preparado'         => 'Confirmado',      // antes lo mandabas a Fabricando; ahora en "por hacer"
-            'fabricando'        => 'Por producir',    // si viene de otro flujo, lo aterrizamos
+            'preparado'         => 'Confirmado',
+            'fabricando'        => 'Por producir',
             'produccion'        => 'Por producir',
             'producción'        => 'Por producir',
-            'a medias'          => 'Faltan archivos', // opcional: ajústalo si quieres otro mapping
+            'a medias'          => 'Faltan archivos',
             'amedias'           => 'Faltan archivos',
 
             // otros históricos
             'entregado'         => 'Enviado',
-            'cancelado'         => 'Por preparar',
             'devuelto'          => 'Por preparar',
         ];
 
         if (isset($map[$lower])) return $map[$lower];
 
-        // Si ya viene un valor válido con distinta capitalización
         foreach ($this->allowedEstados as $ok) {
             if (mb_strtolower($ok) === $lower) return $ok;
         }
@@ -81,25 +80,29 @@ class EstadoController extends BaseController
             }
 
             $payload  = $this->request->getJSON(true) ?? [];
-            $orderId  = isset($payload['id']) ? trim((string)$payload['id']) : '';
-            $estadoIn = isset($payload['estado']) ? trim((string)$payload['estado']) : '';
+
+            // ✅ aceptar id u order_id
+            $orderId  = trim((string)($payload['order_id'] ?? $payload['id'] ?? ''));
+            $estadoIn = trim((string)($payload['estado'] ?? ''));
+
+            // ✅ compat: mantener_asignado (si llega)
+            $mantenerAsignado = (bool)($payload['mantener_asignado'] ?? false);
 
             if ($orderId === '' || $estadoIn === '') {
                 return $this->response->setStatusCode(422)->setJSON([
                     'success' => false,
-                    'message' => 'Faltan parámetros: id / estado',
+                    'message' => 'Faltan parámetros: id/order_id / estado',
                 ]);
             }
 
-            // ✅ normalizar + validar
             $estado = $this->normalizeEstado($estadoIn);
 
             if (!in_array($estado, $this->allowedEstados, true)) {
                 return $this->response->setStatusCode(422)->setJSON([
-                    'success' => false,
-                    'message' => 'Estado inválido',
-                    'allowed' => $this->allowedEstados,
-                    'received' => $estadoIn,
+                    'success'    => false,
+                    'message'    => 'Estado inválido',
+                    'allowed'    => $this->allowedEstados,
+                    'received'   => $estadoIn,
                     'normalized' => $estado,
                 ]);
             }
@@ -112,7 +115,7 @@ class EstadoController extends BaseController
             $now      = date('Y-m-d H:i:s');
 
             // ---------------------------------------------------------
-            // 0) Detectar si existe tabla pedidos (soft-check)
+            // 0) Detectar si existe tabla pedidos
             // ---------------------------------------------------------
             $pedidosExists = $db->query(
                 "SELECT 1 FROM information_schema.tables
@@ -121,32 +124,32 @@ class EstadoController extends BaseController
                 [$dbName, $this->pedidosTable]
             )->getRowArray();
 
-            if (!empty($pedidosExists)) {
-                $pedido = $db->table($this->pedidosTable)
-                    ->select('id')
-                    ->where('id', $orderId)
-                    ->limit(1)
-                    ->get()
-                    ->getRowArray();
-                // no bloqueamos si no existe
-            }
+            // Campos posibles en pedidos
+            $hasShopifyIdInPedidos = !empty($pedidosExists) && $db->fieldExists('shopify_order_id', $this->pedidosTable);
+            $hasAssignedUser       = !empty($pedidosExists) && $db->fieldExists('assigned_to_user_id', $this->pedidosTable);
+            $hasAssignedAt         = !empty($pedidosExists) && $db->fieldExists('assigned_at', $this->pedidosTable);
 
             // ---------------------------------------------------------
-            // 1) Validar esquema de pedidos_estado (estado ACTUAL)
+            // 1) Validar esquema de pedidos_estado
             // ---------------------------------------------------------
-            $hasId          = $db->fieldExists('id', $this->estadoTable);
             $hasEstado      = $db->fieldExists('estado', $this->estadoTable);
             $hasActualizado = $db->fieldExists('actualizado', $this->estadoTable);
             $hasCreatedAt   = $db->fieldExists('created_at', $this->estadoTable);
             $hasUserIdCol   = $db->fieldExists('user_id', $this->estadoTable);
             $hasUserNameCol = $db->fieldExists('user_name', $this->estadoTable);
 
-            if (!$hasId || !$hasEstado) {
+            // ✅ compat: dos esquemas posibles
+            $hasOrderIdCol  = $db->fieldExists('order_id', $this->estadoTable);
+            $hasIdCol       = $db->fieldExists('id', $this->estadoTable);
+
+            if (!$hasEstado || (!$hasOrderIdCol && !$hasIdCol)) {
                 return $this->response->setStatusCode(500)->setJSON([
                     'success' => false,
-                    'message' => 'La tabla pedidos_estado debe tener columnas id y estado',
+                    'message' => 'La tabla pedidos_estado debe tener estado y (order_id o id)',
                 ]);
             }
+
+            $keyCol = $hasOrderIdCol ? 'order_id' : 'id';
 
             // ---------------------------------------------------------
             // 2) Detectar tabla historial (si existe)
@@ -162,11 +165,28 @@ class EstadoController extends BaseController
             $db->transStart();
 
             // ---------------------------------------------------------
-            // 3) Insert en HISTORIAL (si existe)
+            // 3) Resolver pedido interno (id) si existe tabla pedidos
+            //    (busca por id o por shopify_order_id)
+            // ---------------------------------------------------------
+            $pedidoRow = null;
+            if (!empty($pedidosExists)) {
+                $q = $db->table($this->pedidosTable)->select('id');
+                $q->groupStart()
+                    ->where('id', $orderId);
+                if ($hasShopifyIdInPedidos) {
+                    $q->orWhere('shopify_order_id', $orderId);
+                }
+                $q->groupEnd();
+                $pedidoRow = $q->limit(1)->get()->getRowArray();
+            }
+
+            // ---------------------------------------------------------
+            // 4) Insert en HISTORIAL (si existe)
             // ---------------------------------------------------------
             if (!empty($histExists)) {
                 $hist = [
-                    'order_id'   => (int)$orderId,
+                    // ✅ guardar como string (no castear a int)
+                    'order_id'   => (string)$orderId,
                     'estado'     => (string)$estado,
                     'user_id'    => ($userId !== null) ? (int)$userId : null,
                     'user_name'  => (string)$userName,
@@ -183,41 +203,60 @@ class EstadoController extends BaseController
             }
 
             // ---------------------------------------------------------
-            // 4) Guardar estado ACTUAL (UPSERT por id)
+            // 5) UPSERT estado actual (por order_id o id)
             // ---------------------------------------------------------
+            $existsRow = $db->table($this->estadoTable)
+                ->select($keyCol)
+                ->where($keyCol, $orderId)
+                ->limit(1)
+                ->get()
+                ->getRowArray();
+
             $data = [
-                'id'     => (string)$orderId,
+                $keyCol  => (string)$orderId,
                 'estado' => (string)$estado,
             ];
 
             if ($hasActualizado) $data['actualizado'] = $now;
 
-            if ($hasCreatedAt) {
-                $existsRow = $db->table($this->estadoTable)
-                    ->select('id')
-                    ->where('id', $orderId)
-                    ->limit(1)
-                    ->get()
-                    ->getRowArray();
-
-                if (!$existsRow) $data['created_at'] = $now;
+            if ($hasCreatedAt && !$existsRow) {
+                $data['created_at'] = $now;
             }
 
             if ($hasUserIdCol)   $data['user_id'] = ($userId !== null) ? (int)$userId : null;
             if ($hasUserNameCol) $data['user_name'] = (string)$userName;
 
-            $db->table($this->estadoTable)->replace($data);
+            if ($existsRow) {
+                $db->table($this->estadoTable)->where($keyCol, $orderId)->update($data);
+            } else {
+                $db->table($this->estadoTable)->insert($data);
+            }
 
             // ---------------------------------------------------------
-            // 5) Actualiza last_change_user/at en pedidos (si existen)
+            // 6) Actualiza last_change_user/at en pedidos (si existen)
             // ---------------------------------------------------------
-            if (!empty($pedidosExists)) {
+            if (!empty($pedidosExists) && $pedidoRow) {
                 $update = [];
+
                 if ($db->fieldExists('last_change_user', $this->pedidosTable)) $update['last_change_user'] = $userName;
                 if ($db->fieldExists('last_change_at', $this->pedidosTable))   $update['last_change_at']   = $now;
 
                 if (!empty($update)) {
-                    $db->table($this->pedidosTable)->where('id', $orderId)->update($update);
+                    $db->table($this->pedidosTable)->where('id', (int)$pedidoRow['id'])->update($update);
+                }
+
+                // ✅ Si Confirmado o Cancelado => desasignar (para que salga de la cola)
+                $estadoLower = mb_strtolower(trim($estado));
+                $debeDesasignar = ($estadoLower === 'confirmado' || $estadoLower === 'cancelado');
+
+                if ($debeDesasignar && !$mantenerAsignado) {
+                    $unassign = [];
+                    if ($hasAssignedUser) $unassign['assigned_to_user_id'] = null;
+                    if ($hasAssignedAt)   $unassign['assigned_at'] = null;
+
+                    if (!empty($unassign)) {
+                        $db->table($this->pedidosTable)->where('id', (int)$pedidoRow['id'])->update($unassign);
+                    }
                 }
             }
 
@@ -234,7 +273,7 @@ class EstadoController extends BaseController
                 'success' => true,
                 'order' => [
                     'id' => $orderId,
-                    'estado' => $estado, // ✅ normalizado al estilo nuevo
+                    'estado' => $estado,
                     'last_status_change' => [
                         'user_name'  => $userName,
                         'changed_at' => $now,
@@ -268,14 +307,16 @@ class EstadoController extends BaseController
 
             $db = db_connect();
 
-            // detectar FK para filtrar el historial correctamente
+            // ✅ compat: si existe order_id, usarlo; si no, id/pedido_id
             $hasOrderId  = $db->fieldExists('order_id', $this->estadoTable);
             $hasPedidoId = $db->fieldExists('pedido_id', $this->estadoTable);
+            $hasId       = $db->fieldExists('id', $this->estadoTable);
 
             $q = $db->table($this->estadoTable);
 
-            if ($hasOrderId)      $q->where('order_id', $orderId);
+            if ($hasOrderId)      $q->where('order_id', (string)$orderId);
             elseif ($hasPedidoId) $q->where('pedido_id', $orderId);
+            elseif ($hasId)       $q->where('id', (string)$orderId);
             else                  $q->where('id', $orderId);
 
             $rows = $q->orderBy('id', 'DESC')
