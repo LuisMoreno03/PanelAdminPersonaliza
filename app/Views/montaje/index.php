@@ -10,7 +10,8 @@
   <!-- CSRF metas (para getCsrfHeaders() del JS) -->
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
   <meta name="csrf-header" content="<?= function_exists('csrf_header') ? csrf_header() : 'X-CSRF-TOKEN' ?>">
-
+<script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/alpinejs" defer></script>
   <title>Montaje</title>
 
   <!-- Si ya cargas Tailwind en tu layout general, puedes quitar este comentario -->
@@ -55,6 +56,8 @@
 </head>
 
 <body class="bg-slate-50 text-slate-900">
+
+<?= view('layouts/menu') ?>
   <!-- Loader global -->
   <div id="globalLoader" class="hidden fixed inset-0 z-[9999] bg-black/30 backdrop-blur-[1px]">
     <div class="absolute inset-0 flex items-center justify-center">
