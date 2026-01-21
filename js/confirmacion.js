@@ -9,6 +9,8 @@
  * - Editor (Cropper.js) antes de subir (rotar/zoom/crop)
  * - Auditoría: modified_by + modified_at (se envía al backend y se muestra)
  * - Estado "Faltan archivos" NO debe desasignar (se envía mantener_asignado: true en guardarEstado)
+ * - Ver detalles al click en #pedido o cliente (sin botón)
+ * - Cancelar pedido en detalles: estado "Cancelado" + se quita de la lista
  *
  * Requiere (para editor):
  * - cropperjs en tu layout:
@@ -99,6 +101,14 @@ const esImagenUrl = (url) =>
 const setLoader = (v) => $("globalLoader")?.classList.toggle("hidden", !v);
 const setTextSafe = (id, v) => $(id) && ($(id).textContent = v ?? "");
 const setHtmlSafe = (id, h) => $(id) && ($(id).innerHTML = h ?? "");
+
+// ✅ Extrae número de Order desde gid://shopify/Order/123...
+function normalizeOrderId(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const m = s.match(/\/Order\/(\d+)/i);
+  return m?.[1] ? m[1] : s;
+}
 
 /* =====================================================
    CSRF
@@ -208,7 +218,13 @@ function renderPedidos(pedidos) {
         ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-100 border border-emerald-200 text-emerald-900 font-extrabold">Fulfilled</span>`
         : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100">Unfulfilled</span>`;
 
-    const orderKey = p.shopify_order_id || p.id;
+    // ✅ NO usar "||" para elegir id; evita falsy ("" / "0")
+    const orderKey =
+      (p.shopify_order_id !== null &&
+        p.shopify_order_id !== undefined &&
+        String(p.shopify_order_id).trim() !== "")
+        ? p.shopify_order_id
+        : p.id;
 
     // ✅ Ahora el # pedido y el cliente abren detalles
     row.innerHTML = `
@@ -238,7 +254,6 @@ function renderPedidos(pedidos) {
       <div>${envioPill}</div>
       <div class="truncate">${escapeHtml(p.forma_envio || "-")}</div>
 
-      <!-- ✅ Columna final: ya no hay botón -->
       <div class="text-right"></div>
     `;
 
@@ -247,7 +262,6 @@ function renderPedidos(pedidos) {
 
   setTextSafe("total-pedidos", visibles.length);
 }
-
 
 /* =====================================================
    CARGA / ACCIONES
@@ -333,7 +347,7 @@ window.cerrarModalDetalles = cerrarModalDetalles;
    DETALLES — VISTA COMO ANTES
 ===================================================== */
 window.verDetalles = async function (orderId) {
-  pedidoActualId = String(orderId || "");
+  pedidoActualId = normalizeOrderId(orderId);
   abrirDetallesFull();
 
   setTextSafe("detTitulo", "Cargando pedido…");
@@ -366,6 +380,11 @@ window.verDetalles = async function (orderId) {
     DET_IMAGENES_LOCALES = d.imagenes_locales || {};
     DET_PRODUCT_IMAGES = d.product_images || {};
 
+    // ✅ asegura que el cancelar/guardarEstado use el ID real (si viene como gid o distinto)
+    if (d?.order?.id) {
+      pedidoActualId = normalizeOrderId(d.order.id);
+    }
+
     renderDetalles(DET_ORDER, DET_IMAGENES_LOCALES, DET_PRODUCT_IMAGES);
   } catch (e) {
     console.warn("Detalles fallback:", e);
@@ -377,6 +396,10 @@ window.verDetalles = async function (orderId) {
 
     if (pedido) {
       DET_ORDER = pedido;
+      // ✅ normaliza el id también en fallback
+      if (pedido?.shopify_order_id) pedidoActualId = normalizeOrderId(pedido.shopify_order_id);
+      else if (pedido?.id) pedidoActualId = normalizeOrderId(pedido.id);
+
       renderDetalles(pedido, {}, {});
     } else {
       setHtmlSafe("detProductos", `<div class="p-6 text-rose-600 font-extrabold">No se pudo cargar el pedido.</div>`);
@@ -459,7 +482,8 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
     return { imgs, txt };
   }
 
-  const orderKey = String(order?.id || pedidoActualId || "order");
+  // ✅ usa id normalizado (importante para preview/audits y cancelar)
+  const orderKey = normalizeOrderId(order?.id || pedidoActualId || "order");
 
   const cardsHtml = items
     .map((item, i) => {
@@ -923,7 +947,6 @@ function actualizarResumenAuto() {
         ${ok === total ? "🟢 Todo listo" : "🟡 Faltan imágenes"}
       </div>
 
-      <!-- ✅ Botón cancelar debajo de la confirmación -->
       <div class="mt-4">
         <button type="button"
           onclick="cancelarPedidoActual()"
@@ -961,8 +984,8 @@ window.guardarEstado = async function (orderId, nuevoEstado, opts = {}) {
         headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
         credentials: "same-origin",
         body: JSON.stringify({
-          order_id: String(orderId),
-          id: String(orderId),
+          order_id: normalizeOrderId(orderId),
+          id: normalizeOrderId(orderId),
           estado: String(nuevoEstado),
           mantener_asignado,
         }),
@@ -983,10 +1006,9 @@ window.guardarEstado = async function (orderId, nuevoEstado, opts = {}) {
   return false;
 };
 
-
-
 window.cancelarPedidoActual = async function () {
-  const oid = String(pedidoActualId || "");
+  // ✅ usar el id real normalizado
+  const oid = normalizeOrderId(pedidoActualId);
   if (!oid) return;
 
   if (!confirm("¿Seguro que deseas CANCELAR este pedido? Pasará a estado 'Cancelado' y se quitará de tu lista.")) {
@@ -1006,8 +1028,24 @@ window.cancelarPedidoActual = async function () {
 
     if (pedidoLocal) pedidoLocal.estado = "Cancelado";
 
-    await cargarMiCola();        // recarga lista
-    cerrarModalDetalles();       // cierra modal
+    // ✅ quitar de la lista local inmediatamente (comparando bien)
+    pedidosCache = Array.isArray(pedidosCache)
+      ? pedidosCache.filter((p) => {
+          const id =
+            (p.shopify_order_id !== null &&
+              p.shopify_order_id !== undefined &&
+              String(p.shopify_order_id).trim() !== "")
+              ? String(p.shopify_order_id)
+              : String(p.id || "");
+          return normalizeOrderId(id) !== oid;
+        })
+      : [];
+
+    renderPedidos(pedidosCache);
+
+    // recarga lista (ya debe venir sin el pedido si backend guardó cancelado)
+    await cargarMiCola();
+    cerrarModalDetalles();
   } catch (e) {
     console.error("cancelarPedidoActual error:", e);
     alert("Error cancelando pedido: " + (e?.message || e));
@@ -1021,7 +1059,7 @@ window.cancelarPedidoActual = async function () {
 ===================================================== */
 window.validarEstadoAuto = async function (orderId) {
   try {
-    const oid = String(orderId || "");
+    const oid = normalizeOrderId(orderId);
     if (!oid) return;
 
     const req = Array.isArray(imagenesRequeridas) ? imagenesRequeridas : [];

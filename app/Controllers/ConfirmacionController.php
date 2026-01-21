@@ -43,9 +43,9 @@ class ConfirmacionController extends BaseController
 
             $q = $db->table('pedidos p')
                 ->select("p.id, " .
-                         ($hasShopifyId ? "p.shopify_order_id, " : "NULL as shopify_order_id, ") .
-                         "p.numero, p.cliente, p.total, p.estado_envio, p.forma_envio, p.etiquetas, p.articulos, p.created_at, " .
-                         "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect", false)
+                    ($hasShopifyId ? "p.shopify_order_id, " : "NULL as shopify_order_id, ") .
+                    "p.numero, p.cliente, p.total, p.estado_envio, p.forma_envio, p.etiquetas, p.articulos, p.created_at, " .
+                    "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect", false)
                 ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
                 ->where('p.assigned_to_user_id', $userId)
                 // ✅ incluir "faltan archivos" también
@@ -53,10 +53,10 @@ class ConfirmacionController extends BaseController
 
             // ✅ SOLO NO ENVIADOS
             $q->groupStart()
-                    ->where('p.estado_envio IS NULL', null, false)
-                    ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
-                    ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
-              ->groupEnd();
+                ->where('p.estado_envio IS NULL', null, false)
+                ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
+                ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
+            ->groupEnd();
 
             $rows = $q->orderBy('p.created_at', 'ASC')->get()->getResultArray();
 
@@ -65,7 +65,7 @@ class ConfirmacionController extends BaseController
                 'data' => $rows,
             ]);
         } catch (\Throwable $e) {
-            log_message('error', 'myQueue() error: '.$e->getMessage());
+            log_message('error', 'myQueue() error: ' . $e->getMessage());
             return $this->response->setStatusCode(500)->setJSON([
                 'ok' => false,
                 'message' => $e->getMessage(),
@@ -88,7 +88,7 @@ class ConfirmacionController extends BaseController
             $userId = (int) session('user_id');
             $user   = session('nombre') ?? 'Sistema';
             $payload = $this->request->getJSON(true) ?? [];
-            $count = (int)($payload['count'] ?? 5);
+            $count = (int) ($payload['count'] ?? 5);
             if ($count <= 0) $count = 5;
 
             $db = \Config\Database::connect();
@@ -168,7 +168,7 @@ class ConfirmacionController extends BaseController
                 'assigned' => count($ids)
             ]);
         } catch (\Throwable $e) {
-            log_message('error', 'pull() error: '.$e->getMessage());
+            log_message('error', 'pull() error: ' . $e->getMessage());
             return $this->response->setStatusCode(500)->setJSON([
                 'ok' => false,
                 'message' => $e->getMessage()
@@ -200,6 +200,7 @@ class ConfirmacionController extends BaseController
       GET /confirmacion/detalles/{id}
       -> DEVUELVE imagenes_locales con auditoría si existe:
          { index: { url, modified_by, modified_at } }
+      -> Soporta recibir id numérico, shopify_order_id o gid://shopify/Order/xxxx
     ===================================================== */
     public function detalles($id = null)
     {
@@ -211,6 +212,9 @@ class ConfirmacionController extends BaseController
         }
 
         try {
+            // ✅ Normalizar gid://shopify/Order/123 => 123
+            $idNorm = $this->normalizeShopifyOrderId($id);
+
             $db = \Config\Database::connect();
             $pFields = $db->getFieldNames('pedidos') ?? [];
             $hasPedidoJson = in_array('pedido_json', $pFields, true);
@@ -219,8 +223,9 @@ class ConfirmacionController extends BaseController
 
             $pedido = $db->table('pedidos')
                 ->groupStart()
-                    ->where('id', $id)
-                    ->orWhere('shopify_order_id', $id)
+                    ->where('id', $idNorm)
+                    ->orWhere('shopify_order_id', $idNorm)
+                    ->orWhere('shopify_order_id', (string)$id) // por si viene tal cual sin normalizar
                 ->groupEnd()
                 ->get()
                 ->getRowArray();
@@ -239,7 +244,7 @@ class ConfirmacionController extends BaseController
             if (!$orderJson || (empty($orderJson['line_items']) && empty($orderJson['lineItems']))) {
                 $orderJson = [
                     'id' => $shopifyId,
-                    'name' => $pedido['numero'] ?? ('#'.$shopifyId),
+                    'name' => $pedido['numero'] ?? ('#' . $shopifyId),
                     'created_at' => $pedido['created_at'] ?? null,
                     'customer' => ['first_name' => $pedido['cliente'] ?? '', 'last_name' => ''],
                     'line_items' => [],
@@ -256,7 +261,7 @@ class ConfirmacionController extends BaseController
                 'product_images' => is_array($productImages) ? $productImages : [],
             ]);
         } catch (\Throwable $e) {
-            log_message('error', 'detalles() error: '.$e->getMessage());
+            log_message('error', 'detalles() error: ' . $e->getMessage());
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
                 'message' => $e->getMessage()
@@ -269,6 +274,7 @@ class ConfirmacionController extends BaseController
       -> Guarda imagen en pedidos.imagenes_locales con auditoría:
          imagenes_locales[index] = { url, modified_by, modified_at }
       -> Recalcula estado automático
+      -> Soporta order_id como gid://shopify/Order/xxxx
     ===================================================== */
     public function subirImagen()
     {
@@ -276,7 +282,9 @@ class ConfirmacionController extends BaseController
             return $this->response->setStatusCode(401)->setJSON(['success' => false]);
         }
 
-        $orderId = $this->request->getPost('order_id');
+        $orderIdRaw = (string)$this->request->getPost('order_id');
+        $orderId = $this->normalizeShopifyOrderId($orderIdRaw);
+
         $index   = (int) $this->request->getPost('line_index');
         $file    = $this->request->getFile('file');
 
@@ -286,7 +294,7 @@ class ConfirmacionController extends BaseController
         if ($modifiedBy === '') $modifiedBy = session('nombre') ?? 'Sistema';
         if ($modifiedAt === '') $modifiedAt = date('c'); // ISO 8601
 
-        if (!$orderId || !$file || !$file->isValid()) {
+        if ($orderId === '' || !$file || !$file->isValid()) {
             return $this->response->setJSON(['success' => false, 'message' => 'Archivo inválido']);
         }
 
@@ -304,7 +312,14 @@ class ConfirmacionController extends BaseController
         $hasImgLocales = in_array('imagenes_locales', $pFields, true);
 
         $pedido = $db->table('pedidos')->where('shopify_order_id', $orderId)->get()->getRowArray();
+        if (!$pedido) {
+            // fallback: a veces el pedido se busca por id interno
+            $pedido = $db->table('pedidos')->where('id', $orderId)->get()->getRowArray();
+        }
         if (!$pedido) return $this->response->setJSON(['success' => false, 'message' => 'Pedido no encontrado']);
+
+        // Asegurar id shopify final (para historial/estado)
+        $shopifyId = (string)($pedido['shopify_order_id'] ?? $orderId);
 
         if ($hasImgLocales) {
             $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
@@ -318,12 +333,12 @@ class ConfirmacionController extends BaseController
             ];
 
             $db->table('pedidos')
-                ->where('shopify_order_id', $orderId)
+                ->where('id', (int)$pedido['id'])
                 ->update(['imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES)]);
         }
 
         // ✅ Recalcula estado
-        $nuevoEstado = $this->validarEstadoAutomatico((int)$pedido['id'], (string)$pedido['shopify_order_id']);
+        $nuevoEstado = $this->validarEstadoAutomatico((int)$pedido['id'], $shopifyId);
 
         return $this->response->setJSON([
             'success' => true,
@@ -339,6 +354,7 @@ class ConfirmacionController extends BaseController
       POST /api/estado/guardar
       -> Soporta mantener_asignado=true para NO desasignar en "Faltan archivos"
       -> JS lo llama como guardarEstado()
+      -> Soporta order_id como gid://shopify/Order/xxxx
     ===================================================== */
     public function guardarEstado()
     {
@@ -350,7 +366,9 @@ class ConfirmacionController extends BaseController
             $db = \Config\Database::connect();
             $payload = $this->request->getJSON(true) ?? [];
 
-            $orderId = (string)($payload['order_id'] ?? $payload['id'] ?? '');
+            $orderIdRaw = (string)($payload['order_id'] ?? $payload['id'] ?? '');
+            $orderId = $this->normalizeShopifyOrderId($orderIdRaw);
+
             $estado  = (string)($payload['estado'] ?? '');
             $mantener = (bool)($payload['mantener_asignado'] ?? false);
 
@@ -364,21 +382,27 @@ class ConfirmacionController extends BaseController
             // Asegurar que exista pedido
             $pedido = $db->table('pedidos')->where('shopify_order_id', $orderId)->get()->getRowArray();
             if (!$pedido) {
+                // fallback: si te llega id interno
+                $pedido = $db->table('pedidos')->where('id', $orderId)->get()->getRowArray();
+            }
+            if (!$pedido) {
                 return $this->response->setStatusCode(404)->setJSON(['success' => false, 'ok' => false, 'message' => 'Pedido no encontrado']);
             }
 
+            $shopifyId = (string)($pedido['shopify_order_id'] ?? $orderId);
+
             // Upsert pedidos_estado
-            $existe = $db->table('pedidos_estado')->where('order_id', $orderId)->countAllResults();
+            $existe = $db->table('pedidos_estado')->where('order_id', $shopifyId)->countAllResults();
 
             if ($existe) {
-                $db->table('pedidos_estado')->where('order_id', $orderId)->update([
+                $db->table('pedidos_estado')->where('order_id', $shopifyId)->update([
                     'estado' => $estado,
                     'estado_updated_at' => $now,
                     'estado_updated_by_name' => $user,
                 ]);
             } else {
                 $db->table('pedidos_estado')->insert([
-                    'order_id' => $orderId,
+                    'order_id' => $shopifyId,
                     'estado' => $estado,
                     'estado_updated_at' => $now,
                     'estado_updated_by_name' => $user,
@@ -387,7 +411,7 @@ class ConfirmacionController extends BaseController
 
             // Historial
             $db->table('pedidos_estado_historial')->insert([
-                'order_id' => $orderId,
+                'order_id' => $shopifyId,
                 'estado' => $estado,
                 'user_name' => $user,
                 'created_at' => $now
@@ -397,18 +421,17 @@ class ConfirmacionController extends BaseController
             // Si es "Faltan archivos" y mantener_asignado=true => NO tocar asignación.
             if (mb_strtolower(trim($estado)) === 'confirmado') {
                 $db->table('pedidos')
-                    ->where('shopify_order_id', $orderId)
+                    ->where('id', (int)$pedido['id'])
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
             } else {
                 if (!$mantener) {
-                    // Si algún día quieres liberar explícitamente desde frontend, podrías enviar mantener_asignado=false.
                     // Por defecto NO hacemos nada.
                 }
             }
 
             return $this->response->setJSON(['success' => true, 'ok' => true]);
         } catch (\Throwable $e) {
-            log_message('error', 'guardarEstado() error: '.$e->getMessage());
+            log_message('error', 'guardarEstado() error: ' . $e->getMessage());
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
                 'ok' => false,
@@ -513,5 +536,17 @@ class ConfirmacionController extends BaseController
         }
 
         return false;
+    }
+
+    /**
+     * ✅ Normaliza "gid://shopify/Order/123456" => "123456"
+     * Si no coincide, devuelve el string original (trim)
+     */
+    private function normalizeShopifyOrderId($id): string
+    {
+        $s = trim((string)$id);
+        if ($s === '') return '';
+        if (preg_match('~/Order/(\d+)~i', $s, $m)) return (string)$m[1];
+        return $s;
     }
 }
