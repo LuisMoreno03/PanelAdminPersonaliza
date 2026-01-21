@@ -9,7 +9,7 @@ use App\Models\PedidosEstadoModel;
 
 class UsuariosController extends Controller
 {
-}
+
 
     // ============================================================
     // VISTA PRINCIPAL 
@@ -23,6 +23,8 @@ class UsuariosController extends Controller
 
         return view('usuarios');
     }
+
+}
 
 
 
@@ -150,6 +152,8 @@ class UsuariosController extends Controller
             'csrf' => csrf_hash(),
         ]);
     }
+
+
+    return
+
 }
-
-
