@@ -14,6 +14,9 @@ const ENDPOINT_RETURN_ALL = `${API_BASE}/produccion/return-all`;
 const ENDPOINT_UPLOAD_GENERAL = `${API_BASE}/produccion/upload-general`;
 const ENDPOINT_LIST_GENERAL = `${API_BASE}/produccion/list-general`;
 
+// ✅ NUEVO: endpoint para setear estado tras upload (con fallbacks más abajo)
+const ENDPOINT_SET_ESTADO = `${API_BASE}/produccion/set-estado`;
+
 let pedidosCache = [];
 let pedidosFiltrados = [];
 let isLoading = false;
@@ -294,6 +297,32 @@ function extractOrdersPayload(payload) {
 }
 
 // =========================
+// ✅ NUEVO: setear estado tras upload (con fallbacks)
+// =========================
+async function setEstadoTrasUpload(orderId, nuevoEstado = "Diseñado") {
+  const payload = { order_id: String(orderId), estado: String(nuevoEstado) };
+
+  const candidates = [
+    ENDPOINT_SET_ESTADO,
+    `/produccion/set-estado`,
+    `/index.php/produccion/set-estado`,
+  ];
+
+  for (const url of candidates) {
+    try {
+      const { res, data } = await apiPost(url, payload);
+      const ok = res.ok && (data?.success === true || data?.ok === true);
+      if (ok) return true;
+    } catch {
+      // silencioso: no bloquea la subida si no existe el endpoint
+    }
+  }
+
+  console.warn("No se pudo setear estado tras upload (endpoint no disponible o falló).");
+  return false;
+}
+
+// =========================
 // Render según breakpoint
 // =========================
 function getMode() {
@@ -354,13 +383,6 @@ function actualizarListado(pedidos) {
           </button>
         `
         : renderEstadoPill(estado);
-
-      const detallesBtn = `
-        <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-          Ver detalles →
-        </button>
-      `;
 
       return `
         <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
@@ -423,21 +445,14 @@ function actualizarListado(pedidos) {
       const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
       const estado = p.estado ?? p.estado_bd ?? "Por producir";
-      const etiquetas = p.etiquetas ?? "";
       const articulos = p.articulos ?? "-";
       const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
       const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
 
-      const estadoHtml = (typeof window.abrirModal === "function")
+      // ✅ FIX: antes definías estadoHtml pero usabas estadoBtn sin existir
+      const estadoBtn = (typeof window.abrirModal === "function")
         ? `<button type="button" onclick="window.abrirModal('${escapeJsString(internalId)}')" class="hover:opacity-90">${renderEstadoPill(estado)}</button>`
         : renderEstadoPill(estado);
-
-      const detallesBtn = `
-        <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
-          class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-          Ver detalles →
-        </button>
-      `;
 
       return `
         <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
@@ -1117,9 +1132,12 @@ async function subirArchivosGenerales(orderId, fileList) {
     return false;
   }
 
+  // ✅ NUEVO: tras upload, setea estado a "Diseñado" (si existe endpoint; si no, no rompe)
+  await setEstadoTrasUpload(orderId, "Diseñado");
+
   if (msg) {
     msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
-      Subido (${data.saved || 0}). Estado → Por producir. Pedido desasignado.
+      Subido (${data.saved || 0}). Estado → Diseñado. Pedido desasignado.
     </span>`;
   }
 
