@@ -118,8 +118,8 @@
         <section class="mb-6">
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex items-start justify-between gap-4">
             <div>
-              <h1 class="text-3xl font-extrabold text-slate-900">Repeticiones</h1>
-              <p class="text-slate-500 mt-1">Pedidos para repetir</p>
+              <h1 class="text-3xl font-extrabold text-slate-900">Usuarios</h1>
+              <p class="text-slate-500 mt-1">Mi Cuenta</p>
             </div>
           </div>
         </section>
