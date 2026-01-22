@@ -191,6 +191,27 @@ class DashboardController extends Controller
     }
 
     /**
+     * ✅ Shopify: pedido reembolsado si financial_status = refunded
+     */
+    private function shopifyEsRefunded(?string $financialStatus): bool
+    {
+        $s = mb_strtolower(trim((string)$financialStatus));
+        return ($s === 'refunded');
+    }
+
+    /**
+     * ✅ Considerar "Cancelado" internamente si:
+     * - Shopify viene cancelado (cancel_reason/cancelled_at)
+     * - o Shopify viene refunded (financial_status)
+     */
+    private function shopifyDebeSerCancelado($cancelReason, $cancelledAt = null, $financialStatus = null): bool
+    {
+        if ($this->shopifyEsCancelado($cancelReason, $cancelledAt)) return true;
+        if ($this->shopifyEsRefunded($financialStatus)) return true;
+        return false;
+    }
+
+    /**
      * ✅ Estado por defecto según Shopify envío
      */
     private function estadoAutoFromShopifyEnvio(?string $fulfillmentStatus): string
@@ -199,12 +220,17 @@ class DashboardController extends Controller
     }
 
     /**
-     * ✅ Si Shopify indica cancelado, forzar estado interno a "Cancelado" (Sistema)
+     * ✅ Si Shopify indica cancelado o refunded, forzar estado interno a "Cancelado" (Sistema)
      *    y desasignar (para que salga de colas).
      */
-    private function autoSyncEstadoInternoCanceladoSiCorresponde(string $orderId, $cancelReason, $cancelledAt = null): void
+    private function autoSyncEstadoInternoCanceladoSiCorresponde(
+        string $orderId,
+        $cancelReason,
+        $cancelledAt = null,
+        $financialStatus = null
+    ): void
     {
-        if (!$this->shopifyEsCancelado($cancelReason, $cancelledAt)) return;
+        if (!$this->shopifyDebeSerCancelado($cancelReason, $cancelledAt, $financialStatus)) return;
 
         try {
             $estadoModel = new PedidosEstadoModel();
@@ -662,6 +688,9 @@ class DashboardController extends Controller
             'cancelled'        => 'Cancelado',
             'anulado'          => 'Cancelado',
             'anulada'          => 'Cancelado',
+
+            // ✅ refunded -> Cancelado (por si alguna vez llega como string)
+            'refunded'         => 'Cancelado',
         ];
 
         if (isset($map[$lower])) return $map[$lower];
@@ -693,7 +722,8 @@ class DashboardController extends Controller
     /**
      * ✅ Sync a tabla "pedidos" (SIN ETIQUETAS/TAGS)
      * ✅ + Auto-sync estado interno a "Enviado" si Shopify está fulfilled
-     * ✅ + Auto-sync estado interno a "Cancelado" si Shopify trae cancel_reason
+     * ✅ + Auto-sync estado interno a "Cancelado" si Shopify trae cancel_reason/cancelled_at
+     * ✅ + Auto-sync estado interno a "Cancelado" si Shopify trae financial_status = refunded
      */
     private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): void
     {
@@ -738,12 +768,13 @@ class DashboardController extends Controller
                     if ($cliente === '') $cliente = '-';
                 }
 
-                $totalDec     = $this->moneyToDecimal($o['total_price'] ?? null);
-                $articulos    = (isset($o['line_items']) && is_array($o['line_items'])) ? count($o['line_items']) : 0;
-                $estadoEnv    = (string)($o['fulfillment_status'] ?? '');
-                $formaEnvio   = (!empty($o['shipping_lines'][0]['title'])) ? (string)$o['shipping_lines'][0]['title'] : '';
-                $cancelReason = $o['cancel_reason'] ?? null;
-                $cancelledAt  = $o['cancelled_at'] ?? null;
+                $totalDec        = $this->moneyToDecimal($o['total_price'] ?? null);
+                $articulos       = (isset($o['line_items']) && is_array($o['line_items'])) ? count($o['line_items']) : 0;
+                $estadoEnv       = (string)($o['fulfillment_status'] ?? '');
+                $formaEnvio      = (!empty($o['shipping_lines'][0]['title'])) ? (string)$o['shipping_lines'][0]['title'] : '';
+                $cancelReason    = $o['cancel_reason'] ?? null;
+                $cancelledAt     = $o['cancelled_at'] ?? null;
+                $financialStatus = $o['financial_status'] ?? null;
 
                 $createdAt = $this->isoToMysql($o['created_at'] ?? null);
 
@@ -769,8 +800,8 @@ class DashboardController extends Controller
                     else $syncDebug['inserted']++;
                 }
 
-                // ✅ 1) si Shopify dice cancelado -> Cancelado
-                $this->autoSyncEstadoInternoCanceladoSiCorresponde($shopifyId, $cancelReason, $cancelledAt);
+                // ✅ 1) si Shopify dice cancelado o refunded -> Cancelado
+                $this->autoSyncEstadoInternoCanceladoSiCorresponde($shopifyId, $cancelReason, $cancelledAt, $financialStatus);
 
                 // ✅ 2) si Shopify está "fulfilled" -> Enviado (no pisa Cancelado/Repetir)
                 $this->autoSyncEstadoInternoEnviadoSiCorresponde($shopifyId, $estadoEnv);
@@ -924,15 +955,16 @@ class DashboardController extends Controller
                 $total = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
                 $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
 
-                $estado_envio  = $o['fulfillment_status'] ?? '-';
-                $forma_envio   = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
-                $cancelReason  = $o['cancel_reason'] ?? null;
-                $cancelledAt   = $o['cancelled_at'] ?? null;
+                $estado_envio      = $o['fulfillment_status'] ?? '-';
+                $forma_envio       = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
+                $cancelReason      = $o['cancel_reason'] ?? null;
+                $cancelledAt       = $o['cancelled_at'] ?? null;
+                $financialStatus   = $o['financial_status'] ?? null;
 
-                $isCancelled = $this->shopifyEsCancelado($cancelReason, $cancelledAt);
+                $isCancelled = $this->shopifyDebeSerCancelado($cancelReason, $cancelledAt, $financialStatus);
 
                 // ✅ Por defecto:
-                // - si Shopify está cancelado -> Cancelado
+                // - si Shopify está cancelado o refunded -> Cancelado
                 // - si no -> según fulfillment (Enviado/Por preparar)
                 $estadoBase = $isCancelled
                     ? 'Cancelado'
@@ -952,6 +984,7 @@ class DashboardController extends Controller
                     'forma_envio'  => $forma_envio ?: '-',
                     'cancel_reason' => ($cancelReason !== '' ? $cancelReason : null),
                     'cancelled_at'  => ($cancelledAt !== '' ? $cancelledAt : null),
+                    'financial_status' => ($financialStatus !== '' ? $financialStatus : null),
                     'last_status_change' => null,
                 ];
             }
@@ -998,8 +1031,12 @@ class DashboardController extends Controller
                             $ord2['estado'] = 'Enviado';
                         }
 
-                        // ✅ Si Shopify trae cancel_reason/cancelled_at -> forzar Cancelado siempre
-                        if ($this->shopifyEsCancelado($ord2['cancel_reason'] ?? null, $ord2['cancelled_at'] ?? null)) {
+                        // ✅ Si Shopify trae cancel_reason/cancelled_at o refunded -> forzar Cancelado siempre
+                        if ($this->shopifyDebeSerCancelado(
+                            $ord2['cancel_reason'] ?? null,
+                            $ord2['cancelled_at'] ?? null,
+                            $ord2['financial_status'] ?? null
+                        )) {
                             $ord2['estado'] = 'Cancelado';
                         }
                     }
@@ -1208,8 +1245,9 @@ class DashboardController extends Controller
             $shopifyFulfillment = (string)($order['fulfillment_status'] ?? '');
             $cancelReason       = $order['cancel_reason'] ?? null;
             $cancelledAt        = $order['cancelled_at'] ?? null;
+            $financialStatus    = $order['financial_status'] ?? null;
 
-            $this->autoSyncEstadoInternoCanceladoSiCorresponde((string)$orderId, $cancelReason, $cancelledAt);
+            $this->autoSyncEstadoInternoCanceladoSiCorresponde((string)$orderId, $cancelReason, $cancelledAt, $financialStatus);
             $this->autoSyncEstadoInternoEnviadoSiCorresponde((string)$orderId, $shopifyFulfillment);
 
             // ✅ 2) OVERRIDE ESTADO desde BD (pedidos_estado)
@@ -1242,8 +1280,8 @@ class DashboardController extends Controller
                 $order['estado'] = 'Enviado';
             }
 
-            // ✅ Forzar visual: si Shopify está cancelado -> Cancelado (gana siempre)
-            if ($this->shopifyEsCancelado($cancelReason, $cancelledAt)) {
+            // ✅ Forzar visual: si Shopify está cancelado o refunded -> Cancelado (gana siempre)
+            if ($this->shopifyDebeSerCancelado($cancelReason, $cancelledAt, $financialStatus)) {
                 $order['estado'] = 'Cancelado';
             }
 

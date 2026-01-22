@@ -261,13 +261,15 @@ $routes->group('soporte', ['filter' => 'auth'], function($routes) {
   $routes->get('attachment/(:num)', 'SoporteController::attachment/$1');   // ver imagen
 });
 
-
 $routes->get('montaje', 'MontajeController::index');
 $routes->get('montaje/my-queue', 'MontajeController::myQueue');
 $routes->post('montaje/pull', 'MontajeController::pull');
-$routes->post('montaje/return-all', 'MontajeController::returnAll');
+$routes->post('montaje/realizado', 'MontajeController::realizado');
+
+// compatibilidad
 $routes->post('montaje/cargado', 'MontajeController::cargado');
 
+$routes->post('montaje/return-all', 'MontajeController::returnAll');
 
 // ✅ Vista Por producir
 $routes->get('por-producir', 'PorProducir::index');

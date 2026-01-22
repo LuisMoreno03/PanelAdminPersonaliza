@@ -10,7 +10,7 @@ class MontajeController extends BaseController
     // ✅ Montaje: ENTRADA = Diseñado
     private string $estadoEntrada = 'Diseñado';
 
-    // ✅ Al marcar "Cargado": SALIDA = Por producir
+    // ✅ Al marcar "Realizado": SALIDA = Por producir
     private string $estadoSalida = 'Por producir';
 
     public function index()
@@ -19,15 +19,12 @@ class MontajeController extends BaseController
     }
 
     // =========================================================
-    // Helper: último estado (historial -> pedidos_estado -> null)
+    // Helper: expresión estado actual (historial -> pedidos_estado -> '')
     // =========================================================
     private function sqlEstadoActualExpr(): string
     {
-        // OJO: no usamos p.estado ni p.estado_bd (porque no existen en tu DB)
-        return "LOWER(TRIM(
-            CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
-            COLLATE utf8mb4_uca1400_ai_ci
-        ))";
+        // Sin COLLATE explícito para evitar errores en servidores con collation distinto
+        return "LOWER(TRIM(COALESCE(h.estado, pe.estado, '')))";
     }
 
     // =========================================================
@@ -62,6 +59,44 @@ class MontajeController extends BaseController
         return "";
     }
 
+    // =========================================================
+    // Helper: SELECT seguro según columnas existentes en pedidos
+    // (evita que reviente si no existe estado_envio, etc.)
+    // =========================================================
+    private function buildSelectPedidoFields(\CodeIgniter\Database\BaseConnection $db): string
+    {
+        $fields = $db->getFieldNames('pedidos') ?? [];
+
+        $sel = [];
+
+        // obligatorias (si no existen, es raro; pero evitamos crash con fallback)
+        $sel[] = in_array('id', $fields, true) ? "p.id" : "0 AS id";
+        $sel[] = in_array('numero', $fields, true) ? "p.numero" : "CONCAT('#', p.id) AS numero";
+        $sel[] = in_array('cliente', $fields, true) ? "p.cliente" : "'' AS cliente";
+        $sel[] = in_array('total', $fields, true) ? "p.total" : "'' AS total";
+        $sel[] = in_array('created_at', $fields, true) ? "p.created_at" : "NULL AS created_at";
+
+        // opcionales
+        $sel[] = in_array('shopify_order_id', $fields, true) ? "p.shopify_order_id" : "NULL AS shopify_order_id";
+        $sel[] = in_array('assigned_to_user_id', $fields, true) ? "p.assigned_to_user_id" : "NULL AS assigned_to_user_id";
+        $sel[] = in_array('assigned_at', $fields, true) ? "p.assigned_at" : "NULL AS assigned_at";
+
+        $sel[] = in_array('forma_envio', $fields, true) ? "p.forma_envio" : "NULL AS forma_envio";
+        $sel[] = in_array('etiquetas', $fields, true) ? "p.etiquetas" : "NULL AS etiquetas";
+        $sel[] = in_array('articulos', $fields, true) ? "p.articulos" : "NULL AS articulos";
+
+        // estado_envio: si no existe, usa fulfillment_status como alias estado_envio
+        if (in_array('estado_envio', $fields, true)) {
+            $sel[] = "p.estado_envio";
+        } elseif (in_array('fulfillment_status', $fields, true)) {
+            $sel[] = "p.fulfillment_status AS estado_envio";
+        } else {
+            $sel[] = "NULL AS estado_envio";
+        }
+
+        return implode(",\n                    ", $sel);
+    }
+
     // =========================
     // GET /montaje/my-queue
     // =========================
@@ -86,32 +121,20 @@ class MontajeController extends BaseController
             $db = \Config\Database::connect();
 
             $condNoEnviados = $this->buildCondNoEnviados($db);
-
             $estadoExpr = $this->sqlEstadoActualExpr();
+
+            // match estado: "diseñado" o "disenado"
             $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
-            $e2 = 'disenado'; // fallback
+            $e2 = 'disenado';
+
+            $selectPedidos = $this->buildSelectPedidoFields($db);
 
             $rows = $db->query("
                 SELECT
-                    p.id,
-                    p.numero,
-                    p.cliente,
-                    p.total,
-                    p.estado_envio,
-                    p.forma_envio,
-                    p.etiquetas,
-                    p.articulos,
-                    p.created_at,
-                    p.shopify_order_id,
-                    p.assigned_to_user_id,
-                    p.assigned_at,
+                    {$selectPedidos},
 
                     -- estado actual (para pintar en UI)
-                    COALESCE(
-                        CAST(h.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
-                        CAST(pe.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
-                        'por preparar'
-                    ) AS estado_bd,
+                    COALESCE(h.estado, pe.estado, 'por preparar') AS estado_bd,
 
                     COALESCE(h.created_at, pe.estado_updated_at, p.created_at) AS estado_actualizado,
                     COALESCE(h.user_name, pe.estado_updated_by_name) AS estado_por
@@ -148,7 +171,6 @@ class MontajeController extends BaseController
                 'ok' => true,
                 'data' => $rows ?: [],
             ]);
-
         } catch (\Throwable $e) {
             log_message('error', 'MontajeController myQueue ERROR: ' . $e->getMessage());
             return $this->response->setJSON([
@@ -166,14 +188,20 @@ class MontajeController extends BaseController
     public function pull()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
+            return $this->response->setStatusCode(401)->setJSON([
+                'ok' => false,
+                'error' => 'No autenticado'
+            ]);
         }
 
         $userId = (int)(session('user_id') ?? 0);
         $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
 
         if (!$userId) {
-            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Sin user_id en sesión'
+            ]);
         }
 
         $data = $this->request->getJSON(true);
@@ -187,12 +215,12 @@ class MontajeController extends BaseController
             $now = date('Y-m-d H:i:s');
 
             $condNoEnviados = $this->buildCondNoEnviados($db);
-
             $estadoExpr = $this->sqlEstadoActualExpr();
+
             $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
             $e2 = 'disenado';
 
-            // ✅ candidatos: estado actual = Diseñado (historial o pedidos_estado), no enviados, no asignados
+            // ✅ candidatos: estado actual = Diseñado, no enviados, no asignados
             $candidatos = $db->query("
                 SELECT
                     p.id,
@@ -238,6 +266,7 @@ class MontajeController extends BaseController
 
             $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
 
+            // asignar
             $db->table('pedidos')
                 ->whereIn('id', $ids)
                 ->where("(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)", null, false)
@@ -257,13 +286,15 @@ class MontajeController extends BaseController
                 ]);
             }
 
-            // (opcional) historial: dejar registrado que “tomaste” esos pedidos en Diseñado
+            // (opcional) historial: registrar que “tomaste” en Diseñado
             foreach ($candidatos as $c) {
+                $pedidoId = (string)((int)($c['id'] ?? 0));
                 $shopifyId = trim((string)($c['shopify_order_id'] ?? ''));
-                if ($shopifyId === '' || $shopifyId === '0') continue;
+
+                $orderKey = ($shopifyId !== '' && $shopifyId !== '0') ? (string)$shopifyId : $pedidoId;
 
                 $db->table('pedidos_estado_historial')->insert([
-                    'order_id'   => (string)$shopifyId,
+                    'order_id'   => (string)$orderKey,
                     'estado'     => $this->estadoEntrada, // Diseñado
                     'user_id'    => $userId,
                     'user_name'  => $userName,
@@ -279,7 +310,6 @@ class MontajeController extends BaseController
                 'assigned' => $affected,
                 'ids' => $ids,
             ]);
-
         } catch (\Throwable $e) {
             log_message('error', 'MontajeController pull ERROR: ' . $e->getMessage());
             return $this->response->setJSON([
@@ -291,20 +321,26 @@ class MontajeController extends BaseController
     }
 
     // =========================
-    // POST /montaje/cargado
-    // Cargado => Por producir + desasigna + historial
+    // POST /montaje/realizado
+    // Realizado => Por producir + desasigna + historial
     // =========================
-    public function cargado()
+    public function realizado()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
+            return $this->response->setStatusCode(401)->setJSON([
+                'ok' => false,
+                'error' => 'No autenticado'
+            ]);
         }
 
         $userId = (int)(session('user_id') ?? 0);
         $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
 
         if (!$userId) {
-            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Sin user_id en sesión'
+            ]);
         }
 
         $data = $this->request->getJSON(true);
@@ -312,13 +348,17 @@ class MontajeController extends BaseController
 
         $orderIdRaw = trim((string)($data['order_id'] ?? ''));
         if ($orderIdRaw === '' || $orderIdRaw === '0') {
-            return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'error' => 'order_id requerido']);
+            return $this->response->setStatusCode(400)->setJSON([
+                'ok' => false,
+                'error' => 'order_id requerido'
+            ]);
         }
 
         try {
             $db = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
+            // busca por id o shopify_order_id
             $pedido = $db->table('pedidos')
                 ->select('id, shopify_order_id, assigned_to_user_id')
                 ->groupStart()
@@ -329,15 +369,24 @@ class MontajeController extends BaseController
                 ->getRowArray();
 
             if (!$pedido) {
-                return $this->response->setStatusCode(404)->setJSON(['ok' => false, 'error' => 'Pedido no encontrado']);
+                return $this->response->setStatusCode(404)->setJSON([
+                    'ok' => false,
+                    'error' => 'Pedido no encontrado'
+                ]);
             }
 
             if ((int)($pedido['assigned_to_user_id'] ?? 0) !== $userId) {
-                return $this->response->setStatusCode(403)->setJSON(['ok' => false, 'error' => 'Este pedido no está asignado a tu usuario']);
+                return $this->response->setStatusCode(403)->setJSON([
+                    'ok' => false,
+                    'error' => 'Este pedido no está asignado a tu usuario'
+                ]);
             }
 
-            $pedidoId = (int)$pedido['id'];
+            $pedidoId  = (int)$pedido['id'];
             $shopifyId = trim((string)($pedido['shopify_order_id'] ?? ''));
+
+            // ✅ key para estado/historial: shopify_id si existe, si no id local
+            $orderKey = ($shopifyId !== '' && $shopifyId !== '0') ? (string)$shopifyId : (string)$pedidoId;
 
             $db->transBegin();
 
@@ -350,46 +399,56 @@ class MontajeController extends BaseController
                 ]);
 
             // 2) set estado a Por producir + historial
-            if ($shopifyId !== '' && $shopifyId !== '0') {
-                $estadoModel = new PedidosEstadoModel();
-                $estadoModel->setEstadoPedido(
-                    (string)$shopifyId,
-                    $this->estadoSalida, // Por producir
-                    $userId ?: null,
-                    $userName
-                );
+            $estadoModel = new PedidosEstadoModel();
+            $estadoModel->setEstadoPedido(
+                (string)$orderKey,
+                $this->estadoSalida, // Por producir
+                $userId ?: null,
+                $userName
+            );
 
-                $db->table('pedidos_estado_historial')->insert([
-                    'order_id'   => (string)$shopifyId,
-                    'estado'     => $this->estadoSalida,
-                    'user_id'    => $userId,
-                    'user_name'  => $userName,
-                    'created_at' => $now,
-                    'pedido_json'=> null,
-                ]);
-            }
+            $db->table('pedidos_estado_historial')->insert([
+                'order_id'   => (string)$orderKey,
+                'estado'     => $this->estadoSalida,
+                'user_id'    => $userId,
+                'user_name'  => $userName,
+                'created_at' => $now,
+                'pedido_json'=> null,
+            ]);
 
             if ($db->transStatus() === false) {
                 $db->transRollback();
-                return $this->response->setJSON(['ok' => false, 'error' => 'Falló la transacción']);
+                return $this->response->setJSON([
+                    'ok' => false,
+                    'error' => 'Falló la transacción'
+                ]);
             }
 
             $db->transCommit();
 
             return $this->response->setJSON([
                 'ok' => true,
-                'message' => 'Cargado → Por producir',
+                'message' => 'Realizado → Por producir',
                 'new_estado' => $this->estadoSalida,
+                'order_key' => $orderKey,
             ]);
-
         } catch (\Throwable $e) {
-            log_message('error', 'MontajeController cargado ERROR: ' . $e->getMessage());
+            log_message('error', 'MontajeController realizado ERROR: ' . $e->getMessage());
             return $this->response->setJSON([
                 'ok' => false,
-                'error' => 'Error interno marcando como cargado',
+                'error' => 'Error interno marcando como realizado',
                 'debug' => $e->getMessage(),
             ]);
         }
+    }
+
+    // =========================
+    // POST /montaje/cargado
+    // Alias por compatibilidad
+    // =========================
+    public function cargado()
+    {
+        return $this->realizado();
     }
 
     // =========================
@@ -398,12 +457,18 @@ class MontajeController extends BaseController
     public function returnAll()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
+            return $this->response->setStatusCode(401)->setJSON([
+                'ok' => false,
+                'error' => 'No autenticado'
+            ]);
         }
 
         $userId = (int)(session('user_id') ?? 0);
         if (!$userId) {
-            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Sin user_id en sesión'
+            ]);
         }
 
         try {
@@ -416,11 +481,17 @@ class MontajeController extends BaseController
                     'assigned_at' => null,
                 ]);
 
-            return $this->response->setJSON(['ok' => true, 'message' => 'Pedidos devueltos']);
-
+            return $this->response->setJSON([
+                'ok' => true,
+                'message' => 'Pedidos devueltos'
+            ]);
         } catch (\Throwable $e) {
             log_message('error', 'MontajeController returnAll ERROR: ' . $e->getMessage());
-            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno devolviendo pedidos']);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno devolviendo pedidos',
+                'debug' => $e->getMessage(),
+            ]);
         }
     }
 }
