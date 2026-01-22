@@ -122,7 +122,7 @@
 
 <script>
 /* ============================================================
-   ✅ TU normalizeEstado() (MISMO)
+   ✅ normalizeEstado() (AGREGADO: CANCELADO)
 ============================================================ */
 function normalizeEstado(estado) {
   const s = String(estado || "").trim().toLowerCase();
@@ -135,6 +135,16 @@ function normalizeEstado(estado) {
   if (s.includes("enviado")) return "Enviado";
   if (s.includes("repetir")) return "Repetir";
 
+  // ✅ NUEVO: CANCELADO (variantes comunes)
+  if (
+    s.includes("cancelado") ||
+    s.includes("cancelada") ||
+    s.includes("canceled") ||
+    s.includes("cancelled") ||
+    s.includes("anulado") ||
+    s.includes("anulada")
+  ) return "Cancelado";
+
   return estado ? String(estado).trim() : "Por preparar";
 }
 
@@ -142,6 +152,7 @@ function normalizeEstado(estado) {
 /* =====================================================
   ESTADO STYLE (DARK ONLY) - limpio + moderno
   ✅ Sin colores neón: solo dark con acentos sutiles
+  ✅ AGREGADO: CANCELADO
 ===================================================== */
 function estadoStyle(estado) {
   const label = normalizeEstado(estado);
@@ -153,12 +164,11 @@ function estadoStyle(estado) {
     "hover:translate-y-[-1px] active:translate-y-[0px] active:scale-[0.995]";
 
   const iconWrap =
-  "h-12 w-12 rounded-2xl grid place-items-center text-2xl " +
-  "bg-white/10 border border-white/10";
+    "h-12 w-12 rounded-2xl grid place-items-center text-2xl " +
+    "bg-white/10 border border-white/10";
 
   const dotBase  = "h-2.5 w-2.5 rounded-full ring-2 ring-white/20";
 
-  // ✅ Solo tonos oscuros, con un acento muy sutil por estado
   if (s.includes("por preparar")) {
     return { label, icon: "⏳", wrap: `${base} bg-slate-950 border-slate-700 hover:border-slate-500`, iconWrap, dot: `${dotBase} bg-slate-200` };
   }
@@ -180,6 +190,12 @@ function estadoStyle(estado) {
   if (s.includes("repetir")) {
     return { label, icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, iconWrap, dot: `${dotBase} bg-slate-300` };
   }
+
+  // ✅ NUEVO: CANCELADO (dark + borde rose)
+  if (s.includes("cancelado")) {
+    return { label, icon: "⛔", wrap: `${base} bg-slate-950 border-rose-700/60 hover:border-rose-500/80`, iconWrap, dot: `${dotBase} bg-rose-300` };
+  }
+
   return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-950 border-slate-700 hover:border-slate-500`, iconWrap, dot: `${dotBase} bg-slate-200` };
 }
 
@@ -207,6 +223,7 @@ function renderEstadoOptionButtonHTML(estadoValue) {
 
 /* ============================================================
    ✅ ESTADOS QUE APARECEN EN EL MODAL
+   ✅ AGREGADO: CANCELADO
 ============================================================ */
 function renderEstadosModal() {
   const wrap = document.getElementById("estadoOptionsWrap");
@@ -219,10 +236,9 @@ function renderEstadosModal() {
     "Diseñado",
     "Por producir",
     "Enviado",
-    "Repetir"
+    "Repetir",
+    "Cancelado"
   ];
-
-
 
   wrap.innerHTML = estados.map(renderEstadoOptionButtonHTML).join("");
 }
