@@ -1,5 +1,5 @@
 /**
- * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA
+ * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (FIXED)
  * - Lista: /confirmacion/my-queue
  * - Pull:  /confirmacion/pull
  * - Detalles: /confirmacion/detalles/{id}
@@ -12,10 +12,14 @@
  */
 
 const API = window.API || {};
-const ENDPOINT_QUEUE      = API.myQueue;
-const ENDPOINT_PULL       = API.pull;
-const ENDPOINT_RETURN_ALL = API.returnAll;
-const ENDPOINT_DETALLES   = API.detalles;
+
+const ENDPOINT_QUEUE      = (API.myQueue      || "/confirmacion/my-queue").replace(/\/$/, "");
+const ENDPOINT_PULL       = (API.pull         || "/confirmacion/pull").replace(/\/$/, "");
+const ENDPOINT_RETURN_ALL = (API.returnAll    || "/confirmacion/return-all").replace(/\/$/, "");
+const ENDPOINT_DETALLES   = (API.detalles     || "/confirmacion/detalles").replace(/\/$/, "");
+
+const ENDPOINT_SUBIR_IMAGEN = (API.subirImagen || "/confirmacion/subir-imagen").replace(/\/$/, "");
+const ENDPOINT_GUARDAR_ESTADO = (API.guardarEstado || "/confirmacion/guardar-estado").replace(/\/$/, "");
 
 let pedidosCache = [];
 let loading = false;
@@ -89,6 +93,13 @@ function normalizeImagenLocal(v) {
     };
   }
   return { url: String(v), modified_by: "", modified_at: "" };
+}
+
+function withBust(url, token) {
+  const u = String(url || "").trim();
+  if (!u) return "";
+  const t = token ? String(token) : String(Date.now());
+  return u + (u.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(t);
 }
 
 /* =====================================================
@@ -452,14 +463,17 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
 
       const requiere = requiereImagenModificada(item);
 
-      const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[i]);
+      // 👇 Soporta keys string/number
+      const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[String(i)] ?? imagenesLocales?.[i]);
       const imgMod = imgLocalObj.url || "";
+      const imgModBust = imgMod ? withBust(imgMod, imgLocalObj.modified_at || Date.now()) : "";
 
       imagenesRequeridas[i] = !!requiere;
       imagenesCargadas[i] = !!imgMod;
 
       const { imgs: propsImg, txt: propsTxt } = separarProps(item.properties);
       const imgCliente = propsImg.length ? String(propsImg[0].value || "") : "";
+      const imgClienteBust = imgCliente ? withBust(imgCliente, Date.now()) : "";
 
       const imgProducto = getProductImg(item);
       const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
@@ -505,25 +519,32 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
             <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
             <a href="${escapeHtml(imgCliente)}" target="_blank"
               class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-              <img src="${escapeHtml(imgCliente)}" class="h-40 w-40 object-cover">
+              <img src="${escapeHtml(imgClienteBust)}" class="h-40 w-40 object-cover">
             </a>
           </div>
         `
         : "";
 
-      const imgModHtml = imgMod
-        ? `
-          <div class="mt-3">
-            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
-            <a href="${escapeHtml(imgMod)}" target="_blank"
-              class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-              <img src="${escapeHtml(imgMod)}" class="h-40 w-40 object-cover">
-            </a>
-          </div>
-        `
-        : requiere
-        ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
-        : "";
+      // 👇 Envolvemos para poder actualizarlo tras subir
+      const imgModHtml = `
+        <div id="imgModWrap_${orderKey}_${i}">
+          ${
+            imgMod
+              ? `
+                <div class="mt-3">
+                  <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
+                  <a href="${escapeHtml(imgMod)}" target="_blank"
+                    class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                    <img src="${escapeHtml(imgModBust)}" class="h-40 w-40 object-cover">
+                  </a>
+                </div>
+              `
+              : requiere
+              ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+              : ``
+          }
+        </div>
+      `;
 
       const uploadHtml = requiere
         ? `
@@ -748,7 +769,7 @@ function clearLocalPreview(orderId, index) {
 
 function hydrateAuditsFromExisting(orderId, count, imagenesLocales) {
   for (let i = 0; i < count; i++) {
-    const obj = normalizeImagenLocal(imagenesLocales?.[i]);
+    const obj = normalizeImagenLocal(imagenesLocales?.[String(i)] ?? imagenesLocales?.[i]);
     const audit = document.getElementById(`audit_${orderId}_${i}`);
     if (!audit) continue;
 
@@ -774,24 +795,24 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
   const modified_by = getCurrentUserLabel();
   const modified_at = new Date().toISOString();
 
-  const fd = new FormData();
-  fd.append("order_id", String(orderId));
-  fd.append("line_index", String(index));
-  fd.append("file", file);
-  fd.append("modified_by", modified_by);
-  fd.append("modified_at", modified_at);
-  fd.append("edited", meta?.edited ? "1" : "0");
-
+  // intentamos 2 endpoints: limpio y con index.php
   const endpoints = [
-    window.API?.subirImagen,
-    "/confirmacion/subir-imagen",
-    "/index.php/confirmacion/subir-imagen",
+    ENDPOINT_SUBIR_IMAGEN,
+    "/index.php" + ENDPOINT_SUBIR_IMAGEN, // fallback si aún tienes index.php
   ].filter(Boolean);
 
   let lastErr = null;
 
   for (const url of endpoints) {
     try {
+      const fd = new FormData();
+      fd.append("order_id", String(orderId));
+      fd.append("line_index", String(index));
+      fd.append("file", file);
+      fd.append("modified_by", modified_by);
+      fd.append("modified_at", modified_at);
+      fd.append("edited", meta?.edited ? "1" : "0");
+
       const r = await fetch(url, {
         method: "POST",
         headers: { ...getCsrfHeaders() },
@@ -805,8 +826,9 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
       if (!r.ok || d?.success !== true || !d?.url) throw new Error(d?.message || `HTTP ${r.status}`);
 
       const urlFinal = String(d.url);
-      const bust = urlFinal + (urlFinal.includes("?") ? "&" : "?") + "t=" + Date.now();
+      const bust = withBust(urlFinal, d.modified_at || modified_at || Date.now());
 
+      // preview zona
       const prev = document.getElementById(`preview_${orderId}_${index}`);
       if (prev) {
         prev.innerHTML = `
@@ -820,6 +842,7 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         `;
       }
 
+      // auditoría
       const audit = document.getElementById(`audit_${orderId}_${index}`);
       if (audit) {
         audit.innerHTML = `Última modificación: <b class="text-slate-900">${escapeHtml(modified_by)}</b> · ${escapeHtml(
@@ -827,17 +850,36 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         )}`;
       }
 
+      // 👇 actualiza “Imagen modificada (subida)” del card al instante
+      const wrap = document.getElementById(`imgModWrap_${orderId}_${index}`);
+      if (wrap) {
+        wrap.innerHTML = `
+          <div class="mt-3">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
+            <a href="${escapeHtml(urlFinal)}" target="_blank"
+              class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+              <img src="${escapeHtml(bust)}" class="h-40 w-40 object-cover">
+            </a>
+          </div>
+        `;
+      }
+
+      // estado local
       imagenesCargadas[index] = true;
       if (!DET_IMAGENES_LOCALES || typeof DET_IMAGENES_LOCALES !== "object") DET_IMAGENES_LOCALES = {};
-      DET_IMAGENES_LOCALES[index] = { url: urlFinal, modified_by, modified_at };
+      DET_IMAGENES_LOCALES[String(index)] = { url: urlFinal, modified_by, modified_at };
 
+      // badge
       const badge = document.getElementById(`badge_item_${orderId}_${index}`);
       if (badge) {
         badge.innerHTML = `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`;
       }
 
       actualizarResumenAuto();
+
+      // 👇 intenta autoestado (Confirmado/Faltan)
       await window.validarEstadoAuto(String(orderId));
+
       return true;
     } catch (e) {
       lastErr = e;
@@ -879,9 +921,8 @@ function actualizarResumenAuto() {
 ===================================================== */
 window.guardarEstado = async function (orderId, nuevoEstado, opts = {}) {
   const endpoints = [
-    window.API?.guardarEstado,
-    "/confirmacion/guardar-estado",
-    "/index.php/confirmacion/guardar-estado",
+    ENDPOINT_GUARDAR_ESTADO,
+    "/index.php" + ENDPOINT_GUARDAR_ESTADO,
   ].filter(Boolean);
 
   let lastErr = null;
@@ -986,13 +1027,10 @@ window.validarEstadoAuto = async function (orderId) {
 
     actualizarResumenAuto();
 
-    if (faltaAlguna) {
-      await cargarMiCola();
-      return;
-    }
+    // refresca lista siempre para que se vea en “todos lados” en esta pantalla
+    await cargarMiCola();
 
     if (saved && nuevoEstado === "Confirmado") {
-      await cargarMiCola();
       cerrarModalDetalles();
     }
   } catch (e) {

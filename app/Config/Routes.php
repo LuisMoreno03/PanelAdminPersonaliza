@@ -109,17 +109,17 @@ $routes->group('confirmacion', ['filter' => 'auth'], static function (RouteColle
     $routes->post('pull', 'ConfirmacionController::pull');
     $routes->post('return-all', 'ConfirmacionController::returnAll');
 
-    // ✅ ESTE ES EL QUE TU JS ESTÁ LLAMANDO:
+    // ✅ endpoint real que usa confirmacion.js
     $routes->post('subir-imagen', 'ConfirmacionController::subirImagen');
 
-    // ✅ Mantén /upload como alias (opcional)
+    // ✅ alias opcional para mantener /confirmacion/upload
     $routes->post('upload', 'ConfirmacionController::uploadConfirmacion');
 
-    // rutas existentes
     $routes->get('list', 'ConfirmacionController::listFiles');
     $routes->get('detalles/(:segment)', 'ConfirmacionController::detalles/$1');
     $routes->post('guardar-estado', 'ConfirmacionController::guardarEstado');
 });
+
 
 
 /*

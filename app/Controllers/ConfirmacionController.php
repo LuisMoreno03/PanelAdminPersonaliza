@@ -300,13 +300,16 @@ class ConfirmacionController extends BaseController
             }
 
             $imagenesLocales = $hasImgLocales ? json_decode($pedido['imagenes_locales'] ?? '{}', true) : [];
+            if (!is_array($imagenesLocales)) $imagenesLocales = [];
+
             $productImages   = $hasProdImages ? json_decode($pedido['product_images'] ?? '{}', true) : [];
+            if (!is_array($productImages)) $productImages = [];
 
             return $this->response->setJSON([
                 'success' => true,
                 'order' => $orderJson,
-                'imagenes_locales' => is_array($imagenesLocales) ? $imagenesLocales : [],
-                'product_images' => is_array($productImages) ? $productImages : [],
+                'imagenes_locales' => $imagenesLocales,
+                'product_images' => $productImages,
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'detalles() error: '.$e->getMessage());
@@ -314,20 +317,54 @@ class ConfirmacionController extends BaseController
         }
     }
 
+    // ✅ alias para /confirmacion/upload
+    public function uploadConfirmacion()
+    {
+        return $this->subirImagen();
+    }
+
+    // ✅ opcional: devuelve imagenes_locales de un pedido por query ?order_id=
+    public function listFiles()
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No auth']);
+        }
+
+        $orderIdRaw = (string)($this->request->getGet('order_id') ?? '');
+        $orderId = $this->normalizeShopifyOrderId($orderIdRaw);
+        if ($orderId === '') {
+            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'order_id requerido']);
+        }
+
+        $db = \Config\Database::connect();
+        $pedido = $db->table('pedidos')->where('shopify_order_id', $orderId)->get()->getRowArray();
+        if (!$pedido) $pedido = $db->table('pedidos')->where('id', $orderId)->get()->getRowArray();
+        if (!$pedido) return $this->response->setStatusCode(404)->setJSON(['success' => false, 'message' => 'Pedido no encontrado']);
+
+        $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
+        if (!is_array($imagenes)) $imagenes = [];
+
+        return $this->response->setJSON(['success' => true, 'data' => $imagenes]);
+    }
+
+    /* =====================================================
+      POST /confirmacion/subir-imagen
+      ✅ guarda archivo público + persiste en DB + borra anterior del mismo index
+    ===================================================== */
     public function subirImagen()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false]);
+            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No auth']);
         }
 
         $orderIdRaw = (string)$this->request->getPost('order_id');
-        $orderId = $this->normalizeShopifyOrderId($orderIdRaw);
+        $orderId    = $this->normalizeShopifyOrderId($orderIdRaw);
 
-        $index = (int) $this->request->getPost('line_index');
+        $index = (int)$this->request->getPost('line_index');
         $file  = $this->request->getFile('file');
 
-        $modifiedBy = trim((string) $this->request->getPost('modified_by'));
-        $modifiedAt = trim((string) $this->request->getPost('modified_at'));
+        $modifiedBy = trim((string)$this->request->getPost('modified_by'));
+        $modifiedAt = trim((string)$this->request->getPost('modified_at'));
         if ($modifiedBy === '') $modifiedBy = session('nombre') ?? 'Sistema';
         if ($modifiedAt === '') $modifiedAt = date('c');
 
@@ -335,47 +372,91 @@ class ConfirmacionController extends BaseController
             return $this->response->setJSON(['success' => false, 'message' => 'Archivo inválido']);
         }
 
-        $dir = WRITEPATH . 'uploads/confirmacion';
-        if (!is_dir($dir)) @mkdir($dir, 0775, true);
-
-        $name = $file->getRandomName();
-        $file->move($dir, $name);
-        $url = base_url('writable/uploads/confirmacion/' . $name);
-
         $db = \Config\Database::connect();
-        $pFields = $db->getFieldNames('pedidos') ?? [];
-        $hasImgLocales = in_array('imagenes_locales', $pFields, true);
 
+        // pedido por shopify_order_id o id
         $pedido = $db->table('pedidos')->where('shopify_order_id', $orderId)->get()->getRowArray();
         if (!$pedido) $pedido = $db->table('pedidos')->where('id', $orderId)->get()->getRowArray();
         if (!$pedido) return $this->response->setJSON(['success' => false, 'message' => 'Pedido no encontrado']);
 
-        $orderKey = $this->orderKeyFromPedido($pedido);
-
-        if ($hasImgLocales) {
-            $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
-            if (!is_array($imagenes)) $imagenes = [];
-
-            $imagenes[$index] = [
-                'url' => $url,
-                'modified_by' => $modifiedBy,
-                'modified_at' => $modifiedAt,
-            ];
-
-            $db->table('pedidos')
-                ->where('id', (int)$pedido['id'])
-                ->update(['imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES)]);
+        // validar columna (en tu captura ya existe ✅)
+        $pFields = $db->getFieldNames('pedidos') ?? [];
+        if (!in_array('imagenes_locales', $pFields, true)) {
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => 'Falta columna pedidos.imagenes_locales'
+            ]);
         }
 
+        $orderKey = $this->orderKeyFromPedido($pedido);
+        if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $orderId);
+
+        // leer json actual
+        $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
+        if (!is_array($imagenes)) $imagenes = [];
+
+        // borrar anterior del mismo index si existe y es local
+        $prev = $imagenes[(string)$index] ?? $imagenes[$index] ?? null;
+        $prevUrl = '';
+        if (is_string($prev)) $prevUrl = $prev;
+        if (is_array($prev))  $prevUrl = (string)($prev['url'] ?? $prev['value'] ?? '');
+        if ($prevUrl) $this->tryDeleteLocalUploadByUrl($prevUrl);
+
+        // guardar en PUBLIC: /public/uploads/confirmacion/{orderKey}/
+        $dir = FCPATH . 'uploads/confirmacion/' . $orderKey;
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+
+        $name = $file->getRandomName();
+        $file->move($dir, $name);
+
+        $url = base_url('uploads/confirmacion/' . $orderKey . '/' . $name);
+
+        // persistir en DB
+        $imagenes[(string)$index] = [
+            'url'         => $url,
+            'modified_by' => $modifiedBy,
+            'modified_at' => $modifiedAt,
+        ];
+
+        $db->table('pedidos')
+            ->where('id', (int)$pedido['id'])
+            ->update(['imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES)]);
+
+        // auto-estado (confirmado / faltan)
         $nuevoEstado = $this->validarEstadoAutomatico((int)$pedido['id'], $orderKey);
 
         return $this->response->setJSON([
-            'success' => true,
-            'url' => $url,
+            'success'     => true,
+            'url'         => $url,
             'modified_by' => $modifiedBy,
             'modified_at' => $modifiedAt,
-            'estado' => $nuevoEstado
+            'estado'      => $nuevoEstado
         ]);
+    }
+
+    /**
+     * Borra archivo anterior si URL apunta a /uploads/confirmacion/...
+     * (evita llenar disco con versiones viejas)
+     */
+    private function tryDeleteLocalUploadByUrl(string $url): void
+    {
+        $url = trim($url);
+        if ($url === '') return;
+
+        $path = (string)parse_url($url, PHP_URL_PATH);
+        if ($path === '') return;
+
+        // Permite subcarpetas (por ejemplo si tu app está en /algo/)
+        $needle = '/uploads/confirmacion/';
+        $pos = strpos($path, $needle);
+        if ($pos === false) return;
+
+        $rel = substr($path, $pos); // desde /uploads/confirmacion/...
+        $full = rtrim(FCPATH, '/\\') . $rel;
+
+        if (is_file($full)) {
+            @unlink($full);
+        }
     }
 
     public function guardarEstado()
@@ -479,7 +560,7 @@ class ConfirmacionController extends BaseController
             if ($this->requiereImagen($item)) {
                 $requeridas++;
 
-                $val = $imagenes[$i] ?? null;
+                $val = $imagenes[(string)$i] ?? $imagenes[$i] ?? null;
                 $url = '';
 
                 if (is_string($val)) $url = $val;
@@ -573,47 +654,35 @@ class ConfirmacionController extends BaseController
         }
     }
 
-    // ✅ MEJORADO: filtro SQL por pedido_json (más agresivo)
-    // ✅ NUEVO: filtro SQL por pedido_json (Shopify real: con espacios, refunded, refunds, etc.)
     private function applyPedidoJsonExclusions($q, $db, bool $hasPedidoJson): void
     {
         if (!$hasPedidoJson) return;
 
         $jsonExpr = "LOWER(COALESCE(p.pedido_json,''))";
 
-        // Importante: buscamos patrones que SOLO aparecen cuando está cancelado/refund,
-        // y contemplamos variantes con y sin espacio tras ":".
         $needles = [
-            // cancelled_at / canceled_at con VALOR (no null)
             '"cancelled_at":"', '"cancelled_at": "',
             '"canceled_at":"',  '"canceled_at": "',
 
-            // cancel_reason con VALOR (no null)
             '"cancel_reason":"', '"cancel_reason": "',
             '"cancelreason":"',  '"cancelreason": "',
 
-            // financial_status no deseados (con/sin espacio)
             '"financial_status":"refunded', '"financial_status": "refunded',
             '"financial_status":"voided',   '"financial_status": "voided',
             '"financial_status":"partially_refunded', '"financial_status": "partially_refunded',
             '"financial_status":"partially-refunded', '"financial_status": "partially-refunded',
 
-            // refunds no vacíos (si refunds = [] no matchea)
             '"refunds":[{', '"refunds": [{', '"refunds":[ {', '"refunds": [ {',
 
-            // transacciones refund típicas (tu JSON trae kind:"refund")
             '"kind":"refund"', '"kind": "refund"',
 
-            // restock_type cancel (refund_line_items)
             '"restock_type":"cancel', '"restock_type": "cancel',
 
-            // tags “malos” (tu caso exacto + devoluciones)
             'cliente pide cancelar pedido',
             'devolucion 100', 'devolución 100',
             'devolucion', 'devolución',
             'devuelto', 'devuelta',
 
-            // chargeback / disputa (por si acaso)
             'chargeback', 'contracargo',
             'dispute', 'disputa',
         ];
@@ -627,9 +696,6 @@ class ConfirmacionController extends BaseController
         }
     }
 
-
-    // ✅ MEJORADO: filtro PHP (si algo se cuela, igual lo bloquea)
-    // ✅ NUEVO: detecta cancelación / devolución / reembolso desde el JSON real de Shopify
     private function isCancelledFromPedidoJson(?string $pedidoJson): bool
     {
         $pedidoJson = (string)$pedidoJson;
@@ -637,30 +703,19 @@ class ConfirmacionController extends BaseController
 
         $o = json_decode($pedidoJson, true);
 
-        // Fallback si por algo no se puede decodificar
         if (!is_array($o)) {
             $s = mb_strtolower($pedidoJson);
 
-            // cancelled_at: "2026-..." (con espacios opcionales)
             if (preg_match('/"cancelled_at"\s*:\s*"(.*?)"/i', $s)) return true;
             if (preg_match('/"canceled_at"\s*:\s*"(.*?)"/i', $s)) return true;
-
-            // cancel_reason: "customer"
             if (preg_match('/"cancel_reason"\s*:\s*"(.*?)"/i', $s)) return true;
-
-            // financial_status: "refunded" / "voided" / etc.
             if (preg_match('/"financial_status"\s*:\s*"(refunded|voided|partially_refunded|partially-refunded)"/i', $s)) return true;
-
-            // refunds no vacíos
             if (preg_match('/"refunds"\s*:\s*\[\s*\{/i', $s)) return true;
-
-            // tags malos
             if (preg_match('/cliente\s+pide\s+cancelar\s+pedido|devoluci[oó]n|devuelt|reembols|refund|chargeback|contracargo|disput/i', $s)) return true;
 
             return false;
         }
 
-        // Unwrap común (por si guardas {order:{...}} o {data:{...}})
         if (isset($o['order']) && is_array($o['order'])) $o = $o['order'];
         if (isset($o['data']) && is_array($o['data'])) {
             if (isset($o['data']['order']) && is_array($o['data']['order'])) $o = $o['data']['order'];
@@ -673,7 +728,6 @@ class ConfirmacionController extends BaseController
             return $s !== '' && mb_strtolower($s) !== 'null';
         };
 
-        // 1) cancel flags (TU JSON: cancelled_at + cancel_reason)
         foreach (['cancelled_at', 'canceled_at', 'cancelledAt', 'canceledAt'] as $k) {
             if (array_key_exists($k, $o) && $notEmpty($o[$k])) return true;
         }
@@ -682,7 +736,6 @@ class ConfirmacionController extends BaseController
             if (array_key_exists($k, $o) && $notEmpty($o[$k])) return true;
         }
 
-        // 2) financial_status (TU JSON: refunded)
         $financialRaw = $o['financial_status'] ?? $o['displayFinancialStatus'] ?? $o['financialStatus'] ?? '';
         if (is_array($financialRaw)) {
             $financialRaw = $financialRaw['displayName'] ?? $financialRaw['name'] ?? $financialRaw['value'] ?? '';
@@ -694,7 +747,6 @@ class ConfirmacionController extends BaseController
             if (str_contains($financial, 'refund') || str_contains($financial, 'reembols') || str_contains($financial, 'void')) return true;
         }
 
-        // 3) tags (TU JSON: "Cliente pide cancelar pedido")
         $tagsRaw = $o['tags'] ?? '';
         $tags = is_array($tagsRaw) ? implode(',', $tagsRaw) : (string)$tagsRaw;
         $tags = mb_strtolower(trim($tags));
@@ -703,15 +755,9 @@ class ConfirmacionController extends BaseController
             return true;
         }
 
-        // 4) refunds (TU JSON: refunds viene con items)
-        if (isset($o['refunds']) && is_array($o['refunds']) && count($o['refunds']) > 0) {
-            return true;
-        }
-        if (isset($o['refunds']['edges']) && is_array($o['refunds']['edges']) && count($o['refunds']['edges']) > 0) {
-            return true;
-        }
+        if (isset($o['refunds']) && is_array($o['refunds']) && count($o['refunds']) > 0) return true;
+        if (isset($o['refunds']['edges']) && is_array($o['refunds']['edges']) && count($o['refunds']['edges']) > 0) return true;
 
-        // 5) restock_type cancel en refund_line_items
         if (isset($o['refunds']) && is_array($o['refunds'])) {
             foreach ($o['refunds'] as $rf) {
                 if (!is_array($rf)) continue;
@@ -728,5 +774,4 @@ class ConfirmacionController extends BaseController
 
         return false;
     }
-
 }
