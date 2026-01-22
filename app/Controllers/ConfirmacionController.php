@@ -133,6 +133,7 @@ class ConfirmacionController extends BaseController
         }
     }
 
+
     /* =====================================================
       POST /confirmacion/pull
     ===================================================== */
@@ -265,6 +266,7 @@ class ConfirmacionController extends BaseController
             ]);
         }
     }
+
 
     public function returnAll()
     {
