@@ -419,7 +419,7 @@ function estadoStyle(estado) {
     return { label, icon: "✅", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
   }
   if (s.includes("diseñado") || s.includes("disenado")) {
-    return { label: "Diseñado", icon: "🎨", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
+    return { label: "Diseñados", icon: "🎨", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
   }
   if (s.includes("por producir")) {
     return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
