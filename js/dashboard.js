@@ -2,6 +2,11 @@
 // DASHBOARD.JS (COMPLETO) - REAL TIME + PAGINACIÓN ESTABLE
 // + PROTECCIÓN ANTI-OVERWRITE (12 usuarios)
 // (SIN ETIQUETAS) + FILTRO COMPLETO
+// ✅ FIX: Mostrar imágenes de confirmaciones / props complejas
+//    - esImagenUrl más tolerante
+//    - extraerUrls para props tipo objeto/array
+//    - imagenesLocales por index O por line_item_id
+//    - subirImagenProducto envía line_item_id
 // =====================================================
 
 /* =====================================================
@@ -289,11 +294,30 @@ function resumeLiveIfOnFirstPage() {
 /* =====================================================
   HELPERS
 ===================================================== */
+
+// ✅ FIX: esImagenUrl más tolerante (URLs sin extensión, rutas relativas, data:)
 function esImagenUrl(url) {
   if (!url) return false;
   const u = String(url).trim();
-  return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
+
+  // data urls
+  if (/^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,/i.test(u)) return true;
+
+  // http(s) con extensión clásica
+  if (/^https?:\/\/.+\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u)) return true;
+
+  // http(s) sin extensión pero con patrones comunes
+  if (
+    /^https?:\/\/.+/i.test(u) &&
+    /(cdn\.shopify\.com|cloudfront|amazonaws|vercel|firebase|imgix|images|upload|storage|files)/i.test(u)
+  ) return true;
+
+  // rutas relativas típicas (ajusta a tus rutas si hace falta)
+  if (/^(\/uploads\/|\/storage\/|\/files\/|\/img\/)/i.test(u)) return true;
+
+  return false;
 }
+
 function esUrl(u) {
   if (!u) return false;
   return /^https?:\/\//i.test(String(u).trim());
@@ -315,6 +339,35 @@ function escapeJsString(str) {
 function esBadgeHtml(valor) {
   const s = String(valor ?? "").trim();
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
+}
+
+// ✅ FIX: Extraer URLs desde props tipo string / array / object
+function extraerUrls(value) {
+  if (value == null) return [];
+
+  if (typeof value === "string") return [value];
+
+  if (Array.isArray(value)) return value.flatMap(extraerUrls);
+
+  if (typeof value === "object") {
+    const candidates = [];
+
+    if (value.url) candidates.push(value.url);
+    if (value.src) candidates.push(value.src);
+    if (value.href) candidates.push(value.href);
+    if (value.file) candidates.push(value.file);
+    if (value.image) candidates.push(value.image);
+
+    // por si es objeto indexado {0:"...",1:"..."}
+    for (const k of Object.keys(value)) {
+      const v = value[k];
+      if (typeof v === "string") candidates.push(v);
+    }
+
+    return candidates.flatMap(extraerUrls);
+  }
+
+  return [String(value)];
 }
 
 /* =====================================================
@@ -432,9 +485,7 @@ function estadoStyle(estado) {
   }
   if (s.includes("cancelado") || s.includes("anulado") || s.includes("canceled") || s.includes("cancelled")) {
     return { label: "Cancelado", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
-  } 
-
-  
+  }
 
   return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
 }
@@ -1117,15 +1168,8 @@ function requiereImagenModificada(item) {
   const props = Array.isArray(item?.properties) ? item.properties : [];
 
   const tieneImagenEnProps = props.some((p) => {
-    const v = p?.value;
-    const s =
-      v === null || v === undefined
-        ? ""
-        : typeof v === "object"
-        ? JSON.stringify(v)
-        : String(v);
-
-    return esImagenUrl(s);
+    const urls = extraerUrls(p?.value);
+    return urls.some((u) => esImagenUrl(u));
   });
 
   const tieneCamposImagen =
@@ -1280,15 +1324,17 @@ window.verDetalles = async function (orderId) {
         const name = String(p?.name ?? "").trim() || "Campo";
         const value = p?.value;
 
-        const v =
-          value === null || value === undefined
-            ? ""
-            : typeof value === "object"
-            ? JSON.stringify(value)
-            : String(value);
+        const urls = extraerUrls(value).map((x) => String(x || "").trim()).filter(Boolean);
+        const imgs = urls.filter(esImagenUrl);
 
-        if (esImagenUrl(v)) propsImg.push({ name, value: v });
-        else propsTxt.push({ name, value: v });
+        if (imgs.length) {
+          imgs.forEach((img) => propsImg.push({ name, value: img }));
+        } else {
+          const txt = (value === null || value === undefined)
+            ? ""
+            : (typeof value === "object" ? JSON.stringify(value) : String(value));
+          propsTxt.push({ name, value: txt });
+        }
       }
 
       const requiere = requiereImagenModificada(item);
@@ -1309,7 +1355,11 @@ window.verDetalles = async function (orderId) {
           </div>
         `;
 
-      const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
+      // ✅ FIX: imagen modificada puede venir por index o por line_item_id
+      const lineId = String(item.id || item.line_item_id || item.variant_id || "");
+      const localUrl =
+        (lineId && imagenesLocales?.[lineId]) ? String(imagenesLocales[lineId]) :
+        (imagenesLocales?.[index] ? String(imagenesLocales[index]) : "");
 
       window.imagenesRequeridas[index] = !!requiere;
       window.imagenesCargadas[index] = !!localUrl;
@@ -1394,15 +1444,17 @@ window.verDetalles = async function (orderId) {
           ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
           ${item.product_id ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(item.product_id)}</span></div>` : ""}
           ${item.variant_id ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(item.variant_id)}</span></div>` : ""}
+          ${lineId ? `<div><span class="text-slate-500 font-bold">Line Item ID:</span> <span class="font-semibold">${escapeHtml(lineId)}</span></div>` : ""}
         </div>
       `;
 
+      // ✅ FIX: Pasar line_item_id al subir
       const uploadHtml = requiere
         ? `
           <div class="mt-4">
             <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
             <input type="file" accept="image/*"
-              onchange="subirImagenProducto('${escapeJsString(id)}', ${index}, this)"
+              onchange="subirImagenProducto('${escapeJsString(id)}', ${index}, '${escapeJsString(lineId)}', this)"
               class="w-full border border-slate-200 rounded-2xl p-2">
             <div id="preview_${escapeAttr(id)}_${index}" class="mt-2"></div>
           </div>
@@ -1449,8 +1501,9 @@ window.verDetalles = async function (orderId) {
 
 // ===============================
 // SUBIR IMAGEN MODIFICADA (ROBUSTO)
+// ✅ FIX: recibe lineItemId y lo manda al backend
 // ===============================
-window.subirImagenProducto = async function (orderId, index, input) {
+window.subirImagenProducto = async function (orderId, index, lineItemId, input) {
   try {
     const file = input?.files?.[0];
     if (!file) return;
@@ -1458,6 +1511,7 @@ window.subirImagenProducto = async function (orderId, index, input) {
     const fd = new FormData();
     fd.append("order_id", String(orderId));
     fd.append("line_index", String(index));
+    if (lineItemId) fd.append("line_item_id", String(lineItemId));
     fd.append("file", file);
 
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
@@ -1528,6 +1582,8 @@ window.subirImagenProducto = async function (orderId, index, input) {
         window.imagenesCargadas[index] = true;
 
         if (window.imagenesLocales && typeof window.imagenesLocales === "object") {
+          // ✅ guardar por line_item_id si existe, si no por index
+          if (lineItemId) window.imagenesLocales[String(lineItemId)] = urlFinal;
           window.imagenesLocales[index] = urlFinal;
         }
 
