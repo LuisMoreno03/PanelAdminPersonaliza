@@ -213,10 +213,7 @@
 
     // ===== API Endpoints (CodeIgniter) =====
 const ENDPOINTS = {
-  users: <?= json_encode(base_url('chat/users')) ?>,
-  messages: <?= json_encode(base_url('chat/messages')) ?>, // luego + /{userId}
-  send: <?= json_encode(base_url('chat/send')) ?>,
-  markRead: <?= json_encode(base_url('chat/markRead')) ?>,
+
 };
 
 
