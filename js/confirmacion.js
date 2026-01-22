@@ -1,1239 +1,582 @@
-// =====================================================
-// DASHBOARD.JS (COMPLETO) - REAL TIME + PAGINACIÓN ESTABLE
-// + PROTECCIÓN ANTI-OVERWRITE (12 usuarios)
-// (SIN ETIQUETAS) + FILTRO COMPLETO
-// ✅ EXCLUYE pedidos con tags/etiquetas: cancelado, devuelto, refunded, etc.
-// =====================================================
+/**
+ * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA
+ * - Lista: /confirmacion/my-queue
+ * - Pull:  /confirmacion/pull
+ * - Detalles: /confirmacion/detalles/{id}
+ * - Subir: /confirmacion/subir-imagen (o window.API.subirImagen)
+ * - Guardar estado: /confirmacion/guardar-estado (o window.API.guardarEstado)
+ *
+ * Requiere (editor):
+ * <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
+ * <script src="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.js"></script>
+ */
 
-/* =====================================================
-  VARIABLES GLOBALES
-===================================================== */
-let nextPageInfo = null;
-let prevPageInfo = null;
-let isLoading = false;
-let currentPage = 1;
-let silentFetch = false;
+const API = window.API || {};
+const ENDPOINT_QUEUE      = API.myQueue;
+const ENDPOINT_PULL       = API.pull;
+const ENDPOINT_RETURN_ALL = API.returnAll;
+const ENDPOINT_DETALLES   = API.detalles;
 
-let ordersCache = [];
-let ordersById = new Map();
+let pedidosCache = [];
+let loading = false;
 
-let liveMode = true;
-let liveInterval = null;
+let imagenesRequeridas = [];
+let imagenesCargadas = [];
+let pedidoActualId = null;
 
-let userPingInterval = null;
-let userStatusInterval = null;
+let DET_IMAGENES_LOCALES = {};
+let DET_PRODUCT_IMAGES = {};
+let DET_ORDER = null;
 
-let lastFetchToken = 0;
+let PENDING_FILES = {}; // { "<orderId>_<index>": File }
+let EDITED_BLOBS  = {}; // { "<orderId>_<index>": Blob }
+let EDITED_NAMES  = {}; // { "<orderId>_<index>": "nombre_edit.png" }
 
-const dirtyOrders = new Map();
-const DIRTY_TTL_MS = 15000;
-
-/* =====================================================
-  ✅ EXCLUSIÓN POR ETIQUETAS (CANCELADO / DEVUELTO)
-===================================================== */
-const EXCLUDED_TAG_KEYWORDS = [
-  "cancelado", "cancelada", "canceled", "cancelled",
-  "anulado", "anulada",
-  "devuelto", "devuelta", "devolucion", "devolución",
-  "returned", "return",
-  "reembolsado", "reembolsada", "refund", "refunded",
-  "chargeback", "contracargo",
-];
-
-function normalizeTags(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw.map(x => String(x || "").trim()).filter(Boolean);
-  const s = String(raw || "").trim();
-  if (!s) return [];
-  return s.split(",").map(x => x.trim()).filter(Boolean);
+function keyFile(orderId, index) {
+  return `${String(orderId)}_${String(index)}`;
 }
 
-function hasExcludedTags(order) {
-  const tags = normalizeTags(order?.tags ?? order?.etiquetas ?? order?.labels ?? order?.label);
-  if (!tags.length) return false;
-  const hay = tags.join(" ").toLowerCase();
-  return EXCLUDED_TAG_KEYWORDS.some(k => hay.includes(k));
-}
+const $ = (id) => document.getElementById(id);
 
-function filterOutExcludedOrders(orders) {
-  return (orders || []).filter(o => !hasExcludedTags(o));
-}
-
-/* =====================================================
-  HELPERS
-===================================================== */
-function escapeAttr(str) {
-  return String(str ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function escapeHtml(str) {
-  return String(str ?? "")
+const escapeHtml = (str) =>
+  String(str ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+
+const esUrl = (u) => /^https?:\/\//i.test(String(u || "").trim());
+
+const esImagenUrl = (url) =>
+  /https?:\/\/.*\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i.test(String(url || "").trim());
+
+const setLoader = (v) => $("globalLoader")?.classList.toggle("hidden", !v);
+const setTextSafe = (id, v) => $(id) && ($(id).textContent = v ?? "");
+const setHtmlSafe = (id, h) => $(id) && ($(id).innerHTML = h ?? "");
+
+// ✅ Extrae número de Order desde gid://shopify/Order/123...
+function normalizeOrderId(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const m = s.match(/\/Order\/(\d+)/i);
+  return m?.[1] ? m[1] : s;
 }
 
-function escapeJsString(str) {
-  return String(str ?? "").replaceAll("\\", "\\\\").replaceAll("'", "\\'");
+function getCurrentUserLabel() {
+  const metaUser = document.querySelector('meta[name="current-user"]')?.content?.trim();
+  if (metaUser) return metaUser;
+  if (window.CURRENT_USER) return String(window.CURRENT_USER);
+  if (window.API?.currentUser) return String(window.API.currentUser);
+  return "Desconocido";
 }
 
-function esBadgeHtml(valor) {
-  const s = String(valor ?? "").trim();
-  return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
+function formatFechaLocal(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString();
 }
 
-function esImagenUrl(url) {
-  if (!url) return false;
-  const u = String(url).trim();
-  return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
-}
-function esUrl(u) {
-  if (!u) return false;
-  return /^https?:\/\//i.test(String(u).trim());
-}
-
-/* =====================================================
-  CONFIG / RUTAS
-===================================================== */
-function normalizeBase(base) {
-  base = String(base || "").trim();
-  base = base.replace(/\/+$/, "");
-  return base;
-}
-
-function apiUrl(path) {
-  if (!path.startsWith("/")) path = "/" + path;
-  const base = normalizeBase(window.API_BASE || "");
-  return base ? base + path : path;
-}
-
-function jsonHeaders() {
-  const headers = { Accept: "application/json", "Content-Type": "application/json" };
-  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
-  const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
-  if (csrfToken) headers[csrfHeader] = csrfToken;
-  return headers;
-}
-
-/* =====================================================
-  Loader
-===================================================== */
-function showLoader() {
-  if (silentFetch) return;
-  const el = document.getElementById("globalLoader");
-  if (el) el.classList.remove("hidden");
-}
-function hideLoader() {
-  if (silentFetch) return;
-  const el = document.getElementById("globalLoader");
-  if (el) el.classList.add("hidden");
-}
-
-/* =====================================================
-  FILTROS
-===================================================== */
-let filterMode = false;
-
-const FILTERS = {
-  q: "",
-  estado: "",
-  envio: "",
-  forma: "",
-  desde: "",
-  hasta: "",
-  total_min: "",
-  total_max: "",
-  art_min: "",
-  art_max: "",
-};
-
-function readFiltersFromUI() {
-  const v = (id) => (document.getElementById(id)?.value ?? "").toString().trim();
-
-  FILTERS.q = v("f_q_top") || v("f_q");
-  FILTERS.estado = v("f_estado");
-  FILTERS.envio = v("f_envio");
-  FILTERS.forma = v("f_forma");
-  FILTERS.desde = v("f_desde");
-  FILTERS.hasta = v("f_hasta");
-  FILTERS.total_min = v("f_total_min");
-  FILTERS.total_max = v("f_total_max");
-  FILTERS.art_min = v("f_art_min");
-  FILTERS.art_max = v("f_art_max");
-
-  filterMode = hasActiveFilters();
-}
-
-function hasActiveFilters() {
-  return Object.values(FILTERS).some((val) => String(val ?? "").trim() !== "");
-}
-
-function applyFiltersToUrl(u) {
-  for (const [k, val] of Object.entries(FILTERS)) {
-    const s = String(val ?? "").trim();
-    if (s !== "") u.searchParams.set(k, s);
-    else u.searchParams.delete(k);
-  }
-}
-
-function fillFormaEntregaOptionsFromOrders(orders) {
-  const sel = document.getElementById("f_forma");
-  if (!sel) return;
-
-  const current = String(sel.value ?? "");
-  const set = new Set();
-
-  (orders || []).forEach((o) => {
-    const s = String(o.forma_envio ?? "").trim();
-    if (s && s !== "-") set.add(s);
-  });
-
-  const opts = Array.from(set).sort((a, b) => a.localeCompare(b));
-
-  sel.innerHTML =
-    `<option value="">Cualquiera</option>` +
-    opts.map((x) => `<option value="${escapeAttr(x)}">${escapeHtml(x)}</option>`).join("");
-
-  if (current) sel.value = current;
-}
-
-function setupFiltersUI() {
-  const box = document.getElementById("boxFiltros");
-  const toggle = document.getElementById("btnToggleFiltros");
-
-  if (toggle && box) {
-    toggle.addEventListener("click", () => box.classList.toggle("hidden"));
-  }
-
-  const btnApply = document.getElementById("btnAplicarFiltros");
-  const btnClear = document.getElementById("btnLimpiarFiltros");
-
-  const runApply = () => {
-    readFiltersFromUI();
-    if (filterMode) pauseLive();
-    else resumeLiveIfOnFirstPage();
-    resetToFirstPage({ withFetch: true });
-  };
-
-  const runClear = () => {
-    ["f_q","f_estado","f_envio","f_forma","f_desde","f_hasta","f_total_min","f_total_max","f_art_min","f_art_max"]
-      .forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.value = "";
-      });
-
-    readFiltersFromUI();
-    filterMode = false;
-
-    resetToFirstPage({ withFetch: true });
-    resumeLiveIfOnFirstPage();
-  };
-
-  if (btnApply) btnApply.addEventListener("click", runApply);
-  if (btnClear) btnClear.addEventListener("click", runClear);
-
-  const q = document.getElementById("f_q");
-  if (q) q.addEventListener("keydown", (e) => { if (e.key === "Enter") runApply(); });
-
-  const qTop = document.getElementById("f_q_top");
-  const btnBuscarTop = document.getElementById("btnBuscarTop");
-
-  const runApplyTop = () => {
-    readFiltersFromUI();
-    if (filterMode) pauseLive();
-    else resumeLiveIfOnFirstPage();
-    resetToFirstPage({ withFetch: true });
-  };
-
-  if (btnBuscarTop) btnBuscarTop.addEventListener("click", runApplyTop);
-  if (qTop) qTop.addEventListener("keydown", (e) => { if (e.key === "Enter") runApplyTop(); });
-}
-
-/* =====================================================
-  INIT
-===================================================== */
-document.addEventListener("DOMContentLoaded", () => {
-  const btnAnterior = document.getElementById("btnAnterior");
-  const btnSiguiente = document.getElementById("btnSiguiente");
-
-  if (btnAnterior) {
-    btnAnterior.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (!btnAnterior.disabled) paginaAnterior();
-    });
-  }
-
-  if (btnSiguiente) {
-    btnSiguiente.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (!btnSiguiente.disabled) paginaSiguiente();
-    });
-  }
-
-  setupFiltersUI();
-
-  pingUsuario();
-  userPingInterval = setInterval(pingUsuario, 3600000);
-
-  cargarUsuariosEstado();
-  userStatusInterval = setInterval(cargarUsuariosEstado, 150000);
-
-  resetToFirstPage({ withFetch: true });
-  startLive(30000);
-
-  window.addEventListener("resize", () => {
-    const cont = document.getElementById("tablaPedidos");
-    if (cont && cont.dataset.lastOrders) {
-      try {
-        const orders = JSON.parse(cont.dataset.lastOrders);
-        actualizarTabla(Array.isArray(orders) ? orders : []);
-      } catch {}
-    }
-  });
-});
-
-/* =====================================================
-  LIVE CONTROL
-===================================================== */
-function startLive(ms = 20000) {
-  if (liveInterval) clearInterval(liveInterval);
-
-  liveInterval = setInterval(() => {
-    if (filterMode) return;
-    if (liveMode && currentPage === 1 && !isLoading) {
-      silentFetch = true;
-      cargarPedidos({ reset: false, page_info: "" });
-    }
-  }, ms);
-}
-
-function pauseLive() { liveMode = false; }
-function resumeLiveIfOnFirstPage() { if (currentPage === 1) liveMode = true; }
-
-/* =====================================================
-  ✅ NORMALIZAR ESTADO (incluye CANCELADO)
-===================================================== */
-function normalizeEstado(estado) {
-  const s = String(estado || "").trim().toLowerCase();
-
-  if (s.includes("por preparar")) return "Por preparar";
-  if (s.includes("faltan archivos") || s.includes("faltan_archivos")) return "Faltan archivos";
-  if (s.includes("confirmado")) return "Confirmado";
-  if (s.includes("diseñado") || s.includes("disenado")) return "Diseñado";
-  if (s.includes("por producir")) return "Por producir";
-  if (s.includes("enviado")) return "Enviado";
-  if (s.includes("repetir")) return "Repetir";
-
-  if (
-    s.includes("cancelado") ||
-    s.includes("cancelada") ||
-    s.includes("canceled") ||
-    s.includes("cancelled") ||
-    s.includes("anulado") ||
-    s.includes("anulada")
-  ) return "Cancelado";
-
-  return estado ? String(estado).trim() : "Por preparar";
-}
-
-/* =====================================================
-  Persistencia de estado (LS)
-===================================================== */
-const LS_ESTADOS_KEY = "dash_estados_v1";
-
-function loadEstadosLS() {
-  try {
-    const raw = localStorage.getItem(LS_ESTADOS_KEY);
-    const obj = raw ? JSON.parse(raw) : {};
-    return obj && typeof obj === "object" ? obj : {};
-  } catch { return {}; }
-}
-
-function saveEstadoLS(orderId, estado, last_status_change) {
-  try {
-    const all = loadEstadosLS();
-    all[String(orderId)] = {
-      estado: String(estado ?? ""),
-      last_status_change: last_status_change ?? null,
-      saved_at: Date.now(),
-    };
-    localStorage.setItem(LS_ESTADOS_KEY, JSON.stringify(all));
-  } catch {}
-}
-
-function applyEstadosLSToIncoming(incoming) {
-  const all = loadEstadosLS();
-  if (!all || typeof all !== "object") return incoming;
-
-  return (incoming || []).map((o) => {
-    const id = String(o.id ?? "");
-    if (!id || !all[id]) return o;
-
-    const saved = all[id];
-    const backendEstado = String(o.estado ?? "").trim();
-    const savedEstado = String(saved.estado ?? "").trim();
-
-    const backendEsDefault =
-      !backendEstado ||
-      backendEstado.toLowerCase() === "por preparar" ||
-      backendEstado === "-";
-
+function normalizeImagenLocal(v) {
+  if (!v) return { url: "", modified_by: "", modified_at: "" };
+  if (typeof v === "string") return { url: v, modified_by: "", modified_at: "" };
+  if (typeof v === "object") {
     return {
-      ...o,
-      estado: backendEsDefault ? (savedEstado || backendEstado) : backendEstado,
-      last_status_change: o.last_status_change || saved.last_status_change || null,
-    };
-  });
-}
-
-/* =====================================================
-  ESTADO PILL (incluye CANCELADO)
-===================================================== */
-function estadoStyle(estado) {
-  const label = normalizeEstado(estado);
-  const s = String(estado || "").toLowerCase().trim();
-  const base =
-    "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
-    "text-xs font-extrabold shadow-sm tracking-wide uppercase";
-
-  const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
-
-  if (s.includes("por preparar")) {
-    return { label, icon: "⏳", wrap: `${base} bg-gray-400 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
-  }
-  if (s.includes("faltan archivos")) {
-    return { label, icon: "⚠️", wrap: `${base} bg-yellow-400 border-yellow-500 text-black`, dot: `${dotBase} bg-black/80` };
-  }
-  if (s.includes("confirmado")) {
-    return { label, icon: "✅", wrap: `${base} bg-fuchsia-600 border-fuchsia-700 text-white`, dot: `${dotBase} bg-white` };
-  }
-  if (s.includes("diseñado") || s.includes("disenado")) {
-    return { label: "Diseñado", icon: "🎨", wrap: `${base} bg-blue-600 border-blue-700 text-white`, dot: `${dotBase} bg-sky-200` };
-  }
-  if (s.includes("por producir")) {
-    return { label, icon: "🏗️", wrap: `${base} bg-orange-600 border-orange-700 text-white`, dot: `${dotBase} bg-amber-200` };
-  }
-  if (s.includes("enviado")) {
-    return { label, icon: "🚚", wrap: `${base} bg-emerald-600 border-emerald-700 text-white`, dot: `${dotBase} bg-lime-200` };
-  }
-  if (s.includes("repetir")) {
-    return { label: "Repetir", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
-  }
-
-  if (
-    s.includes("cancelado") ||
-    s.includes("cancelada") ||
-    s.includes("canceled") ||
-    s.includes("cancelled") ||
-    s.includes("anulado") ||
-    s.includes("anulada")
-  ) {
-    return { label: "Cancelado", icon: "⛔", wrap: `${base} bg-rose-600 border-rose-700 text-white`, dot: `${dotBase} bg-rose-200` };
-  }
-
-  return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
-}
-
-function renderEstadoPill(estado) {
-  if (esBadgeHtml(estado)) return String(estado);
-  const st = estadoStyle(estado);
-  return `
-    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl border ${st.wrap}
-                shadow-sm font-extrabold text-[10px] uppercase tracking-wide whitespace-nowrap">
-      <span class="h-2 w-2 rounded-full ${st.dot}"></span>
-      <span class="text-sm leading-none">${st.icon}</span>
-      <span class="leading-none">${escapeHtml(st.label)}</span>
-    </span>
-  `;
-}
-
-/* =====================================================
-  ENTREGA PILL
-===================================================== */
-function entregaStyle(estadoEnvio) {
-  const raw = String(estadoEnvio ?? "").trim();
-  const s = raw.toLowerCase();
-
-  const base =
-    "inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border " +
-    "text-xs font-extrabold shadow-sm tracking-wide uppercase";
-
-  const dotBase = "h-2.5 w-2.5 rounded-full ring-2 ring-white/40";
-
-  if (!raw || raw === "-" || s === "null" || s === "unfulfilled") {
-    return { label: "Pendiente", icon: "📦", wrap: `${base} bg-slate-100 border-slate-200 text-slate-800`, dot: `${dotBase} bg-slate-500` };
-  }
-  if (s.includes("partial")) {
-    return { label: "Parcial", icon: "🟡", wrap: `${base} bg-amber-50 border-amber-200 text-amber-900`, dot: `${dotBase} bg-amber-500` };
-  }
-  if (s.includes("fulfilled") || s.includes("enviado") || s.includes("entregado") || s.includes("delivered")) {
-    return { label: "Enviado", icon: "🚚", wrap: `${base} bg-emerald-50 border-emerald-200 text-emerald-900`, dot: `${dotBase} bg-emerald-500` };
-  }
-
-  return { label: raw, icon: "📍", wrap: `${base} bg-slate-50 border-slate-200 text-slate-800`, dot: `${dotBase} bg-slate-500` };
-}
-
-function renderEntregaPill(estadoEnvio) {
-  const st = entregaStyle(estadoEnvio);
-  return `
-    <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-xl border ${st.wrap}
-                shadow-sm font-extrabold text-[10px] uppercase tracking-wide whitespace-nowrap">
-      <span class="h-2 w-2 rounded-full ${st.dot}"></span>
-      <span class="text-sm leading-none">${st.icon}</span>
-      <span class="leading-none">${escapeHtml(st.label)}</span>
-    </span>
-  `;
-}
-
-/* =====================================================
-  PÍLDORA PÁGINA
-===================================================== */
-function setPaginaUI({ totalPages = null } = {}) {
-  const pill = document.getElementById("pillPagina");
-  if (pill) pill.textContent = `Página ${currentPage}`;
-
-  const pillTotal = document.getElementById("pillPaginaTotal");
-  if (pillTotal) pillTotal.textContent = totalPages ? `Página ${currentPage} de ${totalPages}` : `Página ${currentPage}`;
-}
-
-/* =====================================================
-  RESET a página 1
-===================================================== */
-function resetToFirstPage({ withFetch = false } = {}) {
-  currentPage = 1;
-  nextPageInfo = null;
-  prevPageInfo = null;
-
-  setPaginaUI({ totalPages: null });
-  actualizarControlesPaginacion();
-
-  if (withFetch) cargarPedidos({ reset: true, page_info: "" });
-}
-
-/* =====================================================
-  CARGAR PEDIDOS
-===================================================== */
-function cargarPedidos({ page_info = "", reset = false } = {}) {
-  if (isLoading) return;
-  isLoading = true;
-  showLoader();
-
-  const fetchToken = ++lastFetchToken;
-
-  readFiltersFromUI();
-
-  const base = filterMode
-    ? (window.API?.filter || apiUrl("/dashboard/filter"))
-    : (window.API?.pedidos || apiUrl("/dashboard/pedidos"));
-
-  const fallback = window.API?.filter || apiUrl("/dashboard/filter");
-
-  if (reset) {
-    currentPage = 1;
-    nextPageInfo = null;
-    prevPageInfo = null;
-    page_info = "";
-  }
-
-  const buildUrl = (endpoint) => {
-    const u = new URL(endpoint, window.location.origin);
-    u.searchParams.set("page", String(currentPage));
-    if (!filterMode && page_info) u.searchParams.set("page_info", page_info);
-    if (filterMode) applyFiltersToUrl(u);
-    return u.toString();
-  };
-
-  fetch(buildUrl(base), { headers: { Accept: "application/json" } })
-    .then(async (res) => {
-      if (res.status === 404) {
-        const r2 = await fetch(buildUrl(fallback), { headers: { Accept: "application/json" } });
-        return r2.json();
-      }
-      return res.json();
-    })
-    .then((data) => {
-      if (fetchToken !== lastFetchToken) return;
-
-      if (!data || !data.success) {
-        actualizarTabla([]);
-        ordersCache = [];
-        ordersById = new Map();
-        nextPageInfo = null;
-        prevPageInfo = null;
-        actualizarControlesPaginacion();
-        setPaginaUI({ totalPages: null });
-        return;
-      }
-
-      nextPageInfo = data.next_page_info ?? null;
-      prevPageInfo = data.prev_page_info ?? null;
-
-      let incoming = Array.isArray(data.orders) ? data.orders : [];
-
-      // ✅ EXCLUIR cancelados/devueltos/reembolsados por tags
-      incoming = filterOutExcludedOrders(incoming);
-
-      fillFormaEntregaOptionsFromOrders(incoming);
-
-      const info = document.getElementById("filtersInfo");
-      if (info) {
-        const total = data.total_orders ?? data.count ?? incoming.length;
-        info.textContent = filterMode ? `Filtrado: ${incoming.length} / ${total}` : "";
-      }
-
-      incoming = applyEstadosLSToIncoming(incoming);
-
-      const now = Date.now();
-      incoming = incoming.map((o) => {
-        const id = String(o.id ?? "");
-        if (!id) return o;
-
-        const dirty = dirtyOrders.get(id);
-        if (dirty && dirty.until > now) return { ...o, estado: dirty.estado, last_status_change: dirty.last_status_change };
-        if (dirty) dirtyOrders.delete(id);
-        return o;
-      });
-
-      ordersCache = incoming;
-      ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
-
-      try { actualizarTabla(ordersCache); }
-      catch (e) { console.error("Error renderizando tabla:", e); actualizarTabla([]); }
-
-      const totalEl = document.getElementById("total-pedidos");
-      if (totalEl) totalEl.textContent = String(incoming.length);
-
-      setPaginaUI({ totalPages: data.total_pages ?? null });
-      actualizarControlesPaginacion();
-    })
-    .catch((err) => {
-      if (fetchToken !== lastFetchToken) return;
-      console.error("Error cargando pedidos:", err);
-      actualizarTabla([]);
-      ordersCache = [];
-      ordersById = new Map();
-      nextPageInfo = null;
-      prevPageInfo = null;
-      actualizarControlesPaginacion();
-      setPaginaUI({ totalPages: null });
-    })
-    .finally(() => {
-      if (fetchToken !== lastFetchToken) return;
-      isLoading = false;
-      silentFetch = false;
-      hideLoader();
-    });
-}
-
-window.cargarPedidos = cargarPedidos;
-
-/* =====================================================
-  CONTROLES PAGINACIÓN
-===================================================== */
-function actualizarControlesPaginacion() {
-  const btnSig = document.getElementById("btnSiguiente");
-  const btnAnt = document.getElementById("btnAnterior");
-
-  if (btnSig) {
-    btnSig.disabled = !nextPageInfo;
-    btnSig.classList.toggle("opacity-50", btnSig.disabled);
-    btnSig.classList.toggle("cursor-not-allowed", btnSig.disabled);
-  }
-
-  if (btnAnt) {
-    btnAnt.disabled = !prevPageInfo || currentPage <= 1;
-    btnAnt.classList.toggle("opacity-50", btnAnt.disabled);
-    btnAnt.classList.toggle("cursor-not-allowed", btnAnt.disabled);
-  }
-}
-
-function paginaSiguiente() {
-  if (!nextPageInfo) return;
-  pauseLive();
-  currentPage += 1;
-  cargarPedidos({ page_info: nextPageInfo });
-}
-
-function paginaAnterior() {
-  if (!prevPageInfo || currentPage <= 1) return;
-  currentPage -= 1;
-  cargarPedidos({ page_info: prevPageInfo });
-  resumeLiveIfOnFirstPage();
-}
-
-/* =====================================================
-  ÚLTIMO CAMBIO (compacto)
-===================================================== */
-function parseDateSafe(dtStr) {
-  if (!dtStr) return null;
-  if (dtStr instanceof Date) return isNaN(dtStr) ? null : dtStr;
-
-  let s = String(dtStr).trim();
-  if (!s) return null;
-
-  if (/^\d+$/.test(s)) {
-    const n = Number(s);
-    if (!isNaN(n)) {
-      const ms = s.length <= 10 ? n * 1000 : n;
-      const d = new Date(ms);
-      return isNaN(d) ? null : d;
-    }
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?/.test(s)) {
-    s = s.replace(" ", "T");
-  }
-
-  const d = new Date(s);
-  return isNaN(d) ? null : d;
-}
-
-function formatDateTime(dtStr) {
-  const d = parseDateSafe(dtStr);
-  if (!d) return "—";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function normalizeLastStatusChange(raw) {
-  if (!raw) return null;
-
-  if (typeof raw === "string") {
-    const t = raw.trim();
-    if (t.startsWith("{") && t.endsWith("}")) {
-      try { return JSON.parse(t); } catch { return null; }
-    }
-    return { user_name: null, changed_at: raw };
-  }
-
-  if (typeof raw === "object") {
-    return {
-      user_name: raw.user_name ?? raw.user ?? raw.nombre ?? raw.name ?? null,
-      changed_at: raw.changed_at ?? raw.date ?? raw.datetime ?? raw.updated_at ?? null,
+      url: String(v.url || v.value || ""),
+      modified_by: String(v.modified_by || v.user || ""),
+      modified_at: String(v.modified_at || v.date || ""),
     };
   }
-
-  return null;
-}
-
-function renderLastChangeCompact(p) {
-  const info = normalizeLastStatusChange(p?.last_status_change);
-  if (!info?.changed_at) return "—";
-
-  const exact = formatDateTime(info.changed_at);
-  if (exact === "—") return "—";
-
-  const user = info.user_name ? escapeHtml(String(info.user_name).toUpperCase()) : "—";
-
-  return `
-    <div class="leading-tight min-w-0 pointer-events-none select-none">
-      <div class="text-[12px] font-extrabold text-slate-900 truncate">${user}</div>
-      <div class="text-[11px] text-slate-600 whitespace-nowrap">${escapeHtml(exact)}</div>
-    </div>
-  `;
+  return { url: String(v), modified_by: "", modified_at: "" };
 }
 
 /* =====================================================
-  TABLA / GRID + CARDS
+   CSRF
 ===================================================== */
-function actualizarTabla(pedidos) {
-  const cont = document.getElementById("tablaPedidos");
-  const cards = document.getElementById("cardsPedidos");
-
-  if (cont) cont.dataset.lastOrders = JSON.stringify(pedidos || []);
-  const useCards = window.innerWidth <= 1180;
-
-  if (cont) {
-    cont.innerHTML = "";
-    if (!useCards) {
-      if (!pedidos.length) {
-        cont.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
-      } else {
-        cont.innerHTML = pedidos.map((p) => {
-          const idStr = String(p.id ?? "");
-          const clickNumero = `onclick="verDetalles('${escapeJsString(idStr)}')"`;
-          const clickCliente = `onclick="verDetalles('${escapeJsString(idStr)}')"`;
-
-          return `
-            <div class="orders-grid cols px-4 py-3 text-[13px] border-b hover:bg-slate-50 transition">
-              <div class="font-extrabold text-slate-900 whitespace-nowrap">
-                <button type="button" ${clickNumero}
-                  class="text-left font-extrabold text-slate-900 hover:underline underline-offset-2 cursor-pointer">
-                  ${escapeHtml(p.numero ?? "-")}
-                </button>
-              </div>
-
-              <div class="text-slate-600 whitespace-nowrap">${escapeHtml(p.fecha ?? "-")}</div>
-
-              <div class="min-w-0 font-semibold text-slate-800 truncate">
-                <button type="button" ${clickCliente}
-                  class="text-left min-w-0 truncate font-semibold text-slate-800 hover:underline underline-offset-2 cursor-pointer">
-                  ${escapeHtml(p.cliente ?? "-")}
-                </button>
-              </div>
-
-              <div class="min-w-0 text-xs text-slate-700 metodo-entrega">${escapeHtml(p.forma_envio ?? "-")}</div>
-
-              <div class="whitespace-nowrap relative z-10">
-                <button type="button"
-                  onclick="abrirModal('${escapeJsString(idStr)}')"
-                  class="group inline-flex items-center gap-1 rounded-xl px-1 py-0.5 bg-transparent hover:bg-slate-100 transition focus:outline-none"
-                  title="Cambiar estado">
-                  ${renderEstadoPill(p.estado ?? "-")}
-                </button>
-              </div>
-
-              <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
-              <div class="text-center font-extrabold">${escapeHtml(p.articulos ?? "-")}</div>
-
-              <div class="whitespace-nowrap">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-
-              <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(p.total ?? "-")}</div>
-
-              <div class="text-right whitespace-nowrap"></div>
-            </div>
-          `;
-        }).join("");
-      }
-    }
-  }
-
-  if (cards) {
-    cards.innerHTML = "";
-    if (!useCards) return;
-
-    if (!pedidos.length) {
-      cards.innerHTML = `<div class="p-8 text-center text-slate-500">No se encontraron pedidos</div>`;
-      return;
-    }
-
-    cards.innerHTML = pedidos.map((p) => {
-      const id = String(p.id ?? "");
-      const last = p?.last_status_change?.changed_at
-        ? `${escapeHtml(String(p.last_status_change.user_name ?? "—").toUpperCase())} · ${escapeHtml(formatDateTime(p.last_status_change.changed_at))}`
-        : "—";
-
-      return `
-        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
-          <div class="p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <button type="button"
-                  onclick="verDetalles('${escapeJsString(id)}')"
-                  class="text-left text-sm font-extrabold text-slate-900 hover:underline underline-offset-2 cursor-pointer">
-                  ${escapeHtml(p.numero ?? "-")}
-                </button>
-
-                <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(p.fecha ?? "-")}</div>
-
-                <button type="button"
-                  onclick="verDetalles('${escapeJsString(id)}')"
-                  class="text-left text-sm font-semibold text-slate-800 mt-1 truncate hover:underline underline-offset-2 cursor-pointer">
-                  ${escapeHtml(p.cliente ?? "-")}
-                </button>
-              </div>
-
-              <div class="text-right whitespace-nowrap">
-                <div class="text-xs font-extrabold text-slate-700 truncate">${escapeHtml(p.forma_envio ?? "-")}</div>
-              </div>
-            </div>
-
-            <div class="mt-3 flex items-center justify-between gap-3">
-              <button onclick="abrirModal('${escapeJsString(id)}')"
-                class="inline-flex items-center gap-2 rounded-2xl bg-transparent border-0 p-0 relative z-10">
-                ${renderEstadoPill(p.estado ?? "-")}
-              </button>
-            </div>
-
-            <div class="mt-3">${renderEntregaPill(p.estado_envio ?? "-")}</div>
-
-            <div class="mt-3 text-xs text-slate-600 space-y-1">
-              <div><b>Artículos:</b> ${escapeHtml(p.articulos ?? "-")}</div>
-              <div><b>Total:</b> ${escapeHtml(p.total ?? "-")}</div>
-              <div><b>Último cambio:</b> ${last}</div>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join("");
-  }
+function getCsrfHeaders() {
+  const t = document.querySelector('meta[name="csrf-token"]')?.content;
+  const h = document.querySelector('meta[name="csrf-header"]')?.content || "X-CSRF-TOKEN";
+  return t ? { [h]: t } : {};
 }
 
 /* =====================================================
-  MODAL ESTADO
+   LINE ITEMS
 ===================================================== */
-function findEstadoModal() {
-  return (
-    document.getElementById("modalEstado") ||
-    document.getElementById("modalEstadoPedido") ||
-    document.getElementById("modalEstadoOrden") ||
-    document.querySelector('[data-modal="estado"]')
-  );
+function extraerLineItems(order) {
+  if (Array.isArray(order?.line_items)) {
+    return order.line_items.map((i) => ({
+      title: i.title || i.name || "Producto",
+      quantity: Number(i.quantity || 1),
+      price: Number(i.price || 0),
+      product_id: i.product_id ?? null,
+      variant_id: i.variant_id ?? null,
+      variant_title: i.variant_title || "",
+      sku: i.sku || "",
+      image: i.image?.src || i.featured_image?.src || "",
+      properties: Array.isArray(i.properties) ? i.properties : [],
+    }));
+  }
+
+  if (order?.lineItems?.edges) {
+    return order.lineItems.edges.map(({ node }) => ({
+      title: node.title || "Producto",
+      quantity: Number(node.quantity || 1),
+      price: Number(node.originalUnitPrice?.amount || 0),
+      product_id: node.product?.id || null,
+      variant_id: node.variant?.id || null,
+      variant_title: node.variant?.title || "",
+      sku: node.sku || "",
+      image: node.product?.featuredImage?.url || "",
+      properties: Array.isArray(node.customAttributes)
+        ? node.customAttributes.map((p) => ({ name: p.key, value: p.value }))
+        : [],
+    }));
+  }
+
+  return [];
 }
-
-function findEstadoOrderIdInput() {
-  return (
-    document.getElementById("modalOrderId") ||
-    document.getElementById("modalEstadoOrderId") ||
-    document.getElementById("estadoOrderId") ||
-    document.querySelector('input[name="order_id"]')
-  );
-}
-
-window.abrirModal = function (orderId) {
-  const input = findEstadoOrderIdInput();
-  if (input) input.value = String(orderId ?? "");
-  const modal = findEstadoModal();
-  if (modal) modal.classList.remove("hidden");
-};
-
-window.cerrarModal = function () {
-  const modal = findEstadoModal();
-  if (modal) modal.classList.add("hidden");
-};
 
 /* =====================================================
-  ✅ GUARDAR ESTADO (LOCAL INSTANT + BACKEND + REVERT)
+   REGLAS IMÁGENES
 ===================================================== */
-async function guardarEstado(nuevoEstado) {
-  const idInput =
-    document.getElementById("modalOrderId") ||
-    document.getElementById("modalEstadoOrderId") ||
-    document.getElementById("estadoOrderId") ||
-    document.querySelector('input[name="order_id"]');
-
-  const id = String(idInput?.value || "");
-  if (!id) {
-    alert("No se encontró el ID del pedido en el modal (input). Revisa layouts/modales_estados.");
-    return;
-  }
-
-  pauseLive();
-
-  const order = ordersById.get(id);
-  const prevEstado = order?.estado ?? null;
-  const prevLast = order?.last_status_change ?? null;
-
-  const userName = window.CURRENT_USER || "Sistema";
-  const now = new Date();
-  const nowStr = now.toISOString().slice(0, 19).replace("T", " ");
-  const optimisticLast = { user_name: userName, changed_at: nowStr };
-
-  if (order) {
-    order.estado = nuevoEstado;
-    order.last_status_change = optimisticLast;
-    actualizarTabla(ordersCache);
-  }
-
-  dirtyOrders.set(id, { until: Date.now() + DIRTY_TTL_MS, estado: nuevoEstado, last_status_change: optimisticLast });
-  saveEstadoLS(id, nuevoEstado, optimisticLast);
-
-  window.cerrarModal?.();
-
-  try {
-    const endpoints = [
-      window.API?.guardarEstado,
-      apiUrl("/api/estado/guardar"),
-      "/api/estado/guardar",
-      "/index.php/api/estado/guardar",
-      "/index.php/index.php/api/estado/guardar",
-      apiUrl("/index.php/api/estado/guardar"),
-      apiUrl("/index.php/index.php/api/estado/guardar"),
-    ].filter(Boolean);
-
-    let lastErr = null;
-
-    for (const url of endpoints) {
-      try {
-        const r = await fetch(url, {
-          method: "POST",
-          headers: jsonHeaders(),
-          credentials: "same-origin",
-          body: JSON.stringify({ order_id: String(id), id: String(id), estado: String(nuevoEstado) }),
-        });
-
-        if (r.status === 404) continue;
-
-        const d = await r.json().catch(() => null);
-
-        if (!r.ok || !d?.success) throw new Error(d?.message || `HTTP ${r.status}`);
-
-        if (d?.order && order) {
-          order.estado = d.order.estado ?? order.estado;
-          order.last_status_change = d.order.last_status_change ?? order.last_status_change;
-          actualizarTabla(ordersCache);
-
-          dirtyOrders.set(id, { until: Date.now() + DIRTY_TTL_MS, estado: order.estado, last_status_change: order.last_status_change });
-          saveEstadoLS(id, order.estado, order.last_status_change);
-        }
-
-        if (currentPage === 1) cargarPedidos({ reset: false, page_info: "" });
-
-        try {
-          const msg = { type: "estado_changed", order_id: String(id), estado: String(nuevoEstado), ts: Date.now() };
-          if ("BroadcastChannel" in window) {
-            const bc = new BroadcastChannel("panel_pedidos");
-            bc.postMessage(msg);
-            bc.close();
-          }
-          localStorage.setItem("pedido_estado_changed", JSON.stringify(msg));
-        } catch {}
-
-        resumeLiveIfOnFirstPage();
-        return;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-
-    throw lastErr || new Error("No se encontró un endpoint válido (404).");
-  } catch (e) {
-    console.error("guardarEstado error:", e);
-
-    dirtyOrders.delete(id);
-
-    if (order) {
-      order.estado = prevEstado;
-      order.last_status_change = prevLast;
-      actualizarTabla(ordersCache);
-    }
-
-    alert("No se pudo guardar el estado. Se revirtió el cambio.");
-    resumeLiveIfOnFirstPage();
-  }
-}
-
-window.guardarEstado = guardarEstado;
-
-/* =====================================================
-  DETALLES (FULL SCREEN)
-===================================================== */
-function $(id) { return document.getElementById(id); }
-
-function setHtml(id, html) {
-  const el = $(id);
-  if (!el) return false;
-  el.innerHTML = html;
-  return true;
-}
-
-function setText(id, txt) {
-  const el = $(id);
-  if (!el) return false;
-  el.textContent = txt ?? "";
-  return true;
-}
-
-function abrirDetallesFull() {
-  const modal = $("modalDetallesFull");
-  if (modal) modal.classList.remove("hidden");
-  document.documentElement.classList.add("overflow-hidden");
-  document.body.classList.add("overflow-hidden");
-}
-
-function cerrarDetallesFull() {
-  const modal = $("modalDetallesFull");
-  if (modal) modal.classList.add("hidden");
-  document.documentElement.classList.remove("overflow-hidden");
-  document.body.classList.remove("overflow-hidden");
-}
-
-function toggleJsonDetalles() {
-  const pre = $("detJson");
-  if (!pre) return;
-  pre.classList.toggle("hidden");
-}
-
-function copiarDetallesJson() {
-  const pre = $("detJson");
-  if (!pre) return;
-  const text = pre.textContent || "";
-  navigator.clipboard?.writeText(text).then(
-    () => alert("JSON copiado ✅"),
-    () => alert("No se pudo copiar ❌")
-  );
-}
-
 function isLlaveroItem(item) {
-  const title = String(item?.title || item?.name || "").toLowerCase();
-  const productType = String(item?.product_type || "").toLowerCase();
+  const title = String(item?.title || "").toLowerCase();
   const sku = String(item?.sku || "").toLowerCase();
-  return title.includes("llavero") || productType.includes("llavero") || sku.includes("llav");
+  return title.includes("llavero") || sku.includes("llav");
 }
 
 function requiereImagenModificada(item) {
   const props = Array.isArray(item?.properties) ? item.properties : [];
+  const tieneImagenCliente = props.some((p) => esImagenUrl(p?.value));
+  return isLlaveroItem(item) || tieneImagenCliente;
+}
 
-  const tieneImagenEnProps = props.some((p) => {
-    const v = p?.value;
-    const s = v == null ? "" : (typeof v === "object" ? JSON.stringify(v) : String(v));
-    return esImagenUrl(s);
+/* =====================================================
+   LISTADO
+===================================================== */
+function renderPedidos(pedidos) {
+  const wrap = $("tablaPedidos");
+  if (!wrap) return;
+
+  wrap.innerHTML = "";
+
+  const visibles = Array.isArray(pedidos)
+    ? pedidos.filter((p) => !String(p?.estado || "").toLowerCase().includes("cancel"))
+    : [];
+
+  if (!visibles.length) {
+    wrap.innerHTML = `<div class="p-8 text-center text-slate-500">No hay pedidos</div>`;
+    setTextSafe("total-pedidos", 0);
+    return;
+  }
+
+  visibles.forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "orders-grid cols px-4 py-3 border-b items-center";
+
+    const numero = p.numero || p.name || ("#" + (p.order_number || p.id || ""));
+    const fecha = (p.created_at || p.fecha || "").slice(0, 10);
+    const cliente = p.cliente || p.customer_name || p.email || "—";
+    const total = Number(p.total || p.total_price || 0);
+
+    const estado = String(p.estado || "Por preparar");
+    const estadoPill =
+      estado.toLowerCase().includes("faltan")
+        ? `<span class="px-3 py-1 text-xs rounded-full bg-amber-500 text-white font-extrabold">FALTAN ARCHIVOS</span>`
+        : estado.toLowerCase().includes("confirm")
+        ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-600 text-white font-extrabold">CONFIRMADO</span>`
+        : `<span class="px-3 py-1 text-xs rounded-full bg-blue-600 text-white font-extrabold">POR PREPARAR</span>`;
+
+    const estadoEnvio = String(p.estado_envio || p.fulfillment_status || "");
+    const envioPill =
+      !estadoEnvio
+        ? `<span class="px-3 py-1 text-xs rounded-full bg-slate-100">Unfulfilled</span>`
+        : estadoEnvio.toLowerCase().includes("fulfilled")
+        ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-100 border border-emerald-200 text-emerald-900 font-extrabold">Fulfilled</span>`
+        : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100">Unfulfilled</span>`;
+
+    const orderKey =
+      (p.shopify_order_id !== null &&
+        p.shopify_order_id !== undefined &&
+        String(p.shopify_order_id).trim() !== "")
+        ? p.shopify_order_id
+        : p.id;
+
+    row.innerHTML = `
+      <div>
+        <button type="button" onclick="verDetalles('${escapeHtml(orderKey)}')"
+          class="text-left font-extrabold text-slate-900 hover:underline cursor-pointer">
+          ${escapeHtml(numero)}
+        </button>
+      </div>
+
+      <div>${escapeHtml(fecha || "—")}</div>
+
+      <div class="truncate">
+        <button type="button" onclick="verDetalles('${escapeHtml(orderKey)}')"
+          class="text-left font-bold text-slate-900 hover:underline cursor-pointer truncate">
+          ${escapeHtml(cliente)}
+        </button>
+      </div>
+
+      <div class="font-bold">${total.toFixed(2)} €</div>
+      <div>${estadoPill}</div>
+      <div>${escapeHtml(p.estado_por || "—")}</div>
+      <div>—</div>
+      <div class="text-center">${escapeHtml(p.articulos || "—")}</div>
+      <div>${envioPill}</div>
+      <div class="truncate">${escapeHtml(p.forma_envio || "-")}</div>
+      <div class="text-right"></div>
+    `;
+
+    wrap.appendChild(row);
   });
 
-  const tieneCamposImagen =
-    esImagenUrl(item?.image_original) ||
-    esImagenUrl(item?.image_url) ||
-    esImagenUrl(item?.imagen_original) ||
-    esImagenUrl(item?.imagen_url);
-
-  if (isLlaveroItem(item)) return true;
-  return tieneImagenEnProps || tieneCamposImagen;
+  setTextSafe("total-pedidos", visibles.length);
 }
 
-function totalLinea(price, qty) {
-  const p = Number(price);
-  const q = Number(qty);
-  if (isNaN(p) || isNaN(q)) return null;
-  return (p * q).toFixed(2);
-}
-
-window.verDetalles = async function (orderId) {
-  const id = String(orderId || "");
-  if (!id) return;
-
-  abrirDetallesFull();
-
-  setText("detTitle", "Cargando…");
-  setText("detSubtitle", "—");
-  setText("detItemsCount", "0");
-  setHtml("detItems", `<div class="text-slate-500">Cargando productos…</div>`);
-  setHtml("detResumen", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detCliente", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detEnvio", `<div class="text-slate-500">Cargando…</div>`);
-  setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
-
-  const pre = $("detJson");
-  if (pre) pre.textContent = "";
+/* =====================================================
+   CARGA / ACCIONES
+===================================================== */
+async function cargarMiCola() {
+  if (loading) return;
+  loading = true;
+  setLoader(true);
 
   try {
-    const url = typeof apiUrl === "function"
-      ? apiUrl(`/dashboard/detalles/${encodeURIComponent(id)}`)
-      : `/index.php/dashboard/detalles/${encodeURIComponent(id)}`;
-
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    const r = await fetch(ENDPOINT_QUEUE, { credentials: "same-origin" });
     const d = await r.json().catch(() => null);
 
-    if (!r.ok || !d || d.success !== true) {
-      setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error cargando detalles.</div>`);
-      if (pre) pre.textContent = JSON.stringify({ http: r.status, payload: d }, null, 2);
+    pedidosCache = r.ok && (d?.ok === true || d?.success === true) ? (d.data || []) : [];
+    renderPedidos(pedidosCache);
+  } catch (e) {
+    console.error("cargarMiCola error:", e);
+    pedidosCache = [];
+    renderPedidos([]);
+  } finally {
+    loading = false;
+    setLoader(false);
+  }
+}
+
+async function traerPedidos(n) {
+  setLoader(true);
+  try {
+    const r = await fetch(ENDPOINT_PULL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
+      body: JSON.stringify({ count: n }),
+      credentials: "same-origin",
+    });
+
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d?.ok) {
+      alert("Error pull: " + (d?.message || "Error"));
       return;
     }
 
-    if (pre) pre.textContent = JSON.stringify(d, null, 2);
+    await cargarMiCola();
+  } catch (e) {
+    console.error("pull error", e);
+  } finally {
+    setLoader(false);
+  }
+}
 
-    const o = d.order || {};
-    const lineItems = Array.isArray(o.line_items) ? o.line_items : [];
+async function devolverPedidos() {
+  if (!confirm("¿Devolver todos los pedidos?")) return;
+  setLoader(true);
+  try {
+    await fetch(ENDPOINT_RETURN_ALL, {
+      method: "POST",
+      headers: { ...getCsrfHeaders() },
+      credentials: "same-origin",
+    });
+  } catch (e) {
+    console.error("devolverPedidos error:", e);
+  }
+  await cargarMiCola();
+  setLoader(false);
+}
 
-    const imagenesLocales = d.imagenes_locales || {};
-    const productImages = d.product_images || {};
+/* =====================================================
+   MODAL
+===================================================== */
+function abrirDetallesFull() {
+  $("modalDetallesFull")?.classList.remove("hidden");
+  document.documentElement.classList.add("overflow-hidden");
+  document.body.classList.add("overflow-hidden");
+}
 
-    setText("detTitle", `Pedido ${o.name || ("#" + id)}`);
+function cerrarModalDetalles() {
+  $("modalDetallesFull")?.classList.add("hidden");
+  document.documentElement.classList.remove("overflow-hidden");
+  document.body.classList.remove("overflow-hidden");
+}
+window.cerrarModalDetalles = cerrarModalDetalles;
 
-    const clienteNombre = o.customer
-      ? `${o.customer.first_name || ""} ${o.customer.last_name || ""}`.trim()
-      : "";
+/* =====================================================
+   DETALLES
+===================================================== */
+window.verDetalles = async function (orderId) {
+  pedidoActualId = normalizeOrderId(orderId);
+  abrirDetallesFull();
 
-    setText("detSubtitle", clienteNombre ? clienteNombre : (o.email || "—"));
+  setTextSafe("detTitulo", "Cargando pedido…");
+  setTextSafe("detCliente", "—");
+  setHtmlSafe("detProductos", `<div class="p-6 text-slate-500">Cargando productos…</div>`);
+  setHtmlSafe("detResumen", `<div class="text-slate-500">Cargando…</div>`);
 
-    setHtml("detCliente", `
-      <div class="space-y-2">
-        <div class="font-extrabold text-slate-900">${escapeHtml(clienteNombre || "—")}</div>
-        <div><span class="text-slate-500">Email:</span> ${escapeHtml(o.email || "—")}</div>
-        <div><span class="text-slate-500">Tel:</span> ${escapeHtml(o.phone || "—")}</div>
-        <div><span class="text-slate-500">ID:</span> ${escapeHtml(o.customer?.id || "—")}</div>
-      </div>
-    `);
+  imagenesRequeridas = [];
+  imagenesCargadas = [];
+  DET_IMAGENES_LOCALES = {};
+  DET_PRODUCT_IMAGES = {};
+  DET_ORDER = null;
 
-    const a = o.shipping_address || {};
-    setHtml("detEnvio", `
-      <div class="space-y-1">
-        <div class="font-extrabold text-slate-900">${escapeHtml(a.name || "—")}</div>
-        <div>${escapeHtml(a.address1 || "")}</div>
-        <div>${escapeHtml(a.address2 || "")}</div>
-        <div>${escapeHtml((a.zip || "") + " " + (a.city || ""))}</div>
-        <div>${escapeHtml(a.province || "")}</div>
-        <div>${escapeHtml(a.country || "")}</div>
-        <div class="pt-2"><span class="text-slate-500">Tel envío:</span> ${escapeHtml(a.phone || "—")}</div>
-      </div>
-    `);
+  PENDING_FILES = {};
+  EDITED_BLOBS = {};
+  EDITED_NAMES = {};
 
-    const envio =
-      o.total_shipping_price_set?.shop_money?.amount ??
-      o.total_shipping_price_set?.presentment_money?.amount ??
-      "0";
-    const impuestos = o.total_tax ?? "0";
+  try {
+    const r = await fetch(`${ENDPOINT_DETALLES}/${encodeURIComponent(pedidoActualId)}`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
 
-    setHtml("detTotales", `
-      <div class="space-y-1">
-        <div><b>Subtotal:</b> ${escapeHtml(o.subtotal_price || "0")} €</div>
-        <div><b>Envío:</b> ${escapeHtml(envio)} €</div>
-        <div><b>Impuestos:</b> ${escapeHtml(impuestos)} €</div>
-        <div class="text-lg font-extrabold"><b>Total:</b> ${escapeHtml(o.total_price || "0")} €</div>
-      </div>
-    `);
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d?.success || !d.order) throw new Error(d?.message || "Detalles inválidos");
 
-    setHtml("detResumen", `
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Pago</div>
-          <div class="mt-1 font-semibold">${escapeHtml(o.financial_status || "—")}</div>
-        </div>
+    DET_ORDER = d.order;
+    DET_IMAGENES_LOCALES = d.imagenes_locales || {};
+    DET_PRODUCT_IMAGES = d.product_images || {};
 
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Entrega</div>
-          <div class="mt-1 font-semibold">${escapeHtml(o.fulfillment_status || "—")}</div>
-        </div>
+    if (d?.order?.id) pedidoActualId = normalizeOrderId(d.order.id);
 
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs text-slate-500 font-extrabold uppercase">Creado</div>
-          <div class="mt-1 font-semibold">${escapeHtml(o.created_at || "—")}</div>
-        </div>
-      </div>
-    `);
+    renderDetalles(DET_ORDER, DET_IMAGENES_LOCALES, DET_PRODUCT_IMAGES);
+  } catch (e) {
+    console.warn("Detalles fallback:", e);
 
-    setText("detItemsCount", String(lineItems.length));
+    const pedido = Array.isArray(pedidosCache)
+      ? pedidosCache.find((p) => String(p.shopify_order_id) === pedidoActualId || String(p.id) === pedidoActualId)
+      : null;
 
-    if (!lineItems.length) {
-      setHtml("detItems", `<div class="text-slate-500">Este pedido no tiene productos.</div>`);
-      return;
+    if (pedido) {
+      DET_ORDER = pedido;
+      if (pedido?.shopify_order_id) pedidoActualId = normalizeOrderId(pedido.shopify_order_id);
+      else if (pedido?.id) pedidoActualId = normalizeOrderId(pedido.id);
+
+      renderDetalles(pedido, {}, {});
+    } else {
+      setHtmlSafe("detProductos", `<div class="p-6 text-rose-600 font-extrabold">No se pudo cargar el pedido.</div>`);
+      setHtmlSafe("detResumen", "");
+    }
+  }
+};
+
+function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
+  const items = extraerLineItems(order);
+
+  DET_IMAGENES_LOCALES = imagenesLocales || {};
+  DET_PRODUCT_IMAGES = productImages || {};
+  DET_ORDER = order;
+
+  imagenesRequeridas = [];
+  imagenesCargadas = [];
+
+  const titulo = order?.name || order?.numero || ("#" + (order?.order_number || order?.id || ""));
+  setTextSafe("detTitulo", `Pedido ${titulo}`);
+
+  const clienteNombre = (() => {
+    const c = order?.customer;
+    if (c?.first_name || c?.last_name) return `${c.first_name || ""} ${c.last_name || ""}`.trim();
+    return order?.email || order?.cliente || "—";
+  })();
+  setTextSafe("detCliente", clienteNombre);
+
+  if (!items.length) {
+    setHtmlSafe(
+      "detProductos",
+      `<div class="p-6 text-center text-slate-500">
+        Este pedido no tiene productos en detalles.
+      </div>`
+    );
+    setHtmlSafe("detResumen", "");
+    return;
+  }
+
+  const toNum = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  function getProductImg(item) {
+    const direct = String(item?.image || item?.image_url || item?.featured_image || "").trim();
+    if (direct) return direct;
+
+    const pid = item?.product_id != null ? String(item.product_id) : "";
+    if (pid && productImages && productImages[pid]) return String(productImages[pid]);
+
+    return "";
+  }
+
+  function separarProps(propsArr) {
+    const props = Array.isArray(propsArr) ? propsArr : [];
+    const imgs = [];
+    const txt = [];
+
+    for (const p of props) {
+      const name = String(p?.name ?? "").trim() || "Campo";
+      const valueRaw = p?.value;
+      const value =
+        valueRaw === null || valueRaw === undefined
+          ? ""
+          : typeof valueRaw === "object"
+          ? JSON.stringify(valueRaw)
+          : String(valueRaw);
+
+      if (esImagenUrl(value)) imgs.push({ name, value });
+      else txt.push({ name, value });
     }
 
-    window.imagenesLocales = imagenesLocales || {};
-    window.imagenesCargadas = new Array(lineItems.length).fill(false);
-    window.imagenesRequeridas = new Array(lineItems.length).fill(false);
+    return { imgs, txt };
+  }
 
-    const itemsHtml = lineItems.map((item, index) => {
-      const props = Array.isArray(item.properties) ? item.properties : [];
+  const orderKey = normalizeOrderId(order?.id || pedidoActualId || "order");
 
-      const propsImg = [];
-      const propsTxt = [];
-
-      for (const p of props) {
-        const name = String(p?.name ?? "").trim() || "Campo";
-        const value = p?.value;
-
-        const v = value == null ? "" : (typeof value === "object" ? JSON.stringify(value) : String(value));
-        if (esImagenUrl(v)) propsImg.push({ name, value: v });
-        else propsTxt.push({ name, value: v });
-      }
+  const cardsHtml = items
+    .map((item, i) => {
+      const qty = toNum(item.quantity || 1);
+      const price = toNum(item.price || 0);
+      const total = price * qty;
 
       const requiere = requiereImagenModificada(item);
 
-      const pid = String(item.product_id || "");
-      const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
+      const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[i]);
+      const imgMod = imgLocalObj.url || "";
 
-      const productImgHtml = productImg
+      imagenesRequeridas[i] = !!requiere;
+      imagenesCargadas[i] = !!imgMod;
+
+      const { imgs: propsImg, txt: propsTxt } = separarProps(item.properties);
+      const imgCliente = propsImg.length ? String(propsImg[0].value || "") : "";
+
+      const imgProducto = getProductImg(item);
+      const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
+      const pid = item.product_id != null ? String(item.product_id) : "";
+      const vid = item.variant_id != null ? String(item.variant_id) : "";
+      const sku = item.sku ? String(item.sku) : "";
+
+      const badgeHtml = requiere
+        ? imgMod
+          ? `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`
+          : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-50 border border-amber-200 text-amber-900">Falta imagen</span>`
+        : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-slate-50 border border-slate-200 text-slate-700">Sin imagen</span>`;
+
+      const propsTxtHtml = propsTxt.length
         ? `
-          <a href="${escapeHtml(productImg)}" target="_blank"
+          <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
+            <div class="space-y-1 text-sm">
+              ${propsTxt
+                .map(({ name, value }) => {
+                  const safeName = escapeHtml(name);
+                  const safeV = escapeHtml(value || "—");
+                  const val = esUrl(value)
+                    ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                    : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
+
+                  return `
+                    <div class="flex gap-2">
+                      <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
+                      <div class="flex-1">${val}</div>
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+          </div>
+        `
+        : "";
+
+      const imgClienteHtml = imgCliente
+        ? `
+          <div class="mt-3">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
+            <a href="${escapeHtml(imgCliente)}" target="_blank"
+              class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+              <img src="${escapeHtml(imgCliente)}" class="h-40 w-40 object-cover">
+            </a>
+          </div>
+        `
+        : "";
+
+      const imgModHtml = imgMod
+        ? `
+          <div class="mt-3">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
+            <a href="${escapeHtml(imgMod)}" target="_blank"
+              class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+              <img src="${escapeHtml(imgMod)}" class="h-40 w-40 object-cover">
+            </a>
+          </div>
+        `
+        : requiere
+        ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+        : "";
+
+      const uploadHtml = requiere
+        ? `
+          <div class="mt-4">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
+
+            <div
+              id="dz_${orderKey}_${i}"
+              data-dropzone="1"
+              data-order="${escapeHtml(orderKey)}"
+              data-index="${i}"
+              class="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 cursor-pointer hover:bg-slate-100 transition"
+            >
+              <div class="font-extrabold text-slate-700">Arrastra y suelta aquí</div>
+              <div class="text-xs text-slate-500 mt-1">o haz clic para elegir un archivo</div>
+
+              <input id="file_${orderKey}_${i}" type="file" accept="image/*" class="hidden" />
+
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button type="button" data-action="edit"
+                  class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide disabled:opacity-40"
+                  disabled>Editar</button>
+
+                <button type="button" data-action="upload"
+                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition disabled:opacity-40"
+                  disabled>Subir</button>
+
+                <button type="button" data-action="clear"
+                  class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-300 transition disabled:opacity-40"
+                  disabled>Quitar</button>
+              </div>
+
+              <div id="preview_${orderKey}_${i}" class="mt-3"></div>
+              <div id="audit_${orderKey}_${i}" class="mt-2 text-xs text-slate-500"></div>
+            </div>
+          </div>
+        `
+        : "";
+
+      const datosIdsHtml = `
+        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+          ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
+          ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
+          ${pid ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(pid)}</span></div>` : ""}
+          ${vid ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(vid)}</span></div>` : ""}
+        </div>
+      `;
+
+      const productThumbHtml = imgProducto
+        ? `
+          <a href="${escapeHtml(imgProducto)}" target="_blank"
             class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
-            <img src="${escapeHtml(productImg)}" class="h-full w-full object-cover">
+            <img src="${escapeHtml(imgProducto)}" class="h-full w-full object-cover">
           </a>
         `
         : `
@@ -1242,387 +585,553 @@ window.verDetalles = async function (orderId) {
           </div>
         `;
 
-      const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
-
-      window.imagenesRequeridas[index] = !!requiere;
-      window.imagenesCargadas[index] = !!localUrl;
-
-      const estadoItem = requiere ? (localUrl ? "LISTO" : "FALTA") : "NO REQUIERE";
-      const badgeCls =
-        estadoItem === "LISTO"
-          ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-          : estadoItem === "FALTA"
-          ? "bg-amber-50 border-amber-200 text-amber-900"
-          : "bg-slate-50 border-slate-200 text-slate-700";
-      const badgeText =
-        estadoItem === "LISTO" ? "Listo" : estadoItem === "FALTA" ? "Falta imagen" : "Sin imagen";
-
-      const propsTxtHtml = propsTxt.length
-        ? `
-          <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-            <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
-            <div class="space-y-1 text-sm">
-              ${propsTxt.map(({ name, value }) => {
-                const safeV = escapeHtml(value || "—");
-                const safeName = escapeHtml(name);
-
-                const val = esUrl(value)
-                  ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
-                  : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
-
-                return `
-                  <div class="flex gap-2">
-                    <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
-                    <div class="flex-1">${val}</div>
-                  </div>
-                `;
-              }).join("")}
-            </div>
-          </div>
-        `
-        : "";
-
-      const propsImgsHtml = propsImg.length
-        ? `
-          <div class="mt-3">
-            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
-            <div class="flex flex-wrap gap-3">
-              ${propsImg.map(({ name, value }) => `
-                <a href="${escapeHtml(value)}" target="_blank"
-                  class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                  <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
-                  <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
-                    ${escapeHtml(name)}
-                  </div>
-                </a>
-              `).join("")}
-            </div>
-          </div>
-        `
-        : "";
-
-      const modificadaHtml = localUrl
-        ? `
-          <div class="mt-3">
-            <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
-            <a href="${escapeHtml(localUrl)}" target="_blank"
-              class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-              <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
-            </a>
-          </div>
-        `
-        : requiere
-        ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
-        : "";
-
-      const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
-      const sku = item.sku || "";
-      const qty = item.quantity ?? 1;
-      const price = item.price ?? "0";
-      const tot = totalLinea(price, qty);
-
-      const datosProductoHtml = `
-        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-          ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
-          ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
-          ${item.product_id ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(item.product_id)}</span></div>` : ""}
-          ${item.variant_id ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(item.variant_id)}</span></div>` : ""}
-        </div>
-      `;
-
-      const uploadHtml = requiere
-        ? `
-          <div class="mt-4">
-            <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
-            <input type="file" accept="image/*"
-              onchange="subirImagenProducto('${escapeJsString(id)}', ${index}, this)"
-              class="w-full border border-slate-200 rounded-2xl p-2">
-            <div id="preview_${escapeAttr(id)}_${index}" class="mt-2"></div>
-          </div>
-        `
-        : "";
-
       return `
         <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
           <div class="flex items-start gap-4">
-            ${productImgHtml}
-
+            ${productThumbHtml}
             <div class="min-w-0 flex-1">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title || item.name || "Producto")}</div>
+                  <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title)}</div>
                   <div class="text-sm text-slate-600 mt-1">
-                    Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)} €</b>
-                    ${tot ? ` · Total: <b>${escapeHtml(tot)} €</b>` : ""}
+                    Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price.toFixed(2))} €</b> · Total: <b>${escapeHtml(total.toFixed(2))} €</b>
                   </div>
                 </div>
-
-                <span class="text-xs font-extrabold px-3 py-1 rounded-full border ${badgeCls}">
-                  ${badgeText}
-                </span>
+                <div id="badge_item_${orderKey}_${i}">${badgeHtml}</div>
               </div>
 
-              ${datosProductoHtml}
+              ${datosIdsHtml}
               ${propsTxtHtml}
-              ${propsImgsHtml}
-              ${modificadaHtml}
+              ${imgClienteHtml}
+              ${imgModHtml}
               ${uploadHtml}
             </div>
           </div>
         </div>
       `;
-    }).join("");
+    })
+    .join("");
 
-    setHtml("detItems", itemsHtml);
-  } catch (e) {
-    console.error("verDetalles error:", e);
-    setHtml("detItems", `<div class="text-rose-600 font-extrabold">Error de red cargando detalles.</div>`);
-  }
-};
+  setHtmlSafe(
+    "detProductos",
+    `
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="font-extrabold text-slate-900">Productos</h3>
+          <span class="px-3 py-1 rounded-full text-xs bg-slate-100 font-extrabold">${items.length}</span>
+        </div>
+        ${cardsHtml}
+      </div>
+    `
+  );
+
+  actualizarResumenAuto();
+  initDropzones(orderKey);
+  hydrateAuditsFromExisting(orderKey, items.length, imagenesLocales);
+}
 
 /* =====================================================
-  SUBIR IMAGEN MODIFICADA (ROBUSTO)
+   DROPZONES + PREVIEW + AUDITORÍA
+===================================================== */
+function initDropzones(orderId) {
+  const oidStr = String(orderId);
+  const zones = document.querySelectorAll(`[data-dropzone="1"][data-order="${CSS.escape(oidStr)}"]`);
+
+  zones.forEach((zone) => {
+    const oid = zone.getAttribute("data-order");
+    const idx = Number(zone.getAttribute("data-index"));
+
+    const input = document.getElementById(`file_${oid}_${idx}`);
+    const btnEdit = zone.querySelector(`[data-action="edit"]`);
+    const btnUpload = zone.querySelector(`[data-action="upload"]`);
+    const btnClear = zone.querySelector(`[data-action="clear"]`);
+
+    const enableBtns = (v) => {
+      if (btnEdit) btnEdit.disabled = !v;
+      if (btnUpload) btnUpload.disabled = !v;
+      if (btnClear) btnClear.disabled = !v;
+    };
+
+    const onPick = (file) => {
+      if (!file) return;
+      const k = keyFile(oid, idx);
+      PENDING_FILES[k] = file;
+      delete EDITED_BLOBS[k];
+      delete EDITED_NAMES[k];
+      renderLocalPreview(oid, idx, file);
+      enableBtns(true);
+    };
+
+    zone.addEventListener("click", (e) => {
+      if ((e.target?.tagName || "").toLowerCase() === "button") return;
+      input?.click();
+    });
+
+    input?.addEventListener("change", () => onPick(input.files?.[0]));
+
+    zone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      zone.classList.add("border-blue-500");
+    });
+
+    zone.addEventListener("dragleave", () => zone.classList.remove("border-blue-500"));
+
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("border-blue-500");
+      onPick(e.dataTransfer?.files?.[0]);
+    });
+
+    btnClear?.addEventListener("click", (e) => {
+      e.preventDefault();
+      const k = keyFile(oid, idx);
+      delete PENDING_FILES[k];
+      delete EDITED_BLOBS[k];
+      delete EDITED_NAMES[k];
+      if (input) input.value = "";
+      clearLocalPreview(oid, idx);
+      enableBtns(false);
+    });
+
+    btnEdit?.addEventListener("click", (e) => {
+      e.preventDefault();
+      const k = keyFile(oid, idx);
+      const file = PENDING_FILES[k];
+      if (!file) return;
+      openImageEditor(oid, idx, file);
+    });
+
+    btnUpload?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const k = keyFile(oid, idx);
+
+      const editedBlob = EDITED_BLOBS[k];
+      const editedName = EDITED_NAMES[k];
+      const originalFile = PENDING_FILES[k];
+      if (!originalFile && !editedBlob) return;
+
+      const payloadFile = editedBlob
+        ? new File([editedBlob], editedName || originalFile?.name || `edit_${idx}.png`, {
+            type: editedBlob.type || "image/png",
+          })
+        : originalFile;
+
+      await subirImagenProductoFile(oid, idx, payloadFile, { edited: !!editedBlob });
+
+      delete PENDING_FILES[k];
+      delete EDITED_BLOBS[k];
+      delete EDITED_NAMES[k];
+      if (input) input.value = "";
+      enableBtns(false);
+    });
+  });
+}
+
+function renderLocalPreview(orderId, index, fileOrBlob) {
+  const prev = document.getElementById(`preview_${orderId}_${index}`);
+  if (!prev) return;
+  const url = URL.createObjectURL(fileOrBlob);
+  prev.innerHTML = `
+    <div>
+      <div class="text-xs font-extrabold text-slate-500 mb-2">Vista previa (local)</div>
+      <div class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+        <img src="${escapeHtml(url)}" class="h-40 w-40 object-cover">
+      </div>
+    </div>
+  `;
+}
+
+function clearLocalPreview(orderId, index) {
+  const prev = document.getElementById(`preview_${orderId}_${index}`);
+  if (prev) prev.innerHTML = "";
+}
+
+function hydrateAuditsFromExisting(orderId, count, imagenesLocales) {
+  for (let i = 0; i < count; i++) {
+    const obj = normalizeImagenLocal(imagenesLocales?.[i]);
+    const audit = document.getElementById(`audit_${orderId}_${i}`);
+    if (!audit) continue;
+
+    audit.innerHTML = obj.url
+      ? `Última modificación: <b class="text-slate-900">${escapeHtml(obj.modified_by || "—")}</b>${
+          obj.modified_at ? ` · ${escapeHtml(formatFechaLocal(obj.modified_at))}` : ""
+        }`
+      : "";
+  }
+}
+
+/* =====================================================
+   SUBIR IMAGEN
 ===================================================== */
 window.subirImagenProducto = async function (orderId, index, input) {
-  try {
-    const file = input?.files?.[0];
-    if (!file) return;
+  const file = input?.files?.[0];
+  if (!file) return;
+  await subirImagenProductoFile(String(orderId), Number(index), file, { edited: false });
+  try { input.value = ""; } catch {}
+};
 
-    const fd = new FormData();
-    fd.append("order_id", String(orderId));
-    fd.append("line_index", String(index));
-    fd.append("file", file);
+async function subirImagenProductoFile(orderId, index, file, meta = {}) {
+  const modified_by = getCurrentUserLabel();
+  const modified_at = new Date().toISOString();
 
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
-    const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
+  const fd = new FormData();
+  fd.append("order_id", String(orderId));
+  fd.append("line_index", String(index));
+  fd.append("file", file);
+  fd.append("modified_by", modified_by);
+  fd.append("modified_at", modified_at);
+  fd.append("edited", meta?.edited ? "1" : "0");
 
-    const endpoints = [
-      (typeof apiUrl === "function" ? apiUrl("/api/pedidos/imagenes/subir") : "/index.php/api/pedidos/imagenes/subir"),
-      "/api/pedidos/imagenes/subir",
-      "/index.php/api/pedidos/imagenes/subir",
-      "/index.php/index.php/api/pedidos/imagenes/subir",
-    ];
+  const endpoints = [
+    window.API?.subirImagen,
+    "/confirmacion/subir-imagen",
+    "/index.php/confirmacion/subir-imagen",
+  ].filter(Boolean);
 
-    let lastErr = null;
+  let lastErr = null;
 
-    for (const url of endpoints) {
-      try {
-        const headers = {};
-        if (csrfToken) headers[csrfHeader] = csrfToken;
+  for (const url of endpoints) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { ...getCsrfHeaders() },
+        body: fd,
+        credentials: "same-origin",
+      });
 
-        const r = await fetch(url, { method: "POST", headers, body: fd, credentials: "same-origin" });
-        if (r.status === 404) continue;
+      if (r.status === 404) continue;
 
-        if (r.status === 401 || r.status === 403) {
-          throw new Error("No autenticado. Tu sesión venció (401/403). Recarga el panel y vuelve a iniciar sesión.");
-        }
+      const d = await r.json().catch(() => null);
+      if (!r.ok || d?.success !== true || !d?.url) throw new Error(d?.message || `HTTP ${r.status}`);
 
-        const ct = (r.headers.get("content-type") || "").toLowerCase();
-        let d = null;
-        let rawText = "";
+      const urlFinal = String(d.url);
+      const bust = urlFinal + (urlFinal.includes("?") ? "&" : "?") + "t=" + Date.now();
 
-        if (ct.includes("application/json")) {
-          d = await r.json().catch(() => null);
-        } else {
-          rawText = await r.text().catch(() => "");
-          if (rawText.trim().startsWith("<!doctype") || rawText.trim().startsWith("<html")) {
-            throw new Error("El servidor devolvió HTML (probable login / sesión expirada). Recarga el panel.");
-          }
-          d = { success: true, url: rawText.trim() };
-        }
-
-        const success = (d && (d.success === true || typeof d.url === "string"));
-        const urlFinal = d?.url ? String(d.url) : "";
-
-        if (!r.ok || !success || !urlFinal) throw new Error(d?.message || `Respuesta inválida del servidor (HTTP ${r.status}).`);
-
-        const previewId = `preview_${orderId}_${index}`;
-        const prev = document.getElementById(previewId);
-        if (prev) {
-          prev.innerHTML = `
-            <div class="mt-2">
-              <div class="text-xs font-extrabold text-slate-500">Imagen modificada subida ✅</div>
-              <img src="${urlFinal}" class="mt-2 w-44 rounded-2xl border border-slate-200 shadow-sm object-cover">
-            </div>
-          `;
-        }
-
-        if (!Array.isArray(window.imagenesCargadas)) window.imagenesCargadas = [];
-        if (!Array.isArray(window.imagenesRequeridas)) window.imagenesRequeridas = [];
-
-        window.imagenesCargadas[index] = true;
-
-        if (window.imagenesLocales && typeof window.imagenesLocales === "object") {
-          window.imagenesLocales[index] = urlFinal;
-        }
-
-        if (typeof window.validarEstadoAuto === "function") {
-          window.validarEstadoAuto(orderId);
-        }
-
-        return;
-      } catch (e) {
-        lastErr = e;
+      const prev = document.getElementById(`preview_${orderId}_${index}`);
+      if (prev) {
+        prev.innerHTML = `
+          <div class="mt-2">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Vista previa (subida ✅)</div>
+            <a href="${escapeHtml(urlFinal)}" target="_blank"
+              class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+              <img src="${escapeHtml(bust)}" class="h-40 w-40 object-cover">
+            </a>
+          </div>
+        `;
       }
-    }
 
-    throw lastErr || new Error("No se encontró endpoint para subir imagen (404).");
+      const audit = document.getElementById(`audit_${orderId}_${index}`);
+      if (audit) {
+        audit.innerHTML = `Última modificación: <b class="text-slate-900">${escapeHtml(modified_by)}</b> · ${escapeHtml(
+          formatFechaLocal(modified_at)
+        )}`;
+      }
+
+      imagenesCargadas[index] = true;
+      if (!DET_IMAGENES_LOCALES || typeof DET_IMAGENES_LOCALES !== "object") DET_IMAGENES_LOCALES = {};
+      DET_IMAGENES_LOCALES[index] = { url: urlFinal, modified_by, modified_at };
+
+      const badge = document.getElementById(`badge_item_${orderId}_${index}`);
+      if (badge) {
+        badge.innerHTML = `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`;
+      }
+
+      actualizarResumenAuto();
+      await window.validarEstadoAuto(String(orderId));
+      return true;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  console.error("subirImagenProductoFile error:", lastErr);
+  alert("Error subiendo imagen: " + (lastErr?.message || lastErr));
+  return false;
+}
+
+/* =====================================================
+   RESUMEN
+===================================================== */
+function actualizarResumenAuto() {
+  const total = imagenesRequeridas.filter(Boolean).length;
+  const ok = imagenesCargadas.filter(Boolean).length;
+
+  setHtmlSafe(
+    "detResumen",
+    `
+      <div class="font-extrabold">${ok} / ${total} imágenes cargadas</div>
+      <div class="${ok === total ? "text-emerald-600" : "text-amber-600"} font-bold">
+        ${ok === total ? "🟢 Todo listo" : "🟡 Faltan imágenes"}
+      </div>
+
+      <div class="mt-4">
+        <button type="button" onclick="cancelarPedidoActual()"
+          class="px-4 py-2 rounded-2xl bg-rose-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-rose-700 transition">
+          Cancelar pedido
+        </button>
+      </div>
+    `
+  );
+}
+
+/* =====================================================
+   GUARDAR ESTADO
+===================================================== */
+window.guardarEstado = async function (orderId, nuevoEstado, opts = {}) {
+  const endpoints = [
+    window.API?.guardarEstado,
+    "/confirmacion/guardar-estado",
+    "/index.php/confirmacion/guardar-estado",
+  ].filter(Boolean);
+
+  let lastErr = null;
+
+  const mantener_asignado =
+    typeof opts?.mantener_asignado === "boolean"
+      ? opts.mantener_asignado
+      : String(nuevoEstado || "").toLowerCase().includes("faltan");
+
+  for (const url of endpoints) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          order_id: normalizeOrderId(orderId),
+          id: normalizeOrderId(orderId),
+          estado: String(nuevoEstado),
+          mantener_asignado,
+        }),
+      });
+
+      if (r.status === 404) continue;
+
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !(d?.success || d?.ok)) throw new Error(d?.message || `HTTP ${r.status}`);
+      return true;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  console.error("guardarEstado failed:", lastErr);
+  return false;
+};
+
+window.cancelarPedidoActual = async function () {
+  const oid = normalizeOrderId(pedidoActualId);
+  if (!oid) return;
+
+  if (!confirm("¿Cancelar este pedido? Se quitará de tu lista.")) return;
+
+  setLoader(true);
+  try {
+    const ok = await window.guardarEstado(oid, "Cancelado", { mantener_asignado: false });
+    if (!ok) throw new Error("No se pudo guardar el estado.");
+
+    pedidosCache = Array.isArray(pedidosCache)
+      ? pedidosCache.filter((p) => {
+          const id =
+            (p.shopify_order_id !== null &&
+              p.shopify_order_id !== undefined &&
+              String(p.shopify_order_id).trim() !== "")
+              ? String(p.shopify_order_id)
+              : String(p.id || "");
+          return normalizeOrderId(id) !== oid;
+        })
+      : [];
+
+    renderPedidos(pedidosCache);
+    await cargarMiCola();
+    cerrarModalDetalles();
   } catch (e) {
-    console.error("subirImagenProducto error:", e);
-    alert("Error subiendo imagen: " + (e?.message || e));
+    console.error("cancelarPedidoActual error:", e);
+    alert("Error cancelando pedido: " + (e?.message || e));
+  } finally {
+    setLoader(false);
   }
 };
 
 /* =====================================================
-  AUTO-ESTADO
+   AUTO-ESTADO
 ===================================================== */
 window.validarEstadoAuto = async function (orderId) {
   try {
-    const oid = String(orderId || "");
+    const oid = normalizeOrderId(orderId);
     if (!oid) return;
 
-    const req = Array.isArray(window.imagenesRequeridas) ? window.imagenesRequeridas : [];
-    const ok  = Array.isArray(window.imagenesCargadas) ? window.imagenesCargadas : [];
+    const req = Array.isArray(imagenesRequeridas) ? imagenesRequeridas : [];
+    const ok = Array.isArray(imagenesCargadas) ? imagenesCargadas : [];
 
-    const requiredIdx = req.map((v, i) => (v ? i : -1)).filter(i => i >= 0);
+    const requiredIdx = req.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
     const requiredCount = requiredIdx.length;
     if (requiredCount < 1) return;
 
-    const uploadedCount = requiredIdx.filter(i => ok[i] === true).length;
+    const uploadedCount = requiredIdx.filter((i) => ok[i] === true).length;
     const faltaAlguna = uploadedCount < requiredCount;
 
     const nuevoEstado = faltaAlguna ? "Faltan archivos" : "Confirmado";
 
-    const order =
-      (window.ordersById && window.ordersById.get && window.ordersById.get(oid)) ||
-      (Array.isArray(window.ordersCache) ? window.ordersCache.find(x => String(x.id) === oid) : null);
+    const pedidoLocal = Array.isArray(pedidosCache)
+      ? pedidosCache.find((p) => String(p.shopify_order_id) === oid || String(p.id) === oid)
+      : null;
 
-    const estadoActual = String(order?.estado || "").toLowerCase().trim();
-    const nuevoLower = nuevoEstado.toLowerCase();
+    const estadoActual = String(pedidoLocal?.estado || "").toLowerCase().trim();
+    if (nuevoEstado.toLowerCase().includes("faltan") && estadoActual.includes("faltan")) return;
+    if (nuevoEstado.toLowerCase().includes("confirm") && estadoActual.includes("confirm")) return;
 
-    if (
-      (nuevoLower.includes("faltan") && (estadoActual.includes("faltan archivos") || estadoActual.includes("faltan_archivos"))) ||
-      (nuevoLower.includes("confirmado") && estadoActual.includes("confirmado"))
-    ) return;
+    const saved = await window.guardarEstado(oid, nuevoEstado);
+    if (pedidoLocal) pedidoLocal.estado = nuevoEstado;
 
-    let idInput = document.getElementById("modalOrderId");
-    if (!idInput) {
-      idInput = document.createElement("input");
-      idInput.type = "hidden";
-      idInput.id = "modalOrderId";
-      document.body.appendChild(idInput);
+    actualizarResumenAuto();
+
+    if (faltaAlguna) {
+      await cargarMiCola();
+      return;
     }
-    idInput.value = oid;
 
-    await window.guardarEstado(nuevoEstado);
+    if (saved && nuevoEstado === "Confirmado") {
+      await cargarMiCola();
+      cerrarModalDetalles();
+    }
   } catch (e) {
     console.error("validarEstadoAuto error:", e);
   }
 };
 
 /* =====================================================
-  USERS STATUS
+   EDITOR (Cropper.js)
 ===================================================== */
-async function pingUsuario() {
-  try { await fetch(apiUrl("/dashboard/ping"), { headers: { Accept: "application/json" } }); } catch {}
-}
+let __editor = { modal: null, img: null, cropper: null, current: null };
 
-async function cargarUsuariosEstado() {
-  try {
-    const r = await fetch(apiUrl("/dashboard/usuarios-estado"), { headers: { Accept: "application/json" } });
-    const d = await r.json().catch(() => null);
-    if (!d) return;
+function ensureEditorModal() {
+  if (__editor.modal) return;
 
-    const ok = d.ok === true || d.success === true;
-    if (ok) {
-      if (typeof window.renderUsersStatus === "function") window.renderUsersStatus(d);
-      else if (typeof window.renderUserStatus === "function") window.renderUserStatus(d);
-    }
-  } catch (e) {
-    console.error("Error usuarios estado:", e);
-  }
-}
+  const modal = document.createElement("div");
+  modal.id = "imgEditorModal";
+  modal.className = "fixed inset-0 z-[9999] hidden";
+  modal.innerHTML = `
+    <div class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="w-full max-w-3xl rounded-3xl bg-white shadow-xl overflow-hidden">
+        <div class="p-4 border-b flex items-center justify-between">
+          <div class="font-extrabold text-slate-900">Editar imagen</div>
+          <button type="button" id="btnEditorClose"
+            class="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 font-extrabold">✕</button>
+        </div>
 
-window.renderUsersStatus = function (payload) {
-  const onlineEl = document.getElementById("onlineUsers");
-  const offlineEl = document.getElementById("offlineUsers");
-  const onlineCountEl = document.getElementById("onlineCount");
-  const offlineCountEl = document.getElementById("offlineCount");
+        <div class="p-4">
+          <div class="rounded-2xl border bg-slate-50 p-2 flex items-center justify-center">
+            <img id="editorImg" alt="editor" class="max-h-[60vh]">
+          </div>
 
-  if (!onlineEl || !offlineEl) return;
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button type="button" data-ed="rotateL"
+              class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase">⟲</button>
+            <button type="button" data-ed="rotateR"
+              class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase">⟳</button>
+            <button type="button" data-ed="zoomIn"
+              class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase">＋</button>
+            <button type="button" data-ed="zoomOut"
+              class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase">－</button>
 
-  const users = payload?.users || [];
+            <div class="flex-1"></div>
 
-  const normalized = users.map((u) => {
-    const secs =
-      u.seconds_since_seen != null
-        ? Number(u.seconds_since_seen)
-        : u.last_seen
-          ? Math.max(0, Math.floor((Date.now() - new Date(String(u.last_seen).replace(" ", "T")).getTime()) / 1000))
-          : null;
+            <button type="button" data-ed="cancel"
+              class="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-[11px] font-extrabold uppercase">Cancelar</button>
+            <button type="button" data-ed="save"
+              class="px-3 py-2 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-extrabold uppercase">Guardar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
 
-    return { ...u, seconds_since_seen: isNaN(secs) ? null : secs };
+  __editor.modal = modal;
+  __editor.img = modal.querySelector("#editorImg");
+
+  modal.querySelector("#btnEditorClose")?.addEventListener("click", closeImageEditor);
+  modal.addEventListener("click", (e) => {
+    const bg = modal.querySelector(".absolute.inset-0.bg-black\\/60");
+    if (e.target === bg) closeImageEditor();
   });
 
-  const online = normalized.filter((u) => u.online);
-  const offline = normalized.filter((u) => !u.online);
+  modal.querySelectorAll("[data-ed]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const action = btn.getAttribute("data-ed");
+      if (action === "cancel") return closeImageEditor();
+      if (action === "save") return saveImageEditor();
+      if (!__editor.cropper) return;
 
-  if (onlineCountEl) onlineCountEl.textContent = String(payload.online_count ?? online.length);
-  if (offlineCountEl) offlineCountEl.textContent = String(payload.offline_count ?? offline.length);
-
-  onlineEl.innerHTML = online.length
-    ? online.map(renderUserRow("online")).join("")
-    : `<li class="text-sm text-emerald-800/80">No hay usuarios conectados</li>`;
-
-  offlineEl.innerHTML = offline.length
-    ? offline.map(renderUserRow("offline")).join("")
-    : `<li class="text-sm text-rose-800/80">No hay usuarios desconectados</li>`;
-};
-
-function renderUserRow(mode) {
-  return (u) => {
-    const nombre = escapeHtml(u.nombre ?? "—");
-    const role = escapeHtml(u.role ?? "");
-    const since = formatDuration(u.seconds_since_seen);
-
-    const badge =
-      mode === "online"
-        ? `<span class="px-3 py-1 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-200 whitespace-nowrap">
-            Conectado · ${since}
-          </span>`
-        : `<span class="px-3 py-1 rounded-full text-[11px] font-extrabold bg-rose-100 text-rose-900 border border-rose-200 whitespace-nowrap">
-            Desconectado · ${since}
-          </span>`;
-
-    return `
-      <li class="flex items-center justify-between gap-3 p-3 rounded-2xl border ${mode === "online" ? "border-emerald-200 bg-white/70" : "border-rose-200 bg-white/70"}">
-        <div class="min-w-0">
-          <div class="font-extrabold text-slate-900 truncate">${nombre}</div>
-          <div class="text-xs text-slate-500 truncate">${role ? role : "—"}</div>
-        </div>
-        ${badge}
-      </li>
-    `;
-  };
+      if (action === "rotateL") __editor.cropper.rotate(-90);
+      if (action === "rotateR") __editor.cropper.rotate(90);
+      if (action === "zoomIn") __editor.cropper.zoom(0.1);
+      if (action === "zoomOut") __editor.cropper.zoom(-0.1);
+    });
+  });
 }
 
-function formatDuration(seconds) {
-  if (seconds === null || seconds === undefined) return "—";
+function openImageEditor(orderId, index, file) {
+  ensureEditorModal();
 
-  const s = Math.max(0, Number(seconds));
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
+  if (!window.Cropper) {
+    alert("Incluye Cropper.js para editar imágenes.");
+    return;
+  }
 
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m`;
-  return `${sec}s`;
+  __editor.current = { orderId: String(orderId), index: Number(index), file };
+
+  const url = URL.createObjectURL(file);
+  __editor.img.src = url;
+
+  __editor.modal.classList.remove("hidden");
+
+  try { __editor.cropper?.destroy(); } catch {}
+  __editor.cropper = new Cropper(__editor.img, {
+    viewMode: 1,
+    autoCropArea: 1,
+    responsive: true,
+    background: false,
+  });
 }
 
-window.DASH = window.DASH || {};
-window.DASH.cargarPedidos = cargarPedidos;
-window.DASH.resetToFirstPage = resetToFirstPage;
+function closeImageEditor() {
+  if (!__editor.modal) return;
+  __editor.modal.classList.add("hidden");
+  try { __editor.cropper?.destroy(); } catch {}
+  __editor.cropper = null;
+  __editor.current = null;
+}
 
-console.log("✅ dashboard.js cargado (SIN ETIQUETAS) + filtro tags excluidos:", EXCLUDED_TAG_KEYWORDS.length);
+async function saveImageEditor() {
+  if (!__editor.cropper || !__editor.current) return;
+
+  const { orderId, index, file } = __editor.current;
+  const k = keyFile(orderId, index);
+
+  const canvas = __editor.cropper.getCroppedCanvas({
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: "high",
+  });
+
+  const blob = await new Promise((res) => canvas.toBlob(res, "image/png", 0.92));
+  if (!blob) return alert("No se pudo generar la imagen editada.");
+
+  EDITED_BLOBS[k] = blob;
+  EDITED_NAMES[k] = (file?.name ? file.name.replace(/\.[a-z0-9]+$/i, "") : `edit_${index}`) + "_edit.png";
+
+  renderLocalPreview(orderId, index, blob);
+  closeImageEditor();
+}
+
+/* =====================================================
+   INIT
+===================================================== */
+document.addEventListener("DOMContentLoaded", () => {
+  $("btnTraer5")?.addEventListener("click", () => traerPedidos(5));
+  $("btnTraer10")?.addEventListener("click", () => traerPedidos(10));
+  $("btnDevolver")?.addEventListener("click", devolverPedidos);
+  cargarMiCola();
+});
