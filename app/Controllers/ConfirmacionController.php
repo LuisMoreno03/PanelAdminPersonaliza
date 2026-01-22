@@ -90,7 +90,12 @@ class ConfirmacionController extends BaseController
                     "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect",
                     false
                 )
-                ->join('pedidos_estado pe', "pe.order_id = $orderKeySql", 'left', false)
+                ->join(
+                'pedidos_estado pe',
+                "pe.order_id COLLATE utf8mb4_unicode_ci = ($orderKeySql) COLLATE utf8mb4_unicode_ci",
+                'left',
+                false
+                )   
                 ->where('p.assigned_to_user_id', $userId)
                 ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por preparar','faltan archivos')", null, false)
                 ->groupStart()
