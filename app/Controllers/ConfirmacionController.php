@@ -569,14 +569,43 @@ class ConfirmacionController extends BaseController
     /** =====================================================
      * Helper: excluye pedidos por etiquetas (cancelado/devuelto/etc)
      * ===================================================== */
+    /** =====================================================
+     * Helper: excluye pedidos por etiquetas (cancelación / devolución / reembolso)
+     * ===================================================== */
     private function applyEtiquetaExclusions($q, $db): void
     {
+        // Si tus etiquetas vienen como string (csv) en p.etiquetas, esto cubre:
+        // - cancelado/cancelada/cancelled/canceled/cancel...
+        // - cliente pide cancelar pedido / cancelar pedido / pide cancelar...
+        // - devuelto/devuelta/devolucion/devolución/devolucion 100%/devolución 100%/devuel...
+        // - reembolso/refunded/refund/reemb...
+        // - contracargo/chargeback/dispute
         $bad = [
-            'cancelado','cancelada','cancelled','canceled',
-            'devuelto','devuelta','devolucion','devolución',
-            'reembolso','reembolsado','refunded','refund',
-            'returned','return','anulado','anulada','voided',
-            'chargeback','contracargo'
+            // Cancelación (stems + comunes)
+            'cancel', 'cancelado', 'cancelada', 'cancelled', 'canceled',
+            'anulado', 'voided',
+
+            // Frases específicas
+            'cliente pide cancelar pedido',
+            'cliente pide cancelar',
+            'pide cancelar pedido',
+            'pide cancelar',
+            'cancelar pedido',
+
+            // Devolución (stems + comunes)
+            'devuel', 'devuelto', 'devuelta',
+            'devolu', 'devolucion', 'devolución',
+            'devolucion 100', 'devolucion 100%', 'devolución 100', 'devolución 100%',
+            'devolucion total', 'devolución total',
+            'returned', 'return',
+
+            // Reembolso
+            'reemb', 'reembolso', 'reembolsado',
+            'refund', 'refunded',
+
+            // Otros relacionados
+            'contracargo', 'chargeback',
+            'dispute', 'disputa',
         ];
 
         $tagExpr = "LOWER(COALESCE(p.etiquetas,''))";
@@ -584,10 +613,12 @@ class ConfirmacionController extends BaseController
         foreach ($bad as $t) {
             $t = mb_strtolower(trim($t));
             if ($t === '') continue;
+
             $like = '%' . $db->escapeLikeString($t) . '%';
             $q->where("$tagExpr NOT LIKE " . $db->escape($like), null, false);
         }
     }
+
 
     /** =====================================================
      * Helper: detecta cancelación/retorno desde pedido_json (Shopify)
