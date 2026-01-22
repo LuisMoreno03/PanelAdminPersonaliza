@@ -44,10 +44,14 @@ class ConfirmacionController extends BaseController
     {
         try {
             if (!session()->get('logged_in')) {
-                return $this->response->setStatusCode(401)->setJSON(['ok' => false]);
+                return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'message' => 'No auth']);
             }
 
             $userId = (int) session('user_id');
+            if ($userId <= 0) {
+                return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'message' => 'User inválido']);
+            }
+
             $db = \Config\Database::connect();
 
             $pFields = $db->getFieldNames('pedidos') ?? [];
@@ -61,11 +65,22 @@ class ConfirmacionController extends BaseController
                 ? 'pe.estado_updated_by_name as estado_por'
                 : ($hasPeUserName ? 'pe.user_name as estado_por' : 'NULL as estado_por');
 
-            // ✅ order_key SQL: si existe shopify_order_id úsalo; si no, usa p.id (cast a char)
-            // Nota: esto es MySQL/MariaDB friendly
-            $orderKeySql = $hasShopifyId
-                ? "COALESCE(NULLIF(TRIM(p.shopify_order_id),''), CAST(p.id AS CHAR))"
-                : "CAST(p.id AS CHAR)";
+            // ✅ orderKeySql portable según driver
+            $driver = strtolower((string)($db->DBDriver ?? ''));
+
+            if ($hasShopifyId) {
+                if (str_contains($driver, 'mysql')) {
+                    // MySQL/MariaDB: evita CAST AS CHAR; CONCAT fuerza string
+                    $orderKeySql = "COALESCE(NULLIF(TRIM(p.shopify_order_id),''), CONCAT(p.id,''))";
+                } else {
+                    // PostgreSQL/SQLite/otros: usar TEXT
+                    $orderKeySql = "COALESCE(NULLIF(TRIM(CAST(p.shopify_order_id AS TEXT)),''), CAST(p.id AS TEXT))";
+                }
+            } else {
+                $orderKeySql = str_contains($driver, 'mysql')
+                    ? "CONCAT(p.id,'')"
+                    : "CAST(p.id AS TEXT)";
+            }
 
             $q = $db->table('pedidos p')
                 ->select(
@@ -75,7 +90,6 @@ class ConfirmacionController extends BaseController
                     "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect",
                     false
                 )
-                // ✅ JOIN por order_key (shopify_id o id interno)
                 ->join('pedidos_estado pe', "pe.order_id = $orderKeySql", 'left', false)
                 ->where('p.assigned_to_user_id', $userId)
                 ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por preparar','faltan archivos')", null, false)
@@ -84,6 +98,9 @@ class ConfirmacionController extends BaseController
                     ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
                     ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
                 ->groupEnd();
+
+            // (Debug opcional mientras pruebas)
+            // log_message('error', 'myQueue SQL: '.$q->getCompiledSelect(false));
 
             $rows = $q->orderBy('p.created_at', 'ASC')->get()->getResultArray();
 
@@ -99,6 +116,7 @@ class ConfirmacionController extends BaseController
             ]);
         }
     }
+
 
     /* =====================================================
       POST /confirmacion/pull
