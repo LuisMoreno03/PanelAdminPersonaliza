@@ -13,18 +13,24 @@ class MontajeController extends BaseController
     // ✅ Al marcar "Realizado": SALIDA = Por producir
     private string $estadoSalida = 'Por producir';
 
+    // ✅ Collation "fija" para evitar mezclas
+    private string $forceCollation = 'utf8mb4_unicode_ci';
+
     public function index()
     {
         return view('montaje');
     }
 
     // =========================================================
-    // Helper: expresión estado actual (historial -> pedidos_estado -> '')
+    // Helper: estado actual normalizado (FORZANDO COLLATION)
     // =========================================================
     private function sqlEstadoActualExpr(): string
     {
-        // Sin COLLATE explícito para evitar errores en servidores con collation distinto
-        return "LOWER(TRIM(COALESCE(h.estado, pe.estado, '')))";
+        $coll = $this->forceCollation;
+
+        // Convertimos a utf8mb4 y forzamos collation uniforme
+        // para evitar: Illegal mix of collations ...
+        return "LOWER(TRIM(CONVERT(COALESCE(h.estado, pe.estado, '') USING utf8mb4) COLLATE {$coll}))";
     }
 
     // =========================================================
@@ -60,23 +66,20 @@ class MontajeController extends BaseController
     }
 
     // =========================================================
-    // Helper: SELECT seguro según columnas existentes en pedidos
-    // (evita que reviente si no existe estado_envio, etc.)
+    // Helper: SELECT de pedidos sin romper si faltan columnas
+    // (y mapea fulfillment_status -> estado_envio si aplica)
     // =========================================================
     private function buildSelectPedidoFields(\CodeIgniter\Database\BaseConnection $db): string
     {
         $fields = $db->getFieldNames('pedidos') ?? [];
-
         $sel = [];
 
-        // obligatorias (si no existen, es raro; pero evitamos crash con fallback)
         $sel[] = in_array('id', $fields, true) ? "p.id" : "0 AS id";
         $sel[] = in_array('numero', $fields, true) ? "p.numero" : "CONCAT('#', p.id) AS numero";
         $sel[] = in_array('cliente', $fields, true) ? "p.cliente" : "'' AS cliente";
         $sel[] = in_array('total', $fields, true) ? "p.total" : "'' AS total";
         $sel[] = in_array('created_at', $fields, true) ? "p.created_at" : "NULL AS created_at";
 
-        // opcionales
         $sel[] = in_array('shopify_order_id', $fields, true) ? "p.shopify_order_id" : "NULL AS shopify_order_id";
         $sel[] = in_array('assigned_to_user_id', $fields, true) ? "p.assigned_to_user_id" : "NULL AS assigned_to_user_id";
         $sel[] = in_array('assigned_at', $fields, true) ? "p.assigned_at" : "NULL AS assigned_at";
@@ -85,7 +88,6 @@ class MontajeController extends BaseController
         $sel[] = in_array('etiquetas', $fields, true) ? "p.etiquetas" : "NULL AS etiquetas";
         $sel[] = in_array('articulos', $fields, true) ? "p.articulos" : "NULL AS articulos";
 
-        // estado_envio: si no existe, usa fulfillment_status como alias estado_envio
         if (in_array('estado_envio', $fields, true)) {
             $sel[] = "p.estado_envio";
         } elseif (in_array('fulfillment_status', $fields, true)) {
@@ -95,6 +97,42 @@ class MontajeController extends BaseController
         }
 
         return implode(",\n                    ", $sel);
+    }
+
+    // =========================================================
+    // Helper: JOIN sin collation conflict (preferimos NUMÉRICO)
+    // =========================================================
+    private function joinPedidosEstadoSQL(): string
+    {
+        // pe.order_id suele ser VARCHAR; lo comparamos como UNSIGNED para evitar collations
+        return "
+            LEFT JOIN pedidos_estado pe
+                ON (
+                    CAST(pe.order_id AS UNSIGNED) = p.id
+                    OR CAST(pe.order_id AS UNSIGNED) = p.shopify_order_id
+                )
+        ";
+    }
+
+    private function joinHistorialUltimoSQL(): string
+    {
+        // h.order_id igual: comparamos como número para evitar collations
+        return "
+            LEFT JOIN (
+                SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
+                FROM pedidos_estado_historial h1
+                INNER JOIN (
+                    SELECT order_id, MAX(created_at) AS max_created
+                    FROM pedidos_estado_historial
+                    GROUP BY order_id
+                ) hx
+                ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
+            ) h
+            ON (
+                CAST(h.order_id AS UNSIGNED) = p.id
+                OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+            )
+        ";
     }
 
     // =========================
@@ -122,8 +160,8 @@ class MontajeController extends BaseController
 
             $condNoEnviados = $this->buildCondNoEnviados($db);
             $estadoExpr = $this->sqlEstadoActualExpr();
+            $coll = $this->forceCollation;
 
-            // match estado: "diseñado" o "disenado"
             $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
             $e2 = 'disenado';
 
@@ -133,35 +171,20 @@ class MontajeController extends BaseController
                 SELECT
                     {$selectPedidos},
 
-                    -- estado actual (para pintar en UI)
                     COALESCE(h.estado, pe.estado, 'por preparar') AS estado_bd,
-
                     COALESCE(h.created_at, pe.estado_updated_at, p.created_at) AS estado_actualizado,
                     COALESCE(h.user_name, pe.estado_updated_by_name) AS estado_por
 
                 FROM pedidos p
 
-                LEFT JOIN pedidos_estado pe
-                    ON (pe.order_id = p.id OR pe.order_id = p.shopify_order_id)
-
-                LEFT JOIN (
-                    SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
-                    FROM pedidos_estado_historial h1
-                    INNER JOIN (
-                        SELECT order_id, MAX(created_at) AS max_created
-                        FROM pedidos_estado_historial
-                        GROUP BY order_id
-                    ) hx
-                    ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
-                ) h
-                ON (
-                    h.order_id = p.id
-                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
-                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
-                )
+                {$this->joinPedidosEstadoSQL()}
+                {$this->joinHistorialUltimoSQL()}
 
                 WHERE p.assigned_to_user_id = ?
-                  AND ({$estadoExpr} = ? OR {$estadoExpr} = ?)
+                  AND (
+                        {$estadoExpr} = (? COLLATE {$coll})
+                        OR {$estadoExpr} = (? COLLATE {$coll})
+                  )
                   {$condNoEnviados}
 
                 ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
@@ -190,7 +213,7 @@ class MontajeController extends BaseController
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
                 'ok' => false,
-                'error' => 'No autenticado'
+                'error' => 'No autenticado',
             ]);
         }
 
@@ -200,7 +223,7 @@ class MontajeController extends BaseController
         if (!$userId) {
             return $this->response->setJSON([
                 'ok' => false,
-                'error' => 'Sin user_id en sesión'
+                'error' => 'Sin user_id en sesión',
             ]);
         }
 
@@ -216,38 +239,25 @@ class MontajeController extends BaseController
 
             $condNoEnviados = $this->buildCondNoEnviados($db);
             $estadoExpr = $this->sqlEstadoActualExpr();
+            $coll = $this->forceCollation;
 
             $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
             $e2 = 'disenado';
 
-            // ✅ candidatos: estado actual = Diseñado, no enviados, no asignados
             $candidatos = $db->query("
                 SELECT
                     p.id,
                     p.shopify_order_id
                 FROM pedidos p
 
-                LEFT JOIN pedidos_estado pe
-                    ON (pe.order_id = p.id OR pe.order_id = p.shopify_order_id)
-
-                LEFT JOIN (
-                    SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
-                    FROM pedidos_estado_historial h1
-                    INNER JOIN (
-                        SELECT order_id, MAX(created_at) AS max_created
-                        FROM pedidos_estado_historial
-                        GROUP BY order_id
-                    ) hx
-                    ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
-                ) h
-                ON (
-                    h.order_id = p.id
-                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
-                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
-                )
+                {$this->joinPedidosEstadoSQL()}
+                {$this->joinHistorialUltimoSQL()}
 
                 WHERE (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
-                  AND ({$estadoExpr} = ? OR {$estadoExpr} = ?)
+                  AND (
+                        {$estadoExpr} = (? COLLATE {$coll})
+                        OR {$estadoExpr} = (? COLLATE {$coll})
+                  )
                   {$condNoEnviados}
 
                 ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC, p.id ASC
@@ -266,7 +276,6 @@ class MontajeController extends BaseController
 
             $ids = array_map(fn($r) => (int)$r['id'], $candidatos);
 
-            // asignar
             $db->table('pedidos')
                 ->whereIn('id', $ids)
                 ->where("(assigned_to_user_id IS NULL OR assigned_to_user_id = 0)", null, false)
@@ -286,7 +295,7 @@ class MontajeController extends BaseController
                 ]);
             }
 
-            // (opcional) historial: registrar que “tomaste” en Diseñado
+            // historial opcional: registrar que los tomaste
             foreach ($candidatos as $c) {
                 $pedidoId = (string)((int)($c['id'] ?? 0));
                 $shopifyId = trim((string)($c['shopify_order_id'] ?? ''));
@@ -295,7 +304,7 @@ class MontajeController extends BaseController
 
                 $db->table('pedidos_estado_historial')->insert([
                     'order_id'   => (string)$orderKey,
-                    'estado'     => $this->estadoEntrada, // Diseñado
+                    'estado'     => $this->estadoEntrada,
                     'user_id'    => $userId,
                     'user_name'  => $userName,
                     'created_at' => $now,
@@ -329,7 +338,7 @@ class MontajeController extends BaseController
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
                 'ok' => false,
-                'error' => 'No autenticado'
+                'error' => 'No autenticado',
             ]);
         }
 
@@ -339,7 +348,7 @@ class MontajeController extends BaseController
         if (!$userId) {
             return $this->response->setJSON([
                 'ok' => false,
-                'error' => 'Sin user_id en sesión'
+                'error' => 'Sin user_id en sesión',
             ]);
         }
 
@@ -350,7 +359,7 @@ class MontajeController extends BaseController
         if ($orderIdRaw === '' || $orderIdRaw === '0') {
             return $this->response->setStatusCode(400)->setJSON([
                 'ok' => false,
-                'error' => 'order_id requerido'
+                'error' => 'order_id requerido',
             ]);
         }
 
@@ -358,7 +367,7 @@ class MontajeController extends BaseController
             $db = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // busca por id o shopify_order_id
+            // buscar por id o shopify_order_id
             $pedido = $db->table('pedidos')
                 ->select('id, shopify_order_id, assigned_to_user_id')
                 ->groupStart()
@@ -371,21 +380,20 @@ class MontajeController extends BaseController
             if (!$pedido) {
                 return $this->response->setStatusCode(404)->setJSON([
                     'ok' => false,
-                    'error' => 'Pedido no encontrado'
+                    'error' => 'Pedido no encontrado',
                 ]);
             }
 
             if ((int)($pedido['assigned_to_user_id'] ?? 0) !== $userId) {
                 return $this->response->setStatusCode(403)->setJSON([
                     'ok' => false,
-                    'error' => 'Este pedido no está asignado a tu usuario'
+                    'error' => 'Este pedido no está asignado a tu usuario',
                 ]);
             }
 
             $pedidoId  = (int)$pedido['id'];
             $shopifyId = trim((string)($pedido['shopify_order_id'] ?? ''));
 
-            // ✅ key para estado/historial: shopify_id si existe, si no id local
             $orderKey = ($shopifyId !== '' && $shopifyId !== '0') ? (string)$shopifyId : (string)$pedidoId;
 
             $db->transBegin();
@@ -398,15 +406,16 @@ class MontajeController extends BaseController
                     'assigned_at' => null,
                 ]);
 
-            // 2) set estado a Por producir + historial
+            // 2) set estado a Por producir
             $estadoModel = new PedidosEstadoModel();
             $estadoModel->setEstadoPedido(
                 (string)$orderKey,
-                $this->estadoSalida, // Por producir
+                $this->estadoSalida,
                 $userId ?: null,
                 $userName
             );
 
+            // 3) historial
             $db->table('pedidos_estado_historial')->insert([
                 'order_id'   => (string)$orderKey,
                 'estado'     => $this->estadoSalida,
@@ -420,7 +429,7 @@ class MontajeController extends BaseController
                 $db->transRollback();
                 return $this->response->setJSON([
                     'ok' => false,
-                    'error' => 'Falló la transacción'
+                    'error' => 'Falló la transacción',
                 ]);
             }
 
@@ -443,8 +452,7 @@ class MontajeController extends BaseController
     }
 
     // =========================
-    // POST /montaje/cargado
-    // Alias por compatibilidad
+    // POST /montaje/cargado (alias)
     // =========================
     public function cargado()
     {
@@ -459,7 +467,7 @@ class MontajeController extends BaseController
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
                 'ok' => false,
-                'error' => 'No autenticado'
+                'error' => 'No autenticado',
             ]);
         }
 
@@ -467,7 +475,7 @@ class MontajeController extends BaseController
         if (!$userId) {
             return $this->response->setJSON([
                 'ok' => false,
-                'error' => 'Sin user_id en sesión'
+                'error' => 'Sin user_id en sesión',
             ]);
         }
 
@@ -483,7 +491,7 @@ class MontajeController extends BaseController
 
             return $this->response->setJSON([
                 'ok' => true,
-                'message' => 'Pedidos devueltos'
+                'message' => 'Pedidos devueltos',
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'MontajeController returnAll ERROR: ' . $e->getMessage());
