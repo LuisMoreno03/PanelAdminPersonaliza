@@ -587,6 +587,7 @@ class ConfirmacionController extends BaseController
 
             // Frases específicas
             'cliente pide cancelar pedido',
+            'Cliente pide cancelar pedido',
             'cliente pide cancelar',
             'pide cancelar pedido',
             'pide cancelar',
