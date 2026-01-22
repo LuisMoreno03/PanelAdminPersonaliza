@@ -274,13 +274,12 @@
           </a>
 
           <!-- ✅ Montaje (DESHABILITADO: sin href) -->
-          <div
-            aria-disabled="true"
-            title="Montaje (próximamente)"
-            class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
-                   bg-white/5 ring-1 ring-white/10 opacity-50 cursor-not-allowed select-none"
-          >
-            <span class="text-white/85 shrink-0">
+
+          <a href="<?= base_url('montaje') ?>"
+             @click="close()"
+             class="group flex items-center gap-3 px-4 py-2 rounded-2xl transition
+                    <?= $isActive('montaje') ? 'bg-white/12 ring-1 ring-white/15' : 'hover:bg-white/10' ?>">
+           <span class="text-white/85 shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M14.7 6.3a1 1 0 011.4 0l1.6 1.6a1 1 0 010 1.4l-7.9 7.9-3.3.9.9-3.3 7.9-7.9z"/>
@@ -288,7 +287,8 @@
               </svg>
             </span>
             <span class="text-sm font-semibold text-white/90">Montaje</span>
-          </div>
+          </a>
+          
 
         </div>
       </div>

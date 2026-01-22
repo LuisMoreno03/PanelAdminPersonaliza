@@ -1,30 +1,25 @@
 /**
- * confirmacion.js — VISTA DETALLES COMO ANTES (FULL) + DRAG&DROP + EDITOR + AUDITORÍA
- * - Listado desde /confirmacion/my-queue (tabla pedidos)
- * - Pull desde /confirmacion/pull (tabla pedidos)
- * - verDetalles render full tipo Shopify + imágenes + upload + auto estado
+ * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (FIXED)
+ * - Lista: /confirmacion/my-queue
+ * - Pull:  /confirmacion/pull
+ * - Detalles: /confirmacion/detalles/{id}
+ * - Subir: /confirmacion/subir-imagen (o window.API.subirImagen)
+ * - Guardar estado: /confirmacion/guardar-estado (o window.API.guardarEstado)
  *
- * NUEVO:
- * - Subida con Drag & Drop + click
- * - Editor (Cropper.js) antes de subir (rotar/zoom/crop)
- * - Auditoría: modified_by + modified_at (se envía al backend y se muestra)
- * - Estado "Faltan archivos" NO debe desasignar (se envía mantener_asignado: true en guardarEstado)
- * - Ver detalles al click en #pedido o cliente (sin botón)
- * - Cancelar pedido en detalles: estado "Cancelado" + se quita de la lista
- *
- * Requiere (para editor):
- * - cropperjs en tu layout:
- *   <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
- *   <script src="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.js"></script>
- * - opcional: usuario actual
- *   <meta name="current-user" content="Luis Moreno">
+ * Requiere (editor):
+ * <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
+ * <script src="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.js"></script>
  */
 
 const API = window.API || {};
-const ENDPOINT_QUEUE = API.myQueue;
-const ENDPOINT_PULL = API.pull;
-const ENDPOINT_RETURN_ALL = API.returnAll;
-const ENDPOINT_DETALLES = API.detalles;
+
+const ENDPOINT_QUEUE      = (API.myQueue      || "/confirmacion/my-queue").replace(/\/$/, "");
+const ENDPOINT_PULL       = (API.pull         || "/confirmacion/pull").replace(/\/$/, "");
+const ENDPOINT_RETURN_ALL = (API.returnAll    || "/confirmacion/return-all").replace(/\/$/, "");
+const ENDPOINT_DETALLES   = (API.detalles     || "/confirmacion/detalles").replace(/\/$/, "");
+
+const ENDPOINT_SUBIR_IMAGEN = (API.subirImagen || "/confirmacion/subir-imagen").replace(/\/$/, "");
+const ENDPOINT_GUARDAR_ESTADO = (API.guardarEstado || "/confirmacion/guardar-estado").replace(/\/$/, "");
 
 let pedidosCache = [];
 let loading = false;
@@ -33,56 +28,18 @@ let imagenesRequeridas = [];
 let imagenesCargadas = [];
 let pedidoActualId = null;
 
-// Mantener contexto para subida / re-render
 let DET_IMAGENES_LOCALES = {};
 let DET_PRODUCT_IMAGES = {};
 let DET_ORDER = null;
 
-/* =====================================================
-   DRAG & DROP + EDITOR + AUDITORÍA
-===================================================== */
 let PENDING_FILES = {}; // { "<orderId>_<index>": File }
-let EDITED_BLOBS = {};  // { "<orderId>_<index>": Blob }
-let EDITED_NAMES = {};  // { "<orderId>_<index>": "nombre_edit.png" }
+let EDITED_BLOBS  = {}; // { "<orderId>_<index>": Blob }
+let EDITED_NAMES  = {}; // { "<orderId>_<index>": "nombre_edit.png" }
 
 function keyFile(orderId, index) {
   return `${String(orderId)}_${String(index)}`;
 }
 
-function getCurrentUserLabel() {
-  const metaUser = document.querySelector('meta[name="current-user"]')?.content?.trim();
-  if (metaUser) return metaUser;
-
-  if (window.CURRENT_USER) return String(window.CURRENT_USER);
-  if (window.API?.currentUser) return String(window.API.currentUser);
-
-  return "Desconocido";
-}
-
-function formatFechaLocal(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  return d.toLocaleString();
-}
-
-function normalizeImagenLocal(v) {
-  // Compatibilidad: antes era string URL, ahora permitimos objeto con auditoría
-  if (!v) return { url: "", modified_by: "", modified_at: "" };
-  if (typeof v === "string") return { url: v, modified_by: "", modified_at: "" };
-  if (typeof v === "object") {
-    return {
-      url: String(v.url || v.value || ""),
-      modified_by: String(v.modified_by || v.user || ""),
-      modified_at: String(v.modified_at || v.date || ""),
-    };
-  }
-  return { url: String(v), modified_by: "", modified_at: "" };
-}
-
-/* =====================================================
-   HELPERS
-===================================================== */
 const $ = (id) => document.getElementById(id);
 
 const escapeHtml = (str) =>
@@ -110,6 +67,41 @@ function normalizeOrderId(v) {
   return m?.[1] ? m[1] : s;
 }
 
+function getCurrentUserLabel() {
+  const metaUser = document.querySelector('meta[name="current-user"]')?.content?.trim();
+  if (metaUser) return metaUser;
+  if (window.CURRENT_USER) return String(window.CURRENT_USER);
+  if (window.API?.currentUser) return String(window.API.currentUser);
+  return "Desconocido";
+}
+
+function formatFechaLocal(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString();
+}
+
+function normalizeImagenLocal(v) {
+  if (!v) return { url: "", modified_by: "", modified_at: "" };
+  if (typeof v === "string") return { url: v, modified_by: "", modified_at: "" };
+  if (typeof v === "object") {
+    return {
+      url: String(v.url || v.value || ""),
+      modified_by: String(v.modified_by || v.user || ""),
+      modified_at: String(v.modified_at || v.date || ""),
+    };
+  }
+  return { url: String(v), modified_by: "", modified_at: "" };
+}
+
+function withBust(url, token) {
+  const u = String(url || "").trim();
+  if (!u) return "";
+  const t = token ? String(token) : String(Date.now());
+  return u + (u.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(t);
+}
+
 /* =====================================================
    CSRF
 ===================================================== */
@@ -120,10 +112,9 @@ function getCsrfHeaders() {
 }
 
 /* =====================================================
-   NORMALIZAR LINE ITEMS
+   LINE ITEMS
 ===================================================== */
 function extraerLineItems(order) {
-  // REST (Shopify)
   if (Array.isArray(order?.line_items)) {
     return order.line_items.map((i) => ({
       title: i.title || i.name || "Producto",
@@ -138,7 +129,6 @@ function extraerLineItems(order) {
     }));
   }
 
-  // GraphQL (por si algún día lo usas)
   if (order?.lineItems?.edges) {
     return order.lineItems.edges.map(({ node }) => ({
       title: node.title || "Producto",
@@ -182,7 +172,6 @@ function renderPedidos(pedidos) {
 
   wrap.innerHTML = "";
 
-  // ✅ Ocultar cancelados en la lista (por si backend los devuelve)
   const visibles = Array.isArray(pedidos)
     ? pedidos.filter((p) => !String(p?.estado || "").toLowerCase().includes("cancel"))
     : [];
@@ -218,7 +207,6 @@ function renderPedidos(pedidos) {
         ? `<span class="px-3 py-1 text-xs rounded-full bg-emerald-100 border border-emerald-200 text-emerald-900 font-extrabold">Fulfilled</span>`
         : `<span class="px-3 py-1 text-xs rounded-full bg-slate-100">Unfulfilled</span>`;
 
-    // ✅ NO usar "||" para elegir id; evita falsy ("" / "0")
     const orderKey =
       (p.shopify_order_id !== null &&
         p.shopify_order_id !== undefined &&
@@ -226,11 +214,9 @@ function renderPedidos(pedidos) {
         ? p.shopify_order_id
         : p.id;
 
-    // ✅ Ahora el # pedido y el cliente abren detalles
     row.innerHTML = `
       <div>
-        <button type="button"
-          onclick="verDetalles('${escapeHtml(orderKey)}')"
+        <button type="button" onclick="verDetalles('${escapeHtml(orderKey)}')"
           class="text-left font-extrabold text-slate-900 hover:underline cursor-pointer">
           ${escapeHtml(numero)}
         </button>
@@ -239,8 +225,7 @@ function renderPedidos(pedidos) {
       <div>${escapeHtml(fecha || "—")}</div>
 
       <div class="truncate">
-        <button type="button"
-          onclick="verDetalles('${escapeHtml(orderKey)}')"
+        <button type="button" onclick="verDetalles('${escapeHtml(orderKey)}')"
           class="text-left font-bold text-slate-900 hover:underline cursor-pointer truncate">
           ${escapeHtml(cliente)}
         </button>
@@ -253,7 +238,6 @@ function renderPedidos(pedidos) {
       <div class="text-center">${escapeHtml(p.articulos || "—")}</div>
       <div>${envioPill}</div>
       <div class="truncate">${escapeHtml(p.forma_envio || "-")}</div>
-
       <div class="text-right"></div>
     `;
 
@@ -344,7 +328,7 @@ function cerrarModalDetalles() {
 window.cerrarModalDetalles = cerrarModalDetalles;
 
 /* =====================================================
-   DETALLES — VISTA COMO ANTES
+   DETALLES
 ===================================================== */
 window.verDetalles = async function (orderId) {
   pedidoActualId = normalizeOrderId(orderId);
@@ -355,14 +339,12 @@ window.verDetalles = async function (orderId) {
   setHtmlSafe("detProductos", `<div class="p-6 text-slate-500">Cargando productos…</div>`);
   setHtmlSafe("detResumen", `<div class="text-slate-500">Cargando…</div>`);
 
-  // reset
   imagenesRequeridas = [];
   imagenesCargadas = [];
   DET_IMAGENES_LOCALES = {};
   DET_PRODUCT_IMAGES = {};
   DET_ORDER = null;
 
-  // reset editor caches por seguridad
   PENDING_FILES = {};
   EDITED_BLOBS = {};
   EDITED_NAMES = {};
@@ -380,23 +362,18 @@ window.verDetalles = async function (orderId) {
     DET_IMAGENES_LOCALES = d.imagenes_locales || {};
     DET_PRODUCT_IMAGES = d.product_images || {};
 
-    // ✅ asegura que el cancelar/guardarEstado use el ID real (si viene como gid o distinto)
-    if (d?.order?.id) {
-      pedidoActualId = normalizeOrderId(d.order.id);
-    }
+    if (d?.order?.id) pedidoActualId = normalizeOrderId(d.order.id);
 
     renderDetalles(DET_ORDER, DET_IMAGENES_LOCALES, DET_PRODUCT_IMAGES);
   } catch (e) {
     console.warn("Detalles fallback:", e);
 
-    // fallback: intenta con lo que haya en cache
     const pedido = Array.isArray(pedidosCache)
       ? pedidosCache.find((p) => String(p.shopify_order_id) === pedidoActualId || String(p.id) === pedidoActualId)
       : null;
 
     if (pedido) {
       DET_ORDER = pedido;
-      // ✅ normaliza el id también en fallback
       if (pedido?.shopify_order_id) pedidoActualId = normalizeOrderId(pedido.shopify_order_id);
       else if (pedido?.id) pedidoActualId = normalizeOrderId(pedido.id);
 
@@ -408,13 +385,9 @@ window.verDetalles = async function (orderId) {
   }
 };
 
-/* =====================================================
-   RENDER DETALLES (tipo Shopify)
-===================================================== */
 function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   const items = extraerLineItems(order);
 
-  // guardar estado global
   DET_IMAGENES_LOCALES = imagenesLocales || {};
   DET_PRODUCT_IMAGES = productImages || {};
   DET_ORDER = order;
@@ -436,8 +409,7 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
     setHtmlSafe(
       "detProductos",
       `<div class="p-6 text-center text-slate-500">
-        Este pedido no tiene productos en <b>detalles</b>.<br>
-        (Si no existe pedido_json, el controller debe traer el order completo de Shopify)
+        Este pedido no tiene productos en detalles.
       </div>`
     );
     setHtmlSafe("detResumen", "");
@@ -467,7 +439,6 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
     for (const p of props) {
       const name = String(p?.name ?? "").trim() || "Campo";
       const valueRaw = p?.value;
-
       const value =
         valueRaw === null || valueRaw === undefined
           ? ""
@@ -482,7 +453,6 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
     return { imgs, txt };
   }
 
-  // ✅ usa id normalizado (importante para preview/audits y cancelar)
   const orderKey = normalizeOrderId(order?.id || pedidoActualId || "order");
 
   const cardsHtml = items
@@ -493,14 +463,17 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
 
       const requiere = requiereImagenModificada(item);
 
-      const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[i]);
+      // 👇 Soporta keys string/number
+      const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[String(i)] ?? imagenesLocales?.[i]);
       const imgMod = imgLocalObj.url || "";
+      const imgModBust = imgMod ? withBust(imgMod, imgLocalObj.modified_at || Date.now()) : "";
 
       imagenesRequeridas[i] = !!requiere;
       imagenesCargadas[i] = !!imgMod;
 
       const { imgs: propsImg, txt: propsTxt } = separarProps(item.properties);
       const imgCliente = propsImg.length ? String(propsImg[0].value || "") : "";
+      const imgClienteBust = imgCliente ? withBust(imgCliente, Date.now()) : "";
 
       const imgProducto = getProductImg(item);
       const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
@@ -546,25 +519,32 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
             <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
             <a href="${escapeHtml(imgCliente)}" target="_blank"
               class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-              <img src="${escapeHtml(imgCliente)}" class="h-40 w-40 object-cover">
+              <img src="${escapeHtml(imgClienteBust)}" class="h-40 w-40 object-cover">
             </a>
           </div>
         `
         : "";
 
-      const imgModHtml = imgMod
-        ? `
-          <div class="mt-3">
-            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
-            <a href="${escapeHtml(imgMod)}" target="_blank"
-              class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-              <img src="${escapeHtml(imgMod)}" class="h-40 w-40 object-cover">
-            </a>
-          </div>
-        `
-        : requiere
-        ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
-        : "";
+      // 👇 Envolvemos para poder actualizarlo tras subir
+      const imgModHtml = `
+        <div id="imgModWrap_${orderKey}_${i}">
+          ${
+            imgMod
+              ? `
+                <div class="mt-3">
+                  <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
+                  <a href="${escapeHtml(imgMod)}" target="_blank"
+                    class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                    <img src="${escapeHtml(imgModBust)}" class="h-40 w-40 object-cover">
+                  </a>
+                </div>
+              `
+              : requiere
+              ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+              : ``
+          }
+        </div>
+      `;
 
       const uploadHtml = requiere
         ? `
@@ -584,23 +564,17 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
               <input id="file_${orderKey}_${i}" type="file" accept="image/*" class="hidden" />
 
               <div class="mt-3 flex flex-wrap gap-2">
-                <button type="button"
-                  data-action="edit"
+                <button type="button" data-action="edit"
                   class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide disabled:opacity-40"
-                  disabled
-                >Editar</button>
+                  disabled>Editar</button>
 
-                <button type="button"
-                  data-action="upload"
+                <button type="button" data-action="upload"
                   class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition disabled:opacity-40"
-                  disabled
-                >Subir</button>
+                  disabled>Subir</button>
 
-                <button type="button"
-                  data-action="clear"
+                <button type="button" data-action="clear"
                   class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-300 transition disabled:opacity-40"
-                  disabled
-                >Quitar</button>
+                  disabled>Quitar</button>
               </div>
 
               <div id="preview_${orderKey}_${i}" class="mt-3"></div>
@@ -636,7 +610,6 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
         <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
           <div class="flex items-start gap-4">
             ${productThumbHtml}
-
             <div class="min-w-0 flex-1">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
@@ -645,10 +618,7 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
                     Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price.toFixed(2))} €</b> · Total: <b>${escapeHtml(total.toFixed(2))} €</b>
                   </div>
                 </div>
-
-                <div id="badge_item_${orderKey}_${i}">
-                  ${badgeHtml}
-                </div>
+                <div id="badge_item_${orderKey}_${i}">${badgeHtml}</div>
               </div>
 
               ${datosIdsHtml}
@@ -677,14 +647,12 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   );
 
   actualizarResumenAuto();
-
-  // Inicializar dropzones + auditoría
   initDropzones(orderKey);
   hydrateAuditsFromExisting(orderKey, items.length, imagenesLocales);
 }
 
 /* =====================================================
-   DROPZONES + PREVIEW LOCAL + AUDITORÍA
+   DROPZONES + PREVIEW + AUDITORÍA
 ===================================================== */
 function initDropzones(orderId) {
   const oidStr = String(orderId);
@@ -715,16 +683,13 @@ function initDropzones(orderId) {
       enableBtns(true);
     };
 
-    // click zona => abrir picker (pero no al pulsar botones)
     zone.addEventListener("click", (e) => {
-      const tag = (e.target?.tagName || "").toLowerCase();
-      if (tag === "button") return;
+      if ((e.target?.tagName || "").toLowerCase() === "button") return;
       input?.click();
     });
 
     input?.addEventListener("change", () => onPick(input.files?.[0]));
 
-    // drag & drop
     zone.addEventListener("dragover", (e) => {
       e.preventDefault();
       zone.classList.add("border-blue-500");
@@ -735,8 +700,7 @@ function initDropzones(orderId) {
     zone.addEventListener("drop", (e) => {
       e.preventDefault();
       zone.classList.remove("border-blue-500");
-      const file = e.dataTransfer?.files?.[0];
-      onPick(file);
+      onPick(e.dataTransfer?.files?.[0]);
     });
 
     btnClear?.addEventListener("click", (e) => {
@@ -775,7 +739,6 @@ function initDropzones(orderId) {
 
       await subirImagenProductoFile(oid, idx, payloadFile, { edited: !!editedBlob });
 
-      // limpiar pendientes
       delete PENDING_FILES[k];
       delete EDITED_BLOBS[k];
       delete EDITED_NAMES[k];
@@ -806,65 +769,50 @@ function clearLocalPreview(orderId, index) {
 
 function hydrateAuditsFromExisting(orderId, count, imagenesLocales) {
   for (let i = 0; i < count; i++) {
-    const obj = normalizeImagenLocal(imagenesLocales?.[i]);
+    const obj = normalizeImagenLocal(imagenesLocales?.[String(i)] ?? imagenesLocales?.[i]);
     const audit = document.getElementById(`audit_${orderId}_${i}`);
     if (!audit) continue;
 
-    if (obj.url) {
-      audit.innerHTML = `
-        <span>Última modificación:</span>
-        <b class="text-slate-900">${escapeHtml(obj.modified_by || "—")}</b>
-        ${obj.modified_at ? ` · ${escapeHtml(formatFechaLocal(obj.modified_at))}` : ""}
-      `;
-    } else {
-      audit.innerHTML = "";
-    }
+    audit.innerHTML = obj.url
+      ? `Última modificación: <b class="text-slate-900">${escapeHtml(obj.modified_by || "—")}</b>${
+          obj.modified_at ? ` · ${escapeHtml(formatFechaLocal(obj.modified_at))}` : ""
+        }`
+      : "";
   }
 }
 
 /* =====================================================
-   SUBIR IMAGEN MODIFICADA + PREVIEW INMEDIATA
+   SUBIR IMAGEN
 ===================================================== */
-// Compat (por si alguna parte del HTML antiguo lo sigue usando)
 window.subirImagenProducto = async function (orderId, index, input) {
-  try {
-    const file = input?.files?.[0];
-    if (!file) return;
-    await subirImagenProductoFile(String(orderId), Number(index), file, { edited: false });
-    try {
-      input.value = "";
-    } catch {}
-  } catch (e) {
-    console.error("subirImagenProducto error:", e);
-    alert("Error subiendo imagen: " + (e?.message || e));
-  }
+  const file = input?.files?.[0];
+  if (!file) return;
+  await subirImagenProductoFile(String(orderId), Number(index), file, { edited: false });
+  try { input.value = ""; } catch {}
 };
 
 async function subirImagenProductoFile(orderId, index, file, meta = {}) {
   const modified_by = getCurrentUserLabel();
   const modified_at = new Date().toISOString();
 
-  const fd = new FormData();
-  fd.append("order_id", String(orderId));
-  fd.append("line_index", String(index));
-  fd.append("file", file);
-
-  // Auditoría
-  fd.append("modified_by", modified_by);
-  fd.append("modified_at", modified_at);
-  fd.append("edited", meta?.edited ? "1" : "0");
-
+  // intentamos 2 endpoints: limpio y con index.php
   const endpoints = [
-    window.API?.subirImagen,
-    "/api/pedidos/imagenes/subir",
-    "/index.php/api/pedidos/imagenes/subir",
-    "/index.php/index.php/api/pedidos/imagenes/subir",
+    ENDPOINT_SUBIR_IMAGEN,
+    "/index.php" + ENDPOINT_SUBIR_IMAGEN, // fallback si aún tienes index.php
   ].filter(Boolean);
 
   let lastErr = null;
 
   for (const url of endpoints) {
     try {
+      const fd = new FormData();
+      fd.append("order_id", String(orderId));
+      fd.append("line_index", String(index));
+      fd.append("file", file);
+      fd.append("modified_by", modified_by);
+      fd.append("modified_at", modified_at);
+      fd.append("edited", meta?.edited ? "1" : "0");
+
       const r = await fetch(url, {
         method: "POST",
         headers: { ...getCsrfHeaders() },
@@ -875,13 +823,12 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
       if (r.status === 404) continue;
 
       const d = await r.json().catch(() => null);
-      const ok = r.ok && d?.success === true && d?.url;
-      if (!ok) throw new Error(d?.message || `HTTP ${r.status}`);
+      if (!r.ok || d?.success !== true || !d?.url) throw new Error(d?.message || `HTTP ${r.status}`);
 
       const urlFinal = String(d.url);
-      const bust = urlFinal + (urlFinal.includes("?") ? "&" : "?") + "t=" + Date.now();
+      const bust = withBust(urlFinal, d.modified_at || modified_at || Date.now());
 
-      // Preview inmediato (subida)
+      // preview zona
       const prev = document.getElementById(`preview_${orderId}_${index}`);
       if (prev) {
         prev.innerHTML = `
@@ -895,22 +842,34 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         `;
       }
 
-      // Auditoría visible
+      // auditoría
       const audit = document.getElementById(`audit_${orderId}_${index}`);
       if (audit) {
-        audit.innerHTML = `
-          <span>Última modificación:</span>
-          <b class="text-slate-900">${escapeHtml(modified_by)}</b>
-          · ${escapeHtml(formatFechaLocal(modified_at))}
+        audit.innerHTML = `Última modificación: <b class="text-slate-900">${escapeHtml(modified_by)}</b> · ${escapeHtml(
+          formatFechaLocal(modified_at)
+        )}`;
+      }
+
+      // 👇 actualiza “Imagen modificada (subida)” del card al instante
+      const wrap = document.getElementById(`imgModWrap_${orderId}_${index}`);
+      if (wrap) {
+        wrap.innerHTML = `
+          <div class="mt-3">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
+            <a href="${escapeHtml(urlFinal)}" target="_blank"
+              class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+              <img src="${escapeHtml(bust)}" class="h-40 w-40 object-cover">
+            </a>
+          </div>
         `;
       }
 
-      // Marcar cargada + guardar localmente (con auditoría)
+      // estado local
       imagenesCargadas[index] = true;
       if (!DET_IMAGENES_LOCALES || typeof DET_IMAGENES_LOCALES !== "object") DET_IMAGENES_LOCALES = {};
-      DET_IMAGENES_LOCALES[index] = { url: urlFinal, modified_by, modified_at };
+      DET_IMAGENES_LOCALES[String(index)] = { url: urlFinal, modified_by, modified_at };
 
-      // Badge a listo
+      // badge
       const badge = document.getElementById(`badge_item_${orderId}_${index}`);
       if (badge) {
         badge.innerHTML = `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`;
@@ -918,7 +877,7 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
 
       actualizarResumenAuto();
 
-      // Auto-estado
+      // 👇 intenta autoestado (Confirmado/Faltan)
       await window.validarEstadoAuto(String(orderId));
 
       return true;
@@ -948,8 +907,7 @@ function actualizarResumenAuto() {
       </div>
 
       <div class="mt-4">
-        <button type="button"
-          onclick="cancelarPedidoActual()"
+        <button type="button" onclick="cancelarPedidoActual()"
           class="px-4 py-2 rounded-2xl bg-rose-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-rose-700 transition">
           Cancelar pedido
         </button>
@@ -959,25 +917,16 @@ function actualizarResumenAuto() {
 }
 
 /* =====================================================
-   GUARDAR ESTADO (backend)
+   GUARDAR ESTADO
 ===================================================== */
 window.guardarEstado = async function (orderId, nuevoEstado, opts = {}) {
   const endpoints = [
-  window.API?.guardarEstado,
-  "/confirmacion/guardar-estado",
-  "/index.php/confirmacion/guardar-estado",
-  "/index.php/index.php/confirmacion/guardar-estado",
-
-  // (deja estos de fallback si quieres)
-  "/api/estado/guardar",
-  "/index.php/api/estado/guardar",
-  "/index.php/index.php/api/estado/guardar",
-].filter(Boolean);
-
+    ENDPOINT_GUARDAR_ESTADO,
+    "/index.php" + ENDPOINT_GUARDAR_ESTADO,
+  ].filter(Boolean);
 
   let lastErr = null;
 
-  // ✅ por defecto: mantener asignado SOLO si es "Faltan archivos"
   const mantener_asignado =
     typeof opts?.mantener_asignado === "boolean"
       ? opts.mantener_asignado
@@ -1001,7 +950,6 @@ window.guardarEstado = async function (orderId, nuevoEstado, opts = {}) {
 
       const d = await r.json().catch(() => null);
       if (!r.ok || !(d?.success || d?.ok)) throw new Error(d?.message || `HTTP ${r.status}`);
-
       return true;
     } catch (e) {
       lastErr = e;
@@ -1013,28 +961,16 @@ window.guardarEstado = async function (orderId, nuevoEstado, opts = {}) {
 };
 
 window.cancelarPedidoActual = async function () {
-  // ✅ usar el id real normalizado
   const oid = normalizeOrderId(pedidoActualId);
   if (!oid) return;
 
-  if (!confirm("¿Seguro que deseas CANCELAR este pedido? Pasará a estado 'Cancelado' y se quitará de tu lista.")) {
-    return;
-  }
+  if (!confirm("¿Cancelar este pedido? Se quitará de tu lista.")) return;
 
   setLoader(true);
-
   try {
     const ok = await window.guardarEstado(oid, "Cancelado", { mantener_asignado: false });
     if (!ok) throw new Error("No se pudo guardar el estado.");
 
-    // actualizar cache local
-    const pedidoLocal = Array.isArray(pedidosCache)
-      ? pedidosCache.find((p) => String(p.shopify_order_id) === oid || String(p.id) === oid)
-      : null;
-
-    if (pedidoLocal) pedidoLocal.estado = "Cancelado";
-
-    // ✅ quitar de la lista local inmediatamente (comparando bien)
     pedidosCache = Array.isArray(pedidosCache)
       ? pedidosCache.filter((p) => {
           const id =
@@ -1048,8 +984,6 @@ window.cancelarPedidoActual = async function () {
       : [];
 
     renderPedidos(pedidosCache);
-
-    // recarga lista (ya debe venir sin el pedido si backend guardó cancelado)
     await cargarMiCola();
     cerrarModalDetalles();
   } catch (e) {
@@ -1085,29 +1019,18 @@ window.validarEstadoAuto = async function (orderId) {
       : null;
 
     const estadoActual = String(pedidoLocal?.estado || "").toLowerCase().trim();
-    if (nuevoEstado.toLowerCase().includes("faltan") && estadoActual.includes("faltan")) {
-      actualizarResumenAuto();
-      return;
-    }
-    if (nuevoEstado.toLowerCase().includes("confirm") && estadoActual.includes("confirm")) {
-      actualizarResumenAuto();
-      return;
-    }
+    if (nuevoEstado.toLowerCase().includes("faltan") && estadoActual.includes("faltan")) return;
+    if (nuevoEstado.toLowerCase().includes("confirm") && estadoActual.includes("confirm")) return;
 
     const saved = await window.guardarEstado(oid, nuevoEstado);
     if (pedidoLocal) pedidoLocal.estado = nuevoEstado;
 
     actualizarResumenAuto();
 
-    // Si faltan, mantenemos asignación (backend) y refrescamos lista, SIN cerrar modal
-    if (faltaAlguna) {
-      await cargarMiCola();
-      return;
-    }
+    // refresca lista siempre para que se vea en “todos lados” en esta pantalla
+    await cargarMiCola();
 
-    // Si ya está confirmado, cerramos
     if (saved && nuevoEstado === "Confirmado") {
-      await cargarMiCola();
       cerrarModalDetalles();
     }
   } catch (e) {
@@ -1118,12 +1041,7 @@ window.validarEstadoAuto = async function (orderId) {
 /* =====================================================
    EDITOR (Cropper.js)
 ===================================================== */
-let __editor = {
-  modal: null,
-  img: null,
-  cropper: null,
-  current: null, // { orderId, index, file }
-};
+let __editor = { modal: null, img: null, cropper: null, current: null };
 
 function ensureEditorModal() {
   if (__editor.modal) return;
@@ -1136,8 +1054,9 @@ function ensureEditorModal() {
     <div class="absolute inset-0 flex items-center justify-center p-4">
       <div class="w-full max-w-3xl rounded-3xl bg-white shadow-xl overflow-hidden">
         <div class="p-4 border-b flex items-center justify-between">
-          <div class="font-extrabold text-slate-900">Editar imagen antes de subir</div>
-          <button type="button" id="btnEditorClose" class="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 font-extrabold">✕</button>
+          <div class="font-extrabold text-slate-900">Editar imagen</div>
+          <button type="button" id="btnEditorClose"
+            class="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 font-extrabold">✕</button>
         </div>
 
         <div class="p-4">
@@ -1146,19 +1065,21 @@ function ensureEditorModal() {
           </div>
 
           <div class="mt-3 flex flex-wrap gap-2">
-            <button type="button" data-ed="rotateL" class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase">⟲ Rotar</button>
-            <button type="button" data-ed="rotateR" class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase">⟳ Rotar</button>
-            <button type="button" data-ed="zoomIn" class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase">＋ Zoom</button>
-            <button type="button" data-ed="zoomOut" class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase">－ Zoom</button>
+            <button type="button" data-ed="rotateL"
+              class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase">⟲</button>
+            <button type="button" data-ed="rotateR"
+              class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase">⟳</button>
+            <button type="button" data-ed="zoomIn"
+              class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase">＋</button>
+            <button type="button" data-ed="zoomOut"
+              class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase">－</button>
 
             <div class="flex-1"></div>
 
-            <button type="button" data-ed="cancel" class="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-[11px] font-extrabold uppercase">Cancelar</button>
-            <button type="button" data-ed="save" class="px-3 py-2 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-extrabold uppercase">Guardar edición</button>
-          </div>
-
-          <div class="mt-2 text-xs text-slate-500">
-            Tip: ajusta el encuadre y guarda. Luego pulsa “Subir”.
+            <button type="button" data-ed="cancel"
+              class="px-3 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-[11px] font-extrabold uppercase">Cancelar</button>
+            <button type="button" data-ed="save"
+              class="px-3 py-2 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-extrabold uppercase">Guardar</button>
           </div>
         </div>
       </div>
@@ -1194,7 +1115,7 @@ function openImageEditor(orderId, index, file) {
   ensureEditorModal();
 
   if (!window.Cropper) {
-    alert("Para editar imágenes, incluye Cropper.js (CDN o npm).");
+    alert("Incluye Cropper.js para editar imágenes.");
     return;
   }
 
@@ -1205,10 +1126,7 @@ function openImageEditor(orderId, index, file) {
 
   __editor.modal.classList.remove("hidden");
 
-  // destruir cropper previo
-  try {
-    __editor.cropper?.destroy();
-  } catch {}
+  try { __editor.cropper?.destroy(); } catch {}
   __editor.cropper = new Cropper(__editor.img, {
     viewMode: 1,
     autoCropArea: 1,
@@ -1220,9 +1138,7 @@ function openImageEditor(orderId, index, file) {
 function closeImageEditor() {
   if (!__editor.modal) return;
   __editor.modal.classList.add("hidden");
-  try {
-    __editor.cropper?.destroy();
-  } catch {}
+  try { __editor.cropper?.destroy(); } catch {}
   __editor.cropper = null;
   __editor.current = null;
 }
@@ -1242,10 +1158,8 @@ async function saveImageEditor() {
   if (!blob) return alert("No se pudo generar la imagen editada.");
 
   EDITED_BLOBS[k] = blob;
-  EDITED_NAMES[k] =
-    (file?.name ? file.name.replace(/\.[a-z0-9]+$/i, "") : `edit_${index}`) + "_edit.png";
+  EDITED_NAMES[k] = (file?.name ? file.name.replace(/\.[a-z0-9]+$/i, "") : `edit_${index}`) + "_edit.png";
 
-  // preview local del resultado editado
   renderLocalPreview(orderId, index, blob);
   closeImageEditor();
 }

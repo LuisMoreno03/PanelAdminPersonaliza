@@ -109,12 +109,18 @@ $routes->group('confirmacion', ['filter' => 'auth'], static function (RouteColle
     $routes->post('pull', 'ConfirmacionController::pull');
     $routes->post('return-all', 'ConfirmacionController::returnAll');
 
-    // subir imágenes (cuadros/llaveros) y auto-cambiar estado a Confirmado si corresponde
+    // ✅ endpoint real que usa confirmacion.js
+    $routes->post('subir-imagen', 'ConfirmacionController::subirImagen');
+
+    // ✅ alias opcional para mantener /confirmacion/upload
     $routes->post('upload', 'ConfirmacionController::uploadConfirmacion');
+
     $routes->get('list', 'ConfirmacionController::listFiles');
     $routes->get('detalles/(:segment)', 'ConfirmacionController::detalles/$1');
     $routes->post('guardar-estado', 'ConfirmacionController::guardarEstado');
 });
+
+
 
 /*
 |--------------------------------------------------------------------------
@@ -261,13 +267,15 @@ $routes->group('soporte', ['filter' => 'auth'], function($routes) {
   $routes->get('attachment/(:num)', 'SoporteController::attachment/$1');   // ver imagen
 });
 
-
 $routes->get('montaje', 'MontajeController::index');
 $routes->get('montaje/my-queue', 'MontajeController::myQueue');
 $routes->post('montaje/pull', 'MontajeController::pull');
-$routes->post('montaje/return-all', 'MontajeController::returnAll');
+$routes->post('montaje/realizado', 'MontajeController::realizado');
+
+// compatibilidad
 $routes->post('montaje/cargado', 'MontajeController::cargado');
 
+$routes->post('montaje/return-all', 'MontajeController::returnAll');
 
 // ✅ Vista Por producir
 $routes->get('por-producir', 'PorProducir::index');

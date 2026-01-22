@@ -169,6 +169,173 @@ class DashboardController extends Controller
         ];
     }
 
+    /**
+     * ✅ Shopify "enviado" => fulfillment_status = fulfilled
+     */
+    private function shopifyEsEnviado(?string $fulfillmentStatus): bool
+    {
+        $s = mb_strtolower(trim((string)$fulfillmentStatus));
+        return ($s === 'fulfilled');
+    }
+
+    /**
+     * ✅ Shopify: pedido cancelado si viene cancel_reason (o cancelled_at como fallback)
+     */
+    private function shopifyEsCancelado($cancelReason, $cancelledAt = null): bool
+    {
+        $r = trim((string)$cancelReason);
+        if ($r !== '') return true;
+
+        $c = trim((string)$cancelledAt);
+        return $c !== '';
+    }
+
+    /**
+     * ✅ Shopify: pedido reembolsado si financial_status = refunded
+     */
+    private function shopifyEsRefunded(?string $financialStatus): bool
+    {
+        $s = mb_strtolower(trim((string)$financialStatus));
+        return ($s === 'refunded');
+    }
+
+    /**
+     * ✅ Considerar "Cancelado" internamente si:
+     * - Shopify viene cancelado (cancel_reason/cancelled_at)
+     * - o Shopify viene refunded (financial_status)
+     */
+    private function shopifyDebeSerCancelado($cancelReason, $cancelledAt = null, $financialStatus = null): bool
+    {
+        if ($this->shopifyEsCancelado($cancelReason, $cancelledAt)) return true;
+        if ($this->shopifyEsRefunded($financialStatus)) return true;
+        return false;
+    }
+
+    /**
+     * ✅ Estado por defecto según Shopify envío
+     */
+    private function estadoAutoFromShopifyEnvio(?string $fulfillmentStatus): string
+    {
+        return $this->shopifyEsEnviado($fulfillmentStatus) ? 'Enviado' : 'Por preparar';
+    }
+
+    /**
+     * ✅ Si Shopify indica cancelado o refunded, forzar estado interno a "Cancelado" (Sistema)
+     *    y desasignar (para que salga de colas).
+     */
+    private function autoSyncEstadoInternoCanceladoSiCorresponde(
+        string $orderId,
+        $cancelReason,
+        $cancelledAt = null,
+        $financialStatus = null
+    ): void
+    {
+        if (!$this->shopifyDebeSerCancelado($cancelReason, $cancelledAt, $financialStatus)) return;
+
+        try {
+            $estadoModel = new PedidosEstadoModel();
+            $row = $estadoModel->getEstadoPedido($orderId);
+
+            $current = '';
+            if (!empty($row) && !empty($row['estado'])) {
+                $current = $this->normalizeEstado((string)$row['estado']);
+            }
+
+            if ($current === 'Cancelado') return;
+
+            $ok = $estadoModel->setEstadoPedido($orderId, 'Cancelado', null, 'Sistema');
+            if (!$ok) return;
+
+            // ✅ desasignar
+            try {
+                $db = \Config\Database::connect();
+
+                $hasAssignedUser = $db->fieldExists('assigned_to_user_id', 'pedidos');
+                $hasAssignedAt   = $db->fieldExists('assigned_at', 'pedidos');
+                $hasShopifyId    = $db->fieldExists('shopify_order_id', 'pedidos');
+
+                if ($hasShopifyId && ($hasAssignedUser || $hasAssignedAt)) {
+                    $upd = [];
+                    if ($hasAssignedUser) $upd['assigned_to_user_id'] = null;
+                    if ($hasAssignedAt)   $upd['assigned_at'] = null;
+
+                    if (!empty($upd)) {
+                        $db->table('pedidos')->where('shopify_order_id', (string)$orderId)->update($upd);
+                    }
+                }
+            } catch (\Throwable $e) {
+                log_message('error', 'Unassign auto Cancelado ERROR: ' . $e->getMessage());
+            }
+
+            // ✅ historial (opcional)
+            try {
+                $db  = \Config\Database::connect();
+                $now = date('Y-m-d H:i:s');
+
+                $db->table('pedidos_estado_historial')->insert([
+                    'order_id'    => (string)$orderId,
+                    'estado'      => 'Cancelado',
+                    'user_id'     => null,
+                    'user_name'   => 'Sistema',
+                    'created_at'  => $now,
+                    'pedido_json' => null,
+                ]);
+            } catch (\Throwable $e) {
+                log_message('error', 'Historial auto Cancelado ERROR: ' . $e->getMessage());
+            }
+        } catch (\Throwable $e) {
+            log_message('error', 'autoSyncEstadoInternoCanceladoSiCorresponde ERROR: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * ✅ Si Shopify está fulfilled, forzar estado interno a Enviado (y guardarlo)
+     *    - NO pisa Cancelado/Repetir
+     *    - Si ya está Enviado, no hace nada
+     */
+    private function autoSyncEstadoInternoEnviadoSiCorresponde(string $orderId, ?string $fulfillmentStatus): void
+    {
+        if (!$this->shopifyEsEnviado($fulfillmentStatus)) return;
+
+        try {
+            $estadoModel = new PedidosEstadoModel();
+            $row = $estadoModel->getEstadoPedido($orderId);
+
+            $current = '';
+            if (!empty($row) && !empty($row['estado'])) {
+                $current = $this->normalizeEstado((string)$row['estado']);
+            }
+
+            // No pisar estados especiales
+            if (in_array($current, ['Cancelado', 'Repetir'], true)) return;
+
+            // Si ya está Enviado, ok
+            if ($current === 'Enviado') return;
+
+            $ok = $estadoModel->setEstadoPedido($orderId, 'Enviado', null, 'Sistema');
+            if (!$ok) return;
+
+            // (Opcional) historial
+            try {
+                $db  = \Config\Database::connect();
+                $now = date('Y-m-d H:i:s');
+
+                $db->table('pedidos_estado_historial')->insert([
+                    'order_id'    => (string)$orderId,
+                    'estado'      => 'Enviado',
+                    'user_id'     => null,
+                    'user_name'   => 'Sistema',
+                    'created_at'  => $now,
+                    'pedido_json' => null,
+                ]);
+            } catch (\Throwable $e) {
+                log_message('error', 'Historial auto Enviado ERROR: ' . $e->getMessage());
+            }
+        } catch (\Throwable $e) {
+            log_message('error', 'autoSyncEstadoInternoEnviadoSiCorresponde ERROR: ' . $e->getMessage());
+        }
+    }
+
     private function pedidosFiltradosDb(): ResponseInterface
     {
         if (!session()->get('logged_in')) {
@@ -241,7 +408,18 @@ class DashboardController extends Controller
                 $oid = trim((string)($r['shopify_order_id'] ?? ''));
                 if ($oid === '') continue;
 
-                $estadoFinal = $this->normalizeEstado((string)($r['estado_interno'] ?? 'Por preparar'));
+                $estadoInterno = trim((string)($r['estado_interno'] ?? ''));
+                $estadoEnvioDb = (string)($r['estado_envio'] ?? '');
+
+                if ($estadoInterno !== '') {
+                    $estadoFinal = $this->normalizeEstado($estadoInterno);
+                } else {
+                    $estadoFinal = $this->estadoAutoFromShopifyEnvio($estadoEnvioDb);
+                }
+
+                if ($this->shopifyEsEnviado($estadoEnvioDb) && !in_array($estadoFinal, ['Cancelado', 'Repetir'], true)) {
+                    $estadoFinal = 'Enviado';
+                }
 
                 $total = '-';
                 if ($r['total'] !== null && $r['total'] !== '') {
@@ -352,7 +530,18 @@ class DashboardController extends Controller
                 $oid = trim((string)($r['shopify_order_id'] ?? ''));
                 if ($oid === '') continue;
 
-                $estadoFinal = $this->normalizeEstado((string)($r['estado_interno'] ?? 'Por preparar'));
+                $estadoInterno = trim((string)($r['estado_interno'] ?? ''));
+                $estadoEnvioDb = (string)($r['estado_envio'] ?? '');
+
+                if ($estadoInterno !== '') {
+                    $estadoFinal = $this->normalizeEstado($estadoInterno);
+                } else {
+                    $estadoFinal = $this->estadoAutoFromShopifyEnvio($estadoEnvioDb);
+                }
+
+                if ($this->shopifyEsEnviado($estadoEnvioDb) && !in_array($estadoFinal, ['Cancelado', 'Repetir'], true)) {
+                    $estadoFinal = 'Enviado';
+                }
 
                 $total = '-';
                 if ($r['total'] !== null && $r['total'] !== '') {
@@ -499,6 +688,9 @@ class DashboardController extends Controller
             'cancelled'        => 'Cancelado',
             'anulado'          => 'Cancelado',
             'anulada'          => 'Cancelado',
+
+            // ✅ refunded -> Cancelado (por si alguna vez llega como string)
+            'refunded'         => 'Cancelado',
         ];
 
         if (isset($map[$lower])) return $map[$lower];
@@ -529,6 +721,9 @@ class DashboardController extends Controller
 
     /**
      * ✅ Sync a tabla "pedidos" (SIN ETIQUETAS/TAGS)
+     * ✅ + Auto-sync estado interno a "Enviado" si Shopify está fulfilled
+     * ✅ + Auto-sync estado interno a "Cancelado" si Shopify trae cancel_reason/cancelled_at
+     * ✅ + Auto-sync estado interno a "Cancelado" si Shopify trae financial_status = refunded
      */
     private function syncPedidosToDb(array $ordersRaw, array &$syncDebug = null): void
     {
@@ -573,10 +768,13 @@ class DashboardController extends Controller
                     if ($cliente === '') $cliente = '-';
                 }
 
-                $totalDec   = $this->moneyToDecimal($o['total_price'] ?? null);
-                $articulos  = (isset($o['line_items']) && is_array($o['line_items'])) ? count($o['line_items']) : 0;
-                $estadoEnv  = (string)($o['fulfillment_status'] ?? '');
-                $formaEnvio = (!empty($o['shipping_lines'][0]['title'])) ? (string)$o['shipping_lines'][0]['title'] : '';
+                $totalDec        = $this->moneyToDecimal($o['total_price'] ?? null);
+                $articulos       = (isset($o['line_items']) && is_array($o['line_items'])) ? count($o['line_items']) : 0;
+                $estadoEnv       = (string)($o['fulfillment_status'] ?? '');
+                $formaEnvio      = (!empty($o['shipping_lines'][0]['title'])) ? (string)$o['shipping_lines'][0]['title'] : '';
+                $cancelReason    = $o['cancel_reason'] ?? null;
+                $cancelledAt     = $o['cancelled_at'] ?? null;
+                $financialStatus = $o['financial_status'] ?? null;
 
                 $createdAt = $this->isoToMysql($o['created_at'] ?? null);
 
@@ -601,6 +799,12 @@ class DashboardController extends Controller
                     if ($exists) $syncDebug['updated']++;
                     else $syncDebug['inserted']++;
                 }
+
+                // ✅ 1) si Shopify dice cancelado o refunded -> Cancelado
+                $this->autoSyncEstadoInternoCanceladoSiCorresponde($shopifyId, $cancelReason, $cancelledAt, $financialStatus);
+
+                // ✅ 2) si Shopify está "fulfilled" -> Enviado (no pisa Cancelado/Repetir)
+                $this->autoSyncEstadoInternoEnviadoSiCorresponde($shopifyId, $estadoEnv);
             }
         } catch (\Throwable $e) {
             $syncDebug['last_db_error'] = $e->getMessage();
@@ -751,8 +955,20 @@ class DashboardController extends Controller
                 $total = isset($o['total_price']) ? ($o['total_price'] . ' €') : '-';
                 $articulos = isset($o['line_items']) ? count($o['line_items']) : 0;
 
-                $estado_envio = $o['fulfillment_status'] ?? '-';
-                $forma_envio  = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
+                $estado_envio      = $o['fulfillment_status'] ?? '-';
+                $forma_envio       = (!empty($o['shipping_lines'][0]['title'])) ? $o['shipping_lines'][0]['title'] : '-';
+                $cancelReason      = $o['cancel_reason'] ?? null;
+                $cancelledAt       = $o['cancelled_at'] ?? null;
+                $financialStatus   = $o['financial_status'] ?? null;
+
+                $isCancelled = $this->shopifyDebeSerCancelado($cancelReason, $cancelledAt, $financialStatus);
+
+                // ✅ Por defecto:
+                // - si Shopify está cancelado o refunded -> Cancelado
+                // - si no -> según fulfillment (Enviado/Por preparar)
+                $estadoBase = $isCancelled
+                    ? 'Cancelado'
+                    : $this->estadoAutoFromShopifyEnvio((string)$estado_envio);
 
                 $orders[] = [
                     'id'           => $orderId,
@@ -760,12 +976,15 @@ class DashboardController extends Controller
                     'fecha'        => $fecha,
                     'cliente'      => $cliente,
                     'total'        => $total,
-                    'estado'       => 'Por preparar',
+                    'estado'       => $estadoBase,
                     'estado_bd'    => null,
                     'estado_html'  => null,
                     'articulos'    => $articulos,
                     'estado_envio' => $estado_envio ?: '-',
                     'forma_envio'  => $forma_envio ?: '-',
+                    'cancel_reason' => ($cancelReason !== '' ? $cancelReason : null),
+                    'cancelled_at'  => ($cancelledAt !== '' ? $cancelledAt : null),
+                    'financial_status' => ($financialStatus !== '' ? $financialStatus : null),
                     'last_status_change' => null,
                 ];
             }
@@ -784,25 +1003,42 @@ class DashboardController extends Controller
 
                     foreach ($orders as &$ord2) {
                         $oid = (string)($ord2['id'] ?? '');
-                        if ($oid === '' || !isset($map[$oid])) continue;
+                        if ($oid === '') continue;
 
-                        $rowEstado = $map[$oid];
+                        if (isset($map[$oid])) {
+                            $rowEstado = $map[$oid];
 
-                        if (!empty($rowEstado['estado'])) {
-                            $ord2['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
-                            $ord2['estado'] = strip_tags($ord2['estado']);
-                            $ord2['estado_bd'] = $ord2['estado'];
+                            if (!empty($rowEstado['estado'])) {
+                                $ord2['estado'] = $this->normalizeEstado((string)$rowEstado['estado']);
+                                $ord2['estado'] = strip_tags($ord2['estado']);
+                                $ord2['estado_bd'] = $ord2['estado'];
+                            }
+
+                            $changedAt = $rowEstado['estado_updated_at'] ?? null;
+                            if (!$changedAt && !empty($rowEstado['actualizado'])) {
+                                $changedAt = $rowEstado['actualizado'];
+                            }
+
+                            $ord2['last_status_change'] = [
+                                'user_name'  => $rowEstado['estado_updated_by_name'] ?? 'Sistema',
+                                'changed_at' => $changedAt,
+                            ];
                         }
 
-                        $changedAt = $rowEstado['estado_updated_at'] ?? null;
-                        if (!$changedAt && !empty($rowEstado['actualizado'])) {
-                            $changedAt = $rowEstado['actualizado'];
+                        // ✅ Si Shopify está fulfilled, mostrar Enviado (salvo Cancelado/Repetir)
+                        $env = (string)($ord2['estado_envio'] ?? '');
+                        if ($this->shopifyEsEnviado($env) && !in_array((string)$ord2['estado'], ['Cancelado', 'Repetir'], true)) {
+                            $ord2['estado'] = 'Enviado';
                         }
 
-                        $ord2['last_status_change'] = [
-                            'user_name'  => $rowEstado['estado_updated_by_name'] ?? 'Sistema',
-                            'changed_at' => $changedAt,
-                        ];
+                        // ✅ Si Shopify trae cancel_reason/cancelled_at o refunded -> forzar Cancelado siempre
+                        if ($this->shopifyDebeSerCancelado(
+                            $ord2['cancel_reason'] ?? null,
+                            $ord2['cancelled_at'] ?? null,
+                            $ord2['financial_status'] ?? null
+                        )) {
+                            $ord2['estado'] = 'Cancelado';
+                        }
                     }
                     unset($ord2);
                 }
@@ -1005,6 +1241,15 @@ class DashboardController extends Controller
                 ])->setStatusCode(200);
             }
 
+            // ✅ sync interno: Cancelado primero, luego Enviado
+            $shopifyFulfillment = (string)($order['fulfillment_status'] ?? '');
+            $cancelReason       = $order['cancel_reason'] ?? null;
+            $cancelledAt        = $order['cancelled_at'] ?? null;
+            $financialStatus    = $order['financial_status'] ?? null;
+
+            $this->autoSyncEstadoInternoCanceladoSiCorresponde((string)$orderId, $cancelReason, $cancelledAt, $financialStatus);
+            $this->autoSyncEstadoInternoEnviadoSiCorresponde((string)$orderId, $shopifyFulfillment);
+
             // ✅ 2) OVERRIDE ESTADO desde BD (pedidos_estado)
             try {
                 $estadoModel = new PedidosEstadoModel();
@@ -1022,9 +1267,22 @@ class DashboardController extends Controller
                         'user_name'  => $rowEstado['estado_updated_by_name'] ?? 'Sistema',
                         'changed_at' => $changedAt,
                     ];
+                } else {
+                    $order['estado'] = $this->estadoAutoFromShopifyEnvio($shopifyFulfillment);
                 }
             } catch (\Throwable $e) {
                 log_message('error', 'DETALLES override estado ERROR: ' . $e->getMessage());
+                $order['estado'] = $this->estadoAutoFromShopifyEnvio($shopifyFulfillment);
+            }
+
+            // ✅ Forzar visual: si Shopify está fulfilled -> Enviado (salvo Cancelado/Repetir)
+            if ($this->shopifyEsEnviado($shopifyFulfillment) && !in_array((string)($order['estado'] ?? ''), ['Cancelado', 'Repetir'], true)) {
+                $order['estado'] = 'Enviado';
+            }
+
+            // ✅ Forzar visual: si Shopify está cancelado o refunded -> Cancelado (gana siempre)
+            if ($this->shopifyDebeSerCancelado($cancelReason, $cancelledAt, $financialStatus)) {
+                $order['estado'] = 'Cancelado';
             }
 
             // 3) Product images
