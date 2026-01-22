@@ -574,94 +574,159 @@ class ConfirmacionController extends BaseController
     }
 
     // ✅ MEJORADO: filtro SQL por pedido_json (más agresivo)
+    // ✅ NUEVO: filtro SQL por pedido_json (Shopify real: con espacios, refunded, refunds, etc.)
     private function applyPedidoJsonExclusions($q, $db, bool $hasPedidoJson): void
     {
         if (!$hasPedidoJson) return;
 
         $jsonExpr = "LOWER(COALESCE(p.pedido_json,''))";
 
+        // Importante: buscamos patrones que SOLO aparecen cuando está cancelado/refund,
+        // y contemplamos variantes con y sin espacio tras ":".
         $needles = [
-            'cancelled_at','canceled_at','cancelledat','canceledat',
-            'cancel_reason','cancelreason',
-            '"status":"cancel', '"status":"canc',
-            'cancelado','cancelada','cancelled','canceled','cancel',
-            'refund','refunded','reembolso','reembols','voided',
-            'devuelto','devuelta','devolucion','devolución','devolu','devuel','returned','return',
-            'chargeback','contracargo','dispute','disputa',
-            'archived','archivado',
-            '"financial_status":"void', '"financial_status":"refund',
-            '"displayfinancialstatus":"void', '"displayfinancialstatus":"refund',
+            // cancelled_at / canceled_at con VALOR (no null)
+            '"cancelled_at":"', '"cancelled_at": "',
+            '"canceled_at":"',  '"canceled_at": "',
+
+            // cancel_reason con VALOR (no null)
+            '"cancel_reason":"', '"cancel_reason": "',
+            '"cancelreason":"',  '"cancelreason": "',
+
+            // financial_status no deseados (con/sin espacio)
+            '"financial_status":"refunded', '"financial_status": "refunded',
+            '"financial_status":"voided',   '"financial_status": "voided',
+            '"financial_status":"partially_refunded', '"financial_status": "partially_refunded',
+            '"financial_status":"partially-refunded', '"financial_status": "partially-refunded',
+
+            // refunds no vacíos (si refunds = [] no matchea)
+            '"refunds":[{', '"refunds": [{', '"refunds":[ {', '"refunds": [ {',
+
+            // transacciones refund típicas (tu JSON trae kind:"refund")
+            '"kind":"refund"', '"kind": "refund"',
+
+            // restock_type cancel (refund_line_items)
+            '"restock_type":"cancel', '"restock_type": "cancel',
+
+            // tags “malos” (tu caso exacto + devoluciones)
+            'cliente pide cancelar pedido',
+            'devolucion 100', 'devolución 100',
+            'devolucion', 'devolución',
+            'devuelto', 'devuelta',
+
+            // chargeback / disputa (por si acaso)
+            'chargeback', 'contracargo',
+            'dispute', 'disputa',
         ];
 
         foreach ($needles as $t) {
             $t = mb_strtolower(trim($t));
             if ($t === '') continue;
+
             $like = '%' . $db->escapeLikeString($t) . '%';
             $q->where("$jsonExpr NOT LIKE " . $db->escape($like), null, false);
         }
     }
 
+
     // ✅ MEJORADO: filtro PHP (si algo se cuela, igual lo bloquea)
+    // ✅ NUEVO: detecta cancelación / devolución / reembolso desde el JSON real de Shopify
     private function isCancelledFromPedidoJson(?string $pedidoJson): bool
     {
         $pedidoJson = (string)$pedidoJson;
         if (trim($pedidoJson) === '') return false;
 
-        $s = mb_strtolower($pedidoJson);
-        if (preg_match('/\b(cancelad|cancelled|canceled|cancel_reason|cancelled_at|canceled_at|voided|refund|refunded|reembols|reembolso|devolu|devuel|returned|chargeback|contracargo|disput|archiv)\b/u', $s)) {
+        $o = json_decode($pedidoJson, true);
+
+        // Fallback si por algo no se puede decodificar
+        if (!is_array($o)) {
+            $s = mb_strtolower($pedidoJson);
+
+            // cancelled_at: "2026-..." (con espacios opcionales)
+            if (preg_match('/"cancelled_at"\s*:\s*"(.*?)"/i', $s)) return true;
+            if (preg_match('/"canceled_at"\s*:\s*"(.*?)"/i', $s)) return true;
+
+            // cancel_reason: "customer"
+            if (preg_match('/"cancel_reason"\s*:\s*"(.*?)"/i', $s)) return true;
+
+            // financial_status: "refunded" / "voided" / etc.
+            if (preg_match('/"financial_status"\s*:\s*"(refunded|voided|partially_refunded|partially-refunded)"/i', $s)) return true;
+
+            // refunds no vacíos
+            if (preg_match('/"refunds"\s*:\s*\[\s*\{/i', $s)) return true;
+
+            // tags malos
+            if (preg_match('/cliente\s+pide\s+cancelar\s+pedido|devoluci[oó]n|devuelt|reembols|refund|chargeback|contracargo|disput/i', $s)) return true;
+
+            return false;
+        }
+
+        // Unwrap común (por si guardas {order:{...}} o {data:{...}})
+        if (isset($o['order']) && is_array($o['order'])) $o = $o['order'];
+        if (isset($o['data']) && is_array($o['data'])) {
+            if (isset($o['data']['order']) && is_array($o['data']['order'])) $o = $o['data']['order'];
+            elseif (isset($o['data']['node']) && is_array($o['data']['node'])) $o = $o['data']['node'];
+        }
+
+        $notEmpty = static function ($v): bool {
+            if ($v === null) return false;
+            $s = trim((string)$v);
+            return $s !== '' && mb_strtolower($s) !== 'null';
+        };
+
+        // 1) cancel flags (TU JSON: cancelled_at + cancel_reason)
+        foreach (['cancelled_at', 'canceled_at', 'cancelledAt', 'canceledAt'] as $k) {
+            if (array_key_exists($k, $o) && $notEmpty($o[$k])) return true;
+        }
+
+        foreach (['cancel_reason', 'cancelReason'] as $k) {
+            if (array_key_exists($k, $o) && $notEmpty($o[$k])) return true;
+        }
+
+        // 2) financial_status (TU JSON: refunded)
+        $financialRaw = $o['financial_status'] ?? $o['displayFinancialStatus'] ?? $o['financialStatus'] ?? '';
+        if (is_array($financialRaw)) {
+            $financialRaw = $financialRaw['displayName'] ?? $financialRaw['name'] ?? $financialRaw['value'] ?? '';
+        }
+        $financial = mb_strtolower(trim((string)$financialRaw));
+
+        if ($financial !== '') {
+            if (in_array($financial, ['refunded', 'voided', 'partially_refunded', 'partially-refunded'], true)) return true;
+            if (str_contains($financial, 'refund') || str_contains($financial, 'reembols') || str_contains($financial, 'void')) return true;
+        }
+
+        // 3) tags (TU JSON: "Cliente pide cancelar pedido")
+        $tagsRaw = $o['tags'] ?? '';
+        $tags = is_array($tagsRaw) ? implode(',', $tagsRaw) : (string)$tagsRaw;
+        $tags = mb_strtolower(trim($tags));
+
+        if ($tags !== '' && preg_match('/(cliente\s+pide\s+cancelar\s+pedido|cancel|devolu|devuel|devuelt|reemb|refund|returned|chargeback|contracargo|disput)/i', $tags)) {
             return true;
         }
 
-        $o = json_decode($pedidoJson, true);
-        if (!is_array($o)) return false;
+        // 4) refunds (TU JSON: refunds viene con items)
+        if (isset($o['refunds']) && is_array($o['refunds']) && count($o['refunds']) > 0) {
+            return true;
+        }
+        if (isset($o['refunds']['edges']) && is_array($o['refunds']['edges']) && count($o['refunds']['edges']) > 0) {
+            return true;
+        }
 
-        $deepFind = function ($data, array $keys, int $maxDepth = 7) {
-            $keys = array_map(fn($k) => mb_strtolower($k), $keys);
-            $queue = [[$data, 0]];
+        // 5) restock_type cancel en refund_line_items
+        if (isset($o['refunds']) && is_array($o['refunds'])) {
+            foreach ($o['refunds'] as $rf) {
+                if (!is_array($rf)) continue;
+                $rli = $rf['refund_line_items'] ?? [];
+                if (!is_array($rli)) continue;
 
-            while ($queue) {
-                [$cur, $depth] = array_shift($queue);
-                if ($depth > $maxDepth) continue;
-
-                if (is_array($cur)) {
-                    foreach ($cur as $k => $v) {
-                        if (is_string($k) && in_array(mb_strtolower($k), $keys, true)) return $v;
-                        if (is_array($v)) $queue[] = [$v, $depth + 1];
-                    }
+                foreach ($rli as $x) {
+                    if (!is_array($x)) continue;
+                    $rt = mb_strtolower(trim((string)($x['restock_type'] ?? '')));
+                    if ($rt === 'cancel') return true;
                 }
             }
-            return null;
-        };
-
-        $cancelAt = $deepFind($o, ['cancelled_at','canceled_at','cancelledAt','canceledAt']);
-        if ($cancelAt !== null && trim((string)$cancelAt) !== '' && mb_strtolower(trim((string)$cancelAt)) !== 'null') return true;
-
-        $cancelReason = $deepFind($o, ['cancel_reason','cancelReason']);
-        if ($cancelReason !== null && trim((string)$cancelReason) !== '' && mb_strtolower(trim((string)$cancelReason)) !== 'null') return true;
-
-        $status = $deepFind($o, ['status','displayStatus']);
-        $status = mb_strtolower(trim((string)$status));
-        if (in_array($status, ['cancelled','canceled','cancelado','cancelada'], true)) return true;
-
-        $fin = $deepFind($o, ['financial_status','displayFinancialStatus','financialStatus']);
-        if (is_array($fin)) $fin = $fin['displayName'] ?? $fin['name'] ?? $fin['value'] ?? '';
-        $fin = mb_strtolower(trim((string)$fin));
-        if ($fin !== '' && (str_contains($fin, 'void') || str_contains($fin, 'refund') || str_contains($fin, 'reembols'))) return true;
-
-        $tags = $deepFind($o, ['tags']);
-        if (is_array($tags)) {
-            $flat = [];
-            $stack = [$tags];
-            while ($stack) {
-                $x = array_pop($stack);
-                if (is_array($x)) foreach ($x as $vv) $stack[] = $vv;
-                else $flat[] = (string)$x;
-            }
-            $tags = implode(',', $flat);
         }
-        $tags = mb_strtolower(trim((string)$tags));
-        if ($tags !== '' && preg_match('/\b(cancel|cancelad|refund|reemb|devolu|devuel|returned|chargeback|disput|archiv)\b/u', $tags)) return true;
 
         return false;
     }
+
 }
