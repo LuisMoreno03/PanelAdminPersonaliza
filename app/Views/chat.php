@@ -208,7 +208,13 @@
   // ===== Config =====
  // ===== Config =====
    // ===== Config =====
-// const SOCKET_URL = "https://paneladministrativopersonaliza.com:3001";
+const DEBUG_ENDPOINTS = [
+  "https://paneladministrativopersonaliza.com/chat/users",
+  "https://paneladministrativopersonaliza.com/chat/messages/id",
+  "https://paneladministrativopersonaliza.com/chat/send",
+  "https://paneladministrativopersonaliza.com/chat/mark-read",
+];
+
 const ADMIN_ID = <?= (int)session('user_id') ?>;
 const ADMIN_NAME = <?= json_encode(session('nombre') ?? 'Admin') ?>;
 
