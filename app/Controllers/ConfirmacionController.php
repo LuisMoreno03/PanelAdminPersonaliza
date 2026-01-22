@@ -39,6 +39,7 @@ class ConfirmacionController extends BaseController
       -> SOLO pedidos asignados a mi user
       -> SOLO "Por preparar" O "Faltan archivos"
       -> SOLO NO ENVIADOS (unfulfilled)
+      -> EXCLUYE etiquetas cancelado/devuelto/etc + cancelados reales (pedido_json)
     ===================================================== */
     public function myQueue()
     {
@@ -66,7 +67,6 @@ class ConfirmacionController extends BaseController
                 ? 'pe.estado_updated_by_name as estado_por'
                 : ($hasPeUserName ? 'pe.user_name as estado_por' : 'NULL as estado_por');
 
-            // ✅ orderKeySql portable según driver
             $driver = strtolower((string)($db->DBDriver ?? ''));
 
             if ($hasShopifyId) {
@@ -114,28 +114,22 @@ class ConfirmacionController extends BaseController
                 $rows = array_values(array_filter($rows, function ($r) {
                     return !$this->isCancelledFromPedidoJson($r['pedido_json'] ?? null);
                 }));
-
-                // opcional: no enviar pedido_json al frontend (reduce payload)
                 foreach ($rows as &$r) { unset($r['pedido_json']); }
                 unset($r);
             }
 
-            return $this->response->setJSON([
-                'ok'   => true,
-                'data' => $rows,
-            ]);
+            return $this->response->setJSON(['ok' => true, 'data' => $rows]);
         } catch (\Throwable $e) {
             log_message('error', 'myQueue() error: '.$e->getMessage());
-            return $this->response->setStatusCode(500)->setJSON([
-                'ok' => false,
-                'message' => $e->getMessage(),
-            ]);
+            return $this->response->setStatusCode(500)->setJSON(['ok' => false, 'message' => $e->getMessage()]);
         }
     }
 
-
     /* =====================================================
       POST /confirmacion/pull
+      body: { count: 5 | 10 }
+      -> trae pedidos "Por preparar" (estado interno) no asignados y no enviados
+      -> excluye etiquetas cancelado/devuelto/etc + cancelados reales (pedido_json)
     ===================================================== */
     public function pull()
     {
@@ -146,11 +140,12 @@ class ConfirmacionController extends BaseController
 
             $userId = (int) session('user_id');
             $user   = session('nombre') ?? 'Sistema';
+
             $payload = $this->request->getJSON(true) ?? [];
             $count = (int)($payload['count'] ?? 5);
-            if ($count <= 0) $count = 5;
+            $count = in_array($count, [5, 10], true) ? $count : 5;
 
-            $db = \Config\Database::connect();
+            $db  = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
             $pFields = $db->getFieldNames('pedidos') ?? [];
@@ -166,9 +161,7 @@ class ConfirmacionController extends BaseController
 
             $db->transStart();
 
-            // ✅ traemos más para poder filtrar cancelados/etiquetas y aún asignar $count
             $limitFetch = max($count * 4, $count);
-
             $select = 'p.id, p.shopify_order_id, p.etiquetas' . ($hasPedidoJson ? ', p.pedido_json' : '');
 
             $candQuery = $db->table('pedidos p')
@@ -204,7 +197,6 @@ class ConfirmacionController extends BaseController
                 }));
             }
 
-            // tomar solo los necesarios
             $candidatos = array_slice($candidatos, 0, $count);
 
             if (!$candidatos) {
@@ -220,10 +212,7 @@ class ConfirmacionController extends BaseController
 
             $db->table('pedidos')
                 ->whereIn('id', $ids)
-                ->update([
-                    'assigned_to_user_id' => $userId,
-                    'assigned_at' => $now
-                ]);
+                ->update(['assigned_to_user_id' => $userId, 'assigned_at' => $now]);
 
             foreach ($candidatos as $c) {
                 $orderKey = trim((string)($c['shopify_order_id'] ?? ''));
@@ -254,19 +243,12 @@ class ConfirmacionController extends BaseController
                 return $this->response->setStatusCode(500)->setJSON(['ok' => false, 'message' => 'Transacción falló']);
             }
 
-            return $this->response->setJSON([
-                'ok' => true,
-                'assigned' => count($ids)
-            ]);
+            return $this->response->setJSON(['ok' => true, 'assigned' => count($ids)]);
         } catch (\Throwable $e) {
             log_message('error', 'pull() error: '.$e->getMessage());
-            return $this->response->setStatusCode(500)->setJSON([
-                'ok' => false,
-                'message' => $e->getMessage()
-            ]);
+            return $this->response->setStatusCode(500)->setJSON(['ok' => false, 'message' => $e->getMessage()]);
         }
     }
-
 
     public function returnAll()
     {
@@ -344,10 +326,7 @@ class ConfirmacionController extends BaseController
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'detalles() error: '.$e->getMessage());
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage()
-            ]);
+            return $this->response->setStatusCode(500)->setJSON(['success' => false, 'message' => $e->getMessage()]);
         }
     }
 
@@ -360,8 +339,8 @@ class ConfirmacionController extends BaseController
         $orderIdRaw = (string)$this->request->getPost('order_id');
         $orderId = $this->normalizeShopifyOrderId($orderIdRaw);
 
-        $index   = (int) $this->request->getPost('line_index');
-        $file    = $this->request->getFile('file');
+        $index = (int) $this->request->getPost('line_index');
+        $file  = $this->request->getFile('file');
 
         $modifiedBy = trim((string) $this->request->getPost('modified_by'));
         $modifiedAt = trim((string) $this->request->getPost('modified_at'));
@@ -428,7 +407,7 @@ class ConfirmacionController extends BaseController
             $orderIdRaw = (string)($payload['order_id'] ?? $payload['id'] ?? '');
             $orderId = $this->normalizeShopifyOrderId($orderIdRaw);
 
-            $estado  = (string)($payload['estado'] ?? '');
+            $estado   = (string)($payload['estado'] ?? '');
             $mantener = (bool)($payload['mantener_asignado'] ?? false);
 
             if ($orderId === '' || $estado === '') {
@@ -444,10 +423,8 @@ class ConfirmacionController extends BaseController
                 return $this->response->setStatusCode(404)->setJSON(['success' => false, 'ok' => false, 'message' => 'Pedido no encontrado']);
             }
 
-            // ✅ usar SIEMPRE la misma clave para estados/historial
             $orderKey = $this->orderKeyFromPedido($pedido);
 
-            // Upsert pedidos_estado
             $existe = $db->table('pedidos_estado')->where('order_id', $orderKey)->countAllResults();
 
             if ($existe) {
@@ -465,7 +442,6 @@ class ConfirmacionController extends BaseController
                 ]);
             }
 
-            // Historial
             $db->table('pedidos_estado_historial')->insert([
                 'order_id' => $orderKey,
                 'estado' => $estado,
@@ -475,22 +451,24 @@ class ConfirmacionController extends BaseController
 
             $estadoLower = mb_strtolower(trim($estado));
 
-            // ✅ Confirmado => desasignar
+            // ✅ Confirmado => desasignar (como ya tenías)
             if ($estadoLower === 'confirmado') {
                 $db->table('pedidos')
                     ->where('id', (int)$pedido['id'])
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
             }
 
-            // ✅ Cancelado => desasignar SIEMPRE (para que se quite de tu lista)
+            // ✅ Cancelado => desasignar SIEMPRE
             if ($estadoLower === 'cancelado') {
                 $db->table('pedidos')
                     ->where('id', (int)$pedido['id'])
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
             }
 
-            // "Faltan archivos" con mantener_asignado=true => no tocar asignación (ok)
-            // Otros estados: por defecto no hacemos nada.
+            // si mantener_asignado=true en "faltan archivos", no tocamos asignación
+            if ($estadoLower === 'faltan archivos' && $mantener === true) {
+                // no-op
+            }
 
             return $this->response->setJSON(['success' => true, 'ok' => true]);
         } catch (\Throwable $e) {
@@ -515,7 +493,7 @@ class ConfirmacionController extends BaseController
         $pedido = $db->table('pedidos')->where('id', $pedidoId)->get()->getRowArray();
         if (!$pedido) return 'Por preparar';
 
-        $order = json_decode($pedido['pedido_json'] ?? '', true);
+        $order    = json_decode($pedido['pedido_json'] ?? '', true);
         $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
         if (!is_array($imagenes)) $imagenes = [];
 
@@ -537,7 +515,7 @@ class ConfirmacionController extends BaseController
         }
 
         $nuevoEstado = ($requeridas > 0 && $requeridas === $cargadas) ? 'Confirmado' : 'Faltan archivos';
-        $now = date('Y-m-d H:i:s');
+        $now  = date('Y-m-d H:i:s');
         $user = session('nombre') ?? 'Sistema';
 
         $existe = $db->table('pedidos_estado')->where('order_id', $orderKey)->countAllResults();
@@ -587,32 +565,26 @@ class ConfirmacionController extends BaseController
 
         return false;
     }
+
     /** =====================================================
-    * Helper: excluye pedidos por etiquetas (cancelado/devuelto/etc)
+     * Helper: excluye pedidos por etiquetas (cancelado/devuelto/etc)
      * ===================================================== */
     private function applyEtiquetaExclusions($q, $db): void
     {
-        // Etiquetas a excluir (agrega/quita lo que uses en tu operación)
         $bad = [
-            'cancelado', 'cancelada', 'cancelled', 'canceled',
-            'devuelto', 'devuelta',
-            'devolucion', 'devolución',
-            'reembolso', 'reembolsado', 'refunded',
-            'returned', 'return',
-            'anulado', 'voided'
+            'cancelado','cancelada','cancelled','canceled',
+            'devuelto','devuelta','devolucion','devolución',
+            'reembolso','reembolsado','refunded','refund',
+            'returned','return','anulado','anulada','voided',
+            'chargeback','contracargo'
         ];
 
-        // expresión portable
         $tagExpr = "LOWER(COALESCE(p.etiquetas,''))";
 
         foreach ($bad as $t) {
             $t = mb_strtolower(trim($t));
             if ($t === '') continue;
-
-            // LIKE seguro (escape de comodines)
             $like = '%' . $db->escapeLikeString($t) . '%';
-
-            // AND tagExpr NOT LIKE '%t%'
             $q->where("$tagExpr NOT LIKE " . $db->escape($like), null, false);
         }
     }
@@ -628,28 +600,21 @@ class ConfirmacionController extends BaseController
         $o = json_decode($pedidoJson, true);
         if (!is_array($o)) return false;
 
-        // REST vs GraphQL keys
         $cancelledAt = $o['cancelled_at'] ?? $o['cancelledAt'] ?? null;
         if ($cancelledAt !== null && trim((string)$cancelledAt) !== '') return true;
 
         $cancelReason = $o['cancel_reason'] ?? $o['cancelReason'] ?? '';
         if (trim((string)$cancelReason) !== '') return true;
 
-        // A veces viene un flag
         $cancelledFlag = $o['cancelled'] ?? $o['isCancelled'] ?? null;
-        if ($cancelledFlag === true || $cancelledFlag === 1 || $cancelledFlag === 'true' || $cancelledFlag === '1') {
-            return true;
-        }
+        if ($cancelledFlag === true || $cancelledFlag === 1 || $cancelledFlag === 'true' || $cancelledFlag === '1') return true;
 
-        // Estados financieros típicos de cancelación/reembolso total
         $financial = mb_strtolower(trim((string)($o['financial_status'] ?? $o['displayFinancialStatus'] ?? '')));
-        if (in_array($financial, ['voided', 'refunded'], true)) return true;
+        if (in_array($financial, ['voided','refunded'], true)) return true;
 
-        // En algunos casos existe status
         $status = mb_strtolower(trim((string)($o['status'] ?? '')));
         if ($status === 'cancelled' || $status === 'canceled') return true;
 
         return false;
     }
-
 }
