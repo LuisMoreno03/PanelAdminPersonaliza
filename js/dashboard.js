@@ -430,8 +430,8 @@ function estadoStyle(estado) {
   if (s.includes("repetir")) {
     return { label: "Repetir", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
-  if (s.includes("repetir")) {
-    return { label: "Repetir", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
+  if (s.includes("cancelado") || s.includes("anulado") || s.includes("canceled") || s.includes("cancelled")) {
+    return { label: "Cancelado", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
 
   
