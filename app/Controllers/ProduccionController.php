@@ -135,6 +135,7 @@ class ProduccionController extends BaseController
                 ";
             }
 
+            // ✅ FIX collation: comparar IDs como número (UNSIGNED) y normalizar strings a una collation
             $rows = $db->query("
                 SELECT
                     p.id,
@@ -151,9 +152,9 @@ class ProduccionController extends BaseController
                     p.assigned_at,
 
                     COALESCE(
-                        CAST(h.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
-                        CAST(pe.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
-                        'por preparar'
+                        CONVERT(h.estado USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+                        CONVERT(pe.estado USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+                        'por preparar' COLLATE utf8mb4_unicode_ci
                     ) AS estado_bd,
 
                     COALESCE(h.created_at, pe.estado_updated_at, p.created_at) AS estado_actualizado,
@@ -162,29 +163,40 @@ class ProduccionController extends BaseController
                 FROM pedidos p
 
                 LEFT JOIN pedidos_estado pe
-                    ON (pe.order_id = p.id OR pe.order_id = p.shopify_order_id)
+                    ON (
+                        CAST(pe.order_id AS UNSIGNED) = p.id
+                        OR CAST(pe.order_id AS UNSIGNED) = CAST(p.shopify_order_id AS UNSIGNED)
+                    )
 
                 LEFT JOIN (
-                    SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
+                    SELECT
+                        h1.order_id,
+                        CAST(h1.order_id AS UNSIGNED) AS order_num,
+                        h1.estado,
+                        h1.user_name,
+                        h1.created_at
                     FROM pedidos_estado_historial h1
                     INNER JOIN (
                         SELECT order_id, MAX(created_at) AS max_created
                         FROM pedidos_estado_historial
                         GROUP BY order_id
                     ) hx
-                    ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
+                        ON hx.order_id = h1.order_id
+                       AND hx.max_created = h1.created_at
                 ) h
-                ON (
-                    h.order_id = p.id
-                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
-                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
-                )
+                    ON (
+                        h.order_num = p.id
+                        OR h.order_num = CAST(p.shopify_order_id AS UNSIGNED)
+                    )
 
                 WHERE p.assigned_to_user_id = ?
                   AND LOWER(TRIM(
-                        CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
-                        COLLATE utf8mb4_uca1400_ai_ci
-                  )) = 'confirmado'
+                        COALESCE(
+                            CONVERT(h.estado USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+                            CONVERT(pe.estado USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+                            ''
+                        )
+                  )) COLLATE utf8mb4_unicode_ci = 'confirmado'
                   {$condNoEnviados}
 
                 ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
@@ -256,6 +268,7 @@ class ProduccionController extends BaseController
                 ";
             }
 
+            // ✅ FIX collation: comparar IDs como número y normalizar estado
             $candidatos = $db->query("
                 SELECT
                     p.id,
@@ -263,7 +276,12 @@ class ProduccionController extends BaseController
                 FROM pedidos p
 
                 INNER JOIN (
-                    SELECT h1.*
+                    SELECT
+                        h1.order_id,
+                        CAST(h1.order_id AS UNSIGNED) AS order_num,
+                        h1.estado,
+                        h1.created_at,
+                        h1.id
                     FROM pedidos_estado_historial h1
                     INNER JOIN (
                         SELECT order_id, MAX(id) AS last_id
@@ -271,12 +289,11 @@ class ProduccionController extends BaseController
                         GROUP BY order_id
                     ) x ON x.last_id = h1.id
                 ) h ON (
-                    h.order_id = p.id
-                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
-                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                    h.order_num = p.id
+                    OR h.order_num = CAST(p.shopify_order_id AS UNSIGNED)
                 )
 
-                WHERE TRIM(LOWER(h.estado)) COLLATE utf8mb4_unicode_ci = 'confirmado'
+                WHERE LOWER(TRIM(CONVERT(h.estado USING utf8mb4))) COLLATE utf8mb4_unicode_ci = 'confirmado'
                   {$condNoEnviados}
                   AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
 
