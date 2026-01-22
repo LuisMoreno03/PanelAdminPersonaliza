@@ -11,9 +11,6 @@ class ConfirmacionController extends BaseController
         return view('confirmacion');
     }
 
-    /** =====================================================
-     * Helper: normaliza gid://shopify/Order/123 => 123
-     * ===================================================== */
     private function normalizeShopifyOrderId($id): string
     {
         $s = trim((string)$id);
@@ -22,11 +19,6 @@ class ConfirmacionController extends BaseController
         return $s;
     }
 
-    /** =====================================================
-     * Helper: clave consistente del pedido para estados/historial
-     * - si hay shopify_order_id => usarlo
-     * - si no => usar id interno
-     * ===================================================== */
     private function orderKeyFromPedido(array $pedido): string
     {
         $sid = trim((string)($pedido['shopify_order_id'] ?? ''));
@@ -36,10 +28,10 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       GET /confirmacion/my-queue
-      -> SOLO pedidos asignados a mi user
-      -> SOLO "Por preparar" O "Faltan archivos"
-      -> SOLO NO ENVIADOS (unfulfilled)
-      -> EXCLUYE etiquetas cancelado/devuelto/etc + cancelados reales (pedido_json)
+      -> asignados a mi user
+      -> Por preparar o Faltan archivos
+      -> NO enviados (unfulfilled)
+      -> EXCLUYE etiquetas + EXCLUYE cancelados por pedido_json (SQL + PHP)
     ===================================================== */
     public function myQueue()
     {
@@ -107,9 +99,12 @@ class ConfirmacionController extends BaseController
             // ✅ excluir por etiquetas (cancelado/devuelto/etc)
             $this->applyEtiquetaExclusions($q, $db);
 
+            // ✅ excluir por pedido_json en SQL (reduce candidatos antes de traerlos)
+            $this->applyPedidoJsonExclusions($q, $db, $hasPedidoJson);
+
             $rows = $q->orderBy('p.created_at', 'ASC')->get()->getResultArray();
 
-            // ✅ excluir cancelados reales según Shopify (pedido_json)
+            // ✅ filtro final por pedido_json (100% seguro)
             if ($hasPedidoJson && $rows) {
                 $rows = array_values(array_filter($rows, function ($r) {
                     return !$this->isCancelledFromPedidoJson($r['pedido_json'] ?? null);
@@ -127,9 +122,8 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       POST /confirmacion/pull
-      body: { count: 5 | 10 }
-      -> trae pedidos "Por preparar" (estado interno) no asignados y no enviados
-      -> excluye etiquetas cancelado/devuelto/etc + cancelados reales (pedido_json)
+      -> trae Por preparar no asignados, no enviados
+      -> EXCLUYE etiquetas + EXCLUYE cancelados por pedido_json (SQL + PHP)
     ===================================================== */
     public function pull()
     {
@@ -161,7 +155,7 @@ class ConfirmacionController extends BaseController
 
             $db->transStart();
 
-            $limitFetch = max($count * 4, $count);
+            $limitFetch = max($count * 6, $count); // ✅ subo para que el filtro no te deje sin cupo
             $select = 'p.id, p.shopify_order_id, p.etiquetas' . ($hasPedidoJson ? ', p.pedido_json' : '');
 
             $candQuery = $db->table('pedidos p')
@@ -175,8 +169,11 @@ class ConfirmacionController extends BaseController
                     ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
                 ->groupEnd();
 
-            // ✅ excluir por etiquetas (cancelado/devuelto/etc)
+            // ✅ excluir por etiquetas
             $this->applyEtiquetaExclusions($candQuery, $db);
+
+            // ✅ excluir por pedido_json en SQL
+            $this->applyPedidoJsonExclusions($candQuery, $db, $hasPedidoJson);
 
             $candidatosRaw = $candQuery
                 ->orderBy('p.created_at', 'ASC')
@@ -189,7 +186,7 @@ class ConfirmacionController extends BaseController
                 return $this->response->setJSON(['ok' => true, 'assigned' => 0, 'message' => 'Sin candidatos']);
             }
 
-            // ✅ excluir cancelados reales según Shopify (pedido_json)
+            // ✅ filtro final por pedido_json (100% seguro)
             $candidatos = $candidatosRaw;
             if ($hasPedidoJson) {
                 $candidatos = array_values(array_filter($candidatos, function ($r) {
@@ -451,21 +448,18 @@ class ConfirmacionController extends BaseController
 
             $estadoLower = mb_strtolower(trim($estado));
 
-            // ✅ Confirmado => desasignar (como ya tenías)
             if ($estadoLower === 'confirmado') {
                 $db->table('pedidos')
                     ->where('id', (int)$pedido['id'])
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
             }
 
-            // ✅ Cancelado => desasignar SIEMPRE
             if ($estadoLower === 'cancelado') {
                 $db->table('pedidos')
                     ->where('id', (int)$pedido['id'])
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
             }
 
-            // si mantener_asignado=true en "faltan archivos", no tocamos asignación
             if ($estadoLower === 'faltan archivos' && $mantener === true) {
                 // no-op
             }
@@ -566,45 +560,27 @@ class ConfirmacionController extends BaseController
         return false;
     }
 
-    /** =====================================================
-     * Helper: excluye pedidos por etiquetas (cancelado/devuelto/etc)
-     * ===================================================== */
-    /** =====================================================
-     * Helper: excluye pedidos por etiquetas (cancelación / devolución / reembolso)
-     * ===================================================== */
     private function applyEtiquetaExclusions($q, $db): void
     {
-        // Si tus etiquetas vienen como string (csv) en p.etiquetas, esto cubre:
-        // - cancelado/cancelada/cancelled/canceled/cancel...
-        // - cliente pide cancelar pedido / cancelar pedido / pide cancelar...
-        // - devuelto/devuelta/devolucion/devolución/devolucion 100%/devolución 100%/devuel...
-        // - reembolso/refunded/refund/reemb...
-        // - contracargo/chargeback/dispute
         $bad = [
-            // Cancelación (stems + comunes)
             'cancel', 'cancelado', 'cancelada', 'cancelled', 'canceled',
             'anulado', 'voided',
 
-            // Frases específicas
             'cliente pide cancelar pedido',
-            'Cliente pide cancelar pedido',
             'cliente pide cancelar',
             'pide cancelar pedido',
             'pide cancelar',
             'cancelar pedido',
 
-            // Devolución (stems + comunes)
             'devuel', 'devuelto', 'devuelta',
             'devolu', 'devolucion', 'devolución',
             'devolucion 100', 'devolucion 100%', 'devolución 100', 'devolución 100%',
             'devolucion total', 'devolución total',
             'returned', 'return',
 
-            // Reembolso
             'reemb', 'reembolso', 'reembolsado',
             'refund', 'refunded',
 
-            // Otros relacionados
             'contracargo', 'chargeback',
             'dispute', 'disputa',
         ];
@@ -620,32 +596,90 @@ class ConfirmacionController extends BaseController
         }
     }
 
+    // ✅ NUEVO: filtro SQL por pedido_json (para que ni entren de candidatos)
+    private function applyPedidoJsonExclusions($q, $db, bool $hasPedidoJson): void
+    {
+        if (!$hasPedidoJson) return;
 
-    /** =====================================================
-     * Helper: detecta cancelación/retorno desde pedido_json (Shopify)
-     * ===================================================== */
+        $jsonExpr = "LOWER(COALESCE(p.pedido_json,''))";
+        $needles = [
+            'cancelled_at','canceled_at','cancelledat','canceledat',
+            'cancel_reason','cancelreason',
+            '"status":"cancel', '"status":"canc',
+            '"financial_status":"void', '"financial_status":"refund',
+            '"displayfinancialstatus":"void', '"displayfinancialstatus":"refund'
+        ];
+
+        foreach ($needles as $t) {
+            $t = mb_strtolower(trim($t));
+            if ($t === '') continue;
+            $like = '%' . $db->escapeLikeString($t) . '%';
+            $q->where("$jsonExpr NOT LIKE " . $db->escape($like), null, false);
+        }
+    }
+
     private function isCancelledFromPedidoJson(?string $pedidoJson): bool
     {
         $pedidoJson = (string)$pedidoJson;
         if (trim($pedidoJson) === '') return false;
 
         $o = json_decode($pedidoJson, true);
-        if (!is_array($o)) return false;
+        if (!is_array($o)) {
+            $s = mb_strtolower($pedidoJson);
+            return (strpos($s, 'cancelled_at') !== false ||
+                    strpos($s, 'canceled_at') !== false ||
+                    strpos($s, 'cancelledat') !== false ||
+                    strpos($s, 'canceledat') !== false ||
+                    strpos($s, 'cancelreason') !== false ||
+                    strpos($s, 'cancel_reason') !== false ||
+                    strpos($s, '"status":"cancel') !== false ||
+                    strpos($s, '"financial_status":"void') !== false ||
+                    strpos($s, '"financial_status":"refund') !== false);
+        }
 
-        $cancelledAt = $o['cancelled_at'] ?? $o['cancelledAt'] ?? null;
-        if ($cancelledAt !== null && trim((string)$cancelledAt) !== '') return true;
+        if (isset($o['order']) && is_array($o['order'])) $o = $o['order'];
 
-        $cancelReason = $o['cancel_reason'] ?? $o['cancelReason'] ?? '';
-        if (trim((string)$cancelReason) !== '') return true;
+        if (isset($o['data']) && is_array($o['data'])) {
+            if (isset($o['data']['order']) && is_array($o['data']['order'])) $o = $o['data']['order'];
+            elseif (isset($o['data']['node']) && is_array($o['data']['node'])) $o = $o['data']['node'];
+        }
 
-        $cancelledFlag = $o['cancelled'] ?? $o['isCancelled'] ?? null;
-        if ($cancelledFlag === true || $cancelledFlag === 1 || $cancelledFlag === 'true' || $cancelledFlag === '1') return true;
+        foreach (['cancelled_at','canceled_at','cancelledAt','canceledAt'] as $k) {
+            if (isset($o[$k]) && trim((string)$o[$k]) !== '' && strtolower(trim((string)$o[$k])) !== 'null') {
+                return true;
+            }
+        }
 
-        $financial = mb_strtolower(trim((string)($o['financial_status'] ?? $o['displayFinancialStatus'] ?? '')));
-        if (in_array($financial, ['voided','refunded'], true)) return true;
+        foreach (['cancel_reason','cancelReason'] as $k) {
+            if (isset($o[$k]) && trim((string)$o[$k]) !== '' && strtolower(trim((string)$o[$k])) !== 'null') {
+                return true;
+            }
+        }
 
-        $status = mb_strtolower(trim((string)($o['status'] ?? '')));
-        if ($status === 'cancelled' || $status === 'canceled') return true;
+        foreach (['cancelled','canceled','isCancelled','isCanceled'] as $k) {
+            if (!isset($o[$k])) continue;
+            $v = $o[$k];
+            if ($v === true || $v === 1 || $v === '1' || $v === 'true') return true;
+        }
+
+        $status = mb_strtolower(trim((string)($o['status'] ?? $o['displayStatus'] ?? '')));
+        if (in_array($status, ['cancelled','canceled'], true)) return true;
+
+        $financialRaw = $o['financial_status'] ?? $o['displayFinancialStatus'] ?? $o['financialStatus'] ?? '';
+        if (is_array($financialRaw)) {
+            $financialRaw = $financialRaw['displayName'] ?? $financialRaw['name'] ?? $financialRaw['value'] ?? '';
+        }
+        $financial = mb_strtolower(trim((string)$financialRaw));
+        if ($financial !== '') {
+            if (str_contains($financial, 'void') || str_contains($financial, 'refund')) return true;
+            if (in_array($financial, ['voided','refunded','partially_refunded','partially-refunded'], true)) return true;
+        }
+
+        $tagsRaw = $o['tags'] ?? '';
+        $tags = is_array($tagsRaw) ? implode(',', $tagsRaw) : (string)$tagsRaw;
+        if ($tags !== '' && preg_match('/\b(cancel|refund|reemb|devolu|devuel|chargeback|dispute)\b/i', $tags)) {
+            return true;
+        }
 
         return false;
     }
