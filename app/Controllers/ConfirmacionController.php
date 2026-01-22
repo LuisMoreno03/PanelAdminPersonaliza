@@ -55,7 +55,8 @@ class ConfirmacionController extends BaseController
             $db = \Config\Database::connect();
 
             $pFields = $db->getFieldNames('pedidos') ?? [];
-            $hasShopifyId = in_array('shopify_order_id', $pFields, true);
+            $hasShopifyId  = in_array('shopify_order_id', $pFields, true);
+            $hasPedidoJson = in_array('pedido_json', $pFields, true);
 
             $peFields = $db->getFieldNames('pedidos_estado') ?? [];
             $hasPeUpdatedBy = in_array('estado_updated_by_name', $peFields, true);
@@ -70,10 +71,8 @@ class ConfirmacionController extends BaseController
 
             if ($hasShopifyId) {
                 if (str_contains($driver, 'mysql')) {
-                    // MySQL/MariaDB: evita CAST AS CHAR; CONCAT fuerza string
                     $orderKeySql = "COALESCE(NULLIF(TRIM(p.shopify_order_id),''), CONCAT(p.id,''))";
                 } else {
-                    // PostgreSQL/SQLite/otros: usar TEXT
                     $orderKeySql = "COALESCE(NULLIF(TRIM(CAST(p.shopify_order_id AS TEXT)),''), CAST(p.id AS TEXT))";
                 }
             } else {
@@ -86,6 +85,7 @@ class ConfirmacionController extends BaseController
                 ->select(
                     "p.id, " .
                     ($hasShopifyId ? "p.shopify_order_id, " : "NULL as shopify_order_id, ") .
+                    ($hasPedidoJson ? "p.pedido_json, " : "NULL as pedido_json, ") .
                     "p.numero, p.cliente, p.total, p.estado_envio, p.forma_envio, p.etiquetas, p.articulos, p.created_at, " .
                     "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect",
                     false
@@ -95,8 +95,7 @@ class ConfirmacionController extends BaseController
                     "pe.order_id COLLATE utf8mb4_unicode_ci = ($orderKeySql) COLLATE utf8mb4_unicode_ci",
                     'left',
                     false
-                    )
-
+                )
                 ->where('p.assigned_to_user_id', $userId)
                 ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por preparar','faltan archivos')", null, false)
                 ->groupStart()
@@ -105,10 +104,21 @@ class ConfirmacionController extends BaseController
                     ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
                 ->groupEnd();
 
-            // (Debug opcional mientras pruebas)
-            // log_message('error', 'myQueue SQL: '.$q->getCompiledSelect(false));
+            // ✅ excluir por etiquetas (cancelado/devuelto/etc)
+            $this->applyEtiquetaExclusions($q, $db);
 
             $rows = $q->orderBy('p.created_at', 'ASC')->get()->getResultArray();
+
+            // ✅ excluir cancelados reales según Shopify (pedido_json)
+            if ($hasPedidoJson && $rows) {
+                $rows = array_values(array_filter($rows, function ($r) {
+                    return !$this->isCancelledFromPedidoJson($r['pedido_json'] ?? null);
+                }));
+
+                // opcional: no enviar pedido_json al frontend (reduce payload)
+                foreach ($rows as &$r) { unset($r['pedido_json']); }
+                unset($r);
+            }
 
             return $this->response->setJSON([
                 'ok'   => true,
@@ -122,7 +132,6 @@ class ConfirmacionController extends BaseController
             ]);
         }
     }
-
 
     /* =====================================================
       POST /confirmacion/pull
@@ -144,7 +153,9 @@ class ConfirmacionController extends BaseController
             $now = date('Y-m-d H:i:s');
 
             $pFields = $db->getFieldNames('pedidos') ?? [];
-            $hasShopifyId = in_array('shopify_order_id', $pFields, true);
+            $hasShopifyId  = in_array('shopify_order_id', $pFields, true);
+            $hasPedidoJson = in_array('pedido_json', $pFields, true);
+
             if (!$hasShopifyId) {
                 return $this->response->setStatusCode(500)->setJSON([
                     'ok' => false,
@@ -154,8 +165,13 @@ class ConfirmacionController extends BaseController
 
             $db->transStart();
 
-            $candidatos = $db->table('pedidos p')
-                ->select('p.id, p.shopify_order_id')
+            // ✅ traemos más para poder filtrar cancelados/etiquetas y aún asignar $count
+            $limitFetch = max($count * 4, $count);
+
+            $select = 'p.id, p.shopify_order_id, p.etiquetas' . ($hasPedidoJson ? ', p.pedido_json' : '');
+
+            $candQuery = $db->table('pedidos p')
+                ->select($select, false)
                 ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
                 ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar')))", 'por preparar')
                 ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)')
@@ -163,15 +179,40 @@ class ConfirmacionController extends BaseController
                     ->where('p.estado_envio IS NULL', null, false)
                     ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
                     ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
-                ->groupEnd()
+                ->groupEnd();
+
+            // ✅ excluir por etiquetas (cancelado/devuelto/etc)
+            $this->applyEtiquetaExclusions($candQuery, $db);
+
+            $candidatosRaw = $candQuery
                 ->orderBy('p.created_at', 'ASC')
-                ->limit($count)
+                ->limit($limitFetch)
                 ->get()
                 ->getResultArray();
 
-            if (!$candidatos) {
+            if (!$candidatosRaw) {
                 $db->transComplete();
                 return $this->response->setJSON(['ok' => true, 'assigned' => 0, 'message' => 'Sin candidatos']);
+            }
+
+            // ✅ excluir cancelados reales según Shopify (pedido_json)
+            $candidatos = $candidatosRaw;
+            if ($hasPedidoJson) {
+                $candidatos = array_values(array_filter($candidatos, function ($r) {
+                    return !$this->isCancelledFromPedidoJson($r['pedido_json'] ?? null);
+                }));
+            }
+
+            // tomar solo los necesarios
+            $candidatos = array_slice($candidatos, 0, $count);
+
+            if (!$candidatos) {
+                $db->transComplete();
+                return $this->response->setJSON([
+                    'ok' => true,
+                    'assigned' => 0,
+                    'message' => 'Sin candidatos (filtrados por cancelación/etiquetas)'
+                ]);
             }
 
             $ids = array_column($candidatos, 'id');
@@ -544,4 +585,69 @@ class ConfirmacionController extends BaseController
 
         return false;
     }
+    /** =====================================================
+    * Helper: excluye pedidos por etiquetas (cancelado/devuelto/etc)
+     * ===================================================== */
+    private function applyEtiquetaExclusions($q, $db): void
+    {
+        // Etiquetas a excluir (agrega/quita lo que uses en tu operación)
+        $bad = [
+            'cancelado', 'cancelada', 'cancelled', 'canceled',
+            'devuelto', 'devuelta',
+            'devolucion', 'devolución',
+            'reembolso', 'reembolsado', 'refunded',
+            'returned', 'return',
+            'anulado', 'voided'
+        ];
+
+        // expresión portable
+        $tagExpr = "LOWER(COALESCE(p.etiquetas,''))";
+
+        foreach ($bad as $t) {
+            $t = mb_strtolower(trim($t));
+            if ($t === '') continue;
+
+            // LIKE seguro (escape de comodines)
+            $like = '%' . $db->escapeLikeString($t) . '%';
+
+            // AND tagExpr NOT LIKE '%t%'
+            $q->where("$tagExpr NOT LIKE " . $db->escape($like), null, false);
+        }
+    }
+
+    /** =====================================================
+     * Helper: detecta cancelación/retorno desde pedido_json (Shopify)
+     * ===================================================== */
+    private function isCancelledFromPedidoJson(?string $pedidoJson): bool
+    {
+        $pedidoJson = (string)$pedidoJson;
+        if (trim($pedidoJson) === '') return false;
+
+        $o = json_decode($pedidoJson, true);
+        if (!is_array($o)) return false;
+
+        // REST vs GraphQL keys
+        $cancelledAt = $o['cancelled_at'] ?? $o['cancelledAt'] ?? null;
+        if ($cancelledAt !== null && trim((string)$cancelledAt) !== '') return true;
+
+        $cancelReason = $o['cancel_reason'] ?? $o['cancelReason'] ?? '';
+        if (trim((string)$cancelReason) !== '') return true;
+
+        // A veces viene un flag
+        $cancelledFlag = $o['cancelled'] ?? $o['isCancelled'] ?? null;
+        if ($cancelledFlag === true || $cancelledFlag === 1 || $cancelledFlag === 'true' || $cancelledFlag === '1') {
+            return true;
+        }
+
+        // Estados financieros típicos de cancelación/reembolso total
+        $financial = mb_strtolower(trim((string)($o['financial_status'] ?? $o['displayFinancialStatus'] ?? '')));
+        if (in_array($financial, ['voided', 'refunded'], true)) return true;
+
+        // En algunos casos existe status
+        $status = mb_strtolower(trim((string)($o['status'] ?? '')));
+        if ($status === 'cancelled' || $status === 'canceled') return true;
+
+        return false;
+    }
+
 }
