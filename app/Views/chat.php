@@ -211,6 +211,15 @@
     const ADMIN_ID = <?= (int)session('user_id') ?>;
     const ADMIN_NAME = "<?= esc(session('nombre') ?? 'Admin') ?>";
 
+    // ===== API Endpoints (CodeIgniter) =====
+const ENDPOINTS = {
+  users: <?= json_encode(base_url('chat/users')) ?>,
+  messages: <?= json_encode(base_url('chat/messages')) ?>, // luego + /{userId}
+  send: <?= json_encode(base_url('chat/send')) ?>,
+  markRead: <?= json_encode(base_url('chat/markRead')) ?>,
+};
+
+
   // ===== UI refs =====
   const elUsersList = document.getElementById("usersList");
   const elSearch = document.getElementById("userSearch");
@@ -322,7 +331,7 @@
 
   // ===== Load users list from CI (recent + online info will be updated by socket) =====
   async function loadUsers() {
-    const data = await apiGet("<?= base_url('chat/users') ?>");
+    const data = await apiGet(ENDPOINTS.users);
     users = (data.users || []).map(u => ({
       id: u.id,
       name: u.name,
@@ -345,14 +354,14 @@
 
     elMessagesBox.innerHTML = `<div class="text-sm text-slate-500">Cargando mensajes...</div>`;
 
-    const data = await apiGet(`<?= base_url('chat/messages') ?>/${encodeURIComponent(activeUserId)}`);
+    const data = await apiGet(`${ENDPOINTS.messages}/${encodeURIComponent(activeUserId)}`);
     const msgs = data.messages || [];
     elMessagesBox.innerHTML = msgs.map(renderMessageBubble).join("") || `<div class="text-sm text-slate-500">Sin mensajes.</div>`;
     scrollBottom();
 
     // marcar leídos
     try {
-      await apiPost("<?= base_url('chat/mark-read') ?>", { userId: activeUserId });
+      await apiPost(ENDPOINTS.markRead, { userId });
       const idx = users.findIndex(x => String(x.id) === activeUserId);
       if (idx >= 0) users[idx].unread = 0;
       renderUsers(users);
@@ -361,6 +370,7 @@
     renderUsers(users);
   }
 
+  
   // ===== Send message =====
   async function sendMessage() {
     const text = (elInput.value || "").trim();
@@ -372,7 +382,7 @@
 
     try {
       // 1) Guardar en BD (CI)
-      const saved = await apiPost("<?= base_url('chat/send') ?>", {
+      const saved = await apiPost(ENDPOINTS.send, {
         userId: activeUserId,
         message: text
       });
@@ -431,11 +441,6 @@
       renderUsers(users);
     });
 
-        <?= base_url('chat/users') ?>
-        <?= base_url('chat/messages') ?>/id
-        <?= base_url('chat/send') ?>
-        <?= base_url('chat/mark-read') ?>
-
     // Mensaje entrante de usuario (para admin)
     socket.on("message:receive:admin", (payload) => {
       // payload: {toUserId, fromRole, fromId, message, createdAt}
@@ -482,5 +487,7 @@
   })();
 
 })();
+
+
 </script>
 
