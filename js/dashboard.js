@@ -430,23 +430,11 @@ function estadoStyle(estado) {
   if (s.includes("repetir")) {
     return { label: "Repetir", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
-
-  // ✅ CANCELADO
-  if (
-    s.includes("cancelado") ||
-    s.includes("cancelada") ||
-    s.includes("canceled") ||
-    s.includes("cancelled") ||
-    s.includes("anulado") ||
-    s.includes("anulada")
-  ) {
-    return {
-      label: "Cancelado",
-      icon: "⛔",
-      wrap: `${base} bg-rose-600 border-rose-700 text-white`,
-      dot: `${dotBase} bg-rose-200`
-    };
+  if (s.includes("repetir")) {
+    return { label: "Repetir", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
+
+  
 
   return { label: label || "—", icon: "📍", wrap: `${base} bg-slate-700 border-slate-600 text-white`, dot: `${dotBase} bg-slate-200` };
 }
