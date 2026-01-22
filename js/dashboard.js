@@ -383,16 +383,8 @@ function normalizeEstado(estado) {
   if (s.includes("por producir")) return "Por producir";
   if (s.includes("enviado")) return "Enviado";
   if (s.includes("repetir")) return "Repetir";
-
+  if (s.includes("cancelado")) return "Cancelado";
   // ✅ NUEVO: CANCELADO (variantes comunes)
-  if (
-    s.includes("cancelado") ||
-    s.includes("cancelada") ||
-    s.includes("canceled") ||
-    s.includes("cancelled") ||
-    s.includes("anulado") ||
-    s.includes("anulada")
-  ) return "Cancelado";
 
   return estado ? String(estado).trim() : "Por preparar";
 }
@@ -483,7 +475,7 @@ function estadoStyle(estado) {
   if (s.includes("repetir")) {
     return { label: "Repetir", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
-  if (s.includes("cancelado") || s.includes("anulado") || s.includes("canceled") || s.includes("cancelled")) {
+  if (s.includes("cancelado")) {
     return { label: "Cancelado", icon: "🔁", wrap: `${base} bg-slate-800 border-slate-700 text-white`, dot: `${dotBase} bg-slate-300` };
   }
 
