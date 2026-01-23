@@ -209,15 +209,20 @@
  // ===== Config =====
    // ===== Config =====
 const SOCKET_URL = "https://paneladministrativopersonaliza.com:3001";
+const DEBUG_URL_USERS = "https://paneladministrativopersonaliza.com/chat/users";
+const DEBUG_URL_MESSAGES  = " https://paneladministrativopersonaliza.com/chat/messages";
+const DEBUG_URL_SEND  = "https://paneladministrativopersonaliza.com/chat/send";
+const DEBUG_URL_Read  = " https://paneladministrativopersonaliza.com/chat/Read";
 const ADMIN_ID = <?= (int)session('user_id') ?>;
 const ADMIN_NAME = <?= json_encode(session('nombre') ?? 'Admin') ?>;
+
 
 // ===== API Endpoints (CodeIgniter) =====
 const ENDPOINTS = {
   users: <?= json_encode(base_url('chat/users')) ?>,
   messages: <?= json_encode(base_url('chat/messages')) ?>,
   send: <?= json_encode(base_url('chat/send')) ?>,
-  markRead: <?= json_encode(base_url('chat/markRead')) ?>,
+  Read: <?= json_encode(base_url('chat/Read')) ?>,
 };
 
 
@@ -362,7 +367,7 @@ const ENDPOINTS = {
 
     // marcar leídos
     try {
-      await apiPost(ENDPOINTS.markRead, { userId: activeUserId });
+      await apiPost(ENDPOINTS.Read, { userId: activeUserId });
       const idx = users.findIndex(x => String(x.id) === activeUserId);
       if (idx >= 0) users[idx].unread = 0;
       renderUsers(users);
