@@ -277,7 +277,7 @@ public function send(): ResponseInterface
 }
 
 
-public function markRead(): ResponseInterface
+public function Read(): ResponseInterface
 {
     if (!session()->get('logged_in')) {
         return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
