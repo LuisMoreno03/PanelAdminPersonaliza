@@ -28,8 +28,8 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       GET /confirmacion/my-queue
-      ✅ Orden por más antiguos primero (created_at ASC, id ASC)
-      ✅ Flag over_24h = 1 si lleva +24h desde assigned_at
+      ✅ Ordena por pedidos más antiguos primero
+      ✅ over_24h = 1 si assigned_at tiene +24h
     ===================================================== */
     public function myQueue()
     {
@@ -60,7 +60,6 @@ class ConfirmacionController extends BaseController
 
             $driver = strtolower((string)($db->DBDriver ?? ''));
 
-            // ✅ orderKeySql para el join (ya lo tenías)
             if ($hasShopifyId) {
                 if (str_contains($driver, 'mysql')) {
                     $orderKeySql = "COALESCE(NULLIF(TRIM(p.shopify_order_id),''), CONCAT(p.id,''))";
@@ -73,20 +72,19 @@ class ConfirmacionController extends BaseController
                     : "CAST(p.id AS TEXT)";
             }
 
-            // ✅ over_24h (si NO existe assigned_at, siempre 0)
+            // ✅ over_24h basado en assigned_at (si no existe la columna, siempre 0)
             if (!$hasAssignedAt) {
-                $over24Expr = "0";
                 $assignedAtSelect = "NULL as assigned_at";
+                $over24Expr = "0";
             } else {
                 $assignedAtSelect = "p.assigned_at";
 
                 if (str_contains($driver, 'mysql')) {
-                    $over24Expr = "CASE 
+                    $over24Expr = "CASE
                         WHEN p.assigned_at IS NOT NULL AND p.assigned_at <= (NOW() - INTERVAL 24 HOUR) THEN 1
                         ELSE 0
                     END";
                 } else {
-                    // Postgres / otros
                     $over24Expr = "CASE
                         WHEN p.assigned_at IS NOT NULL AND p.assigned_at <= (NOW() - INTERVAL '24 hours') THEN 1
                         ELSE 0
@@ -100,8 +98,8 @@ class ConfirmacionController extends BaseController
                     ($hasShopifyId ? "p.shopify_order_id, " : "NULL as shopify_order_id, ") .
                     ($hasPedidoJson ? "p.pedido_json, " : "NULL as pedido_json, ") .
                     "p.numero, p.cliente, p.total, p.estado_envio, p.forma_envio, p.etiquetas, p.articulos, p.created_at, " .
-                    "$assignedAtSelect, " .                 // ✅ assigned_at para el front
-                    "($over24Expr) as over_24h, " .         // ✅ flag +24h
+                    "$assignedAtSelect, " .           // ✅ lo devolvemos al front
+                    "($over24Expr) as over_24h, " .   // ✅ flag 0/1 para pintar rojo
                     "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect",
                     false
                 )
@@ -122,7 +120,7 @@ class ConfirmacionController extends BaseController
             $this->applyEtiquetaExclusions($q, $db);
             $this->applyPedidoJsonExclusions($q, $db, $hasPedidoJson);
 
-            // ✅ Más antiguos primero + desempate por id
+            // ✅ más antiguos primero + desempate por id
             $rows = $q->orderBy('p.created_at', 'ASC')
                       ->orderBy('p.id', 'ASC')
                       ->get()
@@ -145,7 +143,7 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       POST /confirmacion/pull
-      ✅ Toma los pedidos MÁS ANTIGUOS primero (created_at ASC, id ASC)
+      ✅ Ya está: pedidos más antiguos primero + desempate por id
     ===================================================== */
     public function pull()
     {
