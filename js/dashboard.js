@@ -340,7 +340,18 @@ function esBadgeHtml(valor) {
   const s = String(valor ?? "").trim();
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
 }
-
+function normalizeImagenLocal(v) {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "object") return String(v.url || v.value || v.src || "");
+  return String(v);
+}
+function normalizeLineItemId(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const m = s.match(/\/LineItem\/(\d+)/i) || s.match(/(\d{8,})/);
+  return m?.[1] ? m[1] : s;
+}
 // ✅ FIX: Extraer URLs desde props tipo string / array / object
 function extraerUrls(value) {
   if (value == null) return [];
@@ -1356,10 +1367,21 @@ window.verDetalles = async function (orderId) {
         `;
 
       // ✅ FIX: imagen modificada puede venir por index o por line_item_id
-      const lineId = String(item.id || item.line_item_id || item.variant_id || "");
-      const localUrl =
-        (lineId && imagenesLocales?.[lineId]) ? String(imagenesLocales[lineId]) :
-        (imagenesLocales?.[index] ? String(imagenesLocales[index]) : "");
+      const lineId = normalizeLineItemId(item.id || item.line_item_id || "");
+      const byLine = lineId ? normalizeImagenLocal(imagenesLocales?.[String(lineId)]) : "";
+      const byIdx  = normalizeImagenLocal(imagenesLocales?.[String(index)] ?? imagenesLocales?.[index]);
+      const localUrl = byLine || byIdx;
+      const lid = normalizeLineItemId(lineItemId);
+
+      if (lid) {
+        window.imagenesLocales[String(lid)] = urlFinal;
+        window.imagenesLocales[lid] = urlFinal;
+      }
+
+      window.imagenesLocales[String(index)] = urlFinal;
+      window.imagenesLocales[index] = urlFinal;
+
+
 
       window.imagenesRequeridas[index] = !!requiere;
       window.imagenesCargadas[index] = !!localUrl;
@@ -1584,7 +1606,9 @@ window.subirImagenProducto = async function (orderId, index, lineItemId, input) 
         if (window.imagenesLocales && typeof window.imagenesLocales === "object") {
           // ✅ guardar por line_item_id si existe, si no por index
           if (lineItemId) window.imagenesLocales[String(lineItemId)] = urlFinal;
+          window.imagenesLocales[String(index)] = urlFinal;
           window.imagenesLocales[index] = urlFinal;
+
         }
 
         if (typeof window.validarEstadoAuto === "function") {
