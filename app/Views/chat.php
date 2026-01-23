@@ -209,8 +209,12 @@
  // ===== Config =====
    // ===== Config =====
 const SOCKET_URL = "https://paneladministrativopersonaliza.com:3001";
+const DEBUG_URL_USERS = "https://paneladministrativopersonaliza.com/chat/users";
+const DEBUG_URL_SEND  = "https://paneladministrativopersonaliza.com/chat/send";
+
 const ADMIN_ID = <?= (int)session('user_id') ?>;
 const ADMIN_NAME = <?= json_encode(session('nombre') ?? 'Admin') ?>;
+
 
 // ===== API Endpoints (CodeIgniter) =====
 const ENDPOINTS = {
