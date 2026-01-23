@@ -29,6 +29,10 @@ $routes->get('/', 'Auth::index');
 $routes->post('auth/login', 'Auth::login');
 $routes->get('logout', 'Auth::logout');
 
+
+$routes->get('shopify/install', 'ShopifyAuth::install');
+$routes->get('shopify/callback', 'ShopifyAuth::callback');
+
 /*
 |--------------------------------------------------------------------------
 | DASHBOARD (PROTEGIDO)
