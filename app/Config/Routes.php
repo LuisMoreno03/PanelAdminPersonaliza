@@ -242,7 +242,7 @@ $routes->group('chat', ['filter' => 'auth'], static function (RouteCollection $r
     $routes->get('chat/messages/(:num)', 'ChatController::messages/$1');
     $routes->post('chat/send', 'ChatController::send');
     $routes->post('chat/send-user', 'ChatController::sendUser');
-
+    $routes->post('chat/read', 'ChatController::read');
 });
 
 /*
