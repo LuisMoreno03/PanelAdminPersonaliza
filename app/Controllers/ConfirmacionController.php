@@ -28,6 +28,8 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       GET /confirmacion/my-queue
+      ✅ Orden por más antiguos primero (created_at ASC, id ASC)
+      ✅ Flag over_24h = 1 si lleva +24h desde assigned_at
     ===================================================== */
     public function myQueue()
     {
@@ -46,6 +48,7 @@ class ConfirmacionController extends BaseController
             $pFields = $db->getFieldNames('pedidos') ?? [];
             $hasShopifyId  = in_array('shopify_order_id', $pFields, true);
             $hasPedidoJson = in_array('pedido_json', $pFields, true);
+            $hasAssignedAt = in_array('assigned_at', $pFields, true); // ✅
 
             $peFields = $db->getFieldNames('pedidos_estado') ?? [];
             $hasPeUpdatedBy = in_array('estado_updated_by_name', $peFields, true);
@@ -57,6 +60,7 @@ class ConfirmacionController extends BaseController
 
             $driver = strtolower((string)($db->DBDriver ?? ''));
 
+            // ✅ orderKeySql para el join (ya lo tenías)
             if ($hasShopifyId) {
                 if (str_contains($driver, 'mysql')) {
                     $orderKeySql = "COALESCE(NULLIF(TRIM(p.shopify_order_id),''), CONCAT(p.id,''))";
@@ -69,12 +73,35 @@ class ConfirmacionController extends BaseController
                     : "CAST(p.id AS TEXT)";
             }
 
+            // ✅ over_24h (si NO existe assigned_at, siempre 0)
+            if (!$hasAssignedAt) {
+                $over24Expr = "0";
+                $assignedAtSelect = "NULL as assigned_at";
+            } else {
+                $assignedAtSelect = "p.assigned_at";
+
+                if (str_contains($driver, 'mysql')) {
+                    $over24Expr = "CASE 
+                        WHEN p.assigned_at IS NOT NULL AND p.assigned_at <= (NOW() - INTERVAL 24 HOUR) THEN 1
+                        ELSE 0
+                    END";
+                } else {
+                    // Postgres / otros
+                    $over24Expr = "CASE
+                        WHEN p.assigned_at IS NOT NULL AND p.assigned_at <= (NOW() - INTERVAL '24 hours') THEN 1
+                        ELSE 0
+                    END";
+                }
+            }
+
             $q = $db->table('pedidos p')
                 ->select(
                     "p.id, " .
                     ($hasShopifyId ? "p.shopify_order_id, " : "NULL as shopify_order_id, ") .
                     ($hasPedidoJson ? "p.pedido_json, " : "NULL as pedido_json, ") .
                     "p.numero, p.cliente, p.total, p.estado_envio, p.forma_envio, p.etiquetas, p.articulos, p.created_at, " .
+                    "$assignedAtSelect, " .                 // ✅ assigned_at para el front
+                    "($over24Expr) as over_24h, " .         // ✅ flag +24h
                     "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect",
                     false
                 )
@@ -95,7 +122,11 @@ class ConfirmacionController extends BaseController
             $this->applyEtiquetaExclusions($q, $db);
             $this->applyPedidoJsonExclusions($q, $db, $hasPedidoJson);
 
-            $rows = $q->orderBy('p.created_at', 'ASC')->get()->getResultArray();
+            // ✅ Más antiguos primero + desempate por id
+            $rows = $q->orderBy('p.created_at', 'ASC')
+                      ->orderBy('p.id', 'ASC')
+                      ->get()
+                      ->getResultArray();
 
             if ($hasPedidoJson && $rows) {
                 $rows = array_values(array_filter($rows, function ($r) {
@@ -114,6 +145,7 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       POST /confirmacion/pull
+      ✅ Toma los pedidos MÁS ANTIGUOS primero (created_at ASC, id ASC)
     ===================================================== */
     public function pull()
     {
@@ -164,6 +196,7 @@ class ConfirmacionController extends BaseController
 
             $candidatosRaw = $candQuery
                 ->orderBy('p.created_at', 'ASC')
+                ->orderBy('p.id', 'ASC') // ✅ desempate
                 ->limit($limitFetch)
                 ->get()
                 ->getResultArray();
