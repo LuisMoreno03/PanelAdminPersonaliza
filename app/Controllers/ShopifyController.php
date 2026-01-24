@@ -3,42 +3,122 @@
 namespace App\Controllers;
 
 use CodeIgniter\Controller;
+use CodeIgniter\HTTP\RequestInterface;
+use CodeIgniter\HTTP\ResponseInterface;
+use Psr\Log\LoggerInterface;
 
 class ShopifyController extends Controller
 {
-    private string $shop = '962f2d.myshopify.com';
-    private string $token = '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';
-    private string $apiVersion = '2024-01';
+    private string $shop = '';
+    private string $token = '';
+    private string $apiVersion = '2025-10';
 
-    public function __construct()
-{
-    // Soporta ambos nombres (viejo/nuevo)
-    $envShop  = (string) (env('SHOPIFY_SHOP') ?: env('SHOPIFY_DEFAULT_SHOP') ?: env('SHOPIFY_STORE_DOMAIN'));
-    $envToken = (string) (env('SHOPIFY_TOKEN') ?: env('SHOPIFY_ADMIN_TOKEN'));
-    $envVer   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
-
-    // Normalizar shop
-    $shop = trim($envShop);
-    $shop = preg_replace('#^https?://#', '', $shop);
-    $shop = preg_replace('#/.*$#', '', $shop);
-    $shop = rtrim($shop, '/');
-
-    $this->shop       = $shop ?: '';
-    $this->token      = trim($envToken) ?: '';
-    $this->apiVersion = trim($envVer) ?: '2025-10';
-}
-
-
-    // ============================================================
-    // 💡 MÉTODO GENERAL PARA TODAS LAS LLAMADAS A SHOPIFY (CON HEADERS + ERROR REAL)
-    // ============================================================
-    private function request($method, $endpoint, $data = null): array
+    public function initController(RequestInterface $request, ResponseInterface $response, LoggerInterface $logger)
     {
-        if (empty($this->shop) || empty($this->token)) {
+        parent::initController($request, $response, $logger);
+        $this->bootstrapShopifyCredentials();
+    }
+
+    private function bootstrapShopifyCredentials(): void
+    {
+        $shop = $this->getEnvFirst([
+            'SHOPIFY_SHOP',
+            'SHOPIFY_DEFAULT_SHOP',
+            'SHOPIFY_STORE_DOMAIN',
+        ]);
+
+        $token = $this->getEnvFirst([
+            'SHOPIFY_ADMIN_TOKEN',
+            'SHOPIFY_TOKEN',
+            'SHOPIFY_ACCESS_TOKEN',
+        ]);
+
+        $ver = $this->getEnvFirst([
+            'SHOPIFY_API_VERSION',
+        ], '2025-10');
+
+        $this->shop = $this->normalizeShop($shop);
+        $this->token = trim($token);
+        $this->apiVersion = trim($ver ?: '2025-10');
+    }
+
+    private function normalizeShop(string $shop): string
+    {
+        $shop = trim($shop);
+        $shop = preg_replace('#^https?://#', '', $shop);
+        $shop = preg_replace('#/.*$#', '', $shop);
+        return rtrim($shop, '/');
+    }
+
+    /**
+     * Lee primero desde env(), si no existe intenta getenv(),
+     * y por último parsea el archivo .env directamente (fallback).
+     */
+    private function getEnvFirst(array $keys, string $default = ''): string
+    {
+        foreach ($keys as $k) {
+            $v = (string) env($k);
+            if (trim($v) !== '') return $v;
+
+            $v2 = (string) getenv($k);
+            if (trim($v2) !== '') return $v2;
+        }
+
+        $map = $this->parseDotEnvFile();
+        foreach ($keys as $k) {
+            if (isset($map[$k]) && trim($map[$k]) !== '') return $map[$k];
+        }
+
+        return $default;
+    }
+
+    private function parseDotEnvFile(): array
+    {
+        static $cache = null;
+        if ($cache !== null) return $cache;
+
+        $cache = [];
+        $base = defined('ROOTPATH') ? ROOTPATH : dirname(__DIR__, 2) . DIRECTORY_SEPARATOR;
+        $path = $base . '.env';
+
+        if (!is_file($path)) return $cache;
+
+        $lines = @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (!is_array($lines)) return $cache;
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#')) continue;
+            if (!str_contains($line, '=')) continue;
+
+            [$k, $v] = explode('=', $line, 2);
+            $k = trim($k);
+            $v = trim($v);
+
+            // Si no está entre comillas, corta comentario inline " # ..."
+            if ($v !== '' && $v[0] !== '"' && $v[0] !== "'") {
+                $v = preg_split('/\s+#/', $v, 2)[0] ?? $v;
+                $v = trim($v);
+            }
+
+            // Quitar comillas externas
+            $v = trim($v, "\"'");
+            $cache[$k] = $v;
+        }
+
+        return $cache;
+    }
+
+    // ============================================================
+    // ✅ Request Shopify (con headers + errores reales)
+    // ============================================================
+    private function shopifyRequest(string $method, string $endpoint, $data = null): array
+    {
+        if ($this->shop === '' || $this->token === '') {
             return [
                 "success" => false,
                 "status"  => 500,
-                "error"   => "Faltan credenciales Shopify (SHOPIFY_SHOP o SHOPIFY_TOKEN).",
+                "error"   => "Faltan credenciales Shopify (.env): SHOPIFY_STORE_DOMAIN y/o SHOPIFY_ADMIN_TOKEN",
                 "headers" => "",
                 "raw"     => null,
                 "data"    => null,
@@ -46,44 +126,44 @@ class ShopifyController extends Controller
             ];
         }
 
-        $endpoint = ltrim((string) $endpoint, '/');
+        $endpoint = ltrim($endpoint, '/');
         $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/{$endpoint}";
 
         $headers = [
+            "Accept: application/json",
             "Content-Type: application/json",
             "X-Shopify-Access-Token: {$this->token}",
+            "User-Agent: PanelAdminPersonaliza/1.0",
         ];
 
-        $curl = curl_init($url);
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
-        curl_setopt($curl, CURLOPT_CUSTOMREQUEST, strtoupper((string) $method));
-        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
+        // Capturar headers + body
+        curl_setopt($ch, CURLOPT_HEADER, true);
 
-        // ✅ Capturar headers + body
-        curl_setopt($curl, CURLOPT_HEADER, true);
+        // Hosting/Proxy: forzar HTTP/1.1
+        curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
 
-        // ✅ Algunos hostings fallan con HTTP/2
-        curl_setopt($curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
 
-        curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 15);
-        curl_setopt($curl, CURLOPT_TIMEOUT, 60);
-
-        if (!empty($data)) {
-            curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($data));
+        if ($data !== null && $data !== []) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data, JSON_UNESCAPED_UNICODE));
         }
 
-        $resp        = curl_exec($curl);
-        $curlError   = curl_error($curl);
-        $status_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-        $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
-
-        curl_close($curl);
+        $resp = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $headerSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        curl_close($ch);
 
         if ($resp === false) {
             return [
                 "success" => false,
-                "status"  => $status_code ?: 0,
+                "status"  => $status ?: 0,
                 "error"   => $curlError ?: "Unknown cURL error",
                 "headers" => "",
                 "raw"     => null,
@@ -92,78 +172,67 @@ class ShopifyController extends Controller
             ];
         }
 
-        $raw_headers = substr($resp, 0, $header_size);
-        $raw_body    = substr($resp, $header_size);
+        $rawHeaders = substr($resp, 0, $headerSize);
+        $rawBody = substr($resp, $headerSize);
 
-        $decoded = json_decode($raw_body, true);
+        $decoded = json_decode($rawBody, true);
 
-        // ✅ Si Shopify devuelve 4xx/5xx, normalmente curlError viene vacío.
-        // Sacamos el error real del body.
         $errorMsg = $curlError ?: null;
-        if ($status_code >= 400) {
+        if ($status >= 400) {
             if (is_array($decoded) && isset($decoded['errors'])) {
                 $errorMsg = is_array($decoded['errors'])
                     ? json_encode($decoded['errors'], JSON_UNESCAPED_UNICODE)
                     : (string) $decoded['errors'];
             } else {
-                $errorMsg = $raw_body; // último recurso
+                $errorMsg = $rawBody;
             }
         }
 
         return [
-            "success" => ($status_code >= 200 && $status_code < 300),
-            "status"  => $status_code,
+            "success" => ($status >= 200 && $status < 300),
+            "status"  => $status,
             "error"   => $errorMsg,
-            "headers" => $raw_headers,
-            "raw"     => $raw_body,
+            "headers" => $rawHeaders,
+            "raw"     => $rawBody,
             "data"    => $decoded,
             "url"     => $url
         ];
     }
 
     // ============================================================
-    // 🔗 Extrae page_info del header Link (rel="next")
+    // 🔗 Extrae page_info (rel="next")
     // ============================================================
     private function getNextPageInfoFromHeaders(string $rawHeaders): ?string
     {
-        if (!preg_match('/^Link:\s*(.+)$/mi', $rawHeaders, $m)) {
-            return null;
-        }
-
-        $linkLine = $m[1];
-
-        if (!preg_match('/<([^>]+)>;\s*rel="next"/', $linkLine, $n)) {
-            return null;
-        }
+        if (!preg_match('/^Link:\s*(.+)$/mi', $rawHeaders, $m)) return null;
+        if (!preg_match('/<([^>]+)>;\s*rel="next"/', $m[1], $n)) return null;
 
         $nextUrl = $n[1];
-
         $parts = parse_url($nextUrl);
         if (!isset($parts['query'])) return null;
 
         parse_str($parts['query'], $qs);
-
         return $qs['page_info'] ?? null;
     }
 
     // ============================================================
-    // 🔍 GET: Obtener pedidos paginados (1 página)
+    // ✅ GET: Pedidos paginados (arreglado page_info)
     // ============================================================
     public function getOrders()
     {
-        $limit     = (int) ($this->request->getGet("limit") ?? 250);
-        $page_info = $this->request->getGet("page_info");
+        $limit = (int) ($this->request->getGet("limit") ?? 50);
+        $pageInfo = $this->request->getGet("page_info");
 
-        if ($limit <= 0 || $limit > 250) $limit = 250;
+        if ($limit <= 0 || $limit > 250) $limit = 50;
 
-        $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
-
-        if ($page_info) {
-            $endpoint .= "&page_info=" . urlencode($page_info);
+        if ($pageInfo) {
+            // Shopify exige SOLO limit + page_info
+            $endpoint = "orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
+        } else {
+            $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
         }
 
-        $response = $this->request("GET", $endpoint);
-
+        $response = $this->shopifyRequest("GET", $endpoint);
         $nextPageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
 
         return $this->response->setJSON([
@@ -177,201 +246,72 @@ class ShopifyController extends Controller
         ]);
     }
 
-    // ============================================================
-    // ✅ GET: Obtener TODOS los pedidos
-    // ============================================================
-    public function getAllOrders50()
-{
-    $limit    = 50;      // tamaño de lote
-    $pageInfo = null;
-    $allOrders = [];
-    $loops     = 0;
-
-    do {
-        if ($pageInfo) {
-            // Siguientes páginas: SOLO limit + page_info
-            $endpoint = "orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
-        } else {
-            // Primera página: con filtros/orden que quieras
-            $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
-        }
-
-        $response = $this->request("GET", $endpoint);
-
-        if (!$response["success"]) {
-            return $this->response->setJSON([
-                "success" => false,
-                "status"  => $response["status"],
-                "error"   => $response["error"],
-                "url"     => $response["url"] ?? null,
-                "raw"     => $response["raw"] ?? null,
-                "data"    => $response["data"]
-            ]);
-        }
-
-        $orders    = $response["data"]["orders"] ?? [];
-        $allOrders = array_merge($allOrders, $orders);
-
-        // Siguiente cursor desde el header Link
-        $pageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
-
-        $loops++;
-        if ($loops > 5000) { // seguridad
-            break;
-        }
-
-        usleep(150000); // 150ms para no golpear límites de rate
-    } while ($pageInfo);
-
-    return $this->response->setJSON([
-        "success" => true,
-        "total"   => count($allOrders),
-        "orders"  => $allOrders
-    ]);
-}
-
-
     public function getOrder($id)
     {
-        $response = $this->request("GET", "orders/{$id}.json");
-        return $this->response->setJSON($response);
+        return $this->response->setJSON(
+            $this->shopifyRequest("GET", "orders/{$id}.json")
+        );
     }
 
     public function updateOrderTags()
     {
         $json = $this->request->getJSON(true);
-
         $orderId = $json["id"] ?? null;
-        $tags    = $json["tags"] ?? null;
 
         if (!$orderId) {
-            return $this->response->setJSON([
-                "success" => false,
-                "error" => "Falta el campo id"
-            ])->setStatusCode(400);
+            return $this->response->setJSON(["success" => false, "error" => "Falta el campo id"])
+                ->setStatusCode(400);
         }
 
-        $payload = [
-            "order" => [
-                "id"   => $orderId,
-                "tags" => $tags
-            ]
-        ];
-
-        $response = $this->request("PUT", "orders/{$orderId}.json", $payload);
-
-        return $this->response->setJSON($response);
+        $payload = ["order" => ["id" => $orderId, "tags" => ($json["tags"] ?? "")]];
+        return $this->response->setJSON(
+            $this->shopifyRequest("PUT", "orders/{$orderId}.json", $payload)
+        );
     }
 
     public function updateOrder()
     {
         $json = $this->request->getJSON(true);
-
         $orderId = $json["id"] ?? null;
 
         if (!$orderId) {
-            return $this->response->setJSON([
-                "success" => false,
-                "error" => "Falta el campo id"
-            ])->setStatusCode(400);
+            return $this->response->setJSON(["success" => false, "error" => "Falta el campo id"])
+                ->setStatusCode(400);
         }
 
-        $orderData = [
-            "order" => $json
-        ];
-
-        $response = $this->request("PUT", "orders/{$orderId}.json", $orderData);
-
-        return $this->response->setJSON($response);
+        return $this->response->setJSON(
+            $this->shopifyRequest("PUT", "orders/{$orderId}.json", ["order" => $json])
+        );
     }
 
     public function getProducts()
     {
-        $limit = (int) ($this->request->getGet("limit") ?? 250);
-        if ($limit <= 0 || $limit > 250) $limit = 250;
+        $limit = (int) ($this->request->getGet("limit") ?? 50);
+        if ($limit <= 0 || $limit > 250) $limit = 50;
 
-        $endpoint = "products.json?limit={$limit}";
-        $response = $this->request("GET", $endpoint);
-
-        return $this->response->setJSON($response);
-    }
-
-    public function getProduct($id)
-    {
-        $response = $this->request("GET", "products/{$id}.json");
-        return $this->response->setJSON($response);
+        return $this->response->setJSON(
+            $this->shopifyRequest("GET", "products.json?limit={$limit}")
+        );
     }
 
     public function getCustomers()
     {
-        $limit = (int) ($this->request->getGet("limit") ?? 250);
-        if ($limit <= 0 || $limit > 250) $limit = 250;
+        $limit = (int) ($this->request->getGet("limit") ?? 50);
+        if ($limit <= 0 || $limit > 250) $limit = 50;
 
-        $endpoint = "customers.json?limit={$limit}";
-        $response = $this->request("GET", $endpoint);
-
-        return $this->response->setJSON($response);
-    }
-
-    public function test()
-    {
-        return $this->response->setJSON([
-            "message"  => "Shopify API funcionando correctamente.",
-            "shop"     => $this->shop,
-            "hasToken" => !empty($this->token),
-            "apiVersion" => $this->apiVersion
-        ]);
-    }
-
-    // ============================================================
-    // 👀 VISTA: Pedidos 50 en 50 (HTML)
-    // ============================================================
-    public function ordersView()
-{
-    $limit     = 50;
-    $page_info = $this->request->getGet('page_info');
-
-    // Primera página: puedes usar status/order.
-    // Páginas siguientes (cuando hay page_info): SOLO limit + page_info.
-    if ($page_info) {
-        $endpoint = "orders.json?limit={$limit}&page_info=" . urlencode($page_info);
-    } else {
-        $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
-    }
-
-    $response = $this->request("GET", $endpoint);
-
-    if (!$response["success"]) {
-        return $this->response->setStatusCode(500)->setBody(
-            "Error Shopify (HTTP {$response['status']}): " . esc((string)($response["error"] ?? '')) .
-            "<br><br><b>URL:</b> " . esc((string)($response["url"] ?? '')) .
-            "<br><br><b>RAW:</b> <pre style='white-space:pre-wrap'>" . esc((string)($response["raw"] ?? '')) . "</pre>"
+        return $this->response->setJSON(
+            $this->shopifyRequest("GET", "customers.json?limit={$limit}")
         );
     }
 
-    $orders       = $response["data"]["orders"] ?? [];
-    $nextPageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
-
-    // Historial para poder ir hacia atrás (opcional)
-    $history = session()->get('orders_page_history') ?? [];
-    if (!$page_info) {
-        $history = [];
-    } else {
-        $history[] = $page_info;
+    // ✅ Debug real (para comprobar que SÍ toma .env)
+    public function test()
+    {
+        return $this->response->setJSON([
+            "shop"        => $this->shop,
+            "token_len"   => strlen($this->token),
+            "token_hint"  => $this->token ? (substr($this->token, 0, 6) . "..." . substr($this->token, -4)) : null,
+            "apiVersion"  => $this->apiVersion,
+        ]);
     }
-    session()->set('orders_page_history', $history);
-
-    $prevPageInfo = null;
-    if (count($history) >= 2) {
-        $prevPageInfo = $history[count($history) - 2];
-    }
-
-    return view('shopify/orders_list', [
-        'orders'       => $orders,
-        'nextPageInfo' => $nextPageInfo,
-        'prevPageInfo' => $prevPageInfo,
-        'isFirstPage'  => !$page_info
-    ]);
-}
-
 }
