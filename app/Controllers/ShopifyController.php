@@ -3,9 +3,6 @@
 namespace App\Controllers;
 
 use CodeIgniter\Controller;
-use CodeIgniter\HTTP\RequestInterface;
-use CodeIgniter\HTTP\ResponseInterface;
-use Psr\Log\LoggerInterface;
 
 class ShopifyController extends Controller
 {
@@ -13,33 +10,16 @@ class ShopifyController extends Controller
     private string $token = '';
     private string $apiVersion = '2025-10';
 
-    public function initController(RequestInterface $request, ResponseInterface $response, LoggerInterface $logger)
+    public function __construct()
     {
-        parent::initController($request, $response, $logger);
-        $this->bootstrapShopifyCredentials();
-    }
+        // Soporta varios nombres por compatibilidad
+        $envShop  = (string) (env('SHOPIFY_SHOP') ?: env('SHOPIFY_DEFAULT_SHOP') ?: env('SHOPIFY_STORE_DOMAIN'));
+        $envToken = (string) (env('SHOPIFY_ADMIN_TOKEN') ?: env('SHOPIFY_TOKEN'));
+        $envVer   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
 
-    private function bootstrapShopifyCredentials(): void
-    {
-        $shop = $this->getEnvFirst([
-            'SHOPIFY_SHOP',
-            'SHOPIFY_DEFAULT_SHOP',
-            'SHOPIFY_STORE_DOMAIN',
-        ]);
-
-        $token = $this->getEnvFirst([
-            'SHOPIFY_ADMIN_TOKEN',
-            'SHOPIFY_TOKEN',
-            'SHOPIFY_ACCESS_TOKEN',
-        ]);
-
-        $ver = $this->getEnvFirst([
-            'SHOPIFY_API_VERSION',
-        ], '2025-10');
-
-        $this->shop = $this->normalizeShop($shop);
-        $this->token = trim($token);
-        $this->apiVersion = trim($ver ?: '2025-10');
+        $this->shop       = $this->normalizeShop($envShop);
+        $this->token      = trim($envToken);
+        $this->apiVersion = trim($envVer) ?: '2025-10';
     }
 
     private function normalizeShop(string $shop): string
@@ -50,67 +30,8 @@ class ShopifyController extends Controller
         return rtrim($shop, '/');
     }
 
-    /**
-     * Lee primero desde env(), si no existe intenta getenv(),
-     * y por último parsea el archivo .env directamente (fallback).
-     */
-    private function getEnvFirst(array $keys, string $default = ''): string
-    {
-        foreach ($keys as $k) {
-            $v = (string) env($k);
-            if (trim($v) !== '') return $v;
-
-            $v2 = (string) getenv($k);
-            if (trim($v2) !== '') return $v2;
-        }
-
-        $map = $this->parseDotEnvFile();
-        foreach ($keys as $k) {
-            if (isset($map[$k]) && trim($map[$k]) !== '') return $map[$k];
-        }
-
-        return $default;
-    }
-
-    private function parseDotEnvFile(): array
-    {
-        static $cache = null;
-        if ($cache !== null) return $cache;
-
-        $cache = [];
-        $base = defined('ROOTPATH') ? ROOTPATH : dirname(__DIR__, 2) . DIRECTORY_SEPARATOR;
-        $path = $base . '.env';
-
-        if (!is_file($path)) return $cache;
-
-        $lines = @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if (!is_array($lines)) return $cache;
-
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if ($line === '' || str_starts_with($line, '#')) continue;
-            if (!str_contains($line, '=')) continue;
-
-            [$k, $v] = explode('=', $line, 2);
-            $k = trim($k);
-            $v = trim($v);
-
-            // Si no está entre comillas, corta comentario inline " # ..."
-            if ($v !== '' && $v[0] !== '"' && $v[0] !== "'") {
-                $v = preg_split('/\s+#/', $v, 2)[0] ?? $v;
-                $v = trim($v);
-            }
-
-            // Quitar comillas externas
-            $v = trim($v, "\"'");
-            $cache[$k] = $v;
-        }
-
-        return $cache;
-    }
-
     // ============================================================
-    // ✅ Request Shopify (con headers + errores reales)
+    // ✅ Request general a Shopify (headers + raw + error real)
     // ============================================================
     private function shopifyRequest(string $method, string $endpoint, $data = null): array
     {
@@ -118,7 +39,7 @@ class ShopifyController extends Controller
             return [
                 "success" => false,
                 "status"  => 500,
-                "error"   => "Faltan credenciales Shopify (.env): SHOPIFY_STORE_DOMAIN y/o SHOPIFY_ADMIN_TOKEN",
+                "error"   => "Faltan credenciales Shopify. Revisa .env: SHOPIFY_STORE_DOMAIN y SHOPIFY_ADMIN_TOKEN",
                 "headers" => "",
                 "raw"     => null,
                 "data"    => null,
@@ -130,40 +51,44 @@ class ShopifyController extends Controller
         $url = "https://{$this->shop}/admin/api/{$this->apiVersion}/{$endpoint}";
 
         $headers = [
-            "Accept: application/json",
             "Content-Type: application/json",
+            "Accept: application/json",
             "X-Shopify-Access-Token: {$this->token}",
-            "User-Agent: PanelAdminPersonaliza/1.0",
         ];
 
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, strtoupper($method));
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        $curl = curl_init($url);
+
+        curl_setopt($curl, CURLOPT_CUSTOMREQUEST, strtoupper($method));
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
 
         // Capturar headers + body
-        curl_setopt($ch, CURLOPT_HEADER, true);
+        curl_setopt($curl, CURLOPT_HEADER, true);
 
-        // Hosting/Proxy: forzar HTTP/1.1
-        curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+        // Evitar problemas en algunos hostings
+        curl_setopt($curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
 
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        // Para respuestas gzip/deflate
+        curl_setopt($curl, CURLOPT_ENCODING, "");
 
-        if ($data !== null && $data !== []) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data, JSON_UNESCAPED_UNICODE));
+        curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 15);
+        curl_setopt($curl, CURLOPT_TIMEOUT, 60);
+
+        if ($data !== null) {
+            curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($data, JSON_UNESCAPED_UNICODE));
         }
 
-        $resp = curl_exec($ch);
-        $curlError = curl_error($ch);
-        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $headerSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-        curl_close($ch);
+        $resp        = curl_exec($curl);
+        $curlError   = curl_error($curl);
+        $status_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
+
+        curl_close($curl);
 
         if ($resp === false) {
             return [
                 "success" => false,
-                "status"  => $status ?: 0,
+                "status"  => $status_code ?: 0,
                 "error"   => $curlError ?: "Unknown cURL error",
                 "headers" => "",
                 "raw"     => null,
@@ -172,43 +97,42 @@ class ShopifyController extends Controller
             ];
         }
 
-        $rawHeaders = substr($resp, 0, $headerSize);
-        $rawBody = substr($resp, $headerSize);
+        $raw_headers = substr($resp, 0, $header_size);
+        $raw_body    = substr($resp, $header_size);
 
-        $decoded = json_decode($rawBody, true);
+        $decoded = json_decode($raw_body, true);
 
         $errorMsg = $curlError ?: null;
-        if ($status >= 400) {
+        if ($status_code >= 400) {
             if (is_array($decoded) && isset($decoded['errors'])) {
                 $errorMsg = is_array($decoded['errors'])
                     ? json_encode($decoded['errors'], JSON_UNESCAPED_UNICODE)
                     : (string) $decoded['errors'];
             } else {
-                $errorMsg = $rawBody;
+                $errorMsg = $raw_body;
             }
         }
 
         return [
-            "success" => ($status >= 200 && $status < 300),
-            "status"  => $status,
+            "success" => ($status_code >= 200 && $status_code < 300),
+            "status"  => $status_code,
             "error"   => $errorMsg,
-            "headers" => $rawHeaders,
-            "raw"     => $rawBody,
+            "headers" => $raw_headers,
+            "raw"     => $raw_body,
             "data"    => $decoded,
             "url"     => $url
         ];
     }
 
     // ============================================================
-    // 🔗 Extrae page_info (rel="next")
+    // 🔗 Extrae page_info del header Link (rel="next")
     // ============================================================
     private function getNextPageInfoFromHeaders(string $rawHeaders): ?string
     {
         if (!preg_match('/^Link:\s*(.+)$/mi', $rawHeaders, $m)) return null;
         if (!preg_match('/<([^>]+)>;\s*rel="next"/', $m[1], $n)) return null;
 
-        $nextUrl = $n[1];
-        $parts = parse_url($nextUrl);
+        $parts = parse_url($n[1]);
         if (!isset($parts['query'])) return null;
 
         parse_str($parts['query'], $qs);
@@ -216,18 +140,39 @@ class ShopifyController extends Controller
     }
 
     // ============================================================
-    // ✅ GET: Pedidos paginados (arreglado page_info)
+    // ✅ TEST REAL: llama shop.json y valida token/version
+    // ============================================================
+    public function test()
+    {
+        $ping = $this->shopifyRequest("GET", "shop.json");
+
+        return $this->response->setJSON([
+            "config" => [
+                "shop"        => $this->shop,
+                "token_len"   => strlen($this->token),
+                "api_version" => $this->apiVersion,
+            ],
+            "shopify" => [
+                "success" => $ping["success"],
+                "status"  => $ping["status"],
+                "error"   => $ping["error"],
+            ]
+        ]);
+    }
+
+    // ============================================================
+    // 🔍 GET: pedidos (1 página) - paginación correcta con page_info
     // ============================================================
     public function getOrders()
     {
-        $limit = (int) ($this->request->getGet("limit") ?? 50);
-        $pageInfo = $this->request->getGet("page_info");
+        $limit     = (int) ($this->request->getGet("limit") ?? 50);
+        $page_info = (string) ($this->request->getGet("page_info") ?? '');
 
         if ($limit <= 0 || $limit > 250) $limit = 50;
 
-        if ($pageInfo) {
-            // Shopify exige SOLO limit + page_info
-            $endpoint = "orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
+        if ($page_info !== '') {
+            // IMPORTANTE: con page_info => SOLO limit + page_info
+            $endpoint = "orders.json?limit={$limit}&page_info=" . urlencode($page_info);
         } else {
             $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
         }
@@ -246,26 +191,57 @@ class ShopifyController extends Controller
         ]);
     }
 
+    // ============================================================
+    // ✅ GET: todos los pedidos (en lotes de 50)
+    // ============================================================
+    public function getAllOrders()
+    {
+        $limit = 50;
+        $pageInfo = null;
+        $allOrders = [];
+        $loops = 0;
+
+        do {
+            if ($pageInfo) {
+                $endpoint = "orders.json?limit={$limit}&page_info=" . urlencode($pageInfo);
+            } else {
+                $endpoint = "orders.json?limit={$limit}&status=any&order=created_at%20desc";
+            }
+
+            $response = $this->shopifyRequest("GET", $endpoint);
+
+            if (!$response["success"]) {
+                return $this->response->setJSON([
+                    "success" => false,
+                    "status"  => $response["status"],
+                    "error"   => $response["error"],
+                    "url"     => $response["url"] ?? null,
+                    "raw"     => $response["raw"] ?? null,
+                ]);
+            }
+
+            $orders = $response["data"]["orders"] ?? [];
+            $allOrders = array_merge($allOrders, $orders);
+
+            $pageInfo = $this->getNextPageInfoFromHeaders($response["headers"] ?? "");
+
+            $loops++;
+            if ($loops > 5000) break;
+
+            usleep(150000);
+        } while ($pageInfo);
+
+        return $this->response->setJSON([
+            "success" => true,
+            "total"   => count($allOrders),
+            "orders"  => $allOrders
+        ]);
+    }
+
     public function getOrder($id)
     {
         return $this->response->setJSON(
             $this->shopifyRequest("GET", "orders/{$id}.json")
-        );
-    }
-
-    public function updateOrderTags()
-    {
-        $json = $this->request->getJSON(true);
-        $orderId = $json["id"] ?? null;
-
-        if (!$orderId) {
-            return $this->response->setJSON(["success" => false, "error" => "Falta el campo id"])
-                ->setStatusCode(400);
-        }
-
-        $payload = ["order" => ["id" => $orderId, "tags" => ($json["tags"] ?? "")]];
-        return $this->response->setJSON(
-            $this->shopifyRequest("PUT", "orders/{$orderId}.json", $payload)
         );
     }
 
@@ -275,8 +251,10 @@ class ShopifyController extends Controller
         $orderId = $json["id"] ?? null;
 
         if (!$orderId) {
-            return $this->response->setJSON(["success" => false, "error" => "Falta el campo id"])
-                ->setStatusCode(400);
+            return $this->response->setJSON([
+                "success" => false,
+                "error" => "Falta el campo id"
+            ])->setStatusCode(400);
         }
 
         return $this->response->setJSON(
@@ -302,16 +280,5 @@ class ShopifyController extends Controller
         return $this->response->setJSON(
             $this->shopifyRequest("GET", "customers.json?limit={$limit}")
         );
-    }
-
-    // ✅ Debug real (para comprobar que SÍ toma .env)
-    public function test()
-    {
-        return $this->response->setJSON([
-            "shop"        => $this->shop,
-            "token_len"   => strlen($this->token),
-            "token_hint"  => $this->token ? (substr($this->token, 0, 6) . "..." . substr($this->token, -4)) : null,
-            "apiVersion"  => $this->apiVersion,
-        ]);
     }
 }
