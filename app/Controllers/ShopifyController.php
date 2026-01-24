@@ -7,33 +7,27 @@ use CodeIgniter\Controller;
 class ShopifyController extends Controller
 {
     private string $shop = '962f2d.myshopify.com';
-    private string $token = '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';
+    private string $token = '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';
     private string $apiVersion = '2024-01';
 
     public function __construct()
-    {
-        // Leer desde .env (si existe). Si está vacío, NO pisa lo hardcodeado.
-        $envShop  = (string) env('SHOPIFY_SHOP');
-        $envToken = (string) env('SHOPIFY_TOKEN');
+{
+    // Soporta ambos nombres (viejo/nuevo)
+    $envShop  = (string) (env('SHOPIFY_SHOP') ?: env('SHOPIFY_DEFAULT_SHOP') ?: env('SHOPIFY_STORE_DOMAIN'));
+    $envToken = (string) (env('SHOPIFY_TOKEN') ?: env('SHOPIFY_ADMIN_TOKEN'));
+    $envVer   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
 
-        if (!empty(trim($envShop))) {
-            $shop = trim($envShop);
-            $shop = preg_replace('#^https?://#', '', $shop);
-            $shop = preg_replace('#/.*$#', '', $shop);
-            $shop = rtrim($shop, '/');
-            $this->shop = $shop;
-        }
+    // Normalizar shop
+    $shop = trim($envShop);
+    $shop = preg_replace('#^https?://#', '', $shop);
+    $shop = preg_replace('#/.*$#', '', $shop);
+    $shop = rtrim($shop, '/');
 
-        if (!empty(trim($envToken))) {
-            $this->token = trim($envToken);
-        }
+    $this->shop       = $shop ?: '';
+    $this->token      = trim($envToken) ?: '';
+    $this->apiVersion = trim($envVer) ?: '2025-10';
+}
 
-        // Normalización final por si quedó raro el hardcodeado
-        $this->shop = trim($this->shop);
-        $this->shop = preg_replace('#^https?://#', '', $this->shop);
-        $this->shop = preg_replace('#/.*$#', '', $this->shop);
-        $this->shop = rtrim($this->shop, '/');
-    }
 
     // ============================================================
     // 💡 MÉTODO GENERAL PARA TODAS LAS LLAMADAS A SHOPIFY (CON HEADERS + ERROR REAL)
