@@ -194,59 +194,53 @@
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
 <script>
-(function() {
+(() => {
+  // ===== CSRF (CodeIgniter) =====
   const csrfTokenMeta  = document.querySelector('meta[name="csrf-token"]');
   const csrfHeaderMeta = document.querySelector('meta[name="csrf-header"]');
 
-  function csrf() {
-    return {
-      token: csrfTokenMeta ? csrfTokenMeta.getAttribute('content') : '',
-      header: csrfHeaderMeta ? csrfHeaderMeta.getAttribute('content') : 'X-CSRF-TOKEN'
-    };
-  }
+  const csrf = () => ({
+    token: csrfTokenMeta ? csrfTokenMeta.getAttribute('content') : '',
+    header: csrfHeaderMeta ? csrfHeaderMeta.getAttribute('content') : 'X-CSRF-TOKEN'
+  });
 
-   // ===== Config =====
-   // ===== Config =====
-   // ===== Config =====
-const SOCKET_URL = "https://paneladministrativopersonaliza.com:3001";
-const DEBUG_URL_USERS = "https://paneladministrativopersonaliza.com/chat/users";
-const DEBUG_URL_MESSAGES  = " https://paneladministrativopersonaliza.com/chat/messages";
-const DEBUG_URL_SEND  = "https://paneladministrativopersonaliza.com/chat/send";
-const DEBUG_URL_Read  = " https://paneladministrativopersonaliza.com/chat/Read";
-const ADMIN_ID = <?= (int)session('user_id') ?>;
-const ADMIN_NAME = <?= json_encode(session('nombre') ?? 'Admin') ?>;
+  // ===== Config =====
+  const SOCKET_URL = "https://paneladministrativopersonaliza.com:3001";
 
+  const ADMIN_ID   = <?= (int)session('user_id') ?>;
+  const ADMIN_NAME = <?= json_encode(session('nombre') ?? 'Admin') ?>;
 
-// ===== API Endpoints (CodeIgniter) =====
-const ENDPOINTS = {
-  users: <?= json_encode(base_url('chat/users')) ?>,
-  messages: <?= json_encode(base_url('chat/messages')) ?>,
-  send: <?= json_encode(base_url('chat/send')) ?>,
-  Read: <?= json_encode(base_url('chat/Read')) ?>,
-};
-
+  // ===== API Endpoints (CodeIgniter) =====
+  // OJO: Ajusta "read" si tu ruta real es /chat/Read (con mayúscula).
+  const ENDPOINTS = {
+    users:    <?= json_encode(base_url('chat/users')) ?>,
+    messages: <?= json_encode(base_url('chat/messages')) ?>, // GET /chat/messages/{userId}
+    send:     <?= json_encode(base_url('chat/send')) ?>,     // POST
+    read:     <?= json_encode(base_url('chat/read')) ?>      // POST  (si tu ruta es Read, cambia aquí)
+  };
 
   // ===== UI refs =====
   const elUsersList = document.getElementById("usersList");
-  const elSearch = document.getElementById("userSearch");
-  const elStatus = document.getElementById("socketStatus");
+  const elSearch    = document.getElementById("userSearch");
+  const elStatus    = document.getElementById("socketStatus");
 
   const elActiveUserName = document.getElementById("activeUserName");
   const elActiveUserMeta = document.getElementById("activeUserMeta");
-  const elMessagesBox = document.getElementById("messagesBox");
+  const elMessagesBox    = document.getElementById("messagesBox");
 
-  const elInput = document.getElementById("messageInput");
-  const elSend = document.getElementById("btnSend");
+  const elInput   = document.getElementById("messageInput");
+  const elSend    = document.getElementById("btnSend");
   const elRefresh = document.getElementById("btnRefreshMessages");
   const elChatMsg = document.getElementById("chatMsg");
 
   // ===== State =====
   let socket = null;
-  let users = [];                 // {id, name, email, isOnline, lastMessage, unread}
+  let users = [];         // {id, name, email, isOnline, lastMessage, unread}
   let activeUserId = null;
+  let booted = false;
 
   // ===== Helpers =====
-  function setStatus(connected) {
+  const setStatus = (connected) => {
     if (connected) {
       elStatus.textContent = "Conectado";
       elStatus.className = "text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-700";
@@ -254,19 +248,21 @@ const ENDPOINTS = {
       elStatus.textContent = "Desconectado";
       elStatus.className = "text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-700";
     }
-  }
+  };
 
-  function escapeHtml(str) {
-    return (str || "").replace(/[&<>"']/g, m => ({
+  const escapeHtml = (str) =>
+    String(str ?? "").replace(/[&<>"']/g, m => ({
       "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
     }[m]));
-  }
+
+  const scrollBottom = () => { elMessagesBox.scrollTop = elMessagesBox.scrollHeight; };
 
   function renderUsers(list) {
     const q = (elSearch.value || "").toLowerCase().trim();
+
     const filtered = list
       .filter(u => !q || (u.name||"").toLowerCase().includes(q) || (u.email||"").toLowerCase().includes(q))
-      .sort((a,b) => (b.isOnline - a.isOnline) || ((b.unread||0)-(a.unread||0)));
+      .sort((a,b) => (Number(b.isOnline) - Number(a.isOnline)) || (Number(b.unread||0) - Number(a.unread||0)));
 
     if (!filtered.length) {
       elUsersList.innerHTML = `<div class="text-sm text-slate-500 p-3">Sin usuarios.</div>`;
@@ -293,7 +289,6 @@ const ENDPOINTS = {
       `;
     }).join("");
 
-    // bind clicks
     elUsersList.querySelectorAll("button[data-user-id]").forEach(btn => {
       btn.addEventListener("click", () => openConversation(btn.getAttribute("data-user-id")));
     });
@@ -311,13 +306,10 @@ const ENDPOINTS = {
     `;
   }
 
-  function scrollBottom() {
-    elMessagesBox.scrollTop = elMessagesBox.scrollHeight;
-  }
-
+  // ===== API =====
   async function apiGet(url) {
     const res = await fetch(url, { credentials: "include" });
-    if (!res.ok) throw new Error("GET failed");
+    if (!res.ok) throw new Error(`GET failed ${res.status}`);
     return await res.json();
   }
 
@@ -326,16 +318,30 @@ const ENDPOINTS = {
     const res = await fetch(url, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json", [c.header]: c.token },
-      body: JSON.stringify(body)
+      headers: {
+        "Content-Type": "application/json",
+        [c.header]: c.token
+      },
+      body: JSON.stringify(body ?? {})
     });
+
     const data = await res.json().catch(() => ({}));
-    if (data && data.csrf && csrfTokenMeta) csrfTokenMeta.setAttribute("content", data.csrf);
-    if (!res.ok) throw new Error(data.message || "POST failed");
+
+    // tolerante: si el backend devuelve nuevo token en distintos formatos
+    const newToken =
+      data?.csrf ||
+      data?.csrfToken ||
+      data?.token ||
+      data?.data?.csrf ||
+      null;
+
+    if (newToken && csrfTokenMeta) csrfTokenMeta.setAttribute("content", newToken);
+
+    if (!res.ok) throw new Error(data?.message || `POST failed ${res.status}`);
     return data;
   }
 
-  // ===== Load users list from CI (recent + online info will be updated by socket) =====
+  // ===== Load users =====
   async function loadUsers() {
     const data = await apiGet(ENDPOINTS.users);
     users = (data.users || []).map(u => ({
@@ -344,7 +350,7 @@ const ENDPOINTS = {
       email: u.email,
       isOnline: !!u.isOnline,
       lastMessage: u.lastMessage || "",
-      unread: u.unread || 0
+      unread: Number(u.unread || 0)
     }));
     renderUsers(users);
   }
@@ -353,8 +359,10 @@ const ENDPOINTS = {
   async function openConversation(userId) {
     activeUserId = String(userId);
     const u = users.find(x => String(x.id) === activeUserId);
+
     elActiveUserName.textContent = u ? (u.name || ("Usuario " + u.id)) : ("Usuario " + userId);
     elActiveUserMeta.textContent = u ? (u.email || "") : "";
+
     elInput.disabled = false;
     elSend.disabled = false;
 
@@ -362,21 +370,23 @@ const ENDPOINTS = {
 
     const data = await apiGet(`${ENDPOINTS.messages}/${encodeURIComponent(activeUserId)}`);
     const msgs = data.messages || [];
-    elMessagesBox.innerHTML = msgs.map(renderMessageBubble).join("") || `<div class="text-sm text-slate-500">Sin mensajes.</div>`;
+
+    elMessagesBox.innerHTML =
+      msgs.map(renderMessageBubble).join("") ||
+      `<div class="text-sm text-slate-500">Sin mensajes.</div>`;
+
     scrollBottom();
 
     // marcar leídos
     try {
-      await apiPost(ENDPOINTS.Read, { userId: activeUserId });
+      await apiPost(ENDPOINTS.read, { userId: activeUserId });
       const idx = users.findIndex(x => String(x.id) === activeUserId);
       if (idx >= 0) users[idx].unread = 0;
-      renderUsers(users);
-    } catch(e) {}
+    } catch (_) {}
 
     renderUsers(users);
   }
 
-  
   // ===== Send message =====
   async function sendMessage() {
     const text = (elInput.value || "").trim();
@@ -388,17 +398,17 @@ const ENDPOINTS = {
 
     try {
       // 1) Guardar en BD (CI)
-      const saved = await apiPost(ENDPOINTS.send, {
-        userId: activeUserId,
-        message: text
-      });
+      const saved = await apiPost(ENDPOINTS.send, { userId: activeUserId, message: text });
 
-      // 2) Emitir por socket (tiempo real)
+      // 2) Emitir por socket (TIEMPO REAL)
+      // Importante: que el backend socket use el mismo evento y campos.
       socket?.emit("message:send", {
         toUserId: activeUserId,
         fromRole: "admin",
         fromId: ADMIN_ID,
-        message: text
+        fromName: ADMIN_NAME,
+        message: text,
+        createdAt: saved.createdAt || new Date().toISOString()
       });
 
       // 3) Pintar local rápido
@@ -415,9 +425,9 @@ const ENDPOINTS = {
 
       elInput.value = "";
       renderUsers(users);
-
     } catch (e) {
       elChatMsg.textContent = "No se pudo enviar. Intenta de nuevo.";
+      console.error(e);
     } finally {
       elSend.disabled = false;
       elInput.disabled = false;
@@ -425,49 +435,73 @@ const ENDPOINTS = {
     }
   }
 
-
   // ===== Socket =====
   function initSocket() {
-    socket = io(SOCKET_URL, { transports: ["websocket"] });
+    socket = io(SOCKET_URL, {
+      // “sin fallas”: deja fallback polling + reconexión
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelayMax: 5000,
+      withCredentials: true
+    });
 
     socket.on("connect", () => {
       setStatus(true);
+      // Registro (asegúrate que tu servidor escucha "register")
       socket.emit("register", { role: "admin", id: ADMIN_ID, name: ADMIN_NAME });
     });
 
     socket.on("disconnect", () => setStatus(false));
+    socket.on("connect_error", (err) => {
+      setStatus(false);
+      console.warn("Socket connect_error:", err?.message || err);
+    });
 
-    // Actualización presencia
+    // Presencia
     socket.on("presence:update", (data) => {
-      if (data.role !== "user") return;
+      // data esperado: {role:"user", id, isOnline:true/false}
+      if (!data || data.role !== "user") return;
       const idx = users.findIndex(x => String(x.id) === String(data.id));
-      if (idx >= 0) {
-        users[idx].isOnline = !!data.isOnline;
-      }
+      if (idx >= 0) users[idx].isOnline = !!data.isOnline;
       renderUsers(users);
     });
 
-    // Mensaje entrante de usuario (para admin)
+    // Mensaje entrante (para admin)
     socket.on("message:receive:admin", (payload) => {
-      // payload: {toUserId, fromRole, fromId, message, createdAt}
-      // Si el usuario activo es el que escribió, mostramos
-      const fromUserId = String(payload.fromId);
-      const msgText = payload.message || "";
+      if (!payload) return;
 
-      // actualiza preview/unread
+      const fromUserId = String(payload.fromId);
+      const msgText = String(payload.message || "");
+
+      // actualizar preview/unread
       const idx = users.findIndex(x => String(x.id) === fromUserId);
       if (idx >= 0) {
         users[idx].lastMessage = msgText;
-        if (String(activeUserId) !== fromUserId) users[idx].unread = (users[idx].unread || 0) + 1;
+        if (String(activeUserId) !== fromUserId) {
+          users[idx].unread = Number(users[idx].unread || 0) + 1;
+        }
       }
 
+      // si está abierta la conversación, pintar y marcar leído
       if (String(activeUserId) === fromUserId) {
         elMessagesBox.insertAdjacentHTML("beforeend", renderMessageBubble({
           sender_type: "user",
           message: msgText,
-          created_at: payload.createdAt ? new Date(payload.createdAt).toLocaleString() : new Date().toLocaleString()
+          created_at: payload.createdAt
+            ? new Date(payload.createdAt).toLocaleString()
+            : new Date().toLocaleString()
         }));
         scrollBottom();
+
+        // marcar leído en backend
+        apiPost(ENDPOINTS.read, { userId: activeUserId })
+          .then(() => {
+            const idx2 = users.findIndex(x => String(x.id) === String(activeUserId));
+            if (idx2 >= 0) users[idx2].unread = 0;
+            renderUsers(users);
+          })
+          .catch(() => {});
       }
 
       renderUsers(users);
@@ -479,21 +513,28 @@ const ENDPOINTS = {
   elInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") sendMessage();
   });
+
   elRefresh.addEventListener("click", () => {
     if (!activeUserId) return;
     openConversation(activeUserId);
   });
+
   elSearch.addEventListener("input", () => renderUsers(users));
 
   // ===== Boot =====
-  (async function boot() {
+  (async () => {
+    if (booted) return;
+    booted = true;
+
     setStatus(false);
-    await loadUsers();
+    try {
+      await loadUsers();
+    } catch (e) {
+      elUsersList.innerHTML = `<div class="text-sm text-rose-600 p-3">No se pudieron cargar usuarios.</div>`;
+      console.error(e);
+    }
     initSocket();
   })();
 
 })();
-
-
 </script>
-

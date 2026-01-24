@@ -247,11 +247,13 @@ $routes->get('zz-check-routes', static fn () => 'ROUTES_OK_' . date('Y-m-d_H:i:s
 $routes->group('chat', ['filter' => 'auth'], static function (RouteCollection $routes) {
     $routes->get('/', 'ChatController::index');
     
+    $routes->get('chat', 'ChatController::index');
     $routes->get('chat/users', 'ChatController::users');
     $routes->get('chat/messages/(:num)', 'ChatController::messages/$1');
     $routes->post('chat/send', 'ChatController::send');
-    $routes->post('chat/send-user', 'ChatController::sendUser');
-    $routes->post('chat/read', 'ChatController::read');
+    $routes->post('chat/ping', 'ChatController::ping');
+    
+
 });
 
 /*

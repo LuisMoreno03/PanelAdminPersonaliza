@@ -3,319 +3,230 @@
 namespace App\Controllers;
 
 use CodeIgniter\Controller;
-use CodeIgniter\HTTP\ResponseInterface;
-use App\Models\PedidoImagenModel;
-use App\Models\PedidosEstadoModel;
 
 class ChatController extends Controller
 {
-   
+    protected $db;
+    protected $session;
+
+    // ✅ Ajusta si tu users usa otros campos
+    private string $usersTable = 'users';
+    private string $colUserId  = 'id';
+    private string $colName    = 'nombre';
+    private string $colEmail   = 'email';
+
     public function __construct()
     {
-        // 1) Config/Shopify.php $estadoModel
-        $this->loadShopifyFromConfig();
-
-        // 2) archivo fuera del repo
-        if (!$this->shop || !$this->token) {
-            $this->loadShopifySecretsFromFile();
-        }
-
-        // 3) env() (fallback)
-        if (!$this->shop || !$this->token) {
-            $this->loadShopifyFromEnv();
-        }
-
-        // Normalizar dominio
-        $this->shop = trim($this->shop);
-        $this->shop = preg_replace('#^https?://#', '', $this->shop);
-        $this->shop = preg_replace('#/.*$#', '', $this->shop);
-        $this->shop = rtrim($this->shop, '/');
-
-        $this->token = trim($this->token);
-        $this->apiVersion = trim($this->apiVersion ?: '2025-10');
+        $this->db      = \Config\Database::connect();
+        $this->session = session();
     }
 
-    // =====================================================
-    // CONFIG LOADERS  dashboard
-    // =====================================================
-
-    private function loadShopifyFromConfig(): void
+    private function meId(): int
     {
-        try {
-            $cfg = config('Shopify');
-            if (!$cfg) return;
-
-            $this->shop       = (string) ($cfg->shop ?? $cfg->SHOP ?? $this->shop);
-            $this->token      = (string) ($cfg->token ?? $cfg->TOKEN ?? $this->token);
-            $this->apiVersion = (string) ($cfg->apiVersion ?? $cfg->version ?? $cfg->API_VERSION ?? $this->apiVersion);
-        } catch (\Throwable $e) {
-            log_message('error', 'DRepetirController loadShopifyFromConfig ERROR: ' . $e->getMessage());
-        }
+        return (int)($this->session->get('user_id') ?? 0);
     }
 
-    private function loadShopifyFromEnv(): void
+    private function json($payload, int $status = 200)
     {
-        try {
-            $shop  = (string) env('SHOPIFY_STORE_DOMAIN');
-            $token = (string) env('SHOPIFY_ADMIN_TOKEN');
-            $ver   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
-
-            if (!empty(trim($shop)))  $this->shop = $shop;
-            if (!empty(trim($token))) $this->token = $token;
-            if (!empty(trim($ver)))   $this->apiVersion = $ver;
-        } catch (\Throwable $e) {
-            log_message('error', 'ChatController loadShopifyFromEnv ERROR: ' . $e->getMessage());
-        }
+        // ✅ Para que no falle con CSRF regenerado
+        $payload['csrf'] = csrf_hash();
+        return $this->response->setStatusCode($status)->setJSON($payload);
     }
-
-    private function loadShopifySecretsFromFile(): void
-    {
-        try {
-            $path = '/home/u756064303/.secrets/shopify.php';
-            if (!is_file($path)) return;
-
-            $cfg = require $path;
-            if (!is_array($cfg)) return;
-
-            $this->shop       = (string) ($cfg['shop'] ?? $this->shop);
-            $this->token      = (string) ($cfg['token'] ?? $this->token);
-            $this->apiVersion = (string) ($cfg['apiVersion'] ?? $cfg['version'] ?? $this->apiVersion);
-        } catch (\Throwable $e) {
-            log_message('error', 'ChatController loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
-        }
-    }
-
- 
-
-
-   
-
-    // ============================================================
-    // VISTA PRINCIPAL 
-    // ============================================================
 
     public function index()
     {
-        if (!session()->get('logged_in')) {
-            return redirect()->to('/');
-        }
+        $adminId = $this->meId();
+        if ($adminId <= 0) return redirect()->to('/login');
 
-        return view('chat');
-    }
-
-
-    
-
-
-
-public function users(): ResponseInterface
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
-    }
-
-    $adminId = (int)(session()->get('user_id') ?? 0);
-    if ($adminId <= 0) {
-        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
-    }
-
-    $db = \Config\Database::connect();
-
-    // Ajusta si tienes un campo role distinto
-    // Aquí asumo que users tiene: id, nombre, email, role
-    $rows = $db->query("
-        SELECT 
-            u.id,
-            u.nombre AS name,
-            u.email,
-
-            -- último mensaje (texto)
-            (
-              SELECT m.message
-              FROM chat_conversations c
-              JOIN chat_messages m ON m.conversation_id = c.id
-              WHERE c.user_id = u.id AND c.admin_id = ?
-              ORDER BY m.id DESC
-              LIMIT 1
-            ) AS lastMessage,
-
-            -- no leídos (solo mensajes del usuario)
-            (
-              SELECT COUNT(*)
-              FROM chat_conversations c
-              JOIN chat_messages m ON m.conversation_id = c.id
-              WHERE c.user_id = u.id AND c.admin_id = ?
-                AND m.sender_type = 'user'
-                AND m.read_at IS NULL
-            ) AS unread
-        FROM users u
-        WHERE (u.role IS NULL OR u.role <> 'admin')  -- ajusta esto a tu sistema
-        ORDER BY unread DESC, u.id DESC
-        LIMIT 300
-    ", [$adminId, $adminId])->getResultArray();
-
-    
-
-    // isOnline lo setea Socket.IO en el frontend (real-time), aquí solo default
-    foreach ($rows as &$r) {
-        $r['isOnline'] = false;
-        $r['unread'] = (int)($r['unread'] ?? 0);
-        $r['lastMessage'] = (string)($r['lastMessage'] ?? '');
-    }
-
-    return $this->response->setJSON([
-        'ok' => true,
-        'users' => $rows,
-        'csrf' => csrf_hash(),
-    ]);
-}
-
-public function messages($userId): ResponseInterface
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
-    }
-
-    $adminId = (int)(session()->get('user_id') ?? 0);
-    $userId  = (int)$userId;
-
-    if ($adminId <= 0 || $userId <= 0) {
-        return $this->response->setStatusCode(400)->setJSON(['ok'=>false, 'message'=>'IDs inválidos', 'csrf'=>csrf_hash()]);
-    }
-
-    $db = \Config\Database::connect();
-
-    // Buscar o crear conversación
-    $conv = $db->query("
-        SELECT id FROM chat_conversations
-        WHERE user_id = ? AND admin_id = ?
-        LIMIT 1
-    ", [$userId, $adminId])->getRowArray();
-
-    if (!$conv) {
-        $db->query("
-            INSERT INTO chat_conversations (user_id, admin_id, created_at, updated_at)
-            VALUES (?, ?, NOW(), NOW())
-        ", [$userId, $adminId]);
-
-        $convId = (int)$db->insertID();
-    } else {
-        $convId = (int)$conv['id'];
-    }
-
-    $msgs = $db->query("
-        SELECT sender_type, message, DATE_FORMAT(created_at, '%d/%m/%Y %H:%i') AS created_at
-        FROM chat_messages
-        WHERE conversation_id = ?
-        ORDER BY id ASC
-        LIMIT 500
-    ", [$convId])->getResultArray();
-
-    return $this->response->setJSON([
-        'ok' => true,
-        'messages' => $msgs,
-        'csrf' => csrf_hash(),
-    ]);
-}
-
-
-public function send(): ResponseInterface
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
-    }
-
-    $adminId = (int)(session()->get('user_id') ?? 0);
-    if ($adminId <= 0) {
-        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
-    }
-
-    $data = $this->request->getJSON(true);
-    $userId = (int)($data['userId'] ?? 0);
-    $message = trim((string)($data['message'] ?? ''));
-
-    if ($userId <= 0 || $message === '') {
-        return $this->response->setStatusCode(400)->setJSON([
-            'ok' => false,
-            'message' => 'Datos incompletos.',
-            'csrf' => csrf_hash()
+        return view('chat', [
+            'adminId'   => $adminId,
+            'adminName' => (string)($this->session->get('nombre') ?? 'Admin'),
         ]);
     }
 
-    $db = \Config\Database::connect();
+    /**
+     * GET /chat/users
+     * Retorna usuarios + isOnline + lastMessage + unread
+     */
+    public function users()
+    {
+        $adminId = $this->meId();
+        if ($adminId <= 0) return $this->json(['ok' => false], 401);
 
-    // Conversación
-    $conv = $db->query("
-        SELECT id FROM chat_conversations
-        WHERE user_id = ? AND admin_id = ?
-        LIMIT 1
-    ", [$userId, $adminId])->getRowArray();
+        $now = time();
+        $onlineSeconds = 60;
 
-    if (!$conv) {
-        $db->query("
-            INSERT INTO chat_conversations (user_id, admin_id, created_at, updated_at)
-            VALUES (?, ?, NOW(), NOW())
-        ", [$userId, $adminId]);
+        // Usuarios (no te incluyas si estás dentro de la misma tabla)
+        $users = $this->db->table($this->usersTable . ' u')
+            ->select("u.{$this->colUserId} as id, u.{$this->colName} as name, u.{$this->colEmail} as email, u.last_activity")
+            ->where("u.{$this->colUserId} !=", $adminId)
+            ->orderBy("u.{$this->colName}", 'ASC')
+            ->get()->getResultArray();
 
-        $convId = (int)$db->insertID();
-    } else {
-        $convId = (int)$conv['id'];
+        if (!$users) {
+            return $this->json(['ok' => true, 'users' => []]);
+        }
+
+        $userIds = array_map(fn($r) => (int)$r['id'], $users);
+
+        // Unread por user (mensajes del user hacia admin, no leídos)
+        $unreadRows = $this->db->table('chat_messages')
+            ->select('user_id, COUNT(*) c')
+            ->where('admin_id', $adminId)
+            ->whereIn('user_id', $userIds)
+            ->where('sender_type', 'user')
+            ->where('is_read', 0)
+            ->groupBy('user_id')
+            ->get()->getResultArray();
+
+        $unreadMap = [];
+        foreach ($unreadRows as $r) {
+            $unreadMap[(int)$r['user_id']] = (int)$r['c'];
+        }
+
+        // Último mensaje por user (subquery simple: max(id) por user y luego lookup)
+        $lastIdsRows = $this->db->table('chat_messages')
+            ->select('user_id, MAX(id) as mid')
+            ->where('admin_id', $adminId)
+            ->whereIn('user_id', $userIds)
+            ->groupBy('user_id')
+            ->get()->getResultArray();
+
+        $midByUser = [];
+        $mids = [];
+        foreach ($lastIdsRows as $r) {
+            $uid = (int)$r['user_id'];
+            $mid = (int)$r['mid'];
+            $midByUser[$uid] = $mid;
+            $mids[] = $mid;
+        }
+
+        $lastMsgMap = [];
+        if (!empty($mids)) {
+            $rows = $this->db->table('chat_messages')
+                ->select('id, user_id, message')
+                ->whereIn('id', $mids)
+                ->get()->getResultArray();
+
+            foreach ($rows as $r) {
+                $lastMsgMap[(int)$r['user_id']] = (string)$r['message'];
+            }
+        }
+
+        foreach ($users as &$u) {
+            $last = $u['last_activity'] ? strtotime($u['last_activity']) : 0;
+            $u['isOnline']   = ($last > 0 && ($now - $last) <= $onlineSeconds);
+            $u['unread']     = $unreadMap[(int)$u['id']] ?? 0;
+            $u['lastMessage']= $lastMsgMap[(int)$u['id']] ?? '';
+            unset($u['last_activity']);
+        }
+
+        return $this->json(['ok' => true, 'users' => $users]);
     }
 
-    $db->query("
-        INSERT INTO chat_messages (conversation_id, sender_type, sender_id, message, created_at)
-        VALUES (?, 'admin', ?, ?, NOW())
-    ", [$convId, $adminId, $message]);
+    /**
+     * GET /chat/messages/{userId}
+     */
+    public function messages(int $userId)
+    {
+        $adminId = $this->meId();
+        if ($adminId <= 0) return $this->json(['ok' => false], 401);
 
-    $db->query("UPDATE chat_conversations SET updated_at = NOW() WHERE id = ?", [$convId]);
+        if ($userId <= 0) return $this->json(['ok' => false, 'message' => 'User inválido'], 400);
 
-    return $this->response->setJSON([
-        'ok' => true,
-        'createdAt' => date('d/m/Y H:i'),
-        'csrf' => csrf_hash(),
-    ]);
-}
+        $msgs = $this->db->table('chat_messages')
+            ->select('sender_type, message, created_at')
+            ->where('admin_id', $adminId)
+            ->where('user_id', $userId)
+            ->orderBy('id', 'ASC')
+            ->limit(400)
+            ->get()->getResultArray();
 
+        // Marcar como leídos los del user
+        $this->db->table('chat_messages')
+            ->where('admin_id', $adminId)
+            ->where('user_id', $userId)
+            ->where('sender_type', 'user')
+            ->where('is_read', 0)
+            ->set(['is_read' => 1])
+            ->update();
 
-public function Read(): ResponseInterface
-{
-    if (!session()->get('logged_in')) {
-        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
+        // Formato de fecha legible (si prefieres ISO, lo cambiamos)
+        foreach ($msgs as &$m) {
+            $m['created_at'] = date('Y-m-d H:i', strtotime($m['created_at']));
+        }
+
+        return $this->json(['ok' => true, 'messages' => $msgs]);
     }
 
-    $adminId = (int)(session()->get('user_id') ?? 0);
-    if ($adminId <= 0) {
-        return $this->response->setStatusCode(401)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
+    /**
+     * POST /chat/send { userId, message }
+     */
+    public function send()
+    {
+        $adminId = $this->meId();
+        if ($adminId <= 0) return $this->json(['ok' => false], 401);
+
+        $payload = $this->request->getJSON(true) ?? [];
+        $userId  = (int)($payload['userId'] ?? 0);
+        $msg     = trim((string)($payload['message'] ?? ''));
+
+        if ($userId <= 0 || $msg === '') {
+            return $this->json(['ok' => false, 'message' => 'Datos inválidos'], 400);
+        }
+
+        $this->db->table('chat_messages')->insert([
+            'admin_id'     => $adminId,
+            'user_id'      => $userId,
+            'sender_type'  => 'admin',
+            'message'      => $msg,
+            'is_read'      => 0,
+        ]);
+
+        return $this->json([
+            'ok'        => true,
+            'createdAt' => date('Y-m-d H:i'),
+        ]);
     }
 
-    $data = $this->request->getJSON(true);
-    $userId = (int)($data['userId'] ?? 0);
+    /**
+     * POST /chat/read { userId }
+     */
+    public function read()
+    {
+        $adminId = $this->meId();
+        if ($adminId <= 0) return $this->json(['ok' => false], 401);
 
-    if ($userId <= 0) {
-        return $this->response->setStatusCode(400)->setJSON(['ok'=>false, 'csrf'=>csrf_hash()]);
+        $payload = $this->request->getJSON(true) ?? [];
+        $userId  = (int)($payload['userId'] ?? 0);
+
+        if ($userId <= 0) return $this->json(['ok' => false], 400);
+
+        $this->db->table('chat_messages')
+            ->where('admin_id', $adminId)
+            ->where('user_id', $userId)
+            ->where('sender_type', 'user')
+            ->where('is_read', 0)
+            ->set(['is_read' => 1])
+            ->update();
+
+        return $this->json(['ok' => true]);
     }
 
-    $db = \Config\Database::connect();
+    /**
+     * POST /chat/ping
+     * Mantiene online al admin (y sirve si lo usas también del lado user)
+     */
+    public function ping()
+    {
+        $id = $this->meId();
+        if ($id <= 0) return $this->json(['ok' => false], 401);
 
-    $conv = $db->query("
-        SELECT id FROM chat_conversations
-        WHERE user_id = ? AND admin_id = ?
-        LIMIT 1
-    ", [$userId, $adminId])->getRowArray();
+        $this->db->table($this->usersTable)
+            ->where($this->colUserId, $id)
+            ->set('last_activity', date('Y-m-d H:i:s'))
+            ->update();
 
-    if (!$conv) {
-        return $this->response->setJSON(['ok'=>true, 'csrf'=>csrf_hash()]);
+        return $this->json(['ok' => true]);
     }
-
-    $db->query("
-        UPDATE chat_messages
-        SET read_at = NOW()
-        WHERE conversation_id = ?
-          AND sender_type = 'user'
-          AND read_at IS NULL
-    ", [(int)$conv['id']]);
-
-    return $this->response->setJSON(['ok'=>true, 'csrf'=>csrf_hash()]);
-}
-
 }
