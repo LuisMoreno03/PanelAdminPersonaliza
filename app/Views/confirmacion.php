@@ -30,6 +30,10 @@
       gap: .65rem;
       width: 100%;
     }
+    .pedido-overdue{
+      background:#ffe5e5;
+      border:1px solid #ff3b3b;
+    }
 
     .orders-grid.cols {
       grid-template-columns:

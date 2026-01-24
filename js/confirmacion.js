@@ -1173,3 +1173,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btnDevolver")?.addEventListener("click", devolverPedidos);
   cargarMiCola();
 });
+
+
+if (Number(p.over_24h) === 1) {
+  row.classList.add('pedido-overdue');
+}

@@ -29,6 +29,10 @@ $routes->get('/', 'Auth::index');
 $routes->post('auth/login', 'Auth::login');
 $routes->get('logout', 'Auth::logout');
 
+
+$routes->get('shopify/install', 'ShopifyAuth::install');
+$routes->get('shopify/callback', 'ShopifyAuth::callback');
+
 /*
 |--------------------------------------------------------------------------
 | DASHBOARD (PROTEGIDO)
@@ -82,20 +86,25 @@ $routes->group('api', ['filter' => 'auth'], static function (RouteCollection $ro
 | SHOPIFY (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->group('shopify', ['filter' => 'auth'], static function (RouteCollection $routes) {
+$routes->group('shopify', ['filter' => 'auth'], static function ($routes) {
 
+    $routes->get('test', 'ShopifyController::test');
+
+    // Ruta real
     $routes->get('orders', 'ShopifyController::getOrders');
+
+    // Alias por compatibilidad (si tu dashboard llamaba getOrders)
+    $routes->get('getOrders', 'ShopifyController::getOrders');
+
     $routes->get('orders/all', 'ShopifyController::getAllOrders');
     $routes->get('order/(:segment)', 'ShopifyController::getOrder/$1');
 
     $routes->post('orders/update', 'ShopifyController::updateOrder');
 
     $routes->get('products', 'ShopifyController::getProducts');
-    $routes->get('products/(:segment)', 'ShopifyController::getProduct/$1');
-
     $routes->get('customers', 'ShopifyController::getCustomers');
-    $routes->get('test', 'ShopifyController::test');
 });
+
 
 /*
 |--------------------------------------------------------------------------

@@ -28,6 +28,8 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       GET /confirmacion/my-queue
+      ✅ Ordena por pedidos más antiguos primero
+      ✅ over_24h = 1 si assigned_at tiene +24h
     ===================================================== */
     public function myQueue()
     {
@@ -46,6 +48,7 @@ class ConfirmacionController extends BaseController
             $pFields = $db->getFieldNames('pedidos') ?? [];
             $hasShopifyId  = in_array('shopify_order_id', $pFields, true);
             $hasPedidoJson = in_array('pedido_json', $pFields, true);
+            $hasAssignedAt = in_array('assigned_at', $pFields, true); // ✅
 
             $peFields = $db->getFieldNames('pedidos_estado') ?? [];
             $hasPeUpdatedBy = in_array('estado_updated_by_name', $peFields, true);
@@ -69,12 +72,34 @@ class ConfirmacionController extends BaseController
                     : "CAST(p.id AS TEXT)";
             }
 
+            // ✅ over_24h basado en assigned_at (si no existe la columna, siempre 0)
+            if (!$hasAssignedAt) {
+                $assignedAtSelect = "NULL as assigned_at";
+                $over24Expr = "0";
+            } else {
+                $assignedAtSelect = "p.assigned_at";
+
+                if (str_contains($driver, 'mysql')) {
+                    $over24Expr = "CASE
+                        WHEN p.assigned_at IS NOT NULL AND p.assigned_at <= (NOW() - INTERVAL 24 HOUR) THEN 1
+                        ELSE 0
+                    END";
+                } else {
+                    $over24Expr = "CASE
+                        WHEN p.assigned_at IS NOT NULL AND p.assigned_at <= (NOW() - INTERVAL '24 hours') THEN 1
+                        ELSE 0
+                    END";
+                }
+            }
+
             $q = $db->table('pedidos p')
                 ->select(
                     "p.id, " .
                     ($hasShopifyId ? "p.shopify_order_id, " : "NULL as shopify_order_id, ") .
                     ($hasPedidoJson ? "p.pedido_json, " : "NULL as pedido_json, ") .
                     "p.numero, p.cliente, p.total, p.estado_envio, p.forma_envio, p.etiquetas, p.articulos, p.created_at, " .
+                    "$assignedAtSelect, " .           // ✅ lo devolvemos al front
+                    "($over24Expr) as over_24h, " .   // ✅ flag 0/1 para pintar rojo
                     "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect",
                     false
                 )
@@ -95,7 +120,11 @@ class ConfirmacionController extends BaseController
             $this->applyEtiquetaExclusions($q, $db);
             $this->applyPedidoJsonExclusions($q, $db, $hasPedidoJson);
 
-            $rows = $q->orderBy('p.created_at', 'ASC')->get()->getResultArray();
+            // ✅ más antiguos primero + desempate por id
+            $rows = $q->orderBy('p.created_at', 'ASC')
+                      ->orderBy('p.id', 'ASC')
+                      ->get()
+                      ->getResultArray();
 
             if ($hasPedidoJson && $rows) {
                 $rows = array_values(array_filter($rows, function ($r) {
@@ -114,6 +143,7 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       POST /confirmacion/pull
+      ✅ Ya está: pedidos más antiguos primero + desempate por id
     ===================================================== */
     public function pull()
     {
@@ -164,6 +194,7 @@ class ConfirmacionController extends BaseController
 
             $candidatosRaw = $candQuery
                 ->orderBy('p.created_at', 'ASC')
+                ->orderBy('p.id', 'ASC') // ✅ desempate
                 ->limit($limitFetch)
                 ->get()
                 ->getResultArray();
