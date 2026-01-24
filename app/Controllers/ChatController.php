@@ -3,48 +3,106 @@
 namespace App\Controllers;
 
 use CodeIgniter\Controller;
+use CodeIgniter\HTTP\ResponseInterface;
+use App\Models\PedidoImagenModel;
+use App\Models\PedidosEstadoModel;
 
 class ChatController extends Controller
 {
-    protected $db;
-    protected $session;
-
-    // ✅ Ajusta si tu users usa otros campos
-    private string $usersTable = 'users';
-    private string $colUserId  = 'id';
-    private string $colName    = 'nombre';
-    private string $colEmail   = 'email';
-
+   
     public function __construct()
     {
-        $this->db      = \Config\Database::connect();
-        $this->session = session();
+        // 1) Config/Shopify.php $estadoModel
+        $this->loadShopifyFromConfig();
+
+        // 2) archivo fuera del repo
+        if (!$this->shop || !$this->token) {
+            $this->loadShopifySecretsFromFile();
+        }
+
+        // 3) env() (fallback)
+        if (!$this->shop || !$this->token) {
+            $this->loadShopifyFromEnv();
+        }
+
+        // Normalizar dominio
+        $this->shop = trim($this->shop);
+        $this->shop = preg_replace('#^https?://#', '', $this->shop);
+        $this->shop = preg_replace('#/.*$#', '', $this->shop);
+        $this->shop = rtrim($this->shop, '/');
+
+        $this->token = trim($this->token);
+        $this->apiVersion = trim($this->apiVersion ?: '2025-10');
     }
 
-    private function meId(): int
+    // =====================================================
+    // CONFIG LOADERS  dashboard
+    // =====================================================
+
+    private function loadShopifyFromConfig(): void
     {
-        return (int)($this->session->get('user_id') ?? 0);
+        try {
+            $cfg = config('Shopify');
+            if (!$cfg) return;
+
+            $this->shop       = (string) ($cfg->shop ?? $cfg->SHOP ?? $this->shop);
+            $this->token      = (string) ($cfg->token ?? $cfg->TOKEN ?? $this->token);
+            $this->apiVersion = (string) ($cfg->apiVersion ?? $cfg->version ?? $cfg->API_VERSION ?? $this->apiVersion);
+        } catch (\Throwable $e) {
+            log_message('error', 'DRepetirController loadShopifyFromConfig ERROR: ' . $e->getMessage());
+        }
     }
 
-    private function json($payload, int $status = 200)
+    private function loadShopifyFromEnv(): void
     {
-        // ✅ Para que no falle con CSRF regenerado
-        $payload['csrf'] = csrf_hash();
-        return $this->response->setStatusCode($status)->setJSON($payload);
+        try {
+            $shop  = (string) env('SHOPIFY_STORE_DOMAIN');
+            $token = (string) env('SHOPIFY_ADMIN_TOKEN');
+            $ver   = (string) (env('SHOPIFY_API_VERSION') ?: '2025-10');
+
+            if (!empty(trim($shop)))  $this->shop = $shop;
+            if (!empty(trim($token))) $this->token = $token;
+            if (!empty(trim($ver)))   $this->apiVersion = $ver;
+        } catch (\Throwable $e) {
+            log_message('error', 'ChatController loadShopifyFromEnv ERROR: ' . $e->getMessage());
+        }
     }
+
+    private function loadShopifySecretsFromFile(): void
+    {
+        try {
+            $path = '/home/u756064303/.secrets/shopify.php';
+            if (!is_file($path)) return;
+
+            $cfg = require $path;
+            if (!is_array($cfg)) return;
+
+            $this->shop       = (string) ($cfg['shop'] ?? $this->shop);
+            $this->token      = (string) ($cfg['token'] ?? $this->token);
+            $this->apiVersion = (string) ($cfg['apiVersion'] ?? $cfg['version'] ?? $this->apiVersion);
+        } catch (\Throwable $e) {
+            log_message('error', 'ChatController loadShopifySecretsFromFile ERROR: ' . $e->getMessage());
+        }
+    }
+
+ 
+
+
+   
+
+    // ============================================================
+    // VISTA PRINCIPAL 
+    // ============================================================
 
     public function index()
     {
-        $adminId = $this->meId();
-        if ($adminId <= 0) return redirect()->to('/login');
+        if (!session()->get('logged_in')) {
+            return redirect()->to('/');
+        }
 
-        return view('chat', [
-            'adminId'   => $adminId,
-            'adminName' => (string)($this->session->get('nombre') ?? 'Admin'),
-        ]);
+        return view('chat');
     }
-
-    /**
+ /**
      * GET /chat/users
      * Retorna usuarios + isOnline + lastMessage + unread
      */
