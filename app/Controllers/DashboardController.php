@@ -46,7 +46,7 @@ class DashboardController extends Controller
         $this->shop = rtrim($this->shop, '/');
 
         $this->token = trim($this->token);
-        $this->apiVersion = trim($this->apiVersion ?: '2025-10');
+        $this->apiVersion = trim($this->apiVersion ?: '2024-10');
     }
 
     // =====================================================
@@ -72,7 +72,7 @@ class DashboardController extends Controller
         try {
             $shop  = (string)env('SHOPIFY_SHOP');
             $token = (string)env('SHOPIFY_ADMIN_TOKEN');
-            $ver   = (string)(env('SHOPIFY_API_VERSION') ?: '2025-10');
+            $ver   = (string)(env('SHOPIFY_API_VERSION') ?: '2024-10');
 
             if (!empty(trim($shop)))  $this->shop = $shop;
             if (!empty(trim($token))) $this->token = $token;
