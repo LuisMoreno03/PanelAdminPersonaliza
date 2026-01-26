@@ -8,7 +8,7 @@ class ConfirmacionController extends BaseController
 {
     public function index()
     {
-        return view('confirmacion');
+        return view('produccion');
     }
 
     private function normalizeShopifyOrderId($id): string
