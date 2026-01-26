@@ -100,6 +100,10 @@
             class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold text-sm shadow-sm hover:bg-slate-800 transition">
             Traer 10
           </button>
+          <button type="button" id="btnReturnAll"
+            class="h-11 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-sm shadow-sm hover:bg-slate-100 transition">
+            Devolver todos
+          </button>
 
           <button type="button" onclick="window.__montajeRefresh && window.__montajeRefresh()"
             class="h-11 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-sm shadow-sm hover:bg-slate-100 transition">

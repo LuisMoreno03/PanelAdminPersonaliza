@@ -236,6 +236,77 @@ function filenameFromUrl(u) {
 }
 
 // =====================================================
+// ✅ Archivos de Producción (físicos) que vienen en details()
+// =====================================================
+function buildProduccionFilesHtml(files = []) {
+  if (!Array.isArray(files) || !files.length) {
+    return `<div class="text-sm text-slate-500">—</div>`;
+  }
+
+  const fmtSize = (n) => {
+    const num = Number(n || 0);
+    if (!num) return "—";
+    const kb = num / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    return `${(kb / 1024).toFixed(1)} MB`;
+  };
+
+  return `
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      ${files.map(f => {
+        const originalName = escapeHtml(f?.original_name || f?.filename || "archivo");
+        const filename = escapeHtml(f?.filename || "");
+        const url = escapeHtml(f?.url || "#");
+        const durl = escapeHtml(f?.download_url || f?.url || "#");
+        const created = escapeHtml(f?.created_at || "—");
+        const size = escapeHtml(fmtSize(f?.size));
+        const isImg = !!f?.is_image;
+
+        const preview = (isImg && url !== "#")
+          ? `
+            <a href="${url}" target="_blank" rel="noopener" class="block">
+              <img src="${url}"
+                   class="w-full h-44 object-cover rounded-2xl border border-slate-200 bg-slate-50"
+                   alt="${originalName}" />
+            </a>
+          `
+          : `
+            <div class="w-full h-44 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-xs text-slate-500">
+              ${escapeHtml(f?.mime || "Archivo")}
+            </div>
+          `;
+
+        return `
+          <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+            <div class="p-3">
+              <div class="text-xs font-extrabold text-slate-900 truncate">${originalName}</div>
+              <div class="text-[11px] text-slate-500 mt-1">${created} · ${size}</div>
+              ${filename ? `<div class="text-[11px] text-slate-400 mt-1 truncate">${filename}</div>` : ``}
+            </div>
+
+            <div class="px-3 pb-3">
+              ${preview}
+            </div>
+
+            <div class="px-3 pb-3 flex items-center gap-2">
+              <a href="${url}" target="_blank" rel="noopener"
+                 class="h-9 px-3 inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white text-xs font-extrabold text-slate-900 hover:bg-slate-100">
+                Ver
+              </a>
+
+              <a href="${durl}"
+                 class="h-9 px-3 inline-flex items-center justify-center rounded-2xl bg-indigo-600 text-white text-xs font-extrabold hover:bg-indigo-700">
+                Descargar
+              </a>
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+// =====================================================
 // MODAL DETALLES
 // =====================================================
 function ensureDetailsModal() {
@@ -329,7 +400,7 @@ function buildHistorialHtml(historial = []) {
   `;
 }
 
-function buildDetailsHtml(pedido, historial) {
+function buildDetailsHtml(pedido, historial, produccionFiles = []) {
   const numero = escapeHtml(pedido?.numero ?? ("#" + (pedido?.id ?? "")));
   const key = escapeHtml(pedidoKey(pedido));
   const cliente = escapeHtml(pedido?.cliente ?? "—");
@@ -414,6 +485,12 @@ function buildDetailsHtml(pedido, historial) {
         <div class="mt-3">${listLinks(files)}</div>
       </div>
 
+      <!-- ✅ NUEVO: archivos físicos subidos en Producción -->
+      <div class="rounded-2xl border border-slate-200 bg-white p-4">
+        <div class="text-xs text-slate-500 font-extrabold uppercase">Archivos de Producción</div>
+        <div class="mt-3">${buildProduccionFilesHtml(produccionFiles)}</div>
+      </div>
+
       <div class="rounded-2xl border border-slate-200 bg-white p-4">
         <div class="text-xs text-slate-500 font-extrabold uppercase">Historial de etapas</div>
         <div class="mt-3">${buildHistorialHtml(historial)}</div>
@@ -455,13 +532,14 @@ async function openPedidoDetails(orderKey) {
 
     const pedido = data.pedido || {};
     const historial = Array.isArray(data.historial) ? data.historial : [];
+    const produccionFiles = Array.isArray(data.produccion_files) ? data.produccion_files : [];
 
     const numero = pedido.numero ?? ("#" + (pedido.id ?? ""));
     const cliente = pedido.cliente ?? "—";
 
     if (title) title.textContent = `Detalles — ${String(numero)}`;
     if (sub) sub.textContent = `Cliente: ${String(cliente)}`;
-    if (body) body.innerHTML = buildDetailsHtml(pedido, historial);
+    if (body) body.innerHTML = buildDetailsHtml(pedido, historial, produccionFiles);
 
   } catch (e) {
     console.error("DETAILS exception:", e);
