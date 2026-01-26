@@ -9,6 +9,9 @@ const ENDPOINT_REALIZADO = `${API_BASE}/montaje/realizado`; // recomendado
 const ENDPOINT_CARGADO_FALLBACK = `${API_BASE}/montaje/cargado`; // compatibilidad
 const ENDPOINT_ENVIAR = `${API_BASE}/montaje/enviar`; // ✅ nuevo
 
+// ✅ NUEVO: detalles (pedido + historial completo con pedido_json)
+const ENDPOINT_DETAILS = `${API_BASE}/montaje/details`;
+
 let pedidosCache = [];
 let pedidosFiltrados = [];
 let isLoading = false;
@@ -108,13 +111,34 @@ function isUrl(s) {
   return /^https?:\/\/\S+/i.test(v);
 }
 
+// ✅ soporta rutas relativas tipo /uploads/xxx.png
+function isRelPath(s) {
+  const v = String(s ?? "").trim();
+  return v.startsWith("/") && !v.startsWith("//");
+}
+
+function normalizeMaybeUrl(u) {
+  const v = String(u ?? "").trim();
+  if (!v) return "";
+  if (isUrl(v)) return v;
+  if (isRelPath(v)) return `${API_BASE}${v}`;
+  return v;
+}
+
 function extractUrlsDeep(any) {
   const out = [];
   const seen = new Set();
 
   const push = (u) => {
-    const v = String(u ?? "").trim();
-    if (!v || !isUrl(v)) return;
+    let v = String(u ?? "").trim();
+    if (!v) return;
+
+    // si es ruta relativa, la convertimos a URL
+    if (isRelPath(v)) v = normalizeMaybeUrl(v);
+
+    // aceptar http(s)
+    if (!isUrl(v)) return;
+
     if (seen.has(v)) return;
     seen.add(v);
     out.push(v);
@@ -137,7 +161,7 @@ function extractUrlsDeep(any) {
     if (typeof x === "object") {
       for (const k of Object.keys(x)) {
         const val = x[k];
-        if (typeof val === "string" && isUrl(val)) push(val);
+        if (typeof val === "string") push(val);
         walk(val);
       }
     }
@@ -158,19 +182,26 @@ function splitImagesAndFiles(urls) {
   return { imgs, files };
 }
 
-function getPedidoAssets(p) {
+// =====================================================
+// ✅ NUEVO: assets desde pedido + TODO el historial (etapas anteriores)
+// =====================================================
+function getPedidoAssetsFromDetails(pedido, historial) {
+  const urls = [];
+
   const directFields = [
-    p.imagenes, p.imagenes_json,
-    p.archivos, p.archivos_json,
-    p.archivo_diseno, p.archivos_diseno, p.diseno_url, p.diseno_urls,
-    p.archivo_confirmacion, p.archivos_confirmacion, p.confirmacion_url, p.confirmacion_urls,
+    pedido?.imagenes, pedido?.imagenes_json,
+    pedido?.archivos, pedido?.archivos_json,
+    pedido?.archivo_diseno, pedido?.archivos_diseno, pedido?.diseno_url, pedido?.diseno_urls,
+    pedido?.archivo_confirmacion, pedido?.archivos_confirmacion, pedido?.confirmacion_url, pedido?.confirmacion_urls,
+    pedido?.pedido_json,
+    pedido?.articulos,
   ];
 
-  const urls = [];
-  directFields.forEach(v => urls.push(...extractUrlsDeep(v)));
-  urls.push(...extractUrlsDeep(safeJsonParse(p.pedido_json)));
-  urls.push(...extractUrlsDeep(safeJsonParse(p.pedido_json_historial)));
-  urls.push(...extractUrlsDeep(safeJsonParse(p.articulos) ?? p.articulos));
+  directFields.forEach(v => urls.push(...extractUrlsDeep(safeJsonParse(v) ?? v)));
+
+  (historial || []).forEach(h => {
+    urls.push(...extractUrlsDeep(safeJsonParse(h?.pedido_json) ?? h?.pedido_json));
+  });
 
   const unique = [...new Set(urls)];
   const { imgs, files } = splitImagesAndFiles(unique);
@@ -273,23 +304,24 @@ function ensureDetailsModal() {
   });
 }
 
-function buildDetailsHtml(p) {
+// =====================================================
+// ✅ NUEVO builder: usa pedido + historial + assets reales
+// =====================================================
+function buildDetailsHtmlFromDetails(p, historial, assets) {
   const numero = escapeHtml(p.numero ?? ("#" + (p.id ?? "")));
-  const key = escapeHtml(pedidoKey(p));
+  const key = escapeHtml((p.shopify_order_id && String(p.shopify_order_id) !== "0") ? p.shopify_order_id : p.id);
   const cliente = escapeHtml(p.cliente ?? "—");
   const fecha = escapeHtml(p.created_at ?? "—");
   const total = escapeHtml(p.total ?? "—");
-  const estado = escapeHtml(p.estado_bd ?? "—");
+  const estado = escapeHtml(p.estado_bd ?? "Diseñado");
   const entrega = escapeHtml(p.estado_envio ?? "—");
   const metodo = escapeHtml(p.forma_envio ?? "—");
   const etiquetas = escapeHtml(p.etiquetas ?? "");
 
-  const assets = getPedidoAssets(p);
-
-  const imgs = assets.imgs || [];
-  const diseno = assets.diseno || [];
-  const confirm = assets.confirm || [];
-  const files = assets.files || [];
+  const imgs = assets?.imgs || [];
+  const diseno = assets?.diseno || [];
+  const confirm = assets?.confirm || [];
+  const files = assets?.files || [];
 
   const listLinks = (arr) => {
     if (!arr.length) return `<div class="text-sm text-slate-500">—</div>`;
@@ -311,6 +343,17 @@ function buildDetailsHtml(p) {
         <a href="${escapeHtml(u)}" target="_blank" rel="noopener" class="block">
           <img src="${escapeHtml(u)}" class="h-24 w-24 object-cover rounded-2xl border border-slate-200" alt="img" />
         </a>
+      `).join("")}
+    </div>
+  ` : `<div class="text-sm text-slate-500">—</div>`;
+
+  const timeline = (historial || []).length ? `
+    <div class="mt-3 space-y-2">
+      ${(historial || []).map(h => `
+        <div class="rounded-2xl border border-slate-200 bg-white p-3">
+          <div class="text-xs font-extrabold text-slate-700">${escapeHtml(h.estado || "—")}</div>
+          <div class="text-xs text-slate-500 mt-1">${escapeHtml(h.created_at || "—")} · ${escapeHtml(h.user_name || "—")}</div>
+        </div>
       `).join("")}
     </div>
   ` : `<div class="text-sm text-slate-500">—</div>`;
@@ -359,14 +402,17 @@ function buildDetailsHtml(p) {
       </div>
 
       <div class="rounded-2xl border border-slate-200 bg-white p-4">
-        <div class="text-xs text-slate-500 font-extrabold uppercase">Artículos (raw)</div>
-        <pre class="mt-3 text-xs bg-slate-50 border border-slate-200 rounded-2xl p-3 overflow-auto">${escapeHtml(String(p.articulos ?? ""))}</pre>
+        <div class="text-xs text-slate-500 font-extrabold uppercase">Historial de etapas</div>
+        ${timeline}
       </div>
     </div>
   `;
 }
 
-function openPedidoDetails(orderKey) {
+// =====================================================
+// ✅ openPedidoDetails ahora consulta al backend para traer historial completo
+// =====================================================
+async function openPedidoDetails(orderKey) {
   ensureDetailsModal();
 
   const modal = document.getElementById("pedidoDetailsModal");
@@ -374,23 +420,50 @@ function openPedidoDetails(orderKey) {
   const sub = document.getElementById("pedidoDetailsSub");
   const body = document.getElementById("pedidoDetailsBody");
 
-  const p = pedidosCache.find(x => String(pedidoKey(x)) === String(orderKey))
-        || pedidosFiltrados.find(x => String(pedidoKey(x)) === String(orderKey));
+  modal.dataset.orderKey = String(orderKey);
+  if (title) title.textContent = "Detalles del pedido";
+  if (sub) sub.textContent = "Cargando…";
+  if (body) body.innerHTML = `<div class="text-sm text-slate-600">Cargando detalles…</div>`;
+  modal.classList.remove("hidden");
 
-  if (!p) {
-    alert("No se encontró el pedido en la lista.");
-    return;
+  // info rápida desde cache (para título inmediato)
+  const cached = pedidosCache.find(x => String(pedidoKey(x)) === String(orderKey))
+             || pedidosFiltrados.find(x => String(pedidoKey(x)) === String(orderKey));
+
+  if (cached) {
+    const numero = cached.numero ?? ("#" + (cached.id ?? ""));
+    const cliente = cached.cliente ?? "—";
+    if (title) title.textContent = `Detalles — ${String(numero)}`;
+    if (sub) sub.textContent = `Cliente: ${String(cliente)}`;
   }
 
-  const numero = p.numero ?? ("#" + (p.id ?? ""));
-  const cliente = p.cliente ?? "—";
+  try {
+    const { res, data, raw } = await apiGet(`${ENDPOINT_DETAILS}/${encodeURIComponent(String(orderKey))}`);
 
-  modal.dataset.orderKey = String(orderKey);
-  if (title) title.textContent = `Detalles — ${String(numero)}`;
-  if (sub) sub.textContent = `Cliente: ${String(cliente)}`;
-  if (body) body.innerHTML = buildDetailsHtml(p);
+    if (!res.ok || !data || data.ok !== true) {
+      console.error("DETAILS FAIL:", res.status, raw);
+      if (sub) sub.textContent = "No se pudieron cargar los detalles.";
+      if (body) body.innerHTML = `<div class="text-sm text-red-600">Error cargando detalles.</div>`;
+      return;
+    }
 
-  modal.classList.remove("hidden");
+    const pedido = data.pedido || cached || {};
+    const historial = Array.isArray(data.historial) ? data.historial : [];
+
+    const numero = pedido.numero ?? ("#" + (pedido.id ?? ""));
+    const cliente = pedido.cliente ?? "—";
+
+    if (title) title.textContent = `Detalles — ${String(numero)}`;
+    if (sub) sub.textContent = `Cliente: ${String(cliente)}`;
+
+    const assets = getPedidoAssetsFromDetails(pedido, historial);
+    if (body) body.innerHTML = buildDetailsHtmlFromDetails(pedido, historial, assets);
+
+  } catch (e) {
+    console.error("openPedidoDetails error:", e);
+    if (sub) sub.textContent = "Error de red.";
+    if (body) body.innerHTML = `<div class="text-sm text-red-600">Error de red cargando detalles.</div>`;
+  }
 }
 
 // =====================================================

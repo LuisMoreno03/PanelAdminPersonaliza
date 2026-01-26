@@ -282,6 +282,7 @@ $routes->get('montaje/my-queue', 'MontajeController::myQueue');
 $routes->post('montaje/pull', 'MontajeController::pull');
 $routes->post('montaje/realizado', 'MontajeController::realizado');
 $routes->post('montaje/enviar', 'MontajeController::enviar');
+$routes->get('montaje/details/(:any)', 'MontajeController::details/$1');
 
 // compatibilidad
 $routes->post('montaje/cargado', 'MontajeController::cargado');
