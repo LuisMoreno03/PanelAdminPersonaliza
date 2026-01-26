@@ -1374,26 +1374,49 @@ class DashboardController extends Controller
             }
 
             // 4) Imágenes locales
+            // 4) Imágenes locales (leer desde pedidos.imagenes_locales)
             $imagenesLocales = [];
             try {
                 $db = \Config\Database::connect();
 
-                $rows = $db->table('pedido_imagenes')
-                    ->select('line_index, local_url')
-                    ->where('order_id', (string)$orderId)
-                    ->get()
-                    ->getResultArray();
+                // si existe la columna, leer JSON
+                $hasImgLocales = $db->fieldExists('imagenes_locales', 'pedidos');
 
-                foreach ($rows as $r) {
-                    $idx = (int)($r['line_index'] ?? -1);
-                    $url = trim((string)($r['local_url'] ?? ''));
-                    if ($idx >= 0 && $url !== '') {
-                        $imagenesLocales[$idx] = $url;
+                if ($hasImgLocales) {
+                    $pedidoRow = $db->table('pedidos')
+                        ->select('imagenes_locales')
+                        ->where('shopify_order_id', (string)$orderId)
+                        ->get()
+                        ->getRowArray();
+
+                    if ($pedidoRow && !empty($pedidoRow['imagenes_locales'])) {
+                        $json = json_decode($pedidoRow['imagenes_locales'], true);
+                        if (is_array($json)) {
+                            $imagenesLocales = $json; // <-- ojo: aquí vienen objetos {url, modified_by, modified_at}
+                        }
+                    }
+                }
+
+                // fallback (si quieres mantener compatibilidad con pedido_imagenes)
+                if (empty($imagenesLocales) && $db->tableExists('pedido_imagenes')) {
+                    $rows = $db->table('pedido_imagenes')
+                        ->select('line_index, local_url')
+                        ->where('order_id', (string)$orderId)
+                        ->get()
+                        ->getResultArray();
+
+                    foreach ($rows as $r) {
+                        $idx = (int)($r['line_index'] ?? -1);
+                        $url = trim((string)($r['local_url'] ?? ''));
+                        if ($idx >= 0 && $url !== '') {
+                            $imagenesLocales[(string)$idx] = ['url' => $url];
+                        }
                     }
                 }
             } catch (\Throwable $e) {
                 log_message('error', 'DETALLES imagenesLocales ERROR: ' . $e->getMessage());
             }
+
 
             return $this->response->setJSON([
                 'success'          => true,
