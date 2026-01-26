@@ -30,7 +30,6 @@ class MontajeController extends BaseController
     private function sqlEstadoActualExpr(): string
     {
         $coll = $this->forceCollation;
-
         return "LOWER(TRIM(CONVERT(COALESCE(h.estado, pe.estado, '') USING utf8mb4) COLLATE {$coll}))";
     }
 
@@ -68,7 +67,6 @@ class MontajeController extends BaseController
 
     // =========================================================
     // Helper: SELECT de pedidos sin romper si faltan columnas
-    // (y mapea fulfillment_status -> estado_envio si aplica)
     // =========================================================
     private function buildSelectPedidoFields(\CodeIgniter\Database\BaseConnection $db): string
     {
@@ -102,23 +100,19 @@ class MontajeController extends BaseController
 
     // =========================================================
     // Helper: campos extra (imagenes, archivos, jsons, etc)
-    // No rompe si no existen columnas.
     // =========================================================
     private function buildSelectPedidoExtraFields(\CodeIgniter\Database\BaseConnection $db): string
     {
         $fields = $db->getFieldNames('pedidos') ?? [];
         $sel = [];
 
-        // Agrega aquí cualquier columna real que puedas tener en pedidos.
         $candidates = [
             'pedido_json',
             'nota', 'notas', 'observaciones',
 
-            // comunes para imágenes/archivos
             'imagenes', 'imagenes_json',
             'archivos', 'archivos_json',
 
-            // diseño / confirmación (nombres posibles)
             'archivo_diseno', 'archivos_diseno', 'diseno_url', 'diseno_urls',
             'archivo_confirmacion', 'archivos_confirmacion', 'confirmacion_url', 'confirmacion_urls',
         ];
@@ -164,6 +158,91 @@ class MontajeController extends BaseController
                 OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
             )
         ";
+    }
+
+    // =========================
+    // ✅ GET /montaje/details/{orderKey}
+    // Devuelve pedido + historial completo (pedido_json de TODAS las etapas)
+    // =========================
+    public function details($orderIdRaw = null)
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'ok' => false,
+                'error' => 'No autenticado',
+            ]);
+        }
+
+        $userId = (int)(session('user_id') ?? 0);
+        if (!$userId) {
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Sin user_id en sesión',
+            ]);
+        }
+
+        $orderIdRaw = trim((string)$orderIdRaw);
+        if ($orderIdRaw === '' || $orderIdRaw === '0') {
+            return $this->response->setStatusCode(400)->setJSON([
+                'ok' => false,
+                'error' => 'order_id requerido',
+            ]);
+        }
+
+        try {
+            $db = \Config\Database::connect();
+
+            // 1) obtener pedido por id o shopify_order_id
+            $pedido = $db->table('pedidos')
+                ->select('*')
+                ->groupStart()
+                    ->where('id', $orderIdRaw)
+                    ->orWhere('shopify_order_id', $orderIdRaw)
+                ->groupEnd()
+                ->get()
+                ->getRowArray();
+
+            if (!$pedido) {
+                return $this->response->setStatusCode(404)->setJSON([
+                    'ok' => false,
+                    'error' => 'Pedido no encontrado',
+                ]);
+            }
+
+            // ✅ seguridad: si quieres permitir ver aunque no esté asignado, quita este bloque
+            if ((int)($pedido['assigned_to_user_id'] ?? 0) !== $userId) {
+                return $this->response->setStatusCode(403)->setJSON([
+                    'ok' => false,
+                    'error' => 'Este pedido no está asignado a tu usuario',
+                ]);
+            }
+
+            $pedidoId  = (int)($pedido['id'] ?? 0);
+            $shopifyId = trim((string)($pedido['shopify_order_id'] ?? ''));
+            $orderKey = ($shopifyId !== '' && $shopifyId !== '0') ? (string)$shopifyId : (string)$pedidoId;
+
+            // 2) historial completo (aquí están los archivos de etapas anteriores)
+            $historial = $db->table('pedidos_estado_historial')
+                ->select('order_id, estado, user_id, user_name, created_at, pedido_json')
+                ->where('order_id', (string)$orderKey)
+                ->orderBy('created_at', 'ASC')
+                ->get()
+                ->getResultArray();
+
+            return $this->response->setJSON([
+                'ok' => true,
+                'order_key' => (string)$orderKey,
+                'pedido' => $pedido,
+                'historial' => $historial ?: [],
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'MontajeController details ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno cargando detalles',
+                'debug' => $e->getMessage(),
+            ]);
+        }
     }
 
     // =========================
@@ -240,7 +319,6 @@ class MontajeController extends BaseController
 
     // =========================
     // POST /montaje/pull
-    // Trae 5 o 10 pedidos en Diseñado (no enviados)
     // =========================
     public function pull()
     {
@@ -329,7 +407,6 @@ class MontajeController extends BaseController
                 ]);
             }
 
-            // historial opcional: registrar que los tomaste
             foreach ($candidatos as $c) {
                 $pedidoId = (string)((int)($c['id'] ?? 0));
                 $shopifyId = trim((string)($c['shopify_order_id'] ?? ''));
@@ -365,7 +442,6 @@ class MontajeController extends BaseController
 
     // =========================
     // POST /montaje/realizado
-    // Realizado => Por producir + desasigna + historial
     // =========================
     public function realizado()
     {
@@ -401,7 +477,6 @@ class MontajeController extends BaseController
             $db = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // buscar por id o shopify_order_id
             $pedido = $db->table('pedidos')
                 ->select('id, shopify_order_id, assigned_to_user_id')
                 ->groupStart()
@@ -432,7 +507,6 @@ class MontajeController extends BaseController
 
             $db->transBegin();
 
-            // 1) desasignar (para que desaparezca de la lista)
             $db->table('pedidos')
                 ->where('id', $pedidoId)
                 ->update([
@@ -440,7 +514,6 @@ class MontajeController extends BaseController
                     'assigned_at' => null,
                 ]);
 
-            // 2) set estado a Por producir
             $estadoModel = new PedidosEstadoModel();
             $estadoModel->setEstadoPedido(
                 (string)$orderKey,
@@ -449,7 +522,6 @@ class MontajeController extends BaseController
                 $userName
             );
 
-            // 3) historial
             $db->table('pedidos_estado_historial')->insert([
                 'order_id'   => (string)$orderKey,
                 'estado'     => $this->estadoSalida,
@@ -485,9 +557,7 @@ class MontajeController extends BaseController
         }
     }
 
-    // =========================
-    // POST /montaje/cargado (alias)
-    // =========================
+    // alias
     public function cargado()
     {
         return $this->realizado();
@@ -495,7 +565,6 @@ class MontajeController extends BaseController
 
     // =========================
     // POST /montaje/enviar
-    // Enviar => Por preparar + desasigna + historial
     // =========================
     public function enviar()
     {
@@ -531,7 +600,6 @@ class MontajeController extends BaseController
             $db = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // buscar por id o shopify_order_id
             $pedido = $db->table('pedidos')
                 ->select('id, shopify_order_id, assigned_to_user_id')
                 ->groupStart()
@@ -562,7 +630,6 @@ class MontajeController extends BaseController
 
             $db->transBegin();
 
-            // 1) desasignar (para que desaparezca de la lista)
             $db->table('pedidos')
                 ->where('id', $pedidoId)
                 ->update([
@@ -570,7 +637,6 @@ class MontajeController extends BaseController
                     'assigned_at' => null,
                 ]);
 
-            // 2) set estado a Por preparar
             $estadoModel = new PedidosEstadoModel();
             $estadoModel->setEstadoPedido(
                 (string)$orderKey,
@@ -579,7 +645,6 @@ class MontajeController extends BaseController
                 $userName
             );
 
-            // 3) historial
             $db->table('pedidos_estado_historial')->insert([
                 'order_id'   => (string)$orderKey,
                 'estado'     => $this->estadoEnviar,

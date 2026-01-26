@@ -283,7 +283,8 @@ $routes->post('montaje/pull', 'MontajeController::pull');
 $routes->post('montaje/realizado', 'MontajeController::realizado');
 $routes->post('montaje/enviar', 'MontajeController::enviar');
 $routes->get('montaje/details/(:any)', 'MontajeController::details/$1');
-
+$routes->post('montaje/cargado', 'MontajeController::cargado');
+$routes->post('montaje/return-all', 'MontajeController::returnAll');
 // compatibilidad
 $routes->post('montaje/cargado', 'MontajeController::cargado');
 
