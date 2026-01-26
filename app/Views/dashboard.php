@@ -56,7 +56,7 @@
         110px                     /* Pedido */
         92px                      /* Fecha */
         minmax(170px, 1.2fr)      /* Cliente */
-        90px                      /* Total */
+        170px                      /* Total */
         160px                     /* Estado */
         minmax(140px, 0.9fr)      /* Último cambio */
         44px                      /* Art */
@@ -109,7 +109,7 @@
         <section class="mb-6">
           <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 flex items-start justify-between gap-4">
             <div>
-              <h1 class="text-3xl font-extrabold text-slate-900">Pedidos 3</h1>
+              <h1 class="text-3xl font-extrabold text-slate-900">Pedidos </h1>
               <p class="text-slate-500 mt-1">Estados, últimos cambios y detalles</p>
             </div>
           </div>

@@ -8,9 +8,9 @@ use App\Models\PedidosEstadoModel;
 
 class DashboardController extends Controller
 {
-    private string $shop = '';
-    private string $token = '';
-    private string $apiVersion = '2025-10';
+    private string $shop = '962f2d.myshopify.com';
+    private string $token = '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';
+    private string $apiVersion = '';
 
     // ✅ Estados permitidos (los del modal)
     private array $allowedEstados = [
@@ -30,14 +30,10 @@ class DashboardController extends Controller
         $this->loadShopifyFromConfig();
 
         // 2) archivo fuera del repo
-        if (!$this->shop || !$this->token) {
-            $this->loadShopifySecretsFromFile();
-        }
+        $this->loadShopifySecretsFromFile();
 
-        // 3) env() (fallback)
-        if (!$this->shop || !$this->token) {
-            $this->loadShopifyFromEnv();
-        }
+        // 3) env() (SIEMPRE como override/fallback)
+        $this->loadShopifyFromEnv();
 
         // Normalizar dominio
         $this->shop = trim($this->shop);
@@ -46,8 +42,10 @@ class DashboardController extends Controller
         $this->shop = rtrim($this->shop, '/');
 
         $this->token = trim($this->token);
-        $this->apiVersion = trim($this->apiVersion ?: '2025-10');
+        $this->apiVersion = trim($this->apiVersion ?: '2024-10');
     }
+
+
 
     // =====================================================
     // CONFIG LOADERS
@@ -70,9 +68,9 @@ class DashboardController extends Controller
     private function loadShopifyFromEnv(): void
     {
         try {
-            $shop  = (string)env('SHOPIFY_STORE_DOMAIN');
-            $token = (string)env('SHOPIFY_ADMIN_TOKEN');
-            $ver   = (string)(env('SHOPIFY_API_VERSION') ?: '2025-10');
+            $shop  = (string)(env('SHOPIFY_SHOP') ?: env('SHOPIFY_SHOP_DOMAIN'));
+            $token = (string)(env('SHOPIFY_ADMIN_TOKEN') ?: env('SHOPIFY_TOKEN'));
+            $ver   = (string)(env('SHOPIFY_API_VERSION') ?: '2024-10');
 
             if (!empty(trim($shop)))  $this->shop = $shop;
             if (!empty(trim($token))) $this->token = $token;
@@ -81,6 +79,7 @@ class DashboardController extends Controller
             log_message('error', 'DashboardController loadShopifyFromEnv ERROR: ' . $e->getMessage());
         }
     }
+
 
     private function loadShopifySecretsFromFile(): void
     {
@@ -102,6 +101,59 @@ class DashboardController extends Controller
     // =====================================================
     // HELPERS
     // =====================================================
+
+    /**
+     * ✅ Devuelve true si el JSON de imagenes_locales contiene al menos 1 URL válida.
+     * Soporta formato:
+     *  - {"0":{"url":"..."}, "1":{"url":"..."}}
+     *  - {"0":"https://..."}
+     *  - {"0":{"value":"..."}}
+     */
+    private function hasAnyModifiedImage(?string $imagenesLocalesJson): bool
+    {
+        $imagenesLocalesJson = (string)$imagenesLocalesJson;
+        if (trim($imagenesLocalesJson) === '') return false;
+
+        $data = json_decode($imagenesLocalesJson, true);
+        if (!is_array($data) || empty($data)) return false;
+
+        foreach ($data as $val) {
+            $url = '';
+
+            if (is_string($val)) {
+                $url = $val;
+            } elseif (is_array($val)) {
+                $url = (string)($val['url'] ?? $val['value'] ?? '');
+            }
+
+            if (trim($url) !== '') return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * (Opcional) cuenta cuántas imágenes modificadas hay (URLs no vacías)
+     */
+    private function countModifiedImages(?string $imagenesLocalesJson): int
+    {
+        $imagenesLocalesJson = (string)$imagenesLocalesJson;
+        if (trim($imagenesLocalesJson) === '') return 0;
+
+        $data = json_decode($imagenesLocalesJson, true);
+        if (!is_array($data) || empty($data)) return 0;
+
+        $c = 0;
+        foreach ($data as $val) {
+            $url = '';
+
+            if (is_string($val)) $url = $val;
+            elseif (is_array($val)) $url = (string)($val['url'] ?? $val['value'] ?? '');
+
+            if (trim($url) !== '') $c++;
+        }
+        return $c;
+    }
 
     private function parseLinkHeaderForPageInfo(?string $linkHeader): array
     {
@@ -388,8 +440,11 @@ class DashboardController extends Controller
 
             // -------- ROWS ----------
             $qb = $db->table('pedidos p');
+            $hasImgLocales = $db->fieldExists('imagenes_locales', 'pedidos');
+
             $qb->select(
                 'p.shopify_order_id, p.numero, p.cliente, p.total, p.articulos, p.estado_envio, p.forma_envio, p.created_at,' .
+                ($hasImgLocales ? 'p.imagenes_locales,' : 'NULL AS imagenes_locales,') .
                 'pe.estado AS estado_interno, pe.estado_updated_by_name AS user_name,' .
                 'COALESCE(pe.estado_updated_at, pe.actualizado) AS changed_at',
                 false
@@ -430,7 +485,9 @@ class DashboardController extends Controller
                 $fecha = $created ? substr($created, 0, 10) : '-';
 
                 $changedAt = $r['changed_at'] ?? null;
-
+                $hasModified = $this->hasAnyModifiedImage($r['imagenes_locales'] ?? null);
+                $modifiedCount = $this->countModifiedImages($r['imagenes_locales'] ?? null);
+ 
                 $orders[] = [
                     'id'           => $oid,
                     'numero'       => $r['numero'] ?: ('#' . $oid),
@@ -441,6 +498,9 @@ class DashboardController extends Controller
                     'articulos'    => (int)($r['articulos'] ?? 0),
                     'estado_envio' => $r['estado_envio'] ?: '-',
                     'forma_envio'  => $r['forma_envio'] ?: '-',
+                    'has_modified_image' => $hasModified ? 1 : 0,
+                    'modified_images_count' => $modifiedCount,
+
                     'last_status_change' => $changedAt ? [
                         'user_name'  => $r['user_name'] ?: 'Sistema',
                         'changed_at' => $changedAt,
@@ -1314,26 +1374,49 @@ class DashboardController extends Controller
             }
 
             // 4) Imágenes locales
+            // 4) Imágenes locales (leer desde pedidos.imagenes_locales)
             $imagenesLocales = [];
             try {
                 $db = \Config\Database::connect();
 
-                $rows = $db->table('pedido_imagenes')
-                    ->select('line_index, local_url')
-                    ->where('order_id', (string)$orderId)
-                    ->get()
-                    ->getResultArray();
+                // si existe la columna, leer JSON
+                $hasImgLocales = $db->fieldExists('imagenes_locales', 'pedidos');
 
-                foreach ($rows as $r) {
-                    $idx = (int)($r['line_index'] ?? -1);
-                    $url = trim((string)($r['local_url'] ?? ''));
-                    if ($idx >= 0 && $url !== '') {
-                        $imagenesLocales[$idx] = $url;
+                if ($hasImgLocales) {
+                    $pedidoRow = $db->table('pedidos')
+                        ->select('imagenes_locales')
+                        ->where('shopify_order_id', (string)$orderId)
+                        ->get()
+                        ->getRowArray();
+
+                    if ($pedidoRow && !empty($pedidoRow['imagenes_locales'])) {
+                        $json = json_decode($pedidoRow['imagenes_locales'], true);
+                        if (is_array($json)) {
+                            $imagenesLocales = $json; // <-- ojo: aquí vienen objetos {url, modified_by, modified_at}
+                        }
+                    }
+                }
+
+                // fallback (si quieres mantener compatibilidad con pedido_imagenes)
+                if (empty($imagenesLocales) && $db->tableExists('pedido_imagenes')) {
+                    $rows = $db->table('pedido_imagenes')
+                        ->select('line_index, local_url')
+                        ->where('order_id', (string)$orderId)
+                        ->get()
+                        ->getResultArray();
+
+                    foreach ($rows as $r) {
+                        $idx = (int)($r['line_index'] ?? -1);
+                        $url = trim((string)($r['local_url'] ?? ''));
+                        if ($idx >= 0 && $url !== '') {
+                            $imagenesLocales[(string)$idx] = ['url' => $url];
+                        }
                     }
                 }
             } catch (\Throwable $e) {
                 log_message('error', 'DETALLES imagenesLocales ERROR: ' . $e->getMessage());
             }
+
 
             return $this->response->setJSON([
                 'success'          => true,
