@@ -47,6 +47,25 @@ function escapeAttr(str) {
 /* =====================================================
   CONFIG / HELPERS DE RUTAS
 ===================================================== */
+
+function getLocalImageUrl(imagenesLocales, key) {
+  if (!imagenesLocales || key == null) return "";
+
+  const v = imagenesLocales[key];
+  if (!v) return "";
+
+  // string directo
+  if (typeof v === "string") return v.trim();
+
+  // objeto {url:"..."} o {value:"..."}
+  if (typeof v === "object") {
+    const u = (v.url || v.value || "").toString().trim();
+    return u;
+  }
+
+  return String(v || "").trim();
+}
+
 function normalizeBase(base) {
     base = String(base || "").trim();
     base = base.replace(/\/+$/, "");
@@ -1358,11 +1377,15 @@ window.verDetalles = async function (orderId) {
             // ✅ FIX: imagen modificada puede venir por index o por line_item_id
             const lineId = String(item.id || item.line_item_id || item.variant_id || "");
             const localUrl =
-                (lineId && imagenesLocales?.[lineId]) ? String(imagenesLocales[lineId]) :
-                    (imagenesLocales?.[index] ? String(imagenesLocales[index]) : "");
+                (lineId && getLocalImageUrl(imagenesLocales, lineId)) ||
+                getLocalImageUrl(imagenesLocales, index) ||
+                getLocalImageUrl(imagenesLocales, String(index)) ||
+                "";
+
 
             window.imagenesRequeridas[index] = !!requiere;
-            window.imagenesCargadas[index] = !!localUrl;
+            window.imagenesCargadas[index] = esImagenUrl(localUrl);
+
 
             const estadoItem = requiere ? (localUrl ? "LISTO" : "FALTA") : "NO REQUIERE";
             const badgeCls =
@@ -1518,11 +1541,16 @@ window.subirImagenProducto = async function (orderId, index, lineItemId, input) 
         const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
 
         const endpoints = [
-            (typeof apiUrl === "function" ? apiUrl("/api/pedidos/imagenes/subir") : "/index.php/api/pedidos/imagenes/subir"),
+            apiUrl("/confirmacion/subir-imagen"),
+            apiUrl("/confirmacion/upload"),
+            apiUrl("/api/pedidos/imagenes/subir"),
+            "/confirmacion/subir-imagen",
+            "/confirmacion/upload",
             "/api/pedidos/imagenes/subir",
-            "/index.php/api/pedidos/imagenes/subir",
-            "/index.php/index.php/api/pedidos/imagenes/subir",
+            "/index.php/confirmacion/subir-imagen",
+            "/index.php/confirmacion/upload",
         ];
+
 
         let lastErr = null;
 
