@@ -25,6 +25,117 @@ class MontajeController extends BaseController
     }
 
     // =========================================================
+    // Helpers Producción -> Montaje (para listar archivos en disco)
+    // =========================================================
+    private function resolvePedidoKeys(string $orderIdRaw): array
+    {
+        $orderIdRaw = trim($orderIdRaw);
+        $db = \Config\Database::connect();
+
+        $pedido = $db->table('pedidos')
+            ->select('id, shopify_order_id, assigned_to_user_id')
+            ->groupStart()
+                ->where('id', $orderIdRaw)
+                ->orWhere('shopify_order_id', $orderIdRaw)
+            ->groupEnd()
+            ->get()
+            ->getRowArray();
+
+        $pedidoId = $pedido['id'] ?? null;
+
+        // Shopify id "oficial" (numérico)
+        $shopifyOrderId = '';
+        if (!empty($pedido['shopify_order_id'])) {
+            $shopifyOrderId = trim((string)$pedido['shopify_order_id']);
+        } else {
+            $tmp = trim((string)$orderIdRaw);
+            if ($tmp !== '' && preg_match('/^\d{6,}$/', $tmp)) {
+                $shopifyOrderId = $tmp;
+            }
+        }
+
+        // preferencia: carpeta por pedido interno si existe
+        $preferredFolderKey = $pedidoId ? (string)$pedidoId : $orderIdRaw;
+
+        return [
+            'pedido' => $pedido,
+            'pedido_id' => $pedidoId,
+            'shopify_order_id' => $shopifyOrderId,
+            'preferred_folder_key' => $preferredFolderKey,
+        ];
+    }
+
+    private function resolveExistingFolderKey(string $orderIdRaw, ?string $preferredFolderKey, ?string $pedidoIdStr, ?string $shopifyOrderId): string
+    {
+        $orderIdRaw = trim((string)$orderIdRaw);
+        $candidates = [];
+
+        if ($preferredFolderKey) $candidates[] = $preferredFolderKey;
+        if ($pedidoIdStr) $candidates[] = $pedidoIdStr;
+        if ($orderIdRaw !== '') $candidates[] = $orderIdRaw;
+        if ($shopifyOrderId) $candidates[] = $shopifyOrderId;
+
+        // unique manteniendo orden
+        $seen = [];
+        $uniq = [];
+        foreach ($candidates as $c) {
+            $c = trim((string)$c);
+            if ($c === '' || isset($seen[$c])) continue;
+            $seen[$c] = true;
+            $uniq[] = $c;
+        }
+
+        foreach ($uniq as $key) {
+            $dir = WRITEPATH . "uploads/produccion/" . $key;
+            if (is_dir($dir)) return $key;
+        }
+
+        // si no existe ninguna, devolvemos el preferido o el raw
+        return $preferredFolderKey ?: ($orderIdRaw ?: '0');
+    }
+
+    private function listProduccionFiles(string $orderIdRaw): array
+    {
+        $keys = $this->resolvePedidoKeys($orderIdRaw);
+        $pedidoIdStr = $keys['pedido_id'] ? (string)$keys['pedido_id'] : null;
+        $shopifyOrderId = $keys['shopify_order_id'] ?: null;
+
+        // ✅ busca carpeta existente por compatibilidad con carpetas viejas
+        $folderKey = $this->resolveExistingFolderKey(
+            $orderIdRaw,
+            $keys['preferred_folder_key'] ?? null,
+            $pedidoIdStr,
+            $shopifyOrderId
+        );
+
+        $dir = WRITEPATH . "uploads/produccion/" . $folderKey;
+        if (!is_dir($dir)) {
+            return ['folder_key' => $folderKey, 'files' => []];
+        }
+
+        $files = [];
+        foreach (scandir($dir) as $name) {
+            if ($name === "." || $name === "..") continue;
+            $path = $dir . "/" . $name;
+            if (!is_file($path)) continue;
+
+            $files[] = [
+                // sin BD no hay original_name real aquí; mostramos filename
+                'original_name' => $name,
+                'filename' => $name,
+                'mime' => @mime_content_type($path) ?: '',
+                'size' => @filesize($path) ?: 0,
+                'created_at' => date('Y-m-d H:i:s', filemtime($path)),
+                'url' => site_url("produccion/file/{$folderKey}/{$name}"),
+            ];
+        }
+
+        usort($files, fn($a, $b) => strcmp($b['created_at'], $a['created_at']));
+
+        return ['folder_key' => $folderKey, 'files' => $files];
+    }
+
+    // =========================================================
     // Helper: estado actual normalizado (FORZANDO COLLATION)
     // =========================================================
     private function sqlEstadoActualExpr(): string
@@ -122,7 +233,6 @@ class MontajeController extends BaseController
             'product_image',
         ];
 
-
         foreach ($candidates as $col) {
             if (in_array($col, $fields, true)) {
                 $sel[] = "p.`{$col}`";
@@ -168,7 +278,7 @@ class MontajeController extends BaseController
 
     // =========================
     // ✅ GET /montaje/details/{orderKey}
-    // Devuelve pedido + historial completo (pedido_json de TODAS las etapas)
+    // Devuelve pedido + historial + archivos en disco de Producción
     // =========================
     public function details($orderIdRaw = null)
     {
@@ -215,7 +325,7 @@ class MontajeController extends BaseController
                 ]);
             }
 
-            // ✅ seguridad: si quieres permitir ver aunque no esté asignado, quita este bloque
+            // ✅ seguridad: solo si está asignado al usuario
             if ((int)($pedido['assigned_to_user_id'] ?? 0) !== $userId) {
                 return $this->response->setStatusCode(403)->setJSON([
                     'ok' => false,
@@ -227,7 +337,7 @@ class MontajeController extends BaseController
             $shopifyId = trim((string)($pedido['shopify_order_id'] ?? ''));
             $orderKey = ($shopifyId !== '' && $shopifyId !== '0') ? (string)$shopifyId : (string)$pedidoId;
 
-            // 2) historial completo (aquí están los archivos de etapas anteriores)
+            // 2) historial completo
             $historial = $db->table('pedidos_estado_historial')
                 ->select('order_id, estado, user_id, user_name, created_at, pedido_json')
                 ->where('order_id', (string)$orderKey)
@@ -235,11 +345,16 @@ class MontajeController extends BaseController
                 ->get()
                 ->getResultArray();
 
+            // 3) ✅ archivos de Producción en disco
+            $prod = $this->listProduccionFiles((string)$orderKey);
+
             return $this->response->setJSON([
                 'ok' => true,
                 'order_key' => (string)$orderKey,
                 'pedido' => $pedido,
                 'historial' => $historial ?: [],
+                'files_produccion' => $prod['files'] ?? [],
+                'folder_key_produccion' => $prod['folder_key'] ?? null,
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'MontajeController details ERROR: ' . $e->getMessage());
@@ -278,7 +393,7 @@ class MontajeController extends BaseController
             $estadoExpr = $this->sqlEstadoActualExpr();
             $coll = $this->forceCollation;
 
-            $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
+            $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8');
             $e2 = 'disenado';
 
             $selectPedidos = $this->buildSelectPedidoFields($db);
@@ -359,7 +474,7 @@ class MontajeController extends BaseController
             $estadoExpr = $this->sqlEstadoActualExpr();
             $coll = $this->forceCollation;
 
-            $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
+            $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8');
             $e2 = 'disenado';
 
             $candidatos = $db->query("
