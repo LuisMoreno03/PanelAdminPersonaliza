@@ -5,6 +5,12 @@
  * - FIX: ver detalles usa shopify_order_id cuando existe
  * - Fallback endpoints: con/sin index.php
  * - Upload GENERAL: (formGeneralUpload) es el único upload
+ *
+ * ✅ CAMBIOS:
+ * - Se elimina botón "Ver detalles"
+ * - Detalles abren al click en número y cliente
+ * - Imagen modificada se ve bien (object-contain + grande + abrir/copiar)
+ * - Archivos generales: separa Modificadas y muestra previews de imágenes
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -76,6 +82,40 @@ function moneyFormat(v) {
 function esBadgeHtml(valor) {
   const s = String(valor ?? "").trim();
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
+}
+
+// ✅ Detalles como link/botón
+function detallesLinkHtml(texto, idDetalles, extraClass = "") {
+  return `
+    <button type="button"
+      onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
+      class="text-left font-extrabold text-slate-900 hover:text-blue-700 hover:underline underline-offset-2 ${extraClass}">
+      ${escapeHtml(texto)}
+    </button>
+  `;
+}
+
+function isModFilename(name) {
+  return /^mod_\d+_/i.test(String(name || ""));
+}
+
+function isImgUrlLike(url) {
+  if (!url) return false;
+  const u = String(url).trim();
+  return /\.(png|jpe?g|webp|gif|svg)(\?.*)?$/i.test(u);
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(String(text || ""));
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = String(text || "");
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
 }
 
 // =========================
@@ -297,7 +337,7 @@ function extractOrdersPayload(payload) {
 }
 
 // =========================
-// ✅ NUEVO: setear estado tras upload (con fallbacks)
+// ✅ setear estado tras upload (con fallbacks)
 // =========================
 async function setEstadoTrasUpload(orderId, nuevoEstado = "Diseñado") {
   const payload = { order_id: String(orderId), estado: String(nuevoEstado) };
@@ -314,7 +354,7 @@ async function setEstadoTrasUpload(orderId, nuevoEstado = "Diseñado") {
       const ok = res.ok && (data?.success === true || data?.ok === true);
       if (ok) return true;
     } catch {
-      // silencioso: no bloquea la subida si no existe el endpoint
+      // silencioso
     }
   }
 
@@ -351,7 +391,6 @@ function actualizarListado(pedidos) {
   if (mode === "grid") {
     if (contGrid) contGrid.classList.remove("hidden");
     if (contCards) contCards.classList.add("hidden");
-
     if (!contGrid) return;
 
     if (!pedidos || !pedidos.length) {
@@ -369,7 +408,6 @@ function actualizarListado(pedidos) {
       const cliente = p.cliente ?? "—";
       const total = p.total ?? "";
       const estado = p.estado ?? p.estado_bd ?? "Diseñado";
-      const etiquetas = p.etiquetas ?? "";
       const articulos = p.articulos ?? "-";
       const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
       const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
@@ -388,11 +426,15 @@ function actualizarListado(pedidos) {
         <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
                     border-b border-slate-200 hover:bg-slate-50 transition">
 
-          <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
+          <div class="whitespace-nowrap">
+            ${detallesLinkHtml(numero, idDetalles, "whitespace-nowrap")}
+          </div>
 
           <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
 
-          <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
+          <div class="min-w-0 truncate">
+            ${detallesLinkHtml(String(cliente || "—"), idDetalles, "font-semibold")}
+          </div>
 
           <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
 
@@ -406,16 +448,9 @@ function actualizarListado(pedidos) {
 
           <div class="min-w-0 gap-x-4 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
 
-          <div class="flex justify-end">
-            <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
-              class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-              Ver detalles →
-            </button>
-          </div>
-
+          <div class="flex justify-end"></div>
         </div>
       `;
-
     }).join("");
 
     return;
@@ -449,7 +484,6 @@ function actualizarListado(pedidos) {
       const estadoEnvio = p.estado_envio ?? p.estado_entrega ?? "-";
       const formaEnvio = p.forma_envio ?? p.forma_entrega ?? "-";
 
-      // ✅ FIX: antes definías estadoHtml pero usabas estadoBtn sin existir
       const estadoBtn = (typeof window.abrirModal === "function")
         ? `<button type="button" onclick="window.abrirModal('${escapeJsString(internalId)}')" class="hover:opacity-90">${renderEstadoPill(estado)}</button>`
         : renderEstadoPill(estado);
@@ -458,11 +492,15 @@ function actualizarListado(pedidos) {
         <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
                     border-b border-slate-200 hover:bg-slate-50 transition">
 
-          <div class="font-extrabold text-slate-900 whitespace-nowrap">${escapeHtml(numero)}</div>
+          <div class="whitespace-nowrap">
+            ${detallesLinkHtml(numero, idDetalles, "whitespace-nowrap")}
+          </div>
 
           <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
 
-          <div class="min-w-0 font-semibold text-slate-800 truncate">${escapeHtml(String(cliente || "—"))}</div>
+          <div class="min-w-0 truncate">
+            ${detallesLinkHtml(String(cliente || "—"), idDetalles, "font-semibold")}
+          </div>
 
           <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
 
@@ -476,16 +514,9 @@ function actualizarListado(pedidos) {
 
           <div class="min-w-0 gap-x-4 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
 
-          <div class="flex justify-end">
-            <button type="button" onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
-              class="h-9 px-3 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-              Ver detalles →
-            </button>
-          </div>
-
+          <div class="flex justify-end"></div>
         </div>
       `;
-
     }).join("");
 
     return;
@@ -521,21 +552,18 @@ function actualizarListado(pedidos) {
         </button>`
       : renderEstadoPill(estado);
 
-    const detallesBtn = `
-      <button onclick="verDetallesPedido('${escapeJsString(idDetalles)}')"
-        class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition">
-        Ver detalles →
-      </button>
-    `;
-
     return `
       <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-3">
         <div class="p-4">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-extrabold text-slate-900">${escapeHtml(numero)}</div>
+              <div class="text-sm">
+                ${detallesLinkHtml(numero, idDetalles, "text-sm")}
+              </div>
               <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(String(fecha || "—"))}</div>
-              <div class="text-sm font-semibold text-slate-800 mt-1 truncate">${escapeHtml(String(cliente || "—"))}</div>
+              <div class="text-sm mt-1 truncate">
+                ${detallesLinkHtml(String(cliente || "—"), idDetalles, "font-semibold")}
+              </div>
             </div>
             <div class="text-right whitespace-nowrap">
               <div class="text-sm font-extrabold text-slate-900">${moneyFormat(total)}</div>
@@ -544,7 +572,7 @@ function actualizarListado(pedidos) {
 
           <div class="mt-3 flex items-center justify-between gap-3">
             ${estadoBtn}
-            <div class="text-right whitespace-nowrap">${detallesBtn}</div>
+            <div></div>
           </div>
 
           <div class="mt-3">${renderEntregaPill(estadoEnvio)}</div>
@@ -752,16 +780,7 @@ window.toggleJsonDetalles = function () {
 window.copiarDetallesJson = async function () {
   const pre = $("detJson");
   if (!pre) return;
-  try {
-    await navigator.clipboard.writeText(pre.textContent || "");
-  } catch {
-    const ta = document.createElement("textarea");
-    ta.value = pre.textContent || "";
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    ta.remove();
-  }
+  await copyToClipboard(pre.textContent || "");
 };
 
 // endpoints fallback detalles (usa tu dashboard/detalles existente)
@@ -841,11 +860,9 @@ async function abrirDetallesPedido(orderId) {
 
   // ✅ guarda ids reales para upload/list
   currentDetallesShopifyId = String(o.id || o.shopify_order_id || o.order_id || "").trim() || null;
-  // intento sacar p.id del payload si existe
   currentDetallesPedidoId = String(payload.pedido_id || payload.id || o.pedido_id || "").trim() || null;
 
-  // ✅ el formulario general debe usar una key estable:
-  // prioridad: shopify_order_id; si no hay, usa pedido_id; si no hay, usa el que se abrió
+  // ✅ key estable para archivos
   const keyForFiles =
     (currentDetallesShopifyId && currentDetallesShopifyId !== "0") ? currentDetallesShopifyId :
     (currentDetallesPedidoId && currentDetallesPedidoId !== "0") ? currentDetallesPedidoId :
@@ -1005,8 +1022,8 @@ async function abrirDetallesPedido(orderId) {
         <div class="flex flex-wrap gap-3">
           ${propsImg.map(({ name, value }) => `
             <a href="${escapeHtml(value)}" target="_blank"
-               class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-              <img src="${escapeHtml(value)}" class="h-28 w-28 object-cover">
+               class="block rounded-2xl border border-slate-200 overflow-hidden shadow-sm bg-white">
+              <img src="${escapeHtml(value)}" class="h-28 w-28 object-contain bg-white">
               <div class="px-3 py-2 text-xs font-bold text-slate-700 bg-white border-t border-slate-200">
                 ${escapeHtml(name)}
               </div>
@@ -1016,13 +1033,30 @@ async function abrirDetallesPedido(orderId) {
       </div>
     ` : "";
 
+    // ✅ IMAGEN MODIFICADA: grande + contain + abrir/copiar
     const modificadaHtml = localUrl ? `
-      <div class="mt-3">
+      <div class="mt-4">
         <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
-        <a href="${escapeHtml(localUrl)}" target="_blank"
-           class="inline-block mt-2 rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-          <img src="${escapeHtml(localUrl)}" class="h-40 w-40 object-cover">
-        </a>
+
+        <div class="mt-2 rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden">
+          <img
+            src="${escapeHtml(localUrl)}"
+            class="w-full h-[420px] object-contain cursor-zoom-in bg-white"
+            onclick="window.open('${escapeJsString(localUrl)}','_blank')"
+            loading="lazy"
+          >
+        </div>
+
+        <div class="mt-2 flex gap-2">
+          <a href="${escapeHtml(localUrl)}" target="_blank"
+             class="px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
+            Abrir
+          </a>
+          <button type="button" onclick="copyToClipboard('${escapeJsString(localUrl)}')"
+             class="px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
+            Copiar URL
+          </button>
+        </div>
       </div>
     ` : "";
 
@@ -1044,11 +1078,10 @@ async function abrirDetallesPedido(orderId) {
     `;
   }).join("");
 
-  // ✅ ahora sí pintamos los items
   setHtml("detItems", itemsHtml);
 }
 
-// Hook del botón
+// Hook
 window.verDetallesPedido = function (pedidoId) {
   abrirDetallesPedido(String(pedidoId));
 };
@@ -1071,15 +1104,12 @@ async function cargarArchivosGenerales(orderId, opts = {}) {
 
   list.innerHTML = `<div class="text-slate-500 text-sm">Cargando...</div>`;
 
-  // 1) key principal
   let d = await tryKey(orderId);
 
-  // 2) fallback #1
   if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.fallbackKey) {
     d = await tryKey(opts.fallbackKey);
   }
 
-  // 3) fallback #2
   if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.extraFallbackKey) {
     d = await tryKey(opts.extraFallbackKey);
   }
@@ -1095,18 +1125,49 @@ async function cargarArchivosGenerales(orderId, opts = {}) {
     return;
   }
 
-  list.innerHTML = files.map(f => `
-    <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-      <div class="min-w-0">
-        <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(f.original_name || f.filename || "Archivo")}</div>
-        <div class="text-xs text-slate-600">${escapeHtml(f.mime || "")} · ${escapeHtml(String(f.size || ""))}</div>
+  const mods = files.filter(f => isModFilename(f.filename || f.original_name));
+  const normals = files.filter(f => !isModFilename(f.filename || f.original_name));
+
+  const renderFileCard = (f) => {
+    const url = String(f.url || "#");
+    const name = f.original_name || f.filename || "Archivo";
+    const mime = String(f.mime || "");
+    const size = String(f.size || "");
+    const isImg = mime.startsWith("image/") || isImgUrlLike(url);
+
+    return `
+      <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-sm font-extrabold text-slate-900 truncate">${escapeHtml(name)}</div>
+            <div class="text-xs text-slate-600">${escapeHtml(mime)} · ${escapeHtml(size)}</div>
+          </div>
+          <a href="${escapeHtml(url)}" target="_blank"
+             class="shrink-0 px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
+            Abrir
+          </a>
+        </div>
+
+        ${isImg ? `
+          <div class="mt-3 rounded-2xl overflow-hidden border border-slate-200 bg-white">
+            <img src="${escapeHtml(url)}"
+              class="w-full h-[260px] object-contain cursor-zoom-in"
+              onclick="window.open('${escapeJsString(url)}','_blank')" loading="lazy">
+          </div>
+        ` : ``}
       </div>
-      <a href="${escapeHtml(f.url || "#")}" target="_blank"
-         class="shrink-0 px-3 py-2 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100">
-        Abrir
-      </a>
-    </div>
-  `).join("");
+    `;
+  };
+
+  list.innerHTML = `
+    ${mods.length ? `
+      <div class="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">Modificadas</div>
+      <div class="space-y-3 mb-5">${mods.map(renderFileCard).join("")}</div>
+    ` : ""}
+
+    <div class="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">Archivos</div>
+    <div class="space-y-3">${normals.map(renderFileCard).join("")}</div>
+  `;
 }
 
 async function subirArchivosGenerales(orderId, fileList) {
@@ -1132,30 +1193,20 @@ async function subirArchivosGenerales(orderId, fileList) {
     return false;
   }
 
-  // ✅ 1) Confirmar qué estado dejó el backend realmente (upload-general)
   const backendEstado = String(data.new_estado || data.estado || "").trim();
   const wanted = "Diseñado";
 
-  // ✅ 2) Si el backend NO guardó Diseñado, intentamos set-estado (si existe)
   let forced = false;
   if (backendEstado.toLowerCase() !== wanted.toLowerCase()) {
-    console.warn(
-      "[upload-general] Backend dejó estado diferente al esperado:",
-      { backendEstado, wanted, data }
-    );
-
-    // intento extra: set-estado (si existe). Si no existe, no rompe
     forced = await setEstadoTrasUpload(orderId, wanted);
   }
 
-  // ✅ 3) Mensaje UI claro (para que sepas si realmente cambió o no)
   if (msg) {
     if (backendEstado.toLowerCase() === wanted.toLowerCase() || forced) {
       msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
         Subido (${data.saved || 0}). Estado → ${escapeHtml(wanted)}. Pedido desasignado.
       </span>`;
     } else {
-      // ⚠️ Esto confirma que debes cambiar el PHP (uploadGeneral) sí o sí
       msg.innerHTML = `<span class="text-amber-700 font-extrabold">
         Subido (${data.saved || 0}), pero el backend dejó estado → ${escapeHtml(backendEstado || "Por producir")}.
         (Debes cambiarlo en ProduccionController::uploadGeneral).
@@ -1165,7 +1216,6 @@ async function subirArchivosGenerales(orderId, fileList) {
 
   return true;
 }
-
 
 // =========================
 // Eventos
@@ -1185,7 +1235,6 @@ function bindEventos() {
   $("formGeneralUpload")?.addEventListener("submit", async (e) => {
     e.preventDefault();
 
-    // ✅ usa el hidden si existe, si no cae al último id abierto
     const orderId = $("generalOrderId")?.value || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId;
     const input = $("generalFiles");
     const files = input?.files;
