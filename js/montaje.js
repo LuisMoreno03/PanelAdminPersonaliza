@@ -124,7 +124,6 @@ function extractUrlsDeep(any) {
     if (x == null) return;
 
     if (typeof x === "string") {
-      // puede venir "url1, url2" o texto con urls
       const parts = x.split(/[\s,]+/).map(t => t.trim()).filter(Boolean);
       parts.forEach(push);
       return;
@@ -138,7 +137,6 @@ function extractUrlsDeep(any) {
     if (typeof x === "object") {
       for (const k of Object.keys(x)) {
         const val = x[k];
-        // claves comunes
         if (typeof val === "string" && isUrl(val)) push(val);
         walk(val);
       }
@@ -161,7 +159,6 @@ function splitImagesAndFiles(urls) {
 }
 
 function getPedidoAssets(p) {
-  // 1) columnas extra probables
   const directFields = [
     p.imagenes, p.imagenes_json,
     p.archivos, p.archivos_json,
@@ -170,23 +167,14 @@ function getPedidoAssets(p) {
   ];
 
   const urls = [];
-
-  // URLs directas / strings con urls
   directFields.forEach(v => urls.push(...extractUrlsDeep(v)));
-
-  // 2) pedido_json en pedidos
   urls.push(...extractUrlsDeep(safeJsonParse(p.pedido_json)));
-
-  // 3) pedido_json del último historial
   urls.push(...extractUrlsDeep(safeJsonParse(p.pedido_json_historial)));
-
-  // 4) articulos (a veces trae urls)
   urls.push(...extractUrlsDeep(safeJsonParse(p.articulos) ?? p.articulos));
 
   const unique = [...new Set(urls)];
   const { imgs, files } = splitImagesAndFiles(unique);
 
-  // heurística: si la url contiene "diseno" o "design" => diseño; si contiene "confirm" => confirmación
   const diseno = [];
   const confirm = [];
   const otherFiles = [];
@@ -201,48 +189,208 @@ function getPedidoAssets(p) {
   return { imgs, diseno, confirm, files: otherFiles };
 }
 
-function assetsHtml(p) {
-  const a = getPedidoAssets(p);
-  if ((!a.imgs || !a.imgs.length) && (!a.diseno.length) && (!a.confirm.length) && (!a.files.length)) return "";
+function filenameFromUrl(u) {
+  try {
+    const url = new URL(u);
+    const path = url.pathname || "";
+    const name = path.split("/").filter(Boolean).pop() || "archivo";
+    return decodeURIComponent(name);
+  } catch {
+    const parts = String(u).split("/").filter(Boolean);
+    return parts[parts.length - 1] || "archivo";
+  }
+}
 
-  const imgBlock = a.imgs?.length ? `
-    <div class="mt-3">
-      <div class="text-xs font-extrabold text-slate-700 mb-1">Imágenes</div>
-      <div class="flex flex-wrap gap-2">
-        ${a.imgs.slice(0, 8).map(u => `
-          <a href="${escapeHtml(u)}" target="_blank" rel="noopener" class="block">
-            <img src="${escapeHtml(u)}" alt="img" class="h-16 w-16 object-cover rounded-xl border border-slate-200" />
-          </a>
-        `).join("")}
+// =====================================================
+// MODAL DETALLES
+// =====================================================
+function ensureDetailsModal() {
+  if (document.getElementById("pedidoDetailsModal")) return;
+
+  const modal = document.createElement("div");
+  modal.id = "pedidoDetailsModal";
+  modal.className = "hidden fixed inset-0 z-[9998] bg-black/40 backdrop-blur-[1px]";
+
+  modal.innerHTML = `
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="w-full max-w-3xl rounded-3xl bg-white shadow-xl border border-slate-200 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-4 bg-slate-50 border-b border-slate-200">
+          <div class="min-w-0">
+            <div id="pedidoDetailsTitle" class="text-sm font-extrabold text-slate-900 truncate">Detalles del pedido</div>
+            <div id="pedidoDetailsSub" class="text-xs text-slate-600 truncate"></div>
+          </div>
+          <button type="button" id="pedidoDetailsClose"
+            class="h-9 px-3 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs hover:bg-slate-100 transition">
+            Cerrar
+          </button>
+        </div>
+
+        <div id="pedidoDetailsBody" class="p-5 max-h-[75vh] overflow-auto"></div>
+
+        <div class="px-5 py-4 border-t border-slate-200 bg-white flex items-center justify-end gap-2">
+          <button type="button" id="pedidoDetailsEnviarBtn"
+            class="h-10 px-4 rounded-2xl bg-indigo-600 text-white font-extrabold text-xs hover:bg-indigo-700 transition">
+            Enviar
+          </button>
+          <button type="button" id="pedidoDetailsRealizadoBtn"
+            class="h-10 px-4 rounded-2xl bg-emerald-600 text-white font-extrabold text-xs hover:bg-emerald-700 transition">
+            Realizado
+          </button>
+        </div>
       </div>
     </div>
-  ` : "";
+  `;
 
-  const linksList = (title, arr) => {
-    if (!arr || !arr.length) return "";
+  document.body.appendChild(modal);
+
+  const close = () => {
+    modal.classList.add("hidden");
+    modal.dataset.orderKey = "";
+  };
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) close();
+  });
+
+  document.getElementById("pedidoDetailsClose")?.addEventListener("click", close);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
+  });
+
+  document.getElementById("pedidoDetailsEnviarBtn")?.addEventListener("click", () => {
+    const k = modal.dataset.orderKey;
+    if (!k) return;
+    window.enviarPedido?.(k);
+    close();
+  });
+
+  document.getElementById("pedidoDetailsRealizadoBtn")?.addEventListener("click", () => {
+    const k = modal.dataset.orderKey;
+    if (!k) return;
+    window.marcarRealizado?.(k);
+    close();
+  });
+}
+
+function buildDetailsHtml(p) {
+  const numero = escapeHtml(p.numero ?? ("#" + (p.id ?? "")));
+  const key = escapeHtml(pedidoKey(p));
+  const cliente = escapeHtml(p.cliente ?? "—");
+  const fecha = escapeHtml(p.created_at ?? "—");
+  const total = escapeHtml(p.total ?? "—");
+  const estado = escapeHtml(p.estado_bd ?? "—");
+  const entrega = escapeHtml(p.estado_envio ?? "—");
+  const metodo = escapeHtml(p.forma_envio ?? "—");
+  const etiquetas = escapeHtml(p.etiquetas ?? "");
+
+  const assets = getPedidoAssets(p);
+
+  const imgs = assets.imgs || [];
+  const diseno = assets.diseno || [];
+  const confirm = assets.confirm || [];
+  const files = assets.files || [];
+
+  const listLinks = (arr) => {
+    if (!arr.length) return `<div class="text-sm text-slate-500">—</div>`;
     return `
-      <div class="mt-3">
-        <div class="text-xs font-extrabold text-slate-700 mb-1">${escapeHtml(title)}</div>
-        <div class="flex flex-col gap-1">
-          ${arr.slice(0, 8).map(u => `
-            <a href="${escapeHtml(u)}" target="_blank" rel="noopener"
-               class="text-xs text-indigo-700 hover:underline break-all">
-              ${escapeHtml(u)}
-            </a>
-          `).join("")}
-        </div>
+      <div class="flex flex-col gap-2">
+        ${arr.map(u => `
+          <a href="${escapeHtml(u)}" target="_blank" rel="noopener"
+             class="px-3 py-2 rounded-2xl border border-slate-200 bg-slate-50 text-xs font-extrabold text-indigo-700 hover:bg-slate-100 break-all">
+            ${escapeHtml(filenameFromUrl(u))}
+          </a>
+        `).join("")}
       </div>
     `;
   };
 
+  const imgsHtml = imgs.length ? `
+    <div class="flex flex-wrap gap-2">
+      ${imgs.map(u => `
+        <a href="${escapeHtml(u)}" target="_blank" rel="noopener" class="block">
+          <img src="${escapeHtml(u)}" class="h-24 w-24 object-cover rounded-2xl border border-slate-200" alt="img" />
+        </a>
+      `).join("")}
+    </div>
+  ` : `<div class="text-sm text-slate-500">—</div>`;
+
   return `
-    <div class="mt-2">
-      ${imgBlock}
-      ${linksList("Archivos de diseño", a.diseno)}
-      ${linksList("Archivos de confirmación", a.confirm)}
-      ${linksList("Otros archivos", a.files)}
+    <div class="space-y-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="rounded-2xl border border-slate-200 bg-white p-4">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Pedido</div>
+          <div class="text-sm font-extrabold text-slate-900 mt-1">${numero}</div>
+          <div class="text-xs text-slate-600 mt-1">ID: ${key}</div>
+          <div class="text-sm text-slate-700 mt-2"><b>Cliente:</b> ${cliente}</div>
+          <div class="text-sm text-slate-700"><b>Fecha:</b> ${fecha}</div>
+          <div class="text-sm text-slate-700"><b>Total:</b> ${total}</div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-white p-4">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Estado</div>
+          <div class="text-sm font-extrabold text-slate-900 mt-1">${estado}</div>
+          <div class="text-sm text-slate-700 mt-2"><b>Entrega:</b> ${entrega}</div>
+          <div class="text-sm text-slate-700"><b>Método:</b> ${metodo}</div>
+          <div class="text-sm text-slate-700 mt-2"><b>Etiquetas:</b> ${etiquetas || "—"}</div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-white p-4">
+        <div class="text-xs text-slate-500 font-extrabold uppercase">Imágenes</div>
+        <div class="mt-3">${imgsHtml}</div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div class="rounded-2xl border border-slate-200 bg-white p-4">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Archivos de diseño</div>
+          <div class="mt-3">${listLinks(diseno)}</div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-white p-4">
+          <div class="text-xs text-slate-500 font-extrabold uppercase">Archivos de confirmación</div>
+          <div class="mt-3">${listLinks(confirm)}</div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-white p-4">
+        <div class="text-xs text-slate-500 font-extrabold uppercase">Otros archivos</div>
+        <div class="mt-3">${listLinks(files)}</div>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-white p-4">
+        <div class="text-xs text-slate-500 font-extrabold uppercase">Artículos (raw)</div>
+        <pre class="mt-3 text-xs bg-slate-50 border border-slate-200 rounded-2xl p-3 overflow-auto">${escapeHtml(String(p.articulos ?? ""))}</pre>
+      </div>
     </div>
   `;
+}
+
+function openPedidoDetails(orderKey) {
+  ensureDetailsModal();
+
+  const modal = document.getElementById("pedidoDetailsModal");
+  const title = document.getElementById("pedidoDetailsTitle");
+  const sub = document.getElementById("pedidoDetailsSub");
+  const body = document.getElementById("pedidoDetailsBody");
+
+  const p = pedidosCache.find(x => String(pedidoKey(x)) === String(orderKey))
+        || pedidosFiltrados.find(x => String(pedidoKey(x)) === String(orderKey));
+
+  if (!p) {
+    alert("No se encontró el pedido en la lista.");
+    return;
+  }
+
+  const numero = p.numero ?? ("#" + (p.id ?? ""));
+  const cliente = p.cliente ?? "—";
+
+  modal.dataset.orderKey = String(orderKey);
+  if (title) title.textContent = `Detalles — ${String(numero)}`;
+  if (sub) sub.textContent = `Cliente: ${String(cliente)}`;
+  if (body) body.innerHTML = buildDetailsHtml(p);
+
+  modal.classList.remove("hidden");
 }
 
 // =====================================================
@@ -283,13 +431,24 @@ function rowHtml(p) {
   return `
     <div data-order-id="${escapeHtml(key)}"
          class="prod-grid-cols px-4 py-3 border-b border-slate-100 hover:bg-slate-50 text-sm">
-      <div class="font-extrabold text-slate-900 truncate">${numero}</div>
+      <div class="font-extrabold text-slate-900 truncate">
+        <button type="button"
+          class="text-left hover:underline"
+          onclick="window.openPedidoDetails('${escapeHtml(key)}')">
+          ${numero}
+        </button>
+      </div>
+
       <div class="text-slate-600 truncate">${fecha}</div>
 
       <div class="min-w-0">
-        <div class="font-extrabold truncate">${cliente}</div>
+        <button type="button"
+          class="font-extrabold truncate text-left hover:underline"
+          onclick="window.openPedidoDetails('${escapeHtml(key)}')">
+          ${cliente}
+        </button>
+
         ${tagsMiniHtml(p.etiquetas)}
-        ${assetsHtml(p)}
       </div>
 
       <div class="text-right font-extrabold">${total}</div>
@@ -335,15 +494,25 @@ function cardHtml(p) {
          class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <div class="text-sm font-extrabold text-slate-900 truncate">${numero}</div>
+          <button type="button"
+            class="text-sm font-extrabold text-slate-900 truncate hover:underline text-left"
+            onclick="window.openPedidoDetails('${escapeHtml(key)}')">
+            ${numero}
+          </button>
           <div class="text-xs text-slate-500 mt-1 truncate">${fecha}</div>
 
-          <div class="text-sm text-slate-700 mt-2 truncate"><b>Cliente:</b> ${cliente}</div>
+          <div class="text-sm text-slate-700 mt-2 truncate">
+            <b>Cliente:</b>
+            <button type="button"
+              class="font-extrabold hover:underline"
+              onclick="window.openPedidoDetails('${escapeHtml(key)}')">
+              ${cliente}
+            </button>
+          </div>
           <div class="text-sm text-slate-700 truncate"><b>Total:</b> ${total}</div>
           <div class="text-sm text-slate-700 truncate"><b>Estado:</b> ${estado}</div>
 
           ${p.etiquetas ? `<div class="mt-3">${tagsMiniHtml(p.etiquetas)}</div>` : ``}
-          ${assetsHtml(p)}
         </div>
 
         <div class="flex flex-col gap-2 shrink-0">
@@ -400,7 +569,6 @@ function aplicarFiltro() {
         p.estado_bd,
         p.forma_envio,
         p.articulos,
-        // incluir campos extra por si quieres buscar por url/archivos
         p.pedido_json,
         p.pedido_json_historial,
         p.imagenes, p.archivos, p.archivo_diseno, p.archivo_confirmacion,
@@ -510,54 +678,46 @@ function removePedidoFromUI(orderKey) {
 async function enviarPedido(orderKey) {
   const before = [...pedidosCache];
 
-  // UI optimista
   removePedidoFromUI(orderKey);
 
   const payload = { order_id: String(orderKey) };
   const resp = await apiPost(ENDPOINT_ENVIAR, payload);
 
   if (!resp.res.ok || !resp.data || (resp.data.ok !== true && resp.data.success !== true)) {
-    // revertimos si falla
     pedidosCache = before;
     aplicarFiltro();
     alert(resp.data?.error || resp.data?.message || "No se pudo enviar el pedido");
     return;
   }
-
-  // OK: backend ya lo dejó en Por preparar y desasignado
 }
 
 // ✅ Realizado => Por producir + desasigna + sale de la lista
 async function marcarRealizado(orderKey) {
   const before = [...pedidosCache];
 
-  // UI optimista
   removePedidoFromUI(orderKey);
 
   const payload = { order_id: String(orderKey) };
 
-  // intenta /realizado; si no existe, usa /cargado
   let resp = await apiPost(ENDPOINT_REALIZADO, payload);
   if (resp.res.status === 404) {
     resp = await apiPost(ENDPOINT_CARGADO_FALLBACK, payload);
   }
 
   if (!resp.res.ok || !resp.data || (resp.data.ok !== true && resp.data.success !== true)) {
-    // revertimos si falla
     pedidosCache = before;
     aplicarFiltro();
     alert(resp.data?.error || resp.data?.message || "No se pudo marcar como realizado");
     return;
   }
-
-  // OK: backend ya lo dejó en Por producir y desasignado
 }
 
 // Exponer global para onclick
 window.marcarRealizado = marcarRealizado;
 window.enviarPedido = enviarPedido;
+window.openPedidoDetails = openPedidoDetails;
 
-// Para tu botón "Actualizar" del HTML (onclick window.__montajeRefresh())
+// Para tu botón "Actualizar" del HTML
 window.__montajeRefresh = cargarMiCola;
 
 // =====================================================
@@ -572,9 +732,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if ($("inputBuscar")) $("inputBuscar").value = "";
     aplicarFiltro();
   });
-
-  // si más adelante agregas botón devolver, ya quedaría listo:
-  // $("btnDevolver")?.addEventListener("click", () => devolverPedidosRestantes());
 
   cargarMiCola();
 });
