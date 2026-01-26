@@ -115,7 +115,13 @@ class MontajeController extends BaseController
 
             'archivo_diseno', 'archivos_diseno', 'diseno_url', 'diseno_urls',
             'archivo_confirmacion', 'archivos_confirmacion', 'confirmacion_url', 'confirmacion_urls',
+
+            // ✅ nuevos
+            'imagenes_locales',
+            'product_images',
+            'product_image',
         ];
+
 
         foreach ($candidates as $col) {
             if (in_array($col, $fields, true)) {

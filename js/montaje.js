@@ -5,12 +5,10 @@ const ENDPOINT_QUEUE = `${API_BASE}/montaje/my-queue`;
 const ENDPOINT_PULL  = `${API_BASE}/montaje/pull`;
 const ENDPOINT_RETURN_ALL = `${API_BASE}/montaje/return-all`;
 
-const ENDPOINT_REALIZADO = `${API_BASE}/montaje/realizado`; // recomendado
-const ENDPOINT_CARGADO_FALLBACK = `${API_BASE}/montaje/cargado`; // compatibilidad
-const ENDPOINT_ENVIAR = `${API_BASE}/montaje/enviar`; // ✅ nuevo
-
-// ✅ NUEVO: detalles (pedido + historial completo con pedido_json)
-const ENDPOINT_DETAILS = `${API_BASE}/montaje/details`;
+const ENDPOINT_REALIZADO = `${API_BASE}/montaje/realizado`;
+const ENDPOINT_CARGADO_FALLBACK = `${API_BASE}/montaje/cargado`;
+const ENDPOINT_ENVIAR = `${API_BASE}/montaje/enviar`;
+const ENDPOINT_DETAILS = `${API_BASE}/montaje/details`; // ✅ nuevo
 
 let pedidosCache = [];
 let pedidosFiltrados = [];
@@ -111,34 +109,13 @@ function isUrl(s) {
   return /^https?:\/\/\S+/i.test(v);
 }
 
-// ✅ soporta rutas relativas tipo /uploads/xxx.png
-function isRelPath(s) {
-  const v = String(s ?? "").trim();
-  return v.startsWith("/") && !v.startsWith("//");
-}
-
-function normalizeMaybeUrl(u) {
-  const v = String(u ?? "").trim();
-  if (!v) return "";
-  if (isUrl(v)) return v;
-  if (isRelPath(v)) return `${API_BASE}${v}`;
-  return v;
-}
-
 function extractUrlsDeep(any) {
   const out = [];
   const seen = new Set();
 
   const push = (u) => {
-    let v = String(u ?? "").trim();
-    if (!v) return;
-
-    // si es ruta relativa, la convertimos a URL
-    if (isRelPath(v)) v = normalizeMaybeUrl(v);
-
-    // aceptar http(s)
-    if (!isUrl(v)) return;
-
+    const v = String(u ?? "").trim();
+    if (!v || !isUrl(v)) return;
     if (seen.has(v)) return;
     seen.add(v);
     out.push(v);
@@ -148,6 +125,13 @@ function extractUrlsDeep(any) {
     if (x == null) return;
 
     if (typeof x === "string") {
+      // si es json string, intenta parsear primero
+      const asJson = safeJsonParse(x);
+      if (asJson && typeof asJson === "object") {
+        walk(asJson);
+        return;
+      }
+
       const parts = x.split(/[\s,]+/).map(t => t.trim()).filter(Boolean);
       parts.forEach(push);
       return;
@@ -161,7 +145,7 @@ function extractUrlsDeep(any) {
     if (typeof x === "object") {
       for (const k of Object.keys(x)) {
         const val = x[k];
-        if (typeof val === "string") push(val);
+        if (typeof val === "string" && isUrl(val)) push(val);
         walk(val);
       }
     }
@@ -182,40 +166,59 @@ function splitImagesAndFiles(urls) {
   return { imgs, files };
 }
 
-// =====================================================
-// ✅ NUEVO: assets desde pedido + TODO el historial (etapas anteriores)
-// =====================================================
-function getPedidoAssetsFromDetails(pedido, historial) {
-  const urls = [];
-
-  const directFields = [
-    pedido?.imagenes, pedido?.imagenes_json,
-    pedido?.archivos, pedido?.archivos_json,
-    pedido?.archivo_diseno, pedido?.archivos_diseno, pedido?.diseno_url, pedido?.diseno_urls,
-    pedido?.archivo_confirmacion, pedido?.archivos_confirmacion, pedido?.confirmacion_url, pedido?.confirmacion_urls,
-    pedido?.pedido_json,
-    pedido?.articulos,
-  ];
-
-  directFields.forEach(v => urls.push(...extractUrlsDeep(safeJsonParse(v) ?? v)));
-
-  (historial || []).forEach(h => {
-    urls.push(...extractUrlsDeep(safeJsonParse(h?.pedido_json) ?? h?.pedido_json));
-  });
-
-  const unique = [...new Set(urls)];
-  const { imgs, files } = splitImagesAndFiles(unique);
-
+function classifyFiles(files) {
   const diseno = [];
   const confirm = [];
   const otherFiles = [];
 
-  for (const f of files) {
+  for (const f of (files || [])) {
     const l = f.toLowerCase();
-    if (l.includes("diseno") || l.includes("diseño") || l.includes("design")) diseno.push(f);
-    else if (l.includes("confirm") || l.includes("aprob")) confirm.push(f);
+    // ✅ tu caso real: /uploads/confirmacion/...
+    if (l.includes("/confirmacion/") || l.includes("confirm") || l.includes("aprob")) confirm.push(f);
+    else if (l.includes("/diseno/") || l.includes("/disenio/") || l.includes("diseno") || l.includes("diseño") || l.includes("design")) diseno.push(f);
     else otherFiles.push(f);
   }
+
+  return { diseno, confirm, otherFiles };
+}
+
+/**
+ * ✅ Extrae assets desde:
+ * - pedido (incluye imagenes_locales)
+ * - historial completo (pedido_json de cada etapa)
+ */
+function getPedidoAssetsFrom(pedido, historial = []) {
+  const urls = [];
+
+  // 1) campos directos del pedido (incluye imagenes_locales ✅)
+  const directFields = [
+    pedido?.imagenes, pedido?.imagenes_json,
+    pedido?.archivos, pedido?.archivos_json,
+
+    pedido?.archivo_diseno, pedido?.archivos_diseno, pedido?.diseno_url, pedido?.diseno_urls,
+    pedido?.archivo_confirmacion, pedido?.archivos_confirmacion, pedido?.confirmacion_url, pedido?.confirmacion_urls,
+
+    // ✅ tu campo real
+    pedido?.imagenes_locales,
+
+    // opcional (si lo usas)
+    pedido?.product_images,
+    pedido?.product_image,
+  ];
+
+  directFields.forEach(v => urls.push(...extractUrlsDeep(v)));
+
+  // 2) pedido_json del pedido
+  urls.push(...extractUrlsDeep(pedido?.pedido_json));
+
+  // 3) pedido_json de TODO el historial
+  for (const h of (historial || [])) {
+    urls.push(...extractUrlsDeep(h?.pedido_json));
+  }
+
+  const unique = [...new Set(urls)];
+  const { imgs, files } = splitImagesAndFiles(unique);
+  const { diseno, confirm, otherFiles } = classifyFiles(files);
 
   return { imgs, diseno, confirm, files: otherFiles };
 }
@@ -304,24 +307,45 @@ function ensureDetailsModal() {
   });
 }
 
-// =====================================================
-// ✅ NUEVO builder: usa pedido + historial + assets reales
-// =====================================================
-function buildDetailsHtmlFromDetails(p, historial, assets) {
-  const numero = escapeHtml(p.numero ?? ("#" + (p.id ?? "")));
-  const key = escapeHtml((p.shopify_order_id && String(p.shopify_order_id) !== "0") ? p.shopify_order_id : p.id);
-  const cliente = escapeHtml(p.cliente ?? "—");
-  const fecha = escapeHtml(p.created_at ?? "—");
-  const total = escapeHtml(p.total ?? "—");
-  const estado = escapeHtml(p.estado_bd ?? "Diseñado");
-  const entrega = escapeHtml(p.estado_envio ?? "—");
-  const metodo = escapeHtml(p.forma_envio ?? "—");
-  const etiquetas = escapeHtml(p.etiquetas ?? "");
+function buildHistorialHtml(historial = []) {
+  if (!historial.length) {
+    return `<div class="text-sm text-slate-500">—</div>`;
+  }
 
-  const imgs = assets?.imgs || [];
-  const diseno = assets?.diseno || [];
-  const confirm = assets?.confirm || [];
-  const files = assets?.files || [];
+  return `
+    <div class="space-y-2">
+      ${historial.map(h => {
+        const estado = escapeHtml(h?.estado ?? "—");
+        const user = escapeHtml(h?.user_name ?? "—");
+        const at = escapeHtml(h?.created_at ?? "—");
+        return `
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div class="text-xs font-extrabold text-slate-800">${estado}</div>
+            <div class="text-[11px] text-slate-600 mt-1">${at} · ${user}</div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function buildDetailsHtml(pedido, historial) {
+  const numero = escapeHtml(pedido?.numero ?? ("#" + (pedido?.id ?? "")));
+  const key = escapeHtml(pedidoKey(pedido));
+  const cliente = escapeHtml(pedido?.cliente ?? "—");
+  const fecha = escapeHtml(pedido?.created_at ?? "—");
+  const total = escapeHtml(pedido?.total ?? "—");
+  const estado = escapeHtml(pedido?.estado_bd ?? pedido?.estado ?? "—");
+  const entrega = escapeHtml(pedido?.estado_envio ?? "—");
+  const metodo = escapeHtml(pedido?.forma_envio ?? "—");
+  const etiquetas = escapeHtml(pedido?.etiquetas ?? "");
+
+  const assets = getPedidoAssetsFrom(pedido, historial);
+
+  const imgs = assets.imgs || [];
+  const diseno = assets.diseno || [];
+  const confirm = assets.confirm || [];
+  const files = assets.files || [];
 
   const listLinks = (arr) => {
     if (!arr.length) return `<div class="text-sm text-slate-500">—</div>`;
@@ -343,17 +367,6 @@ function buildDetailsHtmlFromDetails(p, historial, assets) {
         <a href="${escapeHtml(u)}" target="_blank" rel="noopener" class="block">
           <img src="${escapeHtml(u)}" class="h-24 w-24 object-cover rounded-2xl border border-slate-200" alt="img" />
         </a>
-      `).join("")}
-    </div>
-  ` : `<div class="text-sm text-slate-500">—</div>`;
-
-  const timeline = (historial || []).length ? `
-    <div class="mt-3 space-y-2">
-      ${(historial || []).map(h => `
-        <div class="rounded-2xl border border-slate-200 bg-white p-3">
-          <div class="text-xs font-extrabold text-slate-700">${escapeHtml(h.estado || "—")}</div>
-          <div class="text-xs text-slate-500 mt-1">${escapeHtml(h.created_at || "—")} · ${escapeHtml(h.user_name || "—")}</div>
-        </div>
       `).join("")}
     </div>
   ` : `<div class="text-sm text-slate-500">—</div>`;
@@ -403,15 +416,18 @@ function buildDetailsHtmlFromDetails(p, historial, assets) {
 
       <div class="rounded-2xl border border-slate-200 bg-white p-4">
         <div class="text-xs text-slate-500 font-extrabold uppercase">Historial de etapas</div>
-        ${timeline}
+        <div class="mt-3">${buildHistorialHtml(historial)}</div>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-white p-4">
+        <div class="text-xs text-slate-500 font-extrabold uppercase">Artículos (raw)</div>
+        <pre class="mt-3 text-xs bg-slate-50 border border-slate-200 rounded-2xl p-3 overflow-auto">${escapeHtml(String(pedido?.articulos ?? ""))}</pre>
       </div>
     </div>
   `;
 }
 
-// =====================================================
-// ✅ openPedidoDetails ahora consulta al backend para traer historial completo
-// =====================================================
+// ✅ ahora el modal SIEMPRE trae detalle real del backend
 async function openPedidoDetails(orderKey) {
   ensureDetailsModal();
 
@@ -421,33 +437,23 @@ async function openPedidoDetails(orderKey) {
   const body = document.getElementById("pedidoDetailsBody");
 
   modal.dataset.orderKey = String(orderKey);
-  if (title) title.textContent = "Detalles del pedido";
-  if (sub) sub.textContent = "Cargando…";
+  if (title) title.textContent = `Detalles — ${String(orderKey)}`;
+  if (sub) sub.textContent = `Cargando...`;
   if (body) body.innerHTML = `<div class="text-sm text-slate-600">Cargando detalles…</div>`;
   modal.classList.remove("hidden");
 
-  // info rápida desde cache (para título inmediato)
-  const cached = pedidosCache.find(x => String(pedidoKey(x)) === String(orderKey))
-             || pedidosFiltrados.find(x => String(pedidoKey(x)) === String(orderKey));
-
-  if (cached) {
-    const numero = cached.numero ?? ("#" + (cached.id ?? ""));
-    const cliente = cached.cliente ?? "—";
-    if (title) title.textContent = `Detalles — ${String(numero)}`;
-    if (sub) sub.textContent = `Cliente: ${String(cliente)}`;
-  }
-
+  showLoader(true);
   try {
     const { res, data, raw } = await apiGet(`${ENDPOINT_DETAILS}/${encodeURIComponent(String(orderKey))}`);
 
     if (!res.ok || !data || data.ok !== true) {
       console.error("DETAILS FAIL:", res.status, raw);
-      if (sub) sub.textContent = "No se pudieron cargar los detalles.";
-      if (body) body.innerHTML = `<div class="text-sm text-red-600">Error cargando detalles.</div>`;
+      if (sub) sub.textContent = `No se pudieron cargar los detalles`;
+      if (body) body.innerHTML = `<div class="text-sm text-rose-700 font-extrabold">Error cargando detalles</div>`;
       return;
     }
 
-    const pedido = data.pedido || cached || {};
+    const pedido = data.pedido || {};
     const historial = Array.isArray(data.historial) ? data.historial : [];
 
     const numero = pedido.numero ?? ("#" + (pedido.id ?? ""));
@@ -455,19 +461,19 @@ async function openPedidoDetails(orderKey) {
 
     if (title) title.textContent = `Detalles — ${String(numero)}`;
     if (sub) sub.textContent = `Cliente: ${String(cliente)}`;
-
-    const assets = getPedidoAssetsFromDetails(pedido, historial);
-    if (body) body.innerHTML = buildDetailsHtmlFromDetails(pedido, historial, assets);
+    if (body) body.innerHTML = buildDetailsHtml(pedido, historial);
 
   } catch (e) {
-    console.error("openPedidoDetails error:", e);
-    if (sub) sub.textContent = "Error de red.";
-    if (body) body.innerHTML = `<div class="text-sm text-red-600">Error de red cargando detalles.</div>`;
+    console.error("DETAILS exception:", e);
+    if (sub) sub.textContent = `Error cargando detalles`;
+    if (body) body.innerHTML = `<div class="text-sm text-rose-700 font-extrabold">Error cargando detalles</div>`;
+  } finally {
+    showLoader(false);
   }
 }
 
 // =====================================================
-// RENDER
+// RENDER LISTADO
 // =====================================================
 function renderEmpty(target) {
   if (!target) return;
@@ -642,9 +648,7 @@ function aplicarFiltro() {
         p.estado_bd,
         p.forma_envio,
         p.articulos,
-        p.pedido_json,
-        p.pedido_json_historial,
-        p.imagenes, p.archivos, p.archivo_diseno, p.archivo_confirmacion,
+        p.imagenes_locales, // ✅
       ].join(" "));
       return blob.includes(q);
     });
@@ -724,22 +728,6 @@ async function traerPedidos(count) {
   }
 }
 
-async function devolverPedidosRestantes() {
-  if (!confirm("¿Seguro que quieres devolver TODOS tus pedidos pendientes en Montaje?")) return;
-
-  const { res, data, raw } = await apiPost(ENDPOINT_RETURN_ALL, {});
-  if (!res.ok || !data) {
-    console.error("RETURN ALL FAIL:", res.status, raw);
-    alert("No se pudo devolver pedidos.");
-    return;
-  }
-  if (data.ok !== true && data.success !== true) {
-    alert(data.error || data.message || "No se pudo devolver pedidos.");
-    return;
-  }
-  await cargarMiCola();
-}
-
 // Util: sacar de UI y cache (optimista)
 function removePedidoFromUI(orderKey) {
   pedidosCache = pedidosCache.filter(p => String(pedidoKey(p)) !== String(orderKey));
@@ -793,9 +781,6 @@ window.openPedidoDetails = openPedidoDetails;
 // Para tu botón "Actualizar" del HTML
 window.__montajeRefresh = cargarMiCola;
 
-// =====================================================
-// BINDS
-// =====================================================
 document.addEventListener("DOMContentLoaded", () => {
   $("btnTraer5")?.addEventListener("click", () => traerPedidos(5));
   $("btnTraer10")?.addEventListener("click", () => traerPedidos(10));
