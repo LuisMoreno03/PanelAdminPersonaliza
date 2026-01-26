@@ -163,7 +163,14 @@ class ProduccionController extends BaseController
                 FROM pedidos p
 
                 LEFT JOIN pedidos_estado pe
-                    ON (pe.order_id = p.id OR pe.order_id = p.shopify_order_id)
+                ON (
+                    CAST(pe.order_id AS UNSIGNED) = p.id
+                    OR (
+                        p.shopify_order_id IS NOT NULL
+                        AND p.shopify_order_id <> 0
+                        AND CAST(pe.order_id AS UNSIGNED) = p.shopify_order_id
+                    )
+                )
 
                 LEFT JOIN (
                     SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
@@ -176,10 +183,14 @@ class ProduccionController extends BaseController
                     ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
                 ) h
                 ON (
-                    h.order_id = p.id
-                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
-                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                    CAST(h.order_id AS UNSIGNED) = p.id
+                    OR (
+                        p.shopify_order_id IS NOT NULL
+                        AND p.shopify_order_id <> 0
+                        AND CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                    )
                 )
+
 
                 WHERE p.assigned_to_user_id = ?
                 AND LOWER(TRIM(
@@ -273,11 +284,15 @@ class ProduccionController extends BaseController
                         FROM pedidos_estado_historial
                         GROUP BY order_id
                     ) x ON x.last_id = h1.id
-                ) h ON (
-                    h.order_id = p.id
-                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
-                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
-                )
+                ) ) h ON (
+                        CAST(h.order_id AS UNSIGNED) = p.id
+                        OR (
+                            p.shopify_order_id IS NOT NULL
+                            AND p.shopify_order_id <> 0
+                            AND CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                        )
+                    )
+
 
                 WHERE LOWER(TRIM(CAST(h.estado AS CHAR) COLLATE {$coll}))
                     = ('confirmado' COLLATE {$coll})
