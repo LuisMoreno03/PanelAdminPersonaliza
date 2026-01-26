@@ -68,7 +68,7 @@ class DashboardController extends Controller
     }
 
     private function loadShopifyFromEnv(): void
-    {
+    { 
         try {
             // Soporta ambos nombres por si acaso
             $shop  = (string)(env('SHOPIFY_SHOP') ?: getenv('SHOPIFY_SHOP'));
