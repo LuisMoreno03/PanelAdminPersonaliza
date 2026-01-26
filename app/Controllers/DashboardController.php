@@ -8,9 +8,9 @@ use App\Models\PedidosEstadoModel;
 
 class DashboardController extends Controller
 {
-    private string $shop = '';
-    private string $token = '';
-    private string $apiVersion = '2025-10';
+    private string $shop = '962f2d.myshopify.com';
+    private string $token = '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';
+    private string $apiVersion = '';
 
     // ✅ Estados permitidos (los del modal)
     private array $allowedEstados = [
