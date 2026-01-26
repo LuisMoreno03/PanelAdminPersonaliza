@@ -7,6 +7,7 @@ const ENDPOINT_RETURN_ALL = `${API_BASE}/montaje/return-all`;
 
 const ENDPOINT_REALIZADO = `${API_BASE}/montaje/realizado`; // recomendado
 const ENDPOINT_CARGADO_FALLBACK = `${API_BASE}/montaje/cargado`; // compatibilidad
+const ENDPOINT_ENVIAR = `${API_BASE}/montaje/enviar`; // ✅ nuevo
 
 let pedidosCache = [];
 let pedidosFiltrados = [];
@@ -82,9 +83,170 @@ function pedidoKey(p) {
   return (shopifyId && shopifyId !== "0") ? shopifyId : id;
 }
 
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+// =====================================================
+// PARSEO DETALLES (imagenes/archivos) - tolerante
+// =====================================================
+function safeJsonParse(v) {
+  if (v == null) return null;
+  if (typeof v === "object") return v;
+  const s = String(v).trim();
+  if (!s) return null;
+  try { return JSON.parse(s); } catch { return null; }
+}
+
+function isUrl(s) {
+  const v = String(s ?? "").trim();
+  return /^https?:\/\/\S+/i.test(v);
+}
+
+function extractUrlsDeep(any) {
+  const out = [];
+  const seen = new Set();
+
+  const push = (u) => {
+    const v = String(u ?? "").trim();
+    if (!v || !isUrl(v)) return;
+    if (seen.has(v)) return;
+    seen.add(v);
+    out.push(v);
+  };
+
+  const walk = (x) => {
+    if (x == null) return;
+
+    if (typeof x === "string") {
+      // puede venir "url1, url2" o texto con urls
+      const parts = x.split(/[\s,]+/).map(t => t.trim()).filter(Boolean);
+      parts.forEach(push);
+      return;
+    }
+
+    if (Array.isArray(x)) {
+      x.forEach(walk);
+      return;
+    }
+
+    if (typeof x === "object") {
+      for (const k of Object.keys(x)) {
+        const val = x[k];
+        // claves comunes
+        if (typeof val === "string" && isUrl(val)) push(val);
+        walk(val);
+      }
+    }
+  };
+
+  walk(any);
+  return out;
+}
+
+function splitImagesAndFiles(urls) {
+  const imgs = [];
+  const files = [];
+  for (const u of (urls || [])) {
+    const lower = u.toLowerCase();
+    if (/\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower)) imgs.push(u);
+    else files.push(u);
+  }
+  return { imgs, files };
+}
+
+function getPedidoAssets(p) {
+  // 1) columnas extra probables
+  const directFields = [
+    p.imagenes, p.imagenes_json,
+    p.archivos, p.archivos_json,
+    p.archivo_diseno, p.archivos_diseno, p.diseno_url, p.diseno_urls,
+    p.archivo_confirmacion, p.archivos_confirmacion, p.confirmacion_url, p.confirmacion_urls,
+  ];
+
+  const urls = [];
+
+  // URLs directas / strings con urls
+  directFields.forEach(v => urls.push(...extractUrlsDeep(v)));
+
+  // 2) pedido_json en pedidos
+  urls.push(...extractUrlsDeep(safeJsonParse(p.pedido_json)));
+
+  // 3) pedido_json del último historial
+  urls.push(...extractUrlsDeep(safeJsonParse(p.pedido_json_historial)));
+
+  // 4) articulos (a veces trae urls)
+  urls.push(...extractUrlsDeep(safeJsonParse(p.articulos) ?? p.articulos));
+
+  const unique = [...new Set(urls)];
+  const { imgs, files } = splitImagesAndFiles(unique);
+
+  // heurística: si la url contiene "diseno" o "design" => diseño; si contiene "confirm" => confirmación
+  const diseno = [];
+  const confirm = [];
+  const otherFiles = [];
+
+  for (const f of files) {
+    const l = f.toLowerCase();
+    if (l.includes("diseno") || l.includes("diseño") || l.includes("design")) diseno.push(f);
+    else if (l.includes("confirm") || l.includes("aprob")) confirm.push(f);
+    else otherFiles.push(f);
+  }
+
+  return { imgs, diseno, confirm, files: otherFiles };
+}
+
+function assetsHtml(p) {
+  const a = getPedidoAssets(p);
+  if ((!a.imgs || !a.imgs.length) && (!a.diseno.length) && (!a.confirm.length) && (!a.files.length)) return "";
+
+  const imgBlock = a.imgs?.length ? `
+    <div class="mt-3">
+      <div class="text-xs font-extrabold text-slate-700 mb-1">Imágenes</div>
+      <div class="flex flex-wrap gap-2">
+        ${a.imgs.slice(0, 8).map(u => `
+          <a href="${escapeHtml(u)}" target="_blank" rel="noopener" class="block">
+            <img src="${escapeHtml(u)}" alt="img" class="h-16 w-16 object-cover rounded-xl border border-slate-200" />
+          </a>
+        `).join("")}
+      </div>
+    </div>
+  ` : "";
+
+  const linksList = (title, arr) => {
+    if (!arr || !arr.length) return "";
+    return `
+      <div class="mt-3">
+        <div class="text-xs font-extrabold text-slate-700 mb-1">${escapeHtml(title)}</div>
+        <div class="flex flex-col gap-1">
+          ${arr.slice(0, 8).map(u => `
+            <a href="${escapeHtml(u)}" target="_blank" rel="noopener"
+               class="text-xs text-indigo-700 hover:underline break-all">
+              ${escapeHtml(u)}
+            </a>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  };
+
+  return `
+    <div class="mt-2">
+      ${imgBlock}
+      ${linksList("Archivos de diseño", a.diseno)}
+      ${linksList("Archivos de confirmación", a.confirm)}
+      ${linksList("Otros archivos", a.files)}
+    </div>
+  `;
+}
+
 // =====================================================
 // RENDER
-// (tu contenedor es DIV, así que pintamos DIVs con .prod-grid-cols)
 // =====================================================
 function renderEmpty(target) {
   if (!target) return;
@@ -102,15 +264,6 @@ function tagsMiniHtml(etiquetas) {
       ${parts.map(t => `<span class="tag-mini">${escapeHtml(t)}</span>`).join("")}
     </div>
   `;
-}
-
-function escapeHtml(str) {
-  return String(str ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 function rowHtml(p) {
@@ -136,6 +289,7 @@ function rowHtml(p) {
       <div class="min-w-0">
         <div class="font-extrabold truncate">${cliente}</div>
         ${tagsMiniHtml(p.etiquetas)}
+        ${assetsHtml(p)}
       </div>
 
       <div class="text-right font-extrabold">${total}</div>
@@ -150,7 +304,13 @@ function rowHtml(p) {
       <div class="text-slate-700 truncate">${entrega}</div>
       <div class="text-slate-700 truncate">${metodo}</div>
 
-      <div class="text-right">
+      <div class="text-right flex items-center justify-end gap-2">
+        <button type="button"
+          class="h-9 px-3 rounded-2xl bg-indigo-600 text-white font-extrabold text-xs hover:bg-indigo-700 transition"
+          onclick="window.enviarPedido('${escapeHtml(key)}')">
+          Enviar
+        </button>
+
         <button type="button"
           class="h-9 px-3 rounded-2xl bg-emerald-600 text-white font-extrabold text-xs hover:bg-emerald-700 transition"
           onclick="window.marcarRealizado('${escapeHtml(key)}')">
@@ -181,16 +341,25 @@ function cardHtml(p) {
           <div class="text-sm text-slate-700 mt-2 truncate"><b>Cliente:</b> ${cliente}</div>
           <div class="text-sm text-slate-700 truncate"><b>Total:</b> ${total}</div>
           <div class="text-sm text-slate-700 truncate"><b>Estado:</b> ${estado}</div>
+
+          ${p.etiquetas ? `<div class="mt-3">${tagsMiniHtml(p.etiquetas)}</div>` : ``}
+          ${assetsHtml(p)}
         </div>
 
-        <button type="button"
-          class="h-10 px-4 rounded-2xl bg-emerald-600 text-white font-extrabold text-xs hover:bg-emerald-700 transition shrink-0"
-          onclick="window.marcarRealizado('${escapeHtml(key)}')">
-          Realizado
-        </button>
-      </div>
+        <div class="flex flex-col gap-2 shrink-0">
+          <button type="button"
+            class="h-10 px-4 rounded-2xl bg-indigo-600 text-white font-extrabold text-xs hover:bg-indigo-700 transition"
+            onclick="window.enviarPedido('${escapeHtml(key)}')">
+            Enviar
+          </button>
 
-      ${p.etiquetas ? `<div class="mt-3">${tagsMiniHtml(p.etiquetas)}</div>` : ``}
+          <button type="button"
+            class="h-10 px-4 rounded-2xl bg-emerald-600 text-white font-extrabold text-xs hover:bg-emerald-700 transition"
+            onclick="window.marcarRealizado('${escapeHtml(key)}')">
+            Realizado
+          </button>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -231,6 +400,10 @@ function aplicarFiltro() {
         p.estado_bd,
         p.forma_envio,
         p.articulos,
+        // incluir campos extra por si quieres buscar por url/archivos
+        p.pedido_json,
+        p.pedido_json_historial,
+        p.imagenes, p.archivos, p.archivo_diseno, p.archivo_confirmacion,
       ].join(" "));
       return blob.includes(q);
     });
@@ -326,14 +499,40 @@ async function devolverPedidosRestantes() {
   await cargarMiCola();
 }
 
+// Util: sacar de UI y cache (optimista)
+function removePedidoFromUI(orderKey) {
+  pedidosCache = pedidosCache.filter(p => String(pedidoKey(p)) !== String(orderKey));
+  aplicarFiltro();
+  document.querySelectorAll(`[data-order-id="${CSS.escape(String(orderKey))}"]`).forEach(n => n.remove());
+}
+
+// ✅ Enviar => Por preparar + desasigna + sale de la lista
+async function enviarPedido(orderKey) {
+  const before = [...pedidosCache];
+
+  // UI optimista
+  removePedidoFromUI(orderKey);
+
+  const payload = { order_id: String(orderKey) };
+  const resp = await apiPost(ENDPOINT_ENVIAR, payload);
+
+  if (!resp.res.ok || !resp.data || (resp.data.ok !== true && resp.data.success !== true)) {
+    // revertimos si falla
+    pedidosCache = before;
+    aplicarFiltro();
+    alert(resp.data?.error || resp.data?.message || "No se pudo enviar el pedido");
+    return;
+  }
+
+  // OK: backend ya lo dejó en Por preparar y desasignado
+}
+
 // ✅ Realizado => Por producir + desasigna + sale de la lista
 async function marcarRealizado(orderKey) {
   const before = [...pedidosCache];
 
-  // UI optimista: quitamos ya
-  pedidosCache = pedidosCache.filter(p => String(pedidoKey(p)) !== String(orderKey));
-  aplicarFiltro();
-  document.querySelectorAll(`[data-order-id="${CSS.escape(String(orderKey))}"]`).forEach(n => n.remove());
+  // UI optimista
+  removePedidoFromUI(orderKey);
 
   const payload = { order_id: String(orderKey) };
 
@@ -356,6 +555,7 @@ async function marcarRealizado(orderKey) {
 
 // Exponer global para onclick
 window.marcarRealizado = marcarRealizado;
+window.enviarPedido = enviarPedido;
 
 // Para tu botón "Actualizar" del HTML (onclick window.__montajeRefresh())
 window.__montajeRefresh = cargarMiCola;
