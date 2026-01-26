@@ -487,7 +487,7 @@ class DashboardController extends Controller
                 $changedAt = $r['changed_at'] ?? null;
                 $hasModified = $this->hasAnyModifiedImage($r['imagenes_locales'] ?? null);
                 $modifiedCount = $this->countModifiedImages($r['imagenes_locales'] ?? null);
-
+ 
                 $orders[] = [
                     'id'           => $oid,
                     'numero'       => $r['numero'] ?: ('#' . $oid),
