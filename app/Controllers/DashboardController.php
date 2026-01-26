@@ -30,14 +30,10 @@ class DashboardController extends Controller
         $this->loadShopifyFromConfig();
 
         // 2) archivo fuera del repo
-        if (!$this->shop || !$this->token) {
-            $this->loadShopifySecretsFromFile();
-        }
+        $this->loadShopifySecretsFromFile();
 
-        // 3) env() (fallback)
-        if (!$this->shop || !$this->token) {
-            $this->loadShopifyFromEnv();
-        }
+        // 3) env() (SIEMPRE como override/fallback)
+        $this->loadShopifyFromEnv();
 
         // Normalizar dominio
         $this->shop = trim($this->shop);
@@ -48,6 +44,8 @@ class DashboardController extends Controller
         $this->token = trim($this->token);
         $this->apiVersion = trim($this->apiVersion ?: '2024-10');
     }
+
+
 
     // =====================================================
     // CONFIG LOADERS
