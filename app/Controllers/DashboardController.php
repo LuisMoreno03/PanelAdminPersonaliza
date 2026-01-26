@@ -102,6 +102,59 @@ class DashboardController extends Controller
     // HELPERS
     // =====================================================
 
+    /**
+     * ✅ Devuelve true si el JSON de imagenes_locales contiene al menos 1 URL válida.
+     * Soporta formato:
+     *  - {"0":{"url":"..."}, "1":{"url":"..."}}
+     *  - {"0":"https://..."}
+     *  - {"0":{"value":"..."}}
+     */
+    private function hasAnyModifiedImage(?string $imagenesLocalesJson): bool
+    {
+        $imagenesLocalesJson = (string)$imagenesLocalesJson;
+        if (trim($imagenesLocalesJson) === '') return false;
+
+        $data = json_decode($imagenesLocalesJson, true);
+        if (!is_array($data) || empty($data)) return false;
+
+        foreach ($data as $val) {
+            $url = '';
+
+            if (is_string($val)) {
+                $url = $val;
+            } elseif (is_array($val)) {
+                $url = (string)($val['url'] ?? $val['value'] ?? '');
+            }
+
+            if (trim($url) !== '') return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * (Opcional) cuenta cuántas imágenes modificadas hay (URLs no vacías)
+     */
+    private function countModifiedImages(?string $imagenesLocalesJson): int
+    {
+        $imagenesLocalesJson = (string)$imagenesLocalesJson;
+        if (trim($imagenesLocalesJson) === '') return 0;
+
+        $data = json_decode($imagenesLocalesJson, true);
+        if (!is_array($data) || empty($data)) return 0;
+
+        $c = 0;
+        foreach ($data as $val) {
+            $url = '';
+
+            if (is_string($val)) $url = $val;
+            elseif (is_array($val)) $url = (string)($val['url'] ?? $val['value'] ?? '');
+
+            if (trim($url) !== '') $c++;
+        }
+        return $c;
+    }
+
     private function parseLinkHeaderForPageInfo(?string $linkHeader): array
     {
         $next = null;
@@ -387,8 +440,11 @@ class DashboardController extends Controller
 
             // -------- ROWS ----------
             $qb = $db->table('pedidos p');
+            $hasImgLocales = $db->fieldExists('imagenes_locales', 'pedidos');
+
             $qb->select(
                 'p.shopify_order_id, p.numero, p.cliente, p.total, p.articulos, p.estado_envio, p.forma_envio, p.created_at,' .
+                ($hasImgLocales ? 'p.imagenes_locales,' : 'NULL AS imagenes_locales,') .
                 'pe.estado AS estado_interno, pe.estado_updated_by_name AS user_name,' .
                 'COALESCE(pe.estado_updated_at, pe.actualizado) AS changed_at',
                 false
@@ -429,6 +485,8 @@ class DashboardController extends Controller
                 $fecha = $created ? substr($created, 0, 10) : '-';
 
                 $changedAt = $r['changed_at'] ?? null;
+                $hasModified = $this->hasAnyModifiedImage($r['imagenes_locales'] ?? null);
+                $modifiedCount = $this->countModifiedImages($r['imagenes_locales'] ?? null);
 
                 $orders[] = [
                     'id'           => $oid,
@@ -440,6 +498,9 @@ class DashboardController extends Controller
                     'articulos'    => (int)($r['articulos'] ?? 0),
                     'estado_envio' => $r['estado_envio'] ?: '-',
                     'forma_envio'  => $r['forma_envio'] ?: '-',
+                    'has_modified_image' => $hasModified ? 1 : 0,
+                    'modified_images_count' => $modifiedCount,
+
                     'last_status_change' => $changedAt ? [
                         'user_name'  => $r['user_name'] ?: 'Sistema',
                         'changed_at' => $changedAt,
