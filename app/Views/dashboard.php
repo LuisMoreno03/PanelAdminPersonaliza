@@ -56,7 +56,7 @@
         110px                     /* Pedido */
         92px                      /* Fecha */
         minmax(170px, 1.2fr)      /* Cliente */
-        90px                      /* Total */
+        140px                      /* Total */
         160px                     /* Estado */
         minmax(140px, 0.9fr)      /* Último cambio */
         44px                      /* Art */
