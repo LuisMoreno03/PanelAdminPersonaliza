@@ -135,6 +135,7 @@ class ProduccionController extends BaseController
                 ";
             }
 
+           $coll = 'utf8mb4_unicode_ci';
             $rows = $db->query("
                 SELECT
                     p.id,
@@ -151,8 +152,8 @@ class ProduccionController extends BaseController
                     p.assigned_at,
 
                     COALESCE(
-                        CAST(h.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
-                        CAST(pe.estado AS CHAR) COLLATE utf8mb4_uca1400_ai_ci,
+                        CAST(h.estado AS CHAR) COLLATE {$coll},
+                        CAST(pe.estado AS CHAR) COLLATE {$coll},
                         'por preparar'
                     ) AS estado_bd,
 
@@ -181,14 +182,14 @@ class ProduccionController extends BaseController
                 )
 
                 WHERE p.assigned_to_user_id = ?
-                  AND LOWER(TRIM(
-                        CAST(COALESCE(h.estado, pe.estado, '') AS CHAR)
-                        COLLATE utf8mb4_uca1400_ai_ci
-                  )) = 'confirmado'
-                  {$condNoEnviados}
+                AND LOWER(TRIM(
+                        CAST(COALESCE(h.estado, pe.estado, '') AS CHAR) COLLATE {$coll}
+                )) = ('confirmado' COLLATE {$coll})
+                {$condNoEnviados}
 
                 ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
             ", [$userId])->getResultArray();
+
 
             return $this->response->setJSON([
                 'ok' => true,
