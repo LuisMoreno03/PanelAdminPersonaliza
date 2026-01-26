@@ -70,7 +70,7 @@ class DashboardController extends Controller
     private function loadShopifyFromEnv(): void
     {
         try {
-            $shop  = (string)env('SHOPIFY_STORE_DOMAIN');
+            $shop  = (string)env('SHOPIFY_SHOP');
             $token = (string)env('SHOPIFY_ADMIN_TOKEN');
             $ver   = (string)(env('SHOPIFY_API_VERSION') ?: '2025-10');
 
