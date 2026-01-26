@@ -257,6 +257,8 @@ class ProduccionController extends BaseController
                 ";
             }
 
+            $coll = 'utf8mb4_unicode_ci';
+
             $candidatos = $db->query("
                 SELECT
                     p.id,
@@ -277,13 +279,15 @@ class ProduccionController extends BaseController
                     OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
                 )
 
-                WHERE TRIM(LOWER(h.estado)) COLLATE utf8mb4_unicode_ci = 'confirmado'
-                  {$condNoEnviados}
-                  AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
+                WHERE LOWER(TRIM(CAST(h.estado AS CHAR) COLLATE {$coll}))
+                    = ('confirmado' COLLATE {$coll})
+                {$condNoEnviados}
+                AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
 
                 ORDER BY h.created_at ASC, p.id ASC
                 LIMIT {$count}
             ")->getResultArray();
+
 
             if (!$candidatos) {
                 return $this->response->setJSON([
