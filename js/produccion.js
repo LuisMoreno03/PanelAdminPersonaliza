@@ -38,6 +38,34 @@ let currentDetallesOrderId = null;   // el que llegó al abrir (puede ser shopif
 // =========================
 function $(id) { return document.getElementById(id); }
 
+function normalizeUrlValue(v) {
+  if (!v) return "";
+  if (typeof v === "string") return v.trim();
+
+  // si viene como objeto
+  if (typeof v === "object") {
+    const u =
+      v.url || v.public_url || v.publicUrl ||
+      v.path || v.file || v.file_url || v.fileUrl ||
+      v.location || v.href || v.src;
+    return u ? String(u).trim() : "";
+  }
+
+  return String(v).trim();
+}
+
+function toAbsoluteUrl(u) {
+  const s = String(u || "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith("//")) return `${location.protocol}${s}`;
+  // relativo
+  const base = location.origin.replace(/\/$/, "");
+  const path = s.startsWith("/") ? s : `/${s}`;
+  return `${base}${path}`;
+}
+
+
 function setLoader(show) {
   if (silentFetch) return;
   const el = $("globalLoader");
@@ -993,7 +1021,9 @@ async function abrirDetallesPedido(orderId) {
 
     const pid = String(item.product_id || "");
     const productImg = pid && productImages?.[pid] ? String(productImages[pid]) : "";
-    const localUrl = imagenesLocales?.[index] ? String(imagenesLocales[index]) : "";
+    const localRaw = imagenesLocales?.[index];
+    const localUrl = toAbsoluteUrl(normalizeUrlValue(localRaw));
+
 
     const productImgHtml = productImg
       ? `<a href="${escapeHtml(productImg)}" target="_blank"
