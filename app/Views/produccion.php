@@ -267,7 +267,7 @@
                   <button type="submit"
                     class="h-11 w-full px-4 rounded-2xl bg-slate-900 text-white font-extrabold hover:bg-slate-800 transition">
                     subir arcvhivo diseñado
-                  </button>z
+                  </button>
 
                   <div id="generalUploadMsg" class="text-sm"></div>
                 </form>
