@@ -7,8 +7,17 @@ use App\Models\PedidosEstadoModel;
 
 class ProduccionController extends BaseController
 {
+    /**
+     * Estado desde el que se hace Pull (cola inicial)
+     * En tu vista dice: "Pull desde Confirmado"
+     */
     private string $estadoEntrada = 'Confirmado';
-    // ✅ CAMBIO: antes 'Por producir'
+
+    /**
+     * Estado al que pasa el pedido cuando subes archivos diseñados
+     * ✅ Si quieres que pase a "Por producir", cambia aquí:
+     * private string $estadoProduccion = 'Por producir';
+     */
     private string $estadoProduccion = 'Diseñado';
 
     public function index()
@@ -20,13 +29,9 @@ class ProduccionController extends BaseController
     // Helpers (resolver pedido/carpeta)
     // =========================
 
-    /**
-     * Sanitiza el nombre de carpeta para evitar caracteres raros (ej: "#1234" -> "1234")
-     */
     private function sanitizeFolderKey(string $key): string
     {
         $key = trim($key);
-        // permite letras, números, guion y guion bajo
         $key = preg_replace('/[^a-zA-Z0-9_-]/', '', $key);
         return $key !== '' ? $key : '0';
     }
@@ -34,16 +39,14 @@ class ProduccionController extends BaseController
     private function resolvePedidoKeys(string $orderIdRaw): array
     {
         $orderIdRaw = trim($orderIdRaw);
-
         $db = \Config\Database::connect();
 
-        // ✅ IMPORTANTE: traemos también "numero" para usarlo como carpeta
         $pedido = $db->table('pedidos')
             ->select('id, numero, shopify_order_id, assigned_to_user_id')
             ->groupStart()
                 ->where('id', $orderIdRaw)
                 ->orWhere('shopify_order_id', $orderIdRaw)
-                ->orWhere('numero', $orderIdRaw) // por si te mandan el numero directamente
+                ->orWhere('numero', $orderIdRaw)
             ->groupEnd()
             ->get()
             ->getRowArray();
@@ -61,7 +64,7 @@ class ProduccionController extends BaseController
             }
         }
 
-        // ✅ NUEVO: carpeta por NUMERO (más humano), si no existe -> id, si no -> raw
+        // Carpeta por numero -> id -> raw
         $pedidoNumero = $pedido['numero'] ?? null;
         $preferredFolderKeyRaw = $pedidoNumero
             ? (string)$pedidoNumero
@@ -88,14 +91,12 @@ class ProduccionController extends BaseController
         $orderIdRaw = trim((string)$orderIdRaw);
         $candidates = [];
 
-        // ✅ Prioridad: numero -> preferred -> pedidoId -> raw -> shopify
         if ($pedidoNumero) $candidates[] = $this->sanitizeFolderKey((string)$pedidoNumero);
         if ($preferredFolderKey) $candidates[] = $this->sanitizeFolderKey((string)$preferredFolderKey);
         if ($pedidoIdStr) $candidates[] = $this->sanitizeFolderKey((string)$pedidoIdStr);
         if ($orderIdRaw !== '') $candidates[] = $this->sanitizeFolderKey((string)$orderIdRaw);
         if ($shopifyOrderId) $candidates[] = $this->sanitizeFolderKey((string)$shopifyOrderId);
 
-        // unique manteniendo orden
         $seen = [];
         $uniq = [];
         foreach ($candidates as $c) {
@@ -110,7 +111,6 @@ class ProduccionController extends BaseController
             if (is_dir($dir)) return $key;
         }
 
-        // si no existe ninguna, devolvemos el preferido o el raw (sanitizado)
         $fallback = $preferredFolderKey ?: ($orderIdRaw ?: '0');
         return $this->sanitizeFolderKey($fallback);
     }
@@ -121,29 +121,23 @@ class ProduccionController extends BaseController
     public function myQueue()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'ok' => false,
-                'error' => 'No autenticado',
-            ]);
+            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
         }
 
         $userId = (int)(session('user_id') ?? 0);
         if (!$userId) {
-            return $this->response->setJSON([
-                'ok' => false,
-                'error' => 'Sin user_id en sesión',
-            ]);
+            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
         }
 
         try {
             $db = \Config\Database::connect();
 
-            // ✅ detectar columnas reales
+            // Detectar columnas reales
             $fields = $db->getFieldNames('pedidos') ?? [];
             $hasEstadoEnvio = in_array('estado_envio', $fields, true);
             $hasFulfillment = in_array('fulfillment_status', $fields, true);
 
-            // ✅ condición NO ENVIADOS (solo unfulfilled / null / vacío)
+            // Condición NO ENVIADOS
             $condNoEnviados = "";
             if ($hasEstadoEnvio) {
                 $condNoEnviados = "
@@ -164,6 +158,8 @@ class ProduccionController extends BaseController
             }
 
             $coll = 'utf8mb4_unicode_ci';
+            $estadoEntradaLower = strtolower(trim($this->estadoEntrada));
+
             $rows = $db->query("
                 SELECT
                     p.id,
@@ -221,17 +217,14 @@ class ProduccionController extends BaseController
 
                 WHERE p.assigned_to_user_id = ?
                 AND LOWER(TRIM(
-                        CAST(COALESCE(h.estado, pe.estado, '') AS CHAR) COLLATE {$coll}
-                )) = ('confirmado' COLLATE {$coll})
+                    CAST(COALESCE(h.estado, pe.estado, '') AS CHAR) COLLATE {$coll}
+                )) = ('{$estadoEntradaLower}' COLLATE {$coll})
                 {$condNoEnviados}
 
                 ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
             ", [$userId])->getResultArray();
 
-            return $this->response->setJSON([
-                'ok' => true,
-                'data' => $rows ?: [],
-            ]);
+            return $this->response->setJSON(['ok' => true, 'data' => $rows ?: []]);
 
         } catch (\Throwable $e) {
             log_message('error', 'ProduccionController myQueue ERROR: ' . $e->getMessage());
@@ -269,12 +262,12 @@ class ProduccionController extends BaseController
             $db = \Config\Database::connect();
             $now = date('Y-m-d H:i:s');
 
-            // ✅ detectar columnas reales
+            // Detectar columnas reales
             $fields = $db->getFieldNames('pedidos') ?? [];
             $hasEstadoEnvio = in_array('estado_envio', $fields, true);
             $hasFulfillment = in_array('fulfillment_status', $fields, true);
 
-            // ✅ condición NO ENVIADOS
+            // Condición NO ENVIADOS
             $condNoEnviados = "";
             if ($hasEstadoEnvio) {
                 $condNoEnviados = "
@@ -295,6 +288,7 @@ class ProduccionController extends BaseController
             }
 
             $coll = 'utf8mb4_unicode_ci';
+            $estadoEntradaLower = strtolower(trim($this->estadoEntrada));
 
             $candidatos = $db->query("
                 SELECT
@@ -321,7 +315,7 @@ class ProduccionController extends BaseController
                 )
 
                 WHERE LOWER(TRIM(CAST(h.estado AS CHAR) COLLATE {$coll}))
-                    = ('confirmado' COLLATE {$coll})
+                    = ('{$estadoEntradaLower}' COLLATE {$coll})
                 {$condNoEnviados}
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
 
@@ -332,7 +326,7 @@ class ProduccionController extends BaseController
             if (!$candidatos) {
                 return $this->response->setJSON([
                     'ok' => true,
-                    'message' => 'No hay pedidos disponibles para asignar (no enviados + confirmados)',
+                    'message' => "No hay pedidos disponibles para asignar (no enviados + {$this->estadoEntrada})",
                     'assigned' => 0,
                 ]);
             }
@@ -360,13 +354,14 @@ class ProduccionController extends BaseController
                 ]);
             }
 
+            // Opcional: registrar evento de asignación en historial (mismo estado)
             foreach ($candidatos as $c) {
                 $shopifyId = trim((string)($c['shopify_order_id'] ?? ''));
                 if ($shopifyId === '' || $shopifyId === '0') continue;
 
                 $db->table('pedidos_estado_historial')->insert([
                     'order_id'   => (string)$shopifyId,
-                    'estado'     => 'Confirmado',
+                    'estado'     => $this->estadoEntrada,
                     'user_id'    => $userId,
                     'user_name'  => $userName,
                     'created_at' => $now,
@@ -438,47 +433,45 @@ class ProduccionController extends BaseController
 
         $orderIdRaw = trim((string)($this->request->getPost('order_id') ?? ''));
         if ($orderIdRaw === '' || $orderIdRaw === '0') {
-            return $this->response->setJSON([
+            return $this->response->setStatusCode(400)->setJSON([
                 'success' => false,
                 'message' => 'order_id requerido',
-            ])->setStatusCode(400);
+            ]);
         }
 
         $files = $this->request->getFiles();
         if (!isset($files['files'])) {
-            return $this->response->setJSON([
+            return $this->response->setStatusCode(400)->setJSON([
                 'success' => false,
                 'message' => 'Sin archivos',
-            ])->setStatusCode(400);
+            ]);
         }
 
         $db = \Config\Database::connect();
         $now = date('Y-m-d H:i:s');
 
-        // ------------------------------------------------------------
         // 1) Resolver pedido / ids
-        // ------------------------------------------------------------
         $keys = $this->resolvePedidoKeys($orderIdRaw);
-        $pedido = $keys['pedido'];
         $pedidoId = $keys['pedido_id'];
         $shopifyOrderId = $keys['shopify_order_id'];
 
-        // ------------------------------------------------------------
-        // 2) Guardar archivos (✅ ahora en carpeta por NUMERO de pedido)
-        // ------------------------------------------------------------
+        // 2) Guardar archivos en carpeta por NUMERO
         $saved = 0;
         $out = [];
 
-        $folderKey = $keys['preferred_folder_key']; // ya viene sanitizado
+        $folderKey = $keys['preferred_folder_key'];
         $dir = WRITEPATH . "uploads/produccion/" . $folderKey;
         if (!is_dir($dir)) mkdir($dir, 0777, true);
 
-        foreach ($files['files'] as $f) {
+        $incoming = $files['files'];
+        if (!is_array($incoming)) $incoming = [$incoming];
+
+        foreach ($incoming as $f) {
             if (!$f || !$f->isValid()) continue;
 
             $newName  = $f->getRandomName();
             $original = $f->getClientName();
-            $mime     = $f->getClientMimeType();
+            $mime     = (string)$f->getClientMimeType();
 
             $f->move($dir, $newName);
 
@@ -500,17 +493,12 @@ class ProduccionController extends BaseController
             ])->setStatusCode(200);
         }
 
-        // ------------------------------------------------------------
-        // 3) Acciones post-upload:
-        //    - Cambiar estado a "Diseñado" ✅
-        //    - Quitar asignación
-        //    - Registrar historial
-        // ------------------------------------------------------------
+        // 3) Post-upload: desasignar + set estado + historial
         $didUnassign = false;
         $didEstado = false;
         $didHist = false;
 
-        $estadoNuevo = $this->estadoProduccion; // 'Diseñado'
+        $estadoNuevo = $this->estadoProduccion;
 
         try {
             $userId   = (int)(session('user_id') ?? 0);
@@ -519,7 +507,6 @@ class ProduccionController extends BaseController
             $db->transBegin();
 
             if ($pedidoId) {
-                // 3.1) desasignar
                 $db->table('pedidos')
                     ->where('id', (int)$pedidoId)
                     ->update([
@@ -527,33 +514,32 @@ class ProduccionController extends BaseController
                         'assigned_at' => null,
                     ]);
                 $didUnassign = true;
+            }
 
-                // 3.2) set estado (order_id = shopify_order_id)
-                if ($shopifyOrderId !== '') {
-                    $estadoModel = new PedidosEstadoModel();
-                    $didEstado = (bool) $estadoModel->setEstadoPedido(
-                        (string)$shopifyOrderId,
-                        $estadoNuevo,
-                        $userId ?: null,
-                        $userName
-                    );
+            $orderIdToSave = $shopifyOrderId ?: ($pedidoId ? (string)$pedidoId : $orderIdRaw);
 
-                    // 3.3) historial
-                    $okHist = $db->table('pedidos_estado_historial')->insert([
-                        'order_id'   => (string)$shopifyOrderId,
-                        'estado'     => $estadoNuevo,
-                        'user_id'    => $userId ?: null,
-                        'user_name'  => $userName,
-                        'created_at' => $now,
-                        'pedido_json'=> null,
-                    ]);
-                    $didHist = (bool)$okHist;
-                }
+            if ($orderIdToSave !== '') {
+                $estadoModel = new PedidosEstadoModel();
+                $didEstado = (bool)$estadoModel->setEstadoPedido(
+                    (string)$orderIdToSave,
+                    $estadoNuevo,
+                    $userId ?: null,
+                    $userName
+                );
+
+                $okHist = $db->table('pedidos_estado_historial')->insert([
+                    'order_id'   => (string)$orderIdToSave,
+                    'estado'     => $estadoNuevo,
+                    'user_id'    => $userId ?: null,
+                    'user_name'  => $userName,
+                    'created_at' => $now,
+                    'pedido_json'=> null,
+                ]);
+                $didHist = (bool)$okHist;
             }
 
             if ($db->transStatus() === false) {
                 $db->transRollback();
-
                 return $this->response->setJSON([
                     'success' => true,
                     'saved' => $saved,
@@ -562,6 +548,7 @@ class ProduccionController extends BaseController
                     'order_id_received' => $orderIdRaw,
                     'pedido_id' => $pedidoId,
                     'shopify_order_id' => $shopifyOrderId,
+                    'folder_key' => $folderKey,
                 ])->setStatusCode(200);
             }
 
@@ -579,6 +566,7 @@ class ProduccionController extends BaseController
                 'order_id_received' => $orderIdRaw,
                 'pedido_id' => $pedidoId,
                 'shopify_order_id' => $shopifyOrderId,
+                'folder_key' => $folderKey,
             ])->setStatusCode(200);
         }
 
@@ -598,9 +586,10 @@ class ProduccionController extends BaseController
     }
 
     // =========================
-    // ✅ POST /produccion/upload-modificada
+    // POST /produccion/set-estado
+    // (fallback del JS)
     // =========================
-    public function uploadModificada()
+    public function setEstado()
     {
         if (!session()->get('logged_in')) {
             return $this->response->setStatusCode(401)->setJSON([
@@ -609,75 +598,110 @@ class ProduccionController extends BaseController
             ]);
         }
 
-        $orderIdRaw = trim((string)($this->request->getPost('order_id') ?? ''));
-        $itemIndex  = (string)($this->request->getPost('item_index') ?? '');
+        $data = $this->request->getJSON(true);
+        if (!is_array($data)) $data = [];
 
-        if ($orderIdRaw === '' || $orderIdRaw === '0') {
+        $orderIdRaw = trim((string)($data['order_id'] ?? ''));
+        $estado = trim((string)($data['estado'] ?? ''));
+
+        if ($orderIdRaw === '' || $orderIdRaw === '0' || $estado === '') {
             return $this->response->setStatusCode(400)->setJSON([
                 'success' => false,
-                'message' => 'order_id requerido',
-            ]);
-        }
-        if ($itemIndex === '' || !preg_match('/^\d+$/', $itemIndex)) {
-            return $this->response->setStatusCode(400)->setJSON([
-                'success' => false,
-                'message' => 'item_index requerido',
+                'message' => 'order_id y estado requeridos',
             ]);
         }
 
-        $file = $this->request->getFile('file');
-        if (!$file || !$file->isValid()) {
-            return $this->response->setStatusCode(400)->setJSON([
-                'success' => false,
-                'message' => 'Archivo inválido',
-            ]);
-        }
+        try {
+            $keys = $this->resolvePedidoKeys($orderIdRaw);
+            $pedidoId = $keys['pedido_id'];
+            $shopifyOrderId = $keys['shopify_order_id'];
 
-        $mime = (string)$file->getClientMimeType();
-        if (stripos($mime, 'image/') !== 0) {
-            return $this->response->setStatusCode(400)->setJSON([
-                'success' => false,
-                'message' => 'Solo se permiten imágenes',
-            ]);
-        }
+            $userId   = (int)(session('user_id') ?? 0);
+            $userName = (string)(session('nombre') ?? session('user_name') ?? 'Sistema');
+            $now = date('Y-m-d H:i:s');
 
-        $now = date('Y-m-d H:i:s');
+            $orderIdToSave = $shopifyOrderId ?: ($pedidoId ? (string)$pedidoId : $orderIdRaw);
 
-        // carpeta consistente con uploadGeneral
-        $keys = $this->resolvePedidoKeys($orderIdRaw);
-        $pedidoId = $keys['pedido_id'];
-        $shopifyOrderId = $keys['shopify_order_id'];
-        $folderKey = $keys['preferred_folder_key']; // ya viene sanitizado
+            $db = \Config\Database::connect();
+            $db->transBegin();
 
-        $dir = WRITEPATH . "uploads/produccion/" . $folderKey;
-        if (!is_dir($dir)) mkdir($dir, 0777, true);
+            $estadoModel = new PedidosEstadoModel();
+            $okEstado = (bool)$estadoModel->setEstadoPedido(
+                (string)$orderIdToSave,
+                $estado,
+                $userId ?: null,
+                $userName
+            );
 
-        // nombre: mod_{index}_{timestamp}_{random}.{ext}
-        $newName = 'mod_' . $itemIndex . '_' . date('Ymd_His') . '_' . $file->getRandomName();
-        $original = $file->getClientName();
-
-        $file->move($dir, $newName);
-
-        return $this->response->setJSON([
-            'success' => true,
-            'url' => site_url("produccion/file/{$folderKey}/{$newName}"),
-            'file' => [
-                'original_name' => $original,
-                'filename' => $newName,
-                'mime' => $mime,
-                'size' => $file->getSize(),
+            $okHist = $db->table('pedidos_estado_historial')->insert([
+                'order_id'   => (string)$orderIdToSave,
+                'estado'     => $estado,
+                'user_id'    => $userId ?: null,
+                'user_name'  => $userName,
                 'created_at' => $now,
-            ],
-            'order_id_received' => $orderIdRaw,
-            'folder_key' => $folderKey,
-            'pedido_id' => $pedidoId,
-            'shopify_order_id' => $shopifyOrderId,
-        ]);
+                'pedido_json'=> null,
+            ]);
+
+            if ($db->transStatus() === false) {
+                $db->transRollback();
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => 'Falló transacción set-estado',
+                ])->setStatusCode(200);
+            }
+
+            $db->transCommit();
+
+            return $this->response->setJSON([
+                'success' => true,
+                'estado_set' => $okEstado,
+                'historial_inserted' => (bool)$okHist,
+                'order_id_saved' => (string)$orderIdToSave,
+            ])->setStatusCode(200);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'ProduccionController setEstado ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error interno seteando estado',
+                'debug' => $e->getMessage(),
+            ])->setStatusCode(200);
+        }
+    }
+
+    // =========================
+    // GET /produccion/file/{folderKey}/{filename}
+    // (para abrir/preview)
+    // =========================
+    public function file(string $folderKey = '', string $filename = '')
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setBody('No autenticado');
+        }
+
+        $folderKey = $this->sanitizeFolderKey($folderKey);
+        $filename = basename((string)$filename);
+
+        if ($folderKey === '' || $folderKey === '0' || $filename === '') {
+            return $this->response->setStatusCode(404)->setBody('Not found');
+        }
+
+        $path = WRITEPATH . "uploads/produccion/" . $folderKey . "/" . $filename;
+        if (!is_file($path)) {
+            return $this->response->setStatusCode(404)->setBody('Not found');
+        }
+
+        $mime = @mime_content_type($path) ?: 'application/octet-stream';
+        $inline = (stripos($mime, 'image/') === 0 || stripos($mime, 'pdf') !== false) ? 'inline' : 'attachment';
+
+        return $this->response
+            ->setHeader('Content-Type', $mime)
+            ->setHeader('Content-Disposition', $inline . '; filename="' . $filename . '"')
+            ->setBody(file_get_contents($path));
     }
 
     // =========================
     // GET /produccion/list-general
-    // ✅ FIX: resuelve carpeta correcta (ahora prioriza "numero")
     // =========================
     public function listGeneral()
     {
@@ -701,7 +725,6 @@ class ProduccionController extends BaseController
         $shopifyOrderId = $keys['shopify_order_id'] ?: null;
         $pedidoNumero = $keys['pedido_numero'] ?? null;
 
-        // ✅ busca una carpeta existente (compatibilidad con carpetas viejas)
         $folderKey = $this->resolveExistingFolderKey(
             $orderIdRaw,
             $keys['preferred_folder_key'] ?? null,
@@ -712,7 +735,7 @@ class ProduccionController extends BaseController
 
         $dir = WRITEPATH . "uploads/produccion/" . $folderKey;
         if (!is_dir($dir)) {
-            return $this->response->setJSON(['success' => true, 'files' => []]);
+            return $this->response->setJSON(['success' => true, 'files' => [], 'folder_key' => $folderKey]);
         }
 
         $files = [];
@@ -722,7 +745,6 @@ class ProduccionController extends BaseController
             if (!is_file($path)) continue;
 
             $files[] = [
-                // ⚠️ sin BD no hay original_name real aquí, por ahora mostramos el filename
                 'original_name' => $name,
                 'filename' => $name,
                 'mime' => @mime_content_type($path) ?: '',
