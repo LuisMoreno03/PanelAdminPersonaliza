@@ -154,15 +154,33 @@ function extraerLineItems(order) {
 function isLlaveroItem(item) {
   const title = String(item?.title || "").toLowerCase();
   const sku = String(item?.sku || "").toLowerCase();
-  const isLampara = title.includes("lampara") || title.includes("lámpara");
-  return title.includes("llavero") || sku.includes("llav");
+  const variant = String(item?.variant_title || "").toLowerCase();
+
+  const isLampara =
+    title.includes("lampara") ||
+    title.includes("lámpara") ||
+    variant.includes("lampara") ||
+    variant.includes("lámpara");
+
+  return title.includes("llavero") || sku.includes("llav") || isLampara;
 }
+
+
 
 function requiereImagenModificada(item) {
   const props = Array.isArray(item?.properties) ? item.properties : [];
+
   const tieneImagenCliente = props.some((p) => esImagenUrl(p?.value));
-  return isLlaveroItem(item) || tieneImagenCliente;
+
+  // ✅ También si el cliente manda solo el nombre del archivo (IMG_1250.png)
+  const tieneNombreArchivoImagen = props.some((p) =>
+    /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(String(p?.value || "").trim())
+  );
+
+  return isLlaveroItem(item) || tieneImagenCliente || tieneNombreArchivoImagen;
 }
+
+
 
 
 
