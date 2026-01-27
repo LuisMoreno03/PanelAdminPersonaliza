@@ -154,6 +154,7 @@ function extraerLineItems(order) {
 function isLlaveroItem(item) {
   const title = String(item?.title || "").toLowerCase();
   const sku = String(item?.sku || "").toLowerCase();
+  const isLampara = title.includes("lampara") || title.includes("lámpara");
   return title.includes("llavero") || sku.includes("llav");
 }
 
@@ -162,6 +163,8 @@ function requiereImagenModificada(item) {
   const tieneImagenCliente = props.some((p) => esImagenUrl(p?.value));
   return isLlaveroItem(item) || tieneImagenCliente;
 }
+
+
 
 /* =====================================================
    LISTADO
@@ -185,7 +188,10 @@ function renderPedidos(pedidos) {
   visibles.forEach((p) => {
     const row = document.createElement("div");
     row.className = "orders-grid cols px-4 py-3 border-b items-center";
-
+    
+    if (Number(p?.over_24h) === 1) {
+      row.classList.add("pedido-overdue");
+    }
     const numero = p.numero || p.name || ("#" + (p.order_number || p.id || ""));
     const fecha = (p.created_at || p.fecha || "").slice(0, 10);
     const cliente = p.cliente || p.customer_name || p.email || "—";
@@ -1175,6 +1181,3 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
-if (Number(p.over_24h) === 1) {
-  row.classList.add('pedido-overdue');
-}
