@@ -5,18 +5,33 @@ namespace App\Controllers;
 use App\Controllers\BaseController;
 use App\Models\PedidosEstadoModel;
 
+/**
+ * MontajeController
+ *
+ * Rutas esperadas:
+ *  GET  /montaje
+ *  GET  /montaje/my-queue
+ *  POST /montaje/pull
+ *  POST /montaje/realizado
+ *  POST /montaje/enviar
+ *  GET  /montaje/details/{orderKey}
+ *  GET  /montaje/download/{orderIdRaw}/{filename}
+ *  POST /montaje/cargado   (alias de realizado)
+ *  POST /montaje/return-all
+ *
+ * Notas:
+ * - Entrada: "Diseñado"
+ * - Salida al "Realizado/Cargado": "Por producir" (desasigna)
+ * - Salida al "Enviar": "Por preparar" (desasigna)
+ * - myQueue y details sólo permiten ver pedidos asignados al usuario de sesión
+ */
 class MontajeController extends BaseController
 {
-    // ✅ Montaje: ENTRADA = Diseñado
     private string $estadoEntrada = 'Diseñado';
+    private string $estadoSalida  = 'Por producir';
+    private string $estadoEnviar  = 'Por preparar';
 
-    // ✅ Al marcar "Cargado/Realizado": SALIDA = Por producir
-    private string $estadoSalida = 'Por producir';
-
-    // ✅ Al presionar "Enviar": SALIDA = Por preparar
-    private string $estadoEnviar = 'Por preparar';
-
-    // ✅ Collation "fija" para evitar mezclas
+    // Collation fija para evitar mezclas (ñ, acentos, etc.)
     private string $forceCollation = 'utf8mb4_unicode_ci';
 
     public function index()
@@ -25,7 +40,7 @@ class MontajeController extends BaseController
     }
 
     // =========================================================
-    // Helpers (resolver pedido/carpeta para archivos de Producción)
+    // Helpers (resolver pedido/carpeta para archivos Producción)
     // =========================================================
 
     private function sanitizeFolderKey(string $key): string
@@ -35,13 +50,16 @@ class MontajeController extends BaseController
         return $key !== '' ? $key : '0';
     }
 
+    /**
+     * Resuelve info del pedido y llaves posibles.
+     * - preferred_folder_key: numero -> id -> raw
+     */
     private function resolvePedidoKeys(string $orderIdRaw): array
     {
         $orderIdRaw = trim($orderIdRaw);
 
         $db = \Config\Database::connect();
 
-        // ✅ Traemos también "numero" para resolver carpeta humana si existe
         $pedido = $db->table('pedidos')
             ->select('id, numero, shopify_order_id, assigned_to_user_id')
             ->groupStart()
@@ -67,7 +85,6 @@ class MontajeController extends BaseController
 
         $pedidoNumero = $pedido['numero'] ?? null;
 
-        // ✅ Preferencia de carpeta: numero -> id -> raw
         $preferredFolderKeyRaw = $pedidoNumero
             ? (string)$pedidoNumero
             : ($pedidoId ? (string)$pedidoId : $orderIdRaw);
@@ -83,6 +100,9 @@ class MontajeController extends BaseController
         ];
     }
 
+    /**
+     * Busca cuál carpeta existe realmente en WRITEPATH/uploads/produccion/{key}
+     */
     private function resolveExistingFolderKey(
         string $orderIdRaw,
         ?string $preferredFolderKey,
@@ -118,7 +138,8 @@ class MontajeController extends BaseController
     }
 
     /**
-     * Lista archivos guardados en Producción (WRITEPATH/uploads/produccion/{folderKey})
+     * Lista archivos de Producción en WRITEPATH/uploads/produccion/{folderKey}
+     * Devuelve items con url preview y download_url forzado.
      */
     private function listProduccionFilesForOrder(string $orderKeyOrRaw): array
     {
@@ -162,7 +183,7 @@ class MontajeController extends BaseController
                 // preview (abre el archivo)
                 'url' => site_url("produccion/file/{$folderKey}/{$name}"),
 
-                // ✅ descarga forzada desde Montaje
+                // descarga forzada desde Montaje
                 'download_url' => site_url("montaje/download/{$orderKeyOrRaw}/" . rawurlencode($name)),
             ];
         }
@@ -172,8 +193,9 @@ class MontajeController extends BaseController
     }
 
     // =========================================================
-    // Helper: estado actual normalizado (FORZANDO COLLATION)
+    // Helpers SQL (estado actual normalizado + "no enviados")
     // =========================================================
+
     private function sqlEstadoActualExpr(): string
     {
         $coll = $this->forceCollation;
@@ -299,10 +321,10 @@ class MontajeController extends BaseController
         ";
     }
 
-    // =========================
+    // =========================================================
     // ✅ GET /montaje/details/{orderKey}
     // Devuelve pedido + historial + archivos de Producción
-    // =========================
+    // =========================================================
     public function details($orderIdRaw = null)
     {
         if (!session()->get('logged_in')) {
@@ -336,7 +358,7 @@ class MontajeController extends BaseController
                 return $this->response->setStatusCode(404)->setJSON(['ok' => false, 'error' => 'Pedido no encontrado']);
             }
 
-            // ✅ seguridad: sólo asignado al usuario
+            // seguridad: sólo asignado al usuario
             if ((int)($pedido['assigned_to_user_id'] ?? 0) !== $userId) {
                 return $this->response->setStatusCode(403)->setJSON([
                     'ok' => false,
@@ -355,7 +377,6 @@ class MontajeController extends BaseController
                 ->get()
                 ->getResultArray();
 
-            // ✅ archivos físicos de Producción (con preview + download_url)
             $produccionFiles = $this->listProduccionFilesForOrder((string)$orderKey);
 
             return $this->response->setJSON([
@@ -375,10 +396,10 @@ class MontajeController extends BaseController
         }
     }
 
-    // =========================
+    // =========================================================
     // ✅ GET /montaje/download/{orderIdRaw}/{filename}
     // Descarga forzada del archivo guardado en Producción
-    // =========================
+    // =========================================================
     public function download($orderIdRaw = null, $filename = null)
     {
         if (!session()->get('logged_in')) {
@@ -397,7 +418,7 @@ class MontajeController extends BaseController
             return $this->response->setStatusCode(400)->setBody('Parámetros inválidos');
         }
 
-        // seguridad básica: evitar traversal ../
+        // seguridad: evitar traversal ../
         if (strpos($filename, '..') !== false || strpos($filename, '/') !== false || strpos($filename, '\\') !== false) {
             return $this->response->setStatusCode(400)->setBody('Nombre de archivo inválido');
         }
@@ -405,7 +426,6 @@ class MontajeController extends BaseController
         try {
             $db = \Config\Database::connect();
 
-            // validar que el pedido exista y esté asignado al usuario
             $pedido = $db->table('pedidos')
                 ->select('id, numero, shopify_order_id, assigned_to_user_id')
                 ->groupStart()
@@ -424,7 +444,6 @@ class MontajeController extends BaseController
                 return $this->response->setStatusCode(403)->setBody('No autorizado');
             }
 
-            // resolver carpeta existente
             $keys = $this->resolvePedidoKeys($orderIdRaw);
             $pedidoIdStr = $keys['pedido_id'] ? (string)$keys['pedido_id'] : null;
             $shopifyOrderId = $keys['shopify_order_id'] ?: null;
@@ -445,7 +464,6 @@ class MontajeController extends BaseController
                 return $this->response->setStatusCode(404)->setBody('Archivo no encontrado');
             }
 
-            // ✅ descarga forzada
             return $this->response->download($path, null);
 
         } catch (\Throwable $e) {
@@ -454,9 +472,9 @@ class MontajeController extends BaseController
         }
     }
 
-    // =========================
+    // =========================================================
     // GET /montaje/my-queue
-    // =========================
+    // =========================================================
     public function myQueue()
     {
         if (!session()->get('logged_in')) {
@@ -475,8 +493,9 @@ class MontajeController extends BaseController
             $estadoExpr = $this->sqlEstadoActualExpr();
             $coll = $this->forceCollation;
 
+            // "diseñado" normalizado
             $e1 = mb_strtolower($this->estadoEntrada, 'UTF-8'); // diseñado
-            $e2 = 'disenado';
+            $e2 = 'disenado'; // fallback sin ñ
 
             $selectPedidos = $this->buildSelectPedidoFields($db);
             $selectExtras  = $this->buildSelectPedidoExtraFields($db);
@@ -518,9 +537,10 @@ class MontajeController extends BaseController
         }
     }
 
-    // =========================
+    // =========================================================
     // POST /montaje/pull
-    // =========================
+    // Trae 5 o 10 pedidos "Diseñado" (no enviados) y los asigna al user
+    // =========================================================
     public function pull()
     {
         if (!session()->get('logged_in')) {
@@ -602,6 +622,7 @@ class MontajeController extends BaseController
                 ]);
             }
 
+            // Historial: registramos "Diseñado" cuando se asigna
             foreach ($candidatos as $c) {
                 $pedidoId = (string)((int)($c['id'] ?? 0));
                 $shopifyId = trim((string)($c['shopify_order_id'] ?? ''));
@@ -636,9 +657,10 @@ class MontajeController extends BaseController
         }
     }
 
-    // =========================
+    // =========================================================
     // POST /montaje/realizado
-    // =========================
+    // Realizado => Por producir + desasigna
+    // =========================================================
     public function realizado()
     {
         if (!session()->get('logged_in')) {
@@ -696,7 +718,7 @@ class MontajeController extends BaseController
                     'assigned_at' => null,
                 ]);
 
-            // set estado
+            // set estado (tabla pedidos_estado)
             $estadoModel = new PedidosEstadoModel();
             $estadoModel->setEstadoPedido(
                 (string)$orderKey,
@@ -731,19 +753,24 @@ class MontajeController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'MontajeController realizado ERROR: ' . $e->getMessage());
-            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno marcando como realizado', 'debug' => $e->getMessage()]);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno marcando como realizado',
+                'debug' => $e->getMessage()
+            ]);
         }
     }
 
-    // alias
+    // Compatibilidad: POST /montaje/cargado
     public function cargado()
     {
         return $this->realizado();
     }
 
-    // =========================
+    // =========================================================
     // POST /montaje/enviar
-    // =========================
+    // Enviar => Por preparar + desasigna
+    // =========================================================
     public function enviar()
     {
         if (!session()->get('logged_in')) {
@@ -836,13 +863,18 @@ class MontajeController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'MontajeController enviar ERROR: ' . $e->getMessage());
-            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno enviando pedido', 'debug' => $e->getMessage()]);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno enviando pedido',
+                'debug' => $e->getMessage()
+            ]);
         }
     }
 
-    // =========================
+    // =========================================================
     // POST /montaje/return-all
-    // =========================
+    // Devuelve (desasigna) todos los pedidos del usuario
+    // =========================================================
     public function returnAll()
     {
         if (!session()->get('logged_in')) {

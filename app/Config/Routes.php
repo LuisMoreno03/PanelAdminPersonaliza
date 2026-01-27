@@ -297,7 +297,6 @@ $routes->post('montaje/return-all', 'MontajeController::returnAll');
 // compatibilidad
 $routes->post('montaje/cargado', 'MontajeController::cargado');
 
-$routes->post('montaje/return-all', 'MontajeController::returnAll');
 
 // ✅ Vista Por producir
 $routes->get('por-producir', 'PorProducir::index');
