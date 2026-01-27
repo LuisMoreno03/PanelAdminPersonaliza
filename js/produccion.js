@@ -1,16 +1,15 @@
 /**
- * produccion.js (CI4) — FULL (SIN Illustrator)
+ * produccion.js (CI4) — FULL (UPLOAD MULTI + TODO TIPO)
  * - Responsive real: GRID (>=2xl) + TABLE (xl..2xl-) + CARDS (<xl)
  * - Detalles FULL en #modalDetallesFull
  * - FIX: ver detalles usa shopify_order_id cuando existe
  * - Fallback endpoints: con/sin index.php
  * - Upload GENERAL: (formGeneralUpload) es el único upload
  *
- * ✅ CAMBIOS:
- * - Se elimina botón "Ver detalles"
- * - Detalles abren al click en número y cliente
- * - Imagen modificada se ve bien (object-contain + grande + abrir/copiar)
- * - Archivos generales: separa Modificadas y muestra previews de imágenes
+ * ✅ CAMBIOS (respecto a tu base):
+ * - Input #generalFiles: fuerza multiple + sin accept (permite TODO tipo)
+ * - esImagenUrl: ya NO trata .ai como imagen (evita <img> con .ai)
+ * - Preview en lista: solo imágenes reales (por mime o extensión)
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -64,7 +63,6 @@ function toAbsoluteUrl(u) {
   const path = s.startsWith("/") ? s : `/${s}`;
   return `${base}${path}`;
 }
-
 
 function setLoader(show) {
   if (silentFetch) return;
@@ -144,6 +142,21 @@ async function copyToClipboard(text) {
     document.execCommand("copy");
     ta.remove();
   }
+}
+
+// =========================
+// ✅ Forzar input a MULTI + TODO tipo
+// =========================
+function configurarInputGeneralFiles() {
+  const input = $("generalFiles");
+  if (!input) return;
+
+  // Permite multi
+  input.multiple = true;
+
+  // Permite seleccionar cualquier tipo
+  // (si el HTML tenía accept="image/*", lo quitamos)
+  input.removeAttribute("accept");
 }
 
 // =========================
@@ -821,10 +834,11 @@ function buildDetallesEndpoints(orderId) {
   ];
 }
 
+// ✅ SOLO IMÁGENES REALES (evita intentar renderizar .ai como imagen)
 function esImagenUrl(url) {
   if (!url) return false;
   const u = String(url).trim();
-  return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|ai|svg)(\?.*)?$/i.test(u);
+  return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
 }
 
 function fmtMoney(v) {
@@ -1024,7 +1038,6 @@ async function abrirDetallesPedido(orderId) {
     const localRaw = imagenesLocales?.[index];
     const localUrl = toAbsoluteUrl(normalizeUrlValue(localRaw));
 
-
     const productImgHtml = productImg
       ? `<a href="${escapeHtml(productImg)}" target="_blank"
             class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
@@ -1163,6 +1176,8 @@ async function cargarArchivosGenerales(orderId, opts = {}) {
     const name = f.original_name || f.filename || "Archivo";
     const mime = String(f.mime || "");
     const size = String(f.size || "");
+
+    // preview SOLO si es imagen real
     const isImg = mime.startsWith("image/") || isImgUrlLike(url);
 
     return `
@@ -1206,7 +1221,11 @@ async function subirArchivosGenerales(orderId, fileList) {
 
   const fd = new FormData();
   fd.append("order_id", String(orderId));
-  for (const f of fileList) fd.append("files[]", f);
+
+  // ✅ soporta FileList o Array<File>
+  for (const f of Array.from(fileList || [])) {
+    fd.append("files[]", f);
+  }
 
   const res = await fetch(ENDPOINT_UPLOAD_GENERAL, {
     method: "POST",
@@ -1227,19 +1246,18 @@ async function subirArchivosGenerales(orderId, fileList) {
   const wanted = "Diseñado";
 
   let forced = false;
-  if (backendEstado.toLowerCase() !== wanted.toLowerCase()) {
+  if (backendEstado && backendEstado.toLowerCase() !== wanted.toLowerCase()) {
     forced = await setEstadoTrasUpload(orderId, wanted);
   }
 
   if (msg) {
-    if (backendEstado.toLowerCase() === wanted.toLowerCase() || forced) {
+    if (!backendEstado || backendEstado.toLowerCase() === wanted.toLowerCase() || forced) {
       msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
         Subido (${data.saved || 0}). Estado → ${escapeHtml(wanted)}. Pedido desasignado.
       </span>`;
     } else {
       msg.innerHTML = `<span class="text-amber-700 font-extrabold">
         Subido (${data.saved || 0}), pero el backend dejó estado → ${escapeHtml(backendEstado || "Por producir")}.
-        (Debes cambiarlo en ProduccionController::uploadGeneral).
       </span>`;
     }
   }
@@ -1251,6 +1269,9 @@ async function subirArchivosGenerales(orderId, fileList) {
 // Eventos
 // =========================
 function bindEventos() {
+  // ✅ IMPORTANT: forzar input multi + cualquier archivo
+  configurarInputGeneralFiles();
+
   $("btnTraer5")?.addEventListener("click", () => traerPedidos(5));
   $("btnTraer10")?.addEventListener("click", () => traerPedidos(10));
   $("btnDevolver")?.addEventListener("click", () => devolverPedidosRestantes());

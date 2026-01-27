@@ -1629,81 +1629,140 @@ class DashboardController extends Controller
     // POST: order_id, line_index (opcional), file
     // Guarda URL en pedidos.imagenes_locales
     // ============================================================
-
     public function subirImagenModificada(): ResponseInterface
     {
         if ($resp = $this->mustBeLoggedIn()) return $resp;
 
-        $orderIdRaw = trim((string)$this->request->getPost('order_id'));
-        $lineIndex  = (int)($this->request->getPost('line_index') ?? 0);
-
-        // ✅ NUEVO: line_item_id (si viene)
+        // POST básicos
+        $orderIdRaw    = trim((string)$this->request->getPost('order_id'));
+        $lineIndexRaw  = (string)$this->request->getPost('line_index');
         $lineItemIdRaw = trim((string)$this->request->getPost('line_item_id'));
 
         $orderId = $this->sanitizeNumericId($orderIdRaw);
+        $lineIndex = is_numeric($lineIndexRaw) ? (int)$lineIndexRaw : 0;
+        $lineItemId = $this->sanitizeNumericId($lineItemIdRaw); // puede quedar ""
+
         if ($orderId === '') {
             return $this->response->setJSON([
                 'success' => false,
                 'message' => 'order_id inválido.',
+                'debug' => [
+                    'order_id_raw' => $orderIdRaw,
+                    'post_keys' => array_keys($_POST ?? []),
+                ],
             ])->setStatusCode(200);
         }
 
-        $lineItemId = $this->sanitizeNumericId($lineItemIdRaw); // puede quedar ""
-        $keyPrimary = $lineItemId !== '' ? $lineItemId : (string)$lineIndex;
-
+        // ✅ Intentar obtener el archivo por varias keys, o el primero que llegue
         $file = $this->request->getFile('file');
-        if (!$file || !$file->isValid()) {
+        if (!$file || $file->getName() === '') $file = $this->request->getFile('archivo');
+        if (!$file || $file->getName() === '') $file = $this->request->getFile('imagen');
+
+        if (!$file || $file->getName() === '') {
+            // intenta tomar el primero disponible
+            $all = $this->request->getFiles();
+            foreach ($all as $k => $v) {
+                if ($v instanceof \CodeIgniter\HTTP\Files\UploadedFile && $v->getName() !== '') {
+                    $file = $v;
+                    break;
+                }
+                if (is_array($v)) {
+                    foreach ($v as $vv) {
+                        if ($vv instanceof \CodeIgniter\HTTP\Files\UploadedFile && $vv->getName() !== '') {
+                            $file = $vv;
+                            break 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ❌ No llegó ningún archivo
+        if (!$file || $file->getName() === '') {
             return $this->response->setJSON([
                 'success' => false,
                 'message' => 'Debes subir un archivo (campo "file").',
+                'debug' => [
+                    'files_keys' => array_keys($this->request->getFiles() ?? []),
+                    '_FILES_keys' => array_keys($_FILES ?? []),
+                    'content_length' => $_SERVER['CONTENT_LENGTH'] ?? null,
+                ],
             ])->setStatusCode(200);
         }
 
+        // ❌ Llegó pero es inválido (aquí suele ser límite de tamaño)
+        if (!$file->isValid()) {
+            $errCode = $file->getError();         // 1/2 => tamaño
+            $errStr  = $file->getErrorString();   // mensaje
+
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Archivo inválido: ' . $errStr . ' (code ' . $errCode . ')',
+                'debug' => [
+                    'name' => $file->getName(),
+                    'clientName' => $file->getClientName(),
+                    'size' => $file->getSize(),
+                    'mime' => $file->getClientMimeType(),
+                    'php_upload_max_filesize' => ini_get('upload_max_filesize'),
+                    'php_post_max_size' => ini_get('post_max_size'),
+                    'content_length' => $_SERVER['CONTENT_LENGTH'] ?? null,
+                ],
+            ])->setStatusCode(200);
+        }
+
+        // Validaciones extra
         $ext = strtolower((string)$file->getClientExtension());
-        $allowed = ['jpg', 'jpeg', 'png', 'webp'];
+        $allowed = ['jpg','jpeg','png','webp'];
         if (!in_array($ext, $allowed, true)) {
             return $this->response->setJSON([
                 'success' => false,
                 'message' => 'Formato no permitido. Usa JPG, PNG o WEBP.',
+                'debug' => ['ext' => $ext],
             ])->setStatusCode(200);
         }
 
+        // (opcional) límite propio
         $maxBytes = 15 * 1024 * 1024;
         if ($file->getSize() > $maxBytes) {
             return $this->response->setJSON([
                 'success' => false,
                 'message' => 'Archivo demasiado grande (máx 15MB).',
+                'debug' => ['size' => $file->getSize()],
             ])->setStatusCode(200);
         }
 
         try {
-            $targetDir = rtrim(FCPATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'uploads'
-                . DIRECTORY_SEPARATOR . 'pedidos' . DIRECTORY_SEPARATOR . $orderId;
+            // Guardar en /public/uploads/pedidos/{orderId}/...
+            $targetDir = rtrim(FCPATH, DIRECTORY_SEPARATOR)
+                . DIRECTORY_SEPARATOR . 'uploads'
+                . DIRECTORY_SEPARATOR . 'pedidos'
+                . DIRECTORY_SEPARATOR . $orderId;
 
-            if (!is_dir($targetDir)) {
-                @mkdir($targetDir, 0755, true);
-            }
+            if (!is_dir($targetDir)) @mkdir($targetDir, 0755, true);
 
             $newName = $file->getRandomName();
             $file->move($targetDir, $newName);
 
             $publicUrl = $this->buildPublicUrl("/uploads/pedidos/{$orderId}/{$newName}");
 
-            // ✅ Guarda por line_item_id si existe, y también por index para compatibilidad
-            $this->upsertImagenLocalPedido($orderId, $keyPrimary, $publicUrl);
+            // ✅ key principal: line_item_id si existe, si no index
+            $keyPrimary = $lineItemId !== '' ? $lineItemId : (string)$lineIndex;
 
+            // ✅ Guardar en pedidos.imagenes_locales por key principal
+            $this->upsertImagenLocalPedido($orderId, (string)$keyPrimary, $publicUrl);
+
+            // ✅ Compat: si venía line_item_id, también guardar por index
             if ($lineItemId !== '') {
                 $this->upsertImagenLocalPedido($orderId, (string)$lineIndex, $publicUrl);
             }
 
             return $this->response->setJSON([
                 'success' => true,
-                'message' => 'Imagen subida y guardada.',
+                'url' => $publicUrl,
                 'order_id' => $orderId,
                 'line_index' => $lineIndex,
                 'line_item_id' => $lineItemId !== '' ? $lineItemId : null,
-                'key_saved' => $keyPrimary,
-                'url' => $publicUrl,
+                'key_saved' => (string)$keyPrimary,
             ])->setStatusCode(200);
 
         } catch (\Throwable $e) {
@@ -1714,20 +1773,38 @@ class DashboardController extends Controller
             ])->setStatusCode(200);
         }
     }
-public function confirmacionSubirImagen(): ResponseInterface
-{
-    return $this->subirImagenModificada();
-}
 
-public function confirmacionUpload(): ResponseInterface
-{
-    return $this->subirImagenModificada();
-}
+    /** deja solo números (ids shopify) */
+    private function sanitizeNumericId(?string $s): string
+    {
+        $s = trim((string)$s);
+        $s = preg_replace('/\D+/', '', $s);
+        return $s ?: '';
+    }
 
-public function apiPedidosImagenesSubir(): ResponseInterface
-{
-    return $this->subirImagenModificada();
-}
+    /** genera URL pública */
+    private function buildPublicUrl(string $path): string
+    {
+        helper('url');
+        $path = '/' . ltrim($path, '/');
+        return rtrim((string)base_url(), '/') . $path;
+    }
+
+    
+    public function confirmacionSubirImagen(): ResponseInterface
+    {
+        return $this->subirImagenModificada();
+    }
+
+    public function confirmacionUpload(): ResponseInterface
+    {
+        return $this->subirImagenModificada();
+    }
+
+    public function apiPedidosImagenesSubir(): ResponseInterface
+    {
+        return $this->subirImagenModificada();
+    }
 
 
 
@@ -1739,27 +1816,13 @@ public function apiPedidosImagenesSubir(): ResponseInterface
             throw new \RuntimeException('La tabla pedidos no tiene la columna imagenes_locales.');
         }
 
-        $row = $db->query("SELECT id, imagenes_locales FROM pedidos WHERE shopify_order_id = ? LIMIT 1", [$orderId])
+        $row = $db->query("SELECT imagenes_locales FROM pedidos WHERE shopify_order_id = ? LIMIT 1", [$orderId])
             ->getRowArray();
 
         $imagenes = [];
         if ($row && !empty($row['imagenes_locales'])) {
             $tmp = json_decode((string)$row['imagenes_locales'], true);
             if (is_array($tmp)) $imagenes = $tmp;
-        }
-
-        // Si no existe fila, insertar mínimo
-        if (!$row) {
-            $ins = [];
-            if ($db->fieldExists('shopify_order_id', 'pedidos')) $ins['shopify_order_id'] = $orderId;
-            if ($db->fieldExists('numero', 'pedidos'))      $ins['numero'] = '#' . $orderId;
-            if ($db->fieldExists('cliente', 'pedidos'))     $ins['cliente'] = '-';
-            if ($db->fieldExists('articulos', 'pedidos'))   $ins['articulos'] = 0;
-            if ($db->fieldExists('created_at', 'pedidos'))  $ins['created_at'] = date('Y-m-d H:i:s');
-            if ($db->fieldExists('synced_at', 'pedidos'))   $ins['synced_at'] = date('Y-m-d H:i:s');
-            $ins['imagenes_locales'] = null;
-
-            $db->table('pedidos')->insert($ins);
         }
 
         $imagenes[(string)$key] = [
@@ -1775,16 +1838,6 @@ public function apiPedidosImagenesSubir(): ResponseInterface
     }
 
 
-    private function sanitizeNumericId(string $v): string
-    {
-        return preg_replace('/\D+/', '', $v);
-    }
-
-    private function buildPublicUrl(string $path): string
-    {
-        $base = rtrim((string)config('App')->baseURL, '/');
-        return $base . $path;
-    }
 
     // ============================================================
     // ENDPOINTS
