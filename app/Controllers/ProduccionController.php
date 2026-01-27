@@ -7,8 +7,8 @@ use App\Models\PedidosEstadoModel;
 
 class ProduccionController extends BaseController
 {
-    private string $estadoEntrada   = 'Confirmado';
-    private string $estadoProduccion = 'Diseñado';
+    private string $estadoEntrada    = 'Confirmado';
+    private string $estadoProduccion = 'Diseñado'; // cambia aquí si quieres "Por producir"
 
     public function index()
     {
@@ -24,14 +24,6 @@ class ProduccionController extends BaseController
         $key = trim($key);
         $key = preg_replace('/[^a-zA-Z0-9_-]/', '', $key);
         return $key !== '' ? $key : '0';
-    }
-
-    private function sanitizeFilename(string $name): string
-    {
-        $name = basename(trim((string)$name));
-        // evitamos cosas raras
-        $name = str_replace(["..", "/", "\\"], "", $name);
-        return $name;
     }
 
     private function resolvePedidoKeys(string $orderIdRaw): array
@@ -51,7 +43,7 @@ class ProduccionController extends BaseController
 
         $pedidoId = $pedido['id'] ?? null;
 
-        // Shopify id (numérico)
+        // Shopify id "oficial" (numérico)
         $shopifyOrderId = '';
         if (!empty($pedido['shopify_order_id'])) {
             $shopifyOrderId = trim((string)$pedido['shopify_order_id']);
@@ -62,7 +54,7 @@ class ProduccionController extends BaseController
             }
         }
 
-        // Carpeta por NUMERO, fallback a id/raw
+        // carpeta por NUMERO, si no existe -> id -> raw
         $pedidoNumero = $pedido['numero'] ?? null;
         $preferredFolderKeyRaw = $pedidoNumero
             ? (string)$pedidoNumero
@@ -113,14 +105,28 @@ class ProduccionController extends BaseController
         return $this->sanitizeFolderKey($fallback);
     }
 
+    private function json401()
+    {
+        return $this->response->setStatusCode(401)->setJSON([
+            'ok' => false,
+            'success' => false,
+            'error' => 'No autenticado',
+            'message' => 'No autenticado',
+        ]);
+    }
+
+    private function isBadOrderId(string $s): bool
+    {
+        $t = strtolower(trim($s));
+        return $t === '' || $t === '0' || $t === 'null' || $t === 'undefined';
+    }
+
     // =========================
     // GET /produccion/my-queue
     // =========================
     public function myQueue()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
-        }
+        if (!session()->get('logged_in')) return $this->json401();
 
         $userId = (int)(session('user_id') ?? 0);
         if (!$userId) {
@@ -154,6 +160,7 @@ class ProduccionController extends BaseController
             }
 
             $coll = 'utf8mb4_unicode_ci';
+            $estadoEntradaLower = mb_strtolower(trim($this->estadoEntrada));
 
             $rows = $db->query("
                 SELECT
@@ -213,17 +220,21 @@ class ProduccionController extends BaseController
                 WHERE p.assigned_to_user_id = ?
                 AND LOWER(TRIM(
                         CAST(COALESCE(h.estado, pe.estado, '') AS CHAR) COLLATE {$coll}
-                )) = ('confirmado' COLLATE {$coll})
+                )) = (? COLLATE {$coll})
                 {$condNoEnviados}
 
                 ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
-            ", [$userId])->getResultArray();
+            ", [$userId, $estadoEntradaLower])->getResultArray();
 
             return $this->response->setJSON(['ok' => true, 'data' => $rows ?: []]);
 
         } catch (\Throwable $e) {
             log_message('error', 'ProduccionController myQueue ERROR: ' . $e->getMessage());
-            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno cargando cola', 'debug' => $e->getMessage()]);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno cargando cola',
+                'debug' => $e->getMessage(),
+            ]);
         }
     }
 
@@ -232,16 +243,12 @@ class ProduccionController extends BaseController
     // =========================
     public function pull()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
-        }
+        if (!session()->get('logged_in')) return $this->json401();
 
         $userId = (int)(session('user_id') ?? 0);
         $userName = (string)(session('nombre') ?? session('user_name') ?? 'Usuario');
 
-        if (!$userId) {
-            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
-        }
+        if (!$userId) return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
 
         $data = $this->request->getJSON(true);
         if (!is_array($data)) $data = [];
@@ -277,9 +284,12 @@ class ProduccionController extends BaseController
             }
 
             $coll = 'utf8mb4_unicode_ci';
+            $estadoEntradaLower = mb_strtolower(trim($this->estadoEntrada));
 
             $candidatos = $db->query("
-                SELECT p.id, p.shopify_order_id
+                SELECT
+                    p.id,
+                    p.shopify_order_id
                 FROM pedidos p
 
                 INNER JOIN (
@@ -300,13 +310,13 @@ class ProduccionController extends BaseController
                     )
                 )
 
-                WHERE LOWER(TRIM(CAST(h.estado AS CHAR) COLLATE {$coll})) = ('confirmado' COLLATE {$coll})
+                WHERE LOWER(TRIM(CAST(h.estado AS CHAR) COLLATE {$coll})) = (? COLLATE {$coll})
                 {$condNoEnviados}
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
 
                 ORDER BY h.created_at ASC, p.id ASC
                 LIMIT {$count}
-            ")->getResultArray();
+            ", [$estadoEntradaLower])->getResultArray();
 
             if (!$candidatos) {
                 return $this->response->setJSON([
@@ -345,7 +355,7 @@ class ProduccionController extends BaseController
 
                 $db->table('pedidos_estado_historial')->insert([
                     'order_id'   => (string)$shopifyId,
-                    'estado'     => 'Confirmado',
+                    'estado'     => $this->estadoEntrada,
                     'user_id'    => $userId,
                     'user_name'  => $userName,
                     'created_at' => $now,
@@ -355,11 +365,19 @@ class ProduccionController extends BaseController
 
             $db->transComplete();
 
-            return $this->response->setJSON(['ok' => true, 'assigned' => $affected, 'ids' => $ids]);
+            return $this->response->setJSON([
+                'ok' => true,
+                'assigned' => $affected,
+                'ids' => $ids,
+            ]);
 
         } catch (\Throwable $e) {
             log_message('error', 'ProduccionController pull ERROR: ' . $e->getMessage());
-            return $this->response->setJSON(['ok' => false, 'error' => 'Error interno asignando pedidos', 'debug' => $e->getMessage()]);
+            return $this->response->setJSON([
+                'ok' => false,
+                'error' => 'Error interno asignando pedidos',
+                'debug' => $e->getMessage(),
+            ]);
         }
     }
 
@@ -368,24 +386,17 @@ class ProduccionController extends BaseController
     // =========================
     public function returnAll()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
-        }
+        if (!session()->get('logged_in')) return $this->json401();
 
         $userId = (int)(session('user_id') ?? 0);
-        if (!$userId) {
-            return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
-        }
+        if (!$userId) return $this->response->setJSON(['ok' => false, 'error' => 'Sin user_id en sesión']);
 
         try {
             $db = \Config\Database::connect();
 
             $db->table('pedidos')
                 ->where('assigned_to_user_id', $userId)
-                ->update([
-                    'assigned_to_user_id' => null,
-                    'assigned_at' => null,
-                ]);
+                ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
 
             return $this->response->setJSON(['ok' => true, 'message' => 'Pedidos devueltos']);
 
@@ -400,20 +411,24 @@ class ProduccionController extends BaseController
     // =========================
     public function uploadGeneral()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No autenticado']);
-        }
+        if (!session()->get('logged_in')) return $this->json401();
 
-        // ✅ más tolerante: getPost/getVar
+        // ✅ acepta también getVar por si algo manda JSON/form distinto
         $orderIdRaw = trim((string)($this->request->getPost('order_id') ?? $this->request->getVar('order_id') ?? ''));
-        $bad = strtolower($orderIdRaw);
-        if ($orderIdRaw === '' || $orderIdRaw === '0' || $bad === 'undefined' || $bad === 'null') {
-            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'order_id requerido']);
+        if ($this->isBadOrderId($orderIdRaw)) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'success' => false,
+                'message' => 'order_id requerido',
+            ]);
         }
 
-        $files = $this->request->getFiles();
-        if (!isset($files['files'])) {
-            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'Sin archivos']);
+        // ✅ robusto con name="files[]"
+        $uploaded = $this->request->getFileMultiple('files');
+        if (!$uploaded || !is_array($uploaded) || count($uploaded) === 0) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'success' => false,
+                'message' => 'Sin archivos',
+            ]);
         }
 
         $db = \Config\Database::connect();
@@ -423,7 +438,7 @@ class ProduccionController extends BaseController
         $pedidoId = $keys['pedido_id'];
         $shopifyOrderId = $keys['shopify_order_id'];
 
-        // ✅ guardar por NUMERO (preferred_folder_key)
+        // 2) Guardar archivos en carpeta por NUMERO (o fallback)
         $saved = 0;
         $out = [];
 
@@ -431,7 +446,7 @@ class ProduccionController extends BaseController
         $dir = WRITEPATH . "uploads/produccion/" . $folderKey;
         if (!is_dir($dir)) mkdir($dir, 0777, true);
 
-        foreach ($files['files'] as $f) {
+        foreach ($uploaded as $f) {
             if (!$f || !$f->isValid()) continue;
 
             $newName  = $f->getRandomName();
@@ -452,15 +467,17 @@ class ProduccionController extends BaseController
         }
 
         if ($saved <= 0) {
-            return $this->response->setStatusCode(200)->setJSON(['success' => false, 'message' => 'No se subió ningún archivo válido']);
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'No se subió ningún archivo válido',
+            ]);
         }
 
-        // Acciones post-upload
+        // 3) Post-actions: estado + desasignar + historial
+        $estadoNuevo = $this->estadoProduccion;
         $didUnassign = false;
         $didEstado = false;
         $didHist = false;
-
-        $estadoNuevo = $this->estadoProduccion;
 
         try {
             $userId   = (int)(session('user_id') ?? 0);
@@ -469,37 +486,36 @@ class ProduccionController extends BaseController
             $db->transBegin();
 
             if ($pedidoId) {
-                // desasignar
                 $db->table('pedidos')
                     ->where('id', (int)$pedidoId)
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
                 $didUnassign = true;
             }
 
-            // ✅ set estado (prioriza shopify, si no existe cae al raw)
-            $estadoOrderId = $shopifyOrderId !== '' ? $shopifyOrderId : ($pedidoId ? (string)$pedidoId : $orderIdRaw);
+            // set estado e historial con shopify_order_id (si existe)
+            if ($shopifyOrderId !== '') {
+                $estadoModel = new PedidosEstadoModel();
+                $didEstado = (bool)$estadoModel->setEstadoPedido(
+                    (string)$shopifyOrderId,
+                    $estadoNuevo,
+                    $userId ?: null,
+                    $userName
+                );
 
-            $estadoModel = new PedidosEstadoModel();
-            $didEstado = (bool)$estadoModel->setEstadoPedido(
-                (string)$estadoOrderId,
-                $estadoNuevo,
-                $userId ?: null,
-                $userName
-            );
-
-            $okHist = $db->table('pedidos_estado_historial')->insert([
-                'order_id'   => (string)$estadoOrderId,
-                'estado'     => $estadoNuevo,
-                'user_id'    => $userId ?: null,
-                'user_name'  => $userName,
-                'created_at' => $now,
-                'pedido_json'=> null,
-            ]);
-            $didHist = (bool)$okHist;
+                $okHist = $db->table('pedidos_estado_historial')->insert([
+                    'order_id'   => (string)$shopifyOrderId,
+                    'estado'     => $estadoNuevo,
+                    'user_id'    => $userId ?: null,
+                    'user_name'  => $userName,
+                    'created_at' => $now,
+                    'pedido_json'=> null,
+                ]);
+                $didHist = (bool)$okHist;
+            }
 
             if ($db->transStatus() === false) {
                 $db->transRollback();
-                return $this->response->setStatusCode(200)->setJSON([
+                return $this->response->setJSON([
                     'success' => true,
                     'saved' => $saved,
                     'files' => $out,
@@ -514,7 +530,7 @@ class ProduccionController extends BaseController
 
         } catch (\Throwable $e) {
             log_message('error', 'uploadGeneral post-actions ERROR: ' . $e->getMessage());
-            return $this->response->setStatusCode(200)->setJSON([
+            return $this->response->setJSON([
                 'success' => true,
                 'saved' => $saved,
                 'files' => $out,
@@ -526,7 +542,7 @@ class ProduccionController extends BaseController
             ]);
         }
 
-        return $this->response->setStatusCode(200)->setJSON([
+        return $this->response->setJSON([
             'success' => true,
             'saved' => $saved,
             'files' => $out,
@@ -546,15 +562,12 @@ class ProduccionController extends BaseController
     // =========================
     public function uploadModificada()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No autenticado']);
-        }
+        if (!session()->get('logged_in')) return $this->json401();
 
         $orderIdRaw = trim((string)($this->request->getPost('order_id') ?? $this->request->getVar('order_id') ?? ''));
-        $itemIndex  = (string)($this->request->getPost('item_index') ?? '');
+        $itemIndex  = (string)($this->request->getPost('item_index') ?? $this->request->getVar('item_index') ?? '');
 
-        $bad = strtolower($orderIdRaw);
-        if ($orderIdRaw === '' || $orderIdRaw === '0' || $bad === 'undefined' || $bad === 'null') {
+        if ($this->isBadOrderId($orderIdRaw)) {
             return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'order_id requerido']);
         }
         if ($itemIndex === '' || !preg_match('/^\d+$/', $itemIndex)) {
@@ -583,6 +596,7 @@ class ProduccionController extends BaseController
 
         $newName = 'mod_' . $itemIndex . '_' . date('Ymd_His') . '_' . $file->getRandomName();
         $original = $file->getClientName();
+
         $file->move($dir, $newName);
 
         return $this->response->setJSON([
@@ -607,13 +621,10 @@ class ProduccionController extends BaseController
     // =========================
     public function listGeneral()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No autenticado']);
-        }
+        if (!session()->get('logged_in')) return $this->json401();
 
         $orderIdRaw = trim((string)$this->request->getGet('order_id'));
-        $bad = strtolower($orderIdRaw);
-        if ($orderIdRaw === '' || $orderIdRaw === '0' || $bad === 'undefined' || $bad === 'null') {
+        if ($this->isBadOrderId($orderIdRaw)) {
             return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'order_id requerido']);
         }
 
@@ -647,92 +658,114 @@ class ProduccionController extends BaseController
                 'mime' => @mime_content_type($path) ?: '',
                 'size' => @filesize($path) ?: 0,
                 'created_at' => date('Y-m-d H:i:s', filemtime($path)),
-                'url' => site_url("produccion/file/{$folderKey}/{$name}")
+                'url' => site_url("produccion/file/{$folderKey}/{$name}"),
             ];
         }
 
         usort($files, fn($a, $b) => strcmp($b['created_at'], $a['created_at']));
 
-        return $this->response->setJSON(['success' => true, 'files' => $files, 'folder_key' => $folderKey]);
+        return $this->response->setJSON([
+            'success' => true,
+            'files' => $files,
+            'folder_key' => $folderKey,
+        ]);
     }
 
     // =========================
-    // POST /produccion/set-estado  (para fallback del JS)
+    // POST /produccion/set-estado
     // =========================
     public function setEstado()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'error' => 'No autenticado']);
-        }
+        if (!session()->get('logged_in')) return $this->json401();
 
-        $payload = $this->request->getJSON(true);
-        if (!is_array($payload)) $payload = [];
+        $body = $this->request->getJSON(true);
+        if (!is_array($body)) $body = [];
 
-        $orderIdRaw = trim((string)($payload['order_id'] ?? ''));
-        $estado     = trim((string)($payload['estado'] ?? ''));
+        $orderIdRaw = trim((string)($body['order_id'] ?? $body['orderId'] ?? ''));
+        $estado = trim((string)($body['estado'] ?? ''));
 
-        $bad = strtolower($orderIdRaw);
-        if ($orderIdRaw === '' || $orderIdRaw === '0' || $bad === 'undefined' || $bad === 'null') {
-            return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'error' => 'order_id requerido']);
+        if ($this->isBadOrderId($orderIdRaw)) {
+            return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'success' => false, 'message' => 'order_id requerido']);
         }
         if ($estado === '') {
-            return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'error' => 'estado requerido']);
+            return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'success' => false, 'message' => 'estado requerido']);
         }
 
         try {
             $keys = $this->resolvePedidoKeys($orderIdRaw);
-            $pedidoId = $keys['pedido_id'];
-            $shopifyOrderId = $keys['shopify_order_id'];
+            $shopifyOrderId = trim((string)($keys['shopify_order_id'] ?? ''));
 
-            $estadoOrderId = $shopifyOrderId !== '' ? $shopifyOrderId : ($pedidoId ? (string)$pedidoId : $orderIdRaw);
-
-            $userId   = (int)(session('user_id') ?? 0);
-            $userName = (string)(session('nombre') ?? session('user_name') ?? 'Sistema');
-
-            $estadoModel = new PedidosEstadoModel();
-            $ok = (bool)$estadoModel->setEstadoPedido((string)$estadoOrderId, $estado, $userId ?: null, $userName);
-
-            if ($ok) {
-                \Config\Database::connect()->table('pedidos_estado_historial')->insert([
-                    'order_id'   => (string)$estadoOrderId,
-                    'estado'     => $estado,
-                    'user_id'    => $userId ?: null,
-                    'user_name'  => $userName,
-                    'created_at' => date('Y-m-d H:i:s'),
-                    'pedido_json'=> null,
+            if ($shopifyOrderId === '') {
+                return $this->response->setStatusCode(404)->setJSON([
+                    'ok' => false,
+                    'success' => false,
+                    'message' => 'No se pudo resolver shopify_order_id para ese pedido',
                 ]);
             }
 
-            return $this->response->setJSON(['ok' => $ok]);
+            $userId   = (int)(session('user_id') ?? 0);
+            $userName = (string)(session('nombre') ?? session('user_name') ?? 'Sistema');
+            $now = date('Y-m-d H:i:s');
+
+            $db = \Config\Database::connect();
+            $db->transBegin();
+
+            $estadoModel = new PedidosEstadoModel();
+            $ok = (bool)$estadoModel->setEstadoPedido(
+                (string)$shopifyOrderId,
+                $estado,
+                $userId ?: null,
+                $userName
+            );
+
+            $db->table('pedidos_estado_historial')->insert([
+                'order_id'   => (string)$shopifyOrderId,
+                'estado'     => $estado,
+                'user_id'    => $userId ?: null,
+                'user_name'  => $userName,
+                'created_at' => $now,
+                'pedido_json'=> null,
+            ]);
+
+            if ($db->transStatus() === false || !$ok) {
+                $db->transRollback();
+                return $this->response->setJSON(['ok' => false, 'success' => false, 'message' => 'No se pudo actualizar estado']);
+            }
+
+            $db->transCommit();
+            return $this->response->setJSON(['ok' => true, 'success' => true]);
 
         } catch (\Throwable $e) {
             log_message('error', 'ProduccionController setEstado ERROR: ' . $e->getMessage());
-            return $this->response->setStatusCode(500)->setJSON(['ok' => false, 'error' => 'Error interno', 'debug' => $e->getMessage()]);
+            return $this->response->setJSON(['ok' => false, 'success' => false, 'message' => 'Error interno', 'debug' => $e->getMessage()]);
         }
     }
 
     // =========================
-    // GET /produccion/file/{folder}/{filename}
+    // GET /produccion/file/{folder}/{name}
     // =========================
-    public function file(string $folderKey, string $filename)
+    public function file(string $folder, string $name)
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401, 'No autenticado');
-        }
+        if (!session()->get('logged_in')) return $this->json401();
 
-        $folderKey = $this->sanitizeFolderKey($folderKey);
-        $filename  = $this->sanitizeFilename($filename);
+        $folder = $this->sanitizeFolderKey($folder);
+        $name = basename($name);
 
-        $path = WRITEPATH . "uploads/produccion/{$folderKey}/{$filename}";
+        $path = WRITEPATH . "uploads/produccion/{$folder}/{$name}";
         if (!is_file($path)) {
-            return $this->response->setStatusCode(404, 'No existe');
+            return $this->response->setStatusCode(404)->setBody('Not found');
         }
 
         $mime = @mime_content_type($path) ?: 'application/octet-stream';
+        $inline = preg_match('/^(image\/|application\/pdf|text\/|application\/svg\+xml)/i', $mime) === 1;
 
-        return $this->response
-            ->setHeader('Content-Type', $mime)
-            ->setHeader('Content-Disposition', 'inline; filename="' . $filename . '"')
-            ->setBody(file_get_contents($path));
+        $this->response->setHeader('Content-Type', $mime);
+        $this->response->setHeader('Content-Length', (string)filesize($path));
+        $this->response->setHeader(
+            'Content-Disposition',
+            ($inline ? 'inline' : 'attachment') . '; filename="' . addslashes($name) . '"'
+        );
+
+        return $this->response->setBody(file_get_contents($path));
     }
 }

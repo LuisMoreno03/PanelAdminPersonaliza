@@ -1,68 +1,18 @@
 /**
- * produccion.js (CI4) — FULL (UPLOAD MULTI + TODO TIPO)
- * - Responsive real: GRID (>=2xl) + TABLE (xl..2xl-) + CARDS (<xl)
- * - Detalles FULL en #modalDetallesFull
- * - FIX: ver detalles usa shopify_order_id cuando existe
- * - Fallback endpoints: con/sin index.php
- * - Upload GENERAL: (formGeneralUpload) es el único upload
- *
- * ✅ CAMBIOS (respecto a tu base):
- * - Input #generalFiles: fuerza multiple + sin accept (permite TODO tipo)
- * - esImagenUrl: ya NO trata .ai como imagen (evita <img> con .ai)
- * - Preview en lista: solo imágenes reales (por mime o extensión)
+ * produccion.js (CI4) — FIXED
+ * ✅ Arreglos principales:
+ * - Fallback REAL para endpoints (con y sin /index.php) en: my-queue, pull, return-all, upload-general, list-general
+ * - Normalización de order_id (evita enviar "", "undefined", "null", "0")
+ * - Upload GENERAL: garantiza order_id válido y muestra debug si el backend responde HTML/no-JSON
+ * - TABLE mode: ahora renderiza <tr> dentro de <tbody> (antes metía <div> y rompía la tabla)
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
-const ENDPOINT_QUEUE = `${API_BASE}/produccion/my-queue`;
-const ENDPOINT_PULL = `${API_BASE}/produccion/pull`;
-const ENDPOINT_RETURN_ALL = `${API_BASE}/produccion/return-all`;
-const ENDPOINT_UPLOAD_GENERAL = `${API_BASE}/produccion/upload-general`;
-const ENDPOINT_LIST_GENERAL = `${API_BASE}/produccion/list-general`;
-
-// ✅ NUEVO: endpoint para setear estado tras upload (con fallbacks más abajo)
-const ENDPOINT_SET_ESTADO = `${API_BASE}/produccion/set-estado`;
-
-let pedidosCache = [];
-let pedidosFiltrados = [];
-let isLoading = false;
-let liveInterval = null;
-let silentFetch = false;
-
-let currentDetallesPedidoId = null;  // p.id (interno)
-let currentDetallesShopifyId = null; // shopify_order_id
-let currentDetallesOrderId = null;   // el que llegó al abrir (puede ser shopify o interno)
 
 // =========================
 // Helpers DOM/UI
 // =========================
 function $(id) { return document.getElementById(id); }
-
-function normalizeUrlValue(v) {
-  if (!v) return "";
-  if (typeof v === "string") return v.trim();
-
-  // si viene como objeto
-  if (typeof v === "object") {
-    const u =
-      v.url || v.public_url || v.publicUrl ||
-      v.path || v.file || v.file_url || v.fileUrl ||
-      v.location || v.href || v.src;
-    return u ? String(u).trim() : "";
-  }
-
-  return String(v).trim();
-}
-
-function toAbsoluteUrl(u) {
-  const s = String(u || "").trim();
-  if (!s) return "";
-  if (/^https?:\/\//i.test(s)) return s;
-  if (s.startsWith("//")) return `${location.protocol}${s}`;
-  // relativo
-  const base = location.origin.replace(/\/$/, "");
-  const path = s.startsWith("/") ? s : `/${s}`;
-  return `${base}${path}`;
-}
 
 function setLoader(show) {
   if (silentFetch) return;
@@ -110,6 +60,16 @@ function esBadgeHtml(valor) {
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
 }
 
+function normalizeOrderId(v) {
+  let s = String(v ?? "").trim();
+  if (!s) return "";
+  const low = s.toLowerCase();
+  if (low === "0" || low === "null" || low === "undefined" || low === "nan") return "";
+  // por si en algún punto llega "#1234"
+  if (s.startsWith("#")) s = s.slice(1).trim();
+  return s;
+}
+
 // ✅ Detalles como link/botón
 function detallesLinkHtml(texto, idDetalles, extraClass = "") {
   return `
@@ -150,13 +110,8 @@ async function copyToClipboard(text) {
 function configurarInputGeneralFiles() {
   const input = $("generalFiles");
   if (!input) return;
-
-  // Permite multi
   input.multiple = true;
-
-  // Permite seleccionar cualquier tipo
-  // (si el HTML tenía accept="image/*", lo quitamos)
-  input.removeAttribute("accept");
+  input.removeAttribute("accept"); // permite TODO tipo
 }
 
 // =========================
@@ -342,32 +297,97 @@ function getCsrfHeaders() {
 }
 
 // =========================
-// API helpers
+// ✅ Endpoint fallbacks (con/sin index.php)
 // =========================
-async function apiGet(url) {
-  const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" }, credentials: "same-origin" });
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = null; }
-  return { res, data, raw: text };
+function uniq(arr) {
+  const seen = new Set();
+  return arr.filter((x) => {
+    const k = String(x || "");
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
-async function apiPost(url, payload) {
-  const headers = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    ...getCsrfHeaders(),
-  };
-  const res = await fetch(url, {
+function toAbsFromBase(base, path) {
+  const b = String(base || "").replace(/\/$/, "");
+  const p = String(path || "");
+  if (!b) return p;
+  return `${b}${p.startsWith("/") ? p : `/${p}`}`;
+}
+
+function buildCandidates(path) {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  const origin = location.origin.replace(/\/$/, "");
+
+  const candidates = [
+    toAbsFromBase(API_BASE, p),
+    `${origin}${p}`,
+    `${origin}/index.php${p}`,
+    `/index.php${p}`,
+    `${p}`,
+  ];
+  return uniq(candidates);
+}
+
+async function readJsonOrText(res) {
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch { data = null; }
+  return { data, raw: text };
+}
+
+/**
+ * Devuelve el primer response que NO sea 404 (para poder ver errores reales como 400/403).
+ */
+async function fetchFirstAvailable(path, options) {
+  const urls = buildCandidates(path);
+  let lastErr = null;
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, options);
+      if (res.status === 404) continue;
+      const parsed = await readJsonOrText(res);
+      return { url, res, ...parsed };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("No endpoint available");
+}
+
+// =========================
+// API helpers
+// =========================
+async function apiGetPath(path) {
+  return fetchFirstAvailable(path, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    credentials: "same-origin",
+  });
+}
+
+async function apiPostJsonPath(path, payload) {
+  return fetchFirstAvailable(path, {
     method: "POST",
-    headers,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...getCsrfHeaders(),
+    },
     body: JSON.stringify(payload ?? {}),
     credentials: "same-origin",
   });
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = null; }
-  return { res, data, raw: text };
+}
+
+async function apiPostFormPath(path, formData) {
+  return fetchFirstAvailable(path, {
+    method: "POST",
+    headers: { ...getCsrfHeaders() }, // NO pongas Content-Type en FormData
+    body: formData,
+    credentials: "same-origin",
+  });
 }
 
 function extractOrdersPayload(payload) {
@@ -378,34 +398,32 @@ function extractOrdersPayload(payload) {
 }
 
 // =========================
-// ✅ setear estado tras upload (con fallbacks)
+// ✅ setear estado tras upload (fallbacks)
 // =========================
 async function setEstadoTrasUpload(orderId, nuevoEstado = "Diseñado") {
   const payload = { order_id: String(orderId), estado: String(nuevoEstado) };
-
-  const candidates = [
-    ENDPOINT_SET_ESTADO,
-    `/produccion/set-estado`,
-    `/index.php/produccion/set-estado`,
-  ];
-
-  for (const url of candidates) {
-    try {
-      const { res, data } = await apiPost(url, payload);
-      const ok = res.ok && (data?.success === true || data?.ok === true);
-      if (ok) return true;
-    } catch {
-      // silencioso
-    }
+  try {
+    const { res, data } = await apiPostJsonPath("/produccion/set-estado", payload);
+    return res.ok && (data?.success === true || data?.ok === true);
+  } catch {
+    console.warn("No se pudo setear estado tras upload.");
+    return false;
   }
-
-  console.warn("No se pudo setear estado tras upload (endpoint no disponible o falló).");
-  return false;
 }
 
 // =========================
 // Render según breakpoint
 // =========================
+let pedidosCache = [];
+let pedidosFiltrados = [];
+let isLoading = false;
+let liveInterval = null;
+let silentFetch = false;
+
+let currentDetallesPedidoId = null;
+let currentDetallesShopifyId = null;
+let currentDetallesOrderId = null;
+
 function getMode() {
   const w = window.innerWidth || 0;
   if (w >= 1536) return "grid";
@@ -421,16 +439,15 @@ function actualizarListado(pedidos) {
   window.ordersByShopify = new Map((pedidos || []).map(o => [String(o.shopify_order_id || ""), o]).filter(([k]) => k && k !== "0"));
 
   const contGrid = $("tablaPedidos");
-  const contTable = $("tablaPedidosTable");
+  const contTable = $("tablaPedidosTable"); // tbody
   const contCards = $("cardsPedidos");
 
   if (contGrid) contGrid.innerHTML = "";
   if (contTable) contTable.innerHTML = "";
   if (contCards) contCards.innerHTML = "";
 
-  // GRID
+  // GRID (2xl)
   if (mode === "grid") {
-    if (contGrid) contGrid.classList.remove("hidden");
     if (contCards) contCards.classList.add("hidden");
     if (!contGrid) return;
 
@@ -497,7 +514,7 @@ function actualizarListado(pedidos) {
     return;
   }
 
-  // TABLE
+  // TABLE (xl..2xl-)
   if (mode === "table") {
     if (contCards) contCards.classList.add("hidden");
     if (!contTable) return;
@@ -505,7 +522,7 @@ function actualizarListado(pedidos) {
     if (!pedidos || !pedidos.length) {
       contTable.innerHTML = `
         <tr>
-          <td colspan="11" class="px-5 py-8 text-slate-500 text-sm">No tienes pedidos asignados.</td>
+          <td colspan="10" class="px-5 py-8 text-slate-500 text-sm">No tienes pedidos asignados.</td>
         </tr>
       `;
       return;
@@ -530,42 +547,27 @@ function actualizarListado(pedidos) {
         : renderEstadoPill(estado);
 
       return `
-        <div class="grid prod-grid-cols items-center gap-3 px-4 py-3 text-[13px]
-                    border-b border-slate-200 hover:bg-slate-50 transition">
-
-          <div class="whitespace-nowrap">
-            ${detallesLinkHtml(numero, idDetalles, "whitespace-nowrap")}
-          </div>
-
-          <div class="text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</div>
-
-          <div class="min-w-0 truncate">
-            ${detallesLinkHtml(String(cliente || "—"), idDetalles, "font-semibold")}
-          </div>
-
-          <div class="font-extrabold text-slate-900 whitespace-nowrap text-right">${moneyFormat(total)}</div>
-
-          <div class="whitespace-nowrap relative z-10">${estadoBtn}</div>
-
-          <div class="min-w-0">${renderLastChangeCompact(p)}</div>
-
-          <div class="text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</div>
-
-          <div class="whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</div>
-
-          <div class="min-w-0 gap-x-4 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
-
-          <div class="flex justify-end"></div>
-        </div>
+        <tr class="hover:bg-slate-50 transition">
+          <td class="px-5 py-4 whitespace-nowrap">${detallesLinkHtml(numero, idDetalles, "whitespace-nowrap")}</td>
+          <td class="px-5 py-4 text-slate-600 whitespace-nowrap">${escapeHtml(String(fecha || "—"))}</td>
+          <td class="px-5 py-4 min-w-0">${detallesLinkHtml(String(cliente || "—"), idDetalles, "font-semibold")}</td>
+          <td class="px-5 py-4 font-extrabold text-slate-900 whitespace-nowrap">${moneyFormat(total)}</td>
+          <td class="px-5 py-4 whitespace-nowrap">${estadoBtn}</td>
+          <td class="px-5 py-4">${renderLastChangeCompact(p)}</td>
+          <td class="px-5 py-4 text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</td>
+          <td class="px-5 py-4 whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</td>
+          <td class="px-5 py-4 text-xs text-slate-700">${escapeHtml(String(formaEnvio || "—"))}</td>
+          <td class="px-5 py-4 text-right"></td>
+        </tr>
       `;
     }).join("");
 
     return;
   }
 
-  // CARDS
-  if (contCards) contCards.classList.remove("hidden");
+  // CARDS (<xl)
   if (!contCards) return;
+  contCards.classList.remove("hidden");
 
   if (!pedidos || !pedidos.length) {
     contCards.innerHTML = `<div class="p-8 text-center text-slate-500">No tienes pedidos asignados.</div>`;
@@ -672,10 +674,10 @@ async function cargarMiCola() {
   setLoader(true);
 
   try {
-    const { res, data, raw } = await apiGet(ENDPOINT_QUEUE);
+    const { res, data, raw, url } = await apiGetPath("/produccion/my-queue");
 
     if (!res.ok || !data) {
-      console.error("Queue FAIL:", res.status, raw);
+      console.error("Queue FAIL:", url, res.status, raw);
       pedidosCache = [];
       pedidosFiltrados = [];
       actualizarListado([]);
@@ -740,10 +742,10 @@ async function cargarMiCola() {
 async function traerPedidos(count) {
   setLoader(true);
   try {
-    const { res, data, raw } = await apiPost(ENDPOINT_PULL, { count });
+    const { res, data, raw, url } = await apiPostJsonPath("/produccion/pull", { count });
 
     if (!res.ok || !data) {
-      console.error("PULL FAIL:", res.status, raw);
+      console.error("PULL FAIL:", url, res.status, raw);
       alert("No se pudo traer pedidos (error de red o sesión).");
       return;
     }
@@ -767,10 +769,10 @@ async function devolverPedidosRestantes() {
 
   setLoader(true);
   try {
-    const { res, data, raw } = await apiPost(ENDPOINT_RETURN_ALL, {});
+    const { res, data, raw, url } = await apiPostJsonPath("/produccion/return-all", {});
 
     if (!res.ok || !data) {
-      console.error("RETURN ALL FAIL:", res.status, raw);
+      console.error("RETURN ALL FAIL:", url, res.status, raw);
       alert("No se pudo devolver pedidos (error de red o sesión).");
       return;
     }
@@ -824,7 +826,6 @@ window.copiarDetallesJson = async function () {
   await copyToClipboard(pre.textContent || "");
 };
 
-// endpoints fallback detalles (usa tu dashboard/detalles existente)
 function buildDetallesEndpoints(orderId) {
   const id = encodeURIComponent(String(orderId || ""));
   return [
@@ -834,11 +835,34 @@ function buildDetallesEndpoints(orderId) {
   ];
 }
 
-// ✅ SOLO IMÁGENES REALES (evita intentar renderizar .ai como imagen)
+// ✅ SOLO IMÁGENES REALES
 function esImagenUrl(url) {
   if (!url) return false;
   const u = String(url).trim();
   return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
+}
+
+function normalizeUrlValue(v) {
+  if (!v) return "";
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "object") {
+    const u =
+      v.url || v.public_url || v.publicUrl ||
+      v.path || v.file || v.file_url || v.fileUrl ||
+      v.location || v.href || v.src;
+    return u ? String(u).trim() : "";
+  }
+  return String(v).trim();
+}
+
+function toAbsoluteUrl(u) {
+  const s = String(u || "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith("//")) return `${location.protocol}${s}`;
+  const base = location.origin.replace(/\/$/, "");
+  const path = s.startsWith("/") ? s : `/${s}`;
+  return `${base}${path}`;
 }
 
 function fmtMoney(v) {
@@ -849,13 +873,14 @@ function fmtMoney(v) {
 }
 
 async function abrirDetallesPedido(orderId) {
-  const id = String(orderId || "");
+  const id = normalizeOrderId(orderId);
   if (!id) return;
 
   abrirDetallesFull();
   currentDetallesOrderId = id;
-  // ✅ Asegura order_id SIEMPRE, incluso antes de que cargue el detalle
-  const hid = document.getElementById("generalOrderId");
+
+  // ✅ SIEMPRE setear hidden para upload desde el inicio
+  const hid = $("generalOrderId");
   if (hid) hid.value = id;
 
   // placeholders
@@ -903,11 +928,10 @@ async function abrirDetallesPedido(orderId) {
   const o = payload.order || {};
   const lineItems = Array.isArray(o.line_items) ? o.line_items : (Array.isArray(o.lineItems) ? o.lineItems : []);
 
-  // ✅ guarda ids reales para upload/list
-  currentDetallesShopifyId = String(o.id || o.shopify_order_id || o.order_id || "").trim() || null;
-  currentDetallesPedidoId = String(payload.pedido_id || payload.id || o.pedido_id || "").trim() || null;
+  // ids reales
+  currentDetallesShopifyId = normalizeOrderId(o.id || o.shopify_order_id || o.order_id || "");
+  currentDetallesPedidoId = normalizeOrderId(payload.pedido_id || payload.id || o.pedido_id || "");
 
-  // ✅ key estable para archivos
   const keyForFiles =
     (currentDetallesShopifyId && currentDetallesShopifyId !== "0") ? currentDetallesShopifyId :
     (currentDetallesPedidoId && currentDetallesPedidoId !== "0") ? currentDetallesPedidoId :
@@ -916,13 +940,11 @@ async function abrirDetallesPedido(orderId) {
   const hiddenId = $("generalOrderId");
   if (hiddenId) hiddenId.value = keyForFiles;
 
-  // ✅ cargar archivos generales con fallback (shopify -> interno)
   await cargarArchivosGenerales(keyForFiles, {
     fallbackKey: (keyForFiles === id ? null : id),
     extraFallbackKey: currentDetallesPedidoId && currentDetallesPedidoId !== keyForFiles ? currentDetallesPedidoId : null,
   });
 
-  // header
   const name = o.name || (o.numero ? String(o.numero) : ("#" + (o.id || id)));
   setText("detTitle", `Detalles ${name}`);
 
@@ -934,13 +956,11 @@ async function abrirDetallesPedido(orderId) {
 
   setText("detSubtitle", `${clienteHeader} · ${o.created_at || "—"}`);
 
-  // JSON
   try {
     const json = JSON.stringify(payload, null, 2);
     setHtml("detJson", escapeHtml(json));
   } catch {}
 
-  // Cliente
   const customer = o.customer || {};
   const clienteNombre = (customer.first_name || customer.last_name)
     ? `${customer.first_name || ""} ${customer.last_name || ""}`.trim()
@@ -955,7 +975,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Envío
   const a = o.shipping_address || {};
   setHtml("detEnvio", `
     <div class="space-y-1">
@@ -969,7 +988,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Resumen
   const estado = o.estado ?? o.status ?? "—";
   const tags = String(o.tags ?? o.etiquetas ?? "").trim();
   const lastInfo = normalizeLastStatusChange(o.last_status_change || payload.last_status_change);
@@ -988,7 +1006,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Totales
   const subtotal = o.subtotal_price ?? "0";
   const envio =
     o.total_shipping_price_set?.shop_money?.amount ??
@@ -1007,7 +1024,6 @@ async function abrirDetallesPedido(orderId) {
     </div>
   `);
 
-  // Items
   setText("detItemsCount", String(lineItems.length));
 
   if (!lineItems.length) {
@@ -1079,7 +1095,6 @@ async function abrirDetallesPedido(orderId) {
       </div>
     ` : "";
 
-    // ✅ IMAGEN MODIFICADA: grande + contain + abrir/copiar
     const modificadaHtml = localUrl ? `
       <div class="mt-4">
         <div class="text-xs font-extrabold text-slate-500">Imagen modificada (subida)</div>
@@ -1127,25 +1142,29 @@ async function abrirDetallesPedido(orderId) {
   setHtml("detItems", itemsHtml);
 }
 
-// Hook
 window.verDetallesPedido = function (pedidoId) {
   abrirDetallesPedido(String(pedidoId));
 };
 
 // =========================
-// Archivos generales (list/upload)
+// Archivos generales (list/upload) — con fallback
 // =========================
 async function cargarArchivosGenerales(orderId, opts = {}) {
   const list = $("generalFilesList");
   if (!list) return;
 
   const tryKey = async (key) => {
-    if (!key) return null;
-    const url = `${ENDPOINT_LIST_GENERAL}?order_id=${encodeURIComponent(key)}`;
-    const r = await fetch(url, { credentials: "same-origin" });
-    const d = await r.json().catch(() => null);
-    if (!r.ok || !d || d.success !== true) return null;
-    return d;
+    const k = normalizeOrderId(key);
+    if (!k) return null;
+
+    try {
+      const { res, data, raw, url } = await apiGetPath(`/produccion/list-general?order_id=${encodeURIComponent(k)}`);
+      if (!res.ok || !data || data.success !== true) return null;
+      return data;
+    } catch (e) {
+      console.warn("list-general error:", e);
+      return null;
+    }
   };
 
   list.innerHTML = `<div class="text-slate-500 text-sm">Cargando...</div>`;
@@ -1155,7 +1174,6 @@ async function cargarArchivosGenerales(orderId, opts = {}) {
   if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.fallbackKey) {
     d = await tryKey(opts.fallbackKey);
   }
-
   if ((!d || !Array.isArray(d.files) || d.files.length === 0) && opts.extraFallbackKey) {
     d = await tryKey(opts.extraFallbackKey);
   }
@@ -1180,7 +1198,6 @@ async function cargarArchivosGenerales(orderId, opts = {}) {
     const mime = String(f.mime || "");
     const size = String(f.size || "");
 
-    // preview SOLO si es imagen real
     const isImg = mime.startsWith("image/") || isImgUrlLike(url);
 
     return `
@@ -1222,25 +1239,39 @@ async function subirArchivosGenerales(orderId, fileList) {
   const msg = $("generalUploadMsg");
   if (msg) msg.innerHTML = `<span class="text-slate-600">Subiendo...</span>`;
 
-  const fd = new FormData();
-  fd.append("order_id", String(orderId));
+  const oid = normalizeOrderId(orderId);
+  if (!oid) {
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">order_id requerido (vacío).</span>`;
+    return false;
+  }
 
-  // ✅ soporta FileList o Array<File>
+  const fd = new FormData();
+  fd.append("order_id", oid);
+
   for (const f of Array.from(fileList || [])) {
+    // ✅ importante: "files[]" para que PHP lo trate como array y CI4 lo lea con getFileMultiple('files')
     fd.append("files[]", f);
   }
 
-  const res = await fetch(ENDPOINT_UPLOAD_GENERAL, {
-    method: "POST",
-    body: fd,
-    headers: { ...getCsrfHeaders() },
-    credentials: "same-origin",
-  });
+  let res, data, raw, url;
+  try {
+    ({ res, data, raw, url } = await apiPostFormPath("/produccion/upload-general", fd));
+  } catch (e) {
+    console.error("upload-general fetch error:", e);
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Error de red subiendo archivo.</span>`;
+    return false;
+  }
 
-  const data = await res.json().catch(() => null);
+  // si no vino JSON, te muestro el raw para debug
+  if (!data) {
+    console.error("upload-general non-json:", url, res?.status, raw);
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Respuesta inválida del servidor.</span>`;
+    return false;
+  }
 
-  if (!res.ok || !data || data.success !== true) {
-    const err = data?.message || "No se pudo subir.";
+  if (!res.ok || data.success !== true) {
+    const err = data?.message || `Error subiendo (HTTP ${res.status})`;
+    console.error("upload-general FAIL:", url, res.status, data);
     if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(err)}</span>`;
     return false;
   }
@@ -1250,7 +1281,7 @@ async function subirArchivosGenerales(orderId, fileList) {
 
   let forced = false;
   if (backendEstado && backendEstado.toLowerCase() !== wanted.toLowerCase()) {
-    forced = await setEstadoTrasUpload(orderId, wanted);
+    forced = await setEstadoTrasUpload(oid, wanted);
   }
 
   if (msg) {
@@ -1272,7 +1303,6 @@ async function subirArchivosGenerales(orderId, fileList) {
 // Eventos
 // =========================
 function bindEventos() {
-  // ✅ IMPORTANT: forzar input multi + cualquier archivo
   configurarInputGeneralFiles();
 
   $("btnTraer5")?.addEventListener("click", () => traerPedidos(5));
@@ -1289,11 +1319,23 @@ function bindEventos() {
   $("formGeneralUpload")?.addEventListener("submit", async (e) => {
     e.preventDefault();
 
-    const orderId = $("generalOrderId")?.value || currentDetallesShopifyId || currentDetallesPedidoId || currentDetallesOrderId;
+    const raw =
+      $("generalOrderId")?.value ||
+      currentDetallesShopifyId ||
+      currentDetallesPedidoId ||
+      currentDetallesOrderId;
+
+    const orderId = normalizeOrderId(raw);
+
     const input = $("generalFiles");
     const files = input?.files;
 
-    if (!orderId) return;
+    if (!orderId) {
+      const msg = $("generalUploadMsg");
+      if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">order_id requerido.</span>`;
+      return;
+    }
+
     if (!files || !files.length) {
       const msg = $("generalUploadMsg");
       if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Selecciona uno o más archivos.</span>`;
