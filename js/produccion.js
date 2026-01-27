@@ -824,7 +824,7 @@ function buildDetallesEndpoints(orderId) {
 function esImagenUrl(url) {
   if (!url) return false;
   const u = String(url).trim();
-  return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u);
+  return /https?:\/\/.*\.(jpeg|jpg|png|gif|webp|ai|svg)(\?.*)?$/i.test(u);
 }
 
 function fmtMoney(v) {
