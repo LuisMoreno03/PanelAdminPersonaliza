@@ -1023,8 +1023,6 @@ class DashboardController extends Controller
 
     // ============================================================
     // ✅ ENDPOINT EXTRA (TU REQUERIMIENTO): PULL Diseñado (5/10)
-    // - Trae 5 o 10 pedidos cuyo estado actual sea "Diseñado"
-    // - (Opcional) los asigna al usuario logueado si existen columnas assigned_to_user_id/assigned_at
     // ============================================================
 
     public function pullDisenados(): ResponseInterface
@@ -1035,7 +1033,6 @@ class DashboardController extends Controller
             $take = (int)($this->request->getGet('take') ?? 10);
             if ($take <= 0) $take = 10;
             if (!in_array($take, [5, 10], true)) {
-                // permito más, pero por defecto tu lógica es 5/10
                 if ($take < 5) $take = 5;
                 if ($take > 50) $take = 50;
             }
@@ -1053,7 +1050,6 @@ class DashboardController extends Controller
             $qb->select('p.shopify_order_id, p.numero, p.cliente, p.total, p.articulos, p.estado_envio, p.forma_envio, p.created_at', false);
             $qb->where('pe.estado', 'Diseñado');
 
-            // si existen columnas, solo traer "no asignados"
             if ($hasAssignedUser) {
                 $qb->groupStart()
                     ->where('p.assigned_to_user_id IS NULL', null, false)
@@ -1094,7 +1090,6 @@ class DashboardController extends Controller
                 ];
             }
 
-            // Asignar al usuario (si hay columnas y hay userId)
             if (!empty($ids) && $userId && ($hasAssignedUser || $hasAssignedAt)) {
                 $upd = [];
                 if ($hasAssignedUser) $upd['assigned_to_user_id'] = $userId;
@@ -1104,7 +1099,6 @@ class DashboardController extends Controller
                     $u = $db->table('pedidos')
                         ->whereIn('shopify_order_id', $ids);
 
-                    // intentar no pisar si alguien asignó en paralelo
                     if ($hasAssignedUser) {
                         $u->groupStart()
                             ->where('assigned_to_user_id IS NULL', null, false)
@@ -1135,8 +1129,6 @@ class DashboardController extends Controller
 
     // ============================================================
     // ✅ ENDPOINT EXTRA (TU REQUERIMIENTO): Botón "Cargado"
-    // - Cambia estado a "Por producir"
-    // - Desasigna el pedido (assigned_to_user_id / assigned_at => NULL)
     // ============================================================
 
     public function marcarCargado(): ResponseInterface
@@ -1167,7 +1159,6 @@ class DashboardController extends Controller
 
             $model = new PedidosEstadoModel();
 
-            // ✅ Estado final por botón "Cargado"
             $estado = 'Por producir';
 
             $ok = $model->setEstadoPedido(
@@ -1178,7 +1169,7 @@ class DashboardController extends Controller
             );
 
             if ($ok) {
-                // ✅ Desasignar (para que salga de la lista del usuario)
+                // ✅ Desasignar
                 try {
                     $db = \Config\Database::connect();
 
@@ -1233,7 +1224,7 @@ class DashboardController extends Controller
     }
 
     // ============================================================
-    // FILTRO (legacy, mantiene tu endpoint original)
+    // FILTRO (legacy)
     // ============================================================
 
     public function filter(): ResponseInterface
@@ -1631,6 +1622,168 @@ class DashboardController extends Controller
                 'message' => 'Error interno cargando detalles',
             ])->setStatusCode(200);
         }
+    }
+
+    // ============================================================
+    // ✅ NUEVO: SUBIR IMAGEN MODIFICADA (multipart/form-data)
+    // POST: order_id, line_index (opcional), file
+    // Guarda URL en pedidos.imagenes_locales
+    // ============================================================
+
+    public function subirImagenModificada(): ResponseInterface
+    {
+        if ($resp = $this->mustBeLoggedIn()) return $resp;
+
+        $orderIdRaw = trim((string)$this->request->getPost('order_id'));
+        $lineIndex  = (int)($this->request->getPost('line_index') ?? 0);
+
+        // ✅ NUEVO: line_item_id (si viene)
+        $lineItemIdRaw = trim((string)$this->request->getPost('line_item_id'));
+
+        $orderId = $this->sanitizeNumericId($orderIdRaw);
+        if ($orderId === '') {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'order_id inválido.',
+            ])->setStatusCode(200);
+        }
+
+        $lineItemId = $this->sanitizeNumericId($lineItemIdRaw); // puede quedar ""
+        $keyPrimary = $lineItemId !== '' ? $lineItemId : (string)$lineIndex;
+
+        $file = $this->request->getFile('file');
+        if (!$file || !$file->isValid()) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Debes subir un archivo (campo "file").',
+            ])->setStatusCode(200);
+        }
+
+        $ext = strtolower((string)$file->getClientExtension());
+        $allowed = ['jpg', 'jpeg', 'png', 'webp'];
+        if (!in_array($ext, $allowed, true)) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Formato no permitido. Usa JPG, PNG o WEBP.',
+            ])->setStatusCode(200);
+        }
+
+        $maxBytes = 15 * 1024 * 1024;
+        if ($file->getSize() > $maxBytes) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Archivo demasiado grande (máx 15MB).',
+            ])->setStatusCode(200);
+        }
+
+        try {
+            $targetDir = rtrim(FCPATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'uploads'
+                . DIRECTORY_SEPARATOR . 'pedidos' . DIRECTORY_SEPARATOR . $orderId;
+
+            if (!is_dir($targetDir)) {
+                @mkdir($targetDir, 0755, true);
+            }
+
+            $newName = $file->getRandomName();
+            $file->move($targetDir, $newName);
+
+            $publicUrl = $this->buildPublicUrl("/uploads/pedidos/{$orderId}/{$newName}");
+
+            // ✅ Guarda por line_item_id si existe, y también por index para compatibilidad
+            $this->upsertImagenLocalPedido($orderId, $keyPrimary, $publicUrl);
+
+            if ($lineItemId !== '') {
+                $this->upsertImagenLocalPedido($orderId, (string)$lineIndex, $publicUrl);
+            }
+
+            return $this->response->setJSON([
+                'success' => true,
+                'message' => 'Imagen subida y guardada.',
+                'order_id' => $orderId,
+                'line_index' => $lineIndex,
+                'line_item_id' => $lineItemId !== '' ? $lineItemId : null,
+                'key_saved' => $keyPrimary,
+                'url' => $publicUrl,
+            ])->setStatusCode(200);
+
+        } catch (\Throwable $e) {
+            log_message('error', 'subirImagenModificada ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error interno subiendo imagen.',
+            ])->setStatusCode(200);
+        }
+    }
+public function confirmacionSubirImagen(): ResponseInterface
+{
+    return $this->subirImagenModificada();
+}
+
+public function confirmacionUpload(): ResponseInterface
+{
+    return $this->subirImagenModificada();
+}
+
+public function apiPedidosImagenesSubir(): ResponseInterface
+{
+    return $this->subirImagenModificada();
+}
+
+
+
+    private function upsertImagenLocalPedido(string $orderId, string $key, string $url): void
+    {
+        $db = \Config\Database::connect();
+
+        if (!$db->fieldExists('imagenes_locales', 'pedidos')) {
+            throw new \RuntimeException('La tabla pedidos no tiene la columna imagenes_locales.');
+        }
+
+        $row = $db->query("SELECT id, imagenes_locales FROM pedidos WHERE shopify_order_id = ? LIMIT 1", [$orderId])
+            ->getRowArray();
+
+        $imagenes = [];
+        if ($row && !empty($row['imagenes_locales'])) {
+            $tmp = json_decode((string)$row['imagenes_locales'], true);
+            if (is_array($tmp)) $imagenes = $tmp;
+        }
+
+        // Si no existe fila, insertar mínimo
+        if (!$row) {
+            $ins = [];
+            if ($db->fieldExists('shopify_order_id', 'pedidos')) $ins['shopify_order_id'] = $orderId;
+            if ($db->fieldExists('numero', 'pedidos'))      $ins['numero'] = '#' . $orderId;
+            if ($db->fieldExists('cliente', 'pedidos'))     $ins['cliente'] = '-';
+            if ($db->fieldExists('articulos', 'pedidos'))   $ins['articulos'] = 0;
+            if ($db->fieldExists('created_at', 'pedidos'))  $ins['created_at'] = date('Y-m-d H:i:s');
+            if ($db->fieldExists('synced_at', 'pedidos'))   $ins['synced_at'] = date('Y-m-d H:i:s');
+            $ins['imagenes_locales'] = null;
+
+            $db->table('pedidos')->insert($ins);
+        }
+
+        $imagenes[(string)$key] = [
+            'url' => $url,
+            'updated_at' => date('c'),
+        ];
+
+        $db->table('pedidos')
+            ->where('shopify_order_id', $orderId)
+            ->update([
+                'imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            ]);
+    }
+
+
+    private function sanitizeNumericId(string $v): string
+    {
+        return preg_replace('/\D+/', '', $v);
+    }
+
+    private function buildPublicUrl(string $path): string
+    {
+        $base = rtrim((string)config('App')->baseURL, '/');
+        return $base . $path;
     }
 
     // ============================================================

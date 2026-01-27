@@ -52,6 +52,7 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 
     // detalles pedido (mejor aceptar IDs como string/segment)
     $routes->get('detalles/(:segment)', 'DashboardController::detalles/$1');
+    $routes->post('subir-imagen-modificada', 'DashboardController::subirImagenModificada');
 
     // presencia / usuarios
     $routes->get('ping', 'DashboardController::ping');

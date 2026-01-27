@@ -1372,7 +1372,7 @@ window.verDetalles = async function (orderId) {
           <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
             🧾
           </div>
-        `;
+        `; 
 
             // ✅ FIX: imagen modificada puede venir por index o por line_item_id
             const lineId = String(item.id || item.line_item_id || item.variant_id || "");
@@ -1541,15 +1541,12 @@ window.subirImagenProducto = async function (orderId, index, lineItemId, input) 
         const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
 
         const endpoints = [
-            apiUrl("/confirmacion/subir-imagen"),
-            apiUrl("/confirmacion/upload"),
-            apiUrl("/api/pedidos/imagenes/subir"),
-            "/confirmacion/subir-imagen",
-            "/confirmacion/upload",
-            "/api/pedidos/imagenes/subir",
-            "/index.php/confirmacion/subir-imagen",
-            "/index.php/confirmacion/upload",
+        apiUrl("/dashboard/subir-imagen-modificada"),
+        "/dashboard/subir-imagen-modificada",
+        "/index.php/dashboard/subir-imagen-modificada",
+        apiUrl("/index.php/dashboard/subir-imagen-modificada"),
         ];
+
 
 
         let lastErr = null;
