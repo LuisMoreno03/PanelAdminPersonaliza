@@ -151,7 +151,6 @@ $routes->group('pedidos', ['filter' => 'auth'], static function (RouteCollection
 $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollection $routes) {
 
     $routes->get('/', 'ProduccionController::index');
-
     $routes->get('my-queue', 'ProduccionController::myQueue');
     $routes->post('pull', 'ProduccionController::pull');
     $routes->post('return-all', 'ProduccionController::returnAll');
@@ -161,11 +160,13 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
     $routes->get('list-general', 'ProduccionController::listGeneral');
     $routes->post('upload-modificada', 'ProduccionController::uploadModificada');
 
-    // ✅ faltaban para el JS
+    // ✅ NUEVO (tu JS lo intenta como fallback)
     $routes->post('set-estado', 'ProduccionController::setEstado');
-    $routes->get('file/(:segment)/(:segment)', 'ProduccionController::file/$1/$2');
 
+    // ✅ NUEVO (para abrir urls devueltas por list-general)
+    $routes->get('file/(:segment)/(:segment)', 'ProduccionController::file/$1/$2');
 });
+
 
 
 /*

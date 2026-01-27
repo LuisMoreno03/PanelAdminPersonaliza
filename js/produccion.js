@@ -854,6 +854,9 @@ async function abrirDetallesPedido(orderId) {
 
   abrirDetallesFull();
   currentDetallesOrderId = id;
+  // ✅ Asegura order_id SIEMPRE, incluso antes de que cargue el detalle
+  const hid = document.getElementById("generalOrderId");
+  if (hid) hid.value = id;
 
   // placeholders
   setText("detTitle", "Cargando...");
