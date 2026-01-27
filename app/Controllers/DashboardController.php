@@ -8,8 +8,9 @@ use App\Models\PedidosEstadoModel;
 
 class DashboardController extends Controller
 {
+    // ⚠️ Mejor cargar por Config / .env / archivo secreto (se deja placeholder)
     private string $shop = '962f2d.myshopify.com';
-    private string $token = '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';
+    private string $token = ''; // <-- NO hardcodear aquí
     private string $apiVersion = '';
 
     // ✅ Estados permitidos (los del modal)
@@ -45,8 +46,6 @@ class DashboardController extends Controller
         $this->apiVersion = trim($this->apiVersion ?: '2024-10');
     }
 
-
-
     // =====================================================
     // CONFIG LOADERS
     // =====================================================
@@ -80,7 +79,6 @@ class DashboardController extends Controller
         }
     }
 
-
     private function loadShopifySecretsFromFile(): void
     {
         try {
@@ -101,6 +99,17 @@ class DashboardController extends Controller
     // =====================================================
     // HELPERS
     // =====================================================
+
+    private function mustBeLoggedIn(): ?ResponseInterface
+    {
+        if (!session()->get('logged_in')) {
+            return $this->response->setStatusCode(401)->setJSON([
+                'success' => false,
+                'message' => 'No autenticado',
+            ]);
+        }
+        return null;
+    }
 
     /**
      * ✅ Devuelve true si el JSON de imagenes_locales contiene al menos 1 URL válida.
@@ -280,8 +289,7 @@ class DashboardController extends Controller
         $cancelReason,
         $cancelledAt = null,
         $financialStatus = null
-    ): void
-    {
+    ): void {
         if (!$this->shopifyDebeSerCancelado($cancelReason, $cancelledAt, $financialStatus)) return;
 
         try {
@@ -388,312 +396,6 @@ class DashboardController extends Controller
         }
     }
 
-    private function pedidosFiltradosDb(): ResponseInterface
-    {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
-
-        try {
-            $page  = (int)($this->request->getGet('page') ?? 1);
-            if ($page < 1) $page = 1;
-
-            $limit = (int)($this->request->getGet('limit') ?? 50);
-            if ($limit < 10) $limit = 10;
-            if ($limit > 200) $limit = 200;
-
-            $q         = trim((string)($this->request->getGet('q') ?? ''));
-            $estado    = trim((string)($this->request->getGet('estado') ?? ''));
-            $envio     = trim((string)($this->request->getGet('envio') ?? ''));
-            $forma     = trim((string)($this->request->getGet('forma') ?? ''));
-            $desde     = trim((string)($this->request->getGet('desde') ?? ''));
-            $hasta     = trim((string)($this->request->getGet('hasta') ?? ''));
-
-            $totalMin  = $this->moneyToDecimal($this->request->getGet('total_min'));
-            $totalMax  = $this->moneyToDecimal($this->request->getGet('total_max'));
-            $artMinRaw = trim((string)($this->request->getGet('art_min') ?? ''));
-            $artMaxRaw = trim((string)($this->request->getGet('art_max') ?? ''));
-
-            $artMin = is_numeric($artMinRaw) ? (int)$artMinRaw : null;
-            $artMax = is_numeric($artMaxRaw) ? (int)$artMaxRaw : null;
-
-            if ($estado !== '') $estado = $this->normalizeEstado($estado);
-
-            $db = \Config\Database::connect();
-
-            // -------- COUNT ----------
-            $cb = $db->table('pedidos p');
-            $cb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
-
-            $this->applyDbFilters($cb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
-
-            $countRow = $cb->select('COUNT(1) AS cnt', false)->get()->getRowArray();
-            $totalOrders = (int)($countRow['cnt'] ?? 0);
-
-            $totalPages = $totalOrders > 0 ? (int)ceil($totalOrders / $limit) : 1;
-            if ($page > $totalPages) $page = $totalPages;
-
-            $offset = ($page - 1) * $limit;
-
-            // -------- ROWS ----------
-            $qb = $db->table('pedidos p');
-            $hasImgLocales = $db->fieldExists('imagenes_locales', 'pedidos');
-
-            $qb->select(
-                'p.shopify_order_id, p.numero, p.cliente, p.total, p.articulos, p.estado_envio, p.forma_envio, p.created_at,' .
-                ($hasImgLocales ? 'p.imagenes_locales,' : 'NULL AS imagenes_locales,') .
-                'pe.estado AS estado_interno, pe.estado_updated_by_name AS user_name,' .
-                'COALESCE(pe.estado_updated_at, pe.actualizado) AS changed_at',
-                false
-            );
-            $qb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
-
-            $this->applyDbFilters($qb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
-
-            $rows = $qb->orderBy('p.created_at', 'DESC')
-                ->limit($limit, $offset)
-                ->get()
-                ->getResultArray();
-
-            $orders = [];
-            foreach ($rows as $r) {
-                $oid = trim((string)($r['shopify_order_id'] ?? ''));
-                if ($oid === '') continue;
-
-                $estadoInterno = trim((string)($r['estado_interno'] ?? ''));
-                $estadoEnvioDb = (string)($r['estado_envio'] ?? '');
-
-                if ($estadoInterno !== '') {
-                    $estadoFinal = $this->normalizeEstado($estadoInterno);
-                } else {
-                    $estadoFinal = $this->estadoAutoFromShopifyEnvio($estadoEnvioDb);
-                }
-
-                if ($this->shopifyEsEnviado($estadoEnvioDb) && !in_array($estadoFinal, ['Cancelado', 'Repetir'], true)) {
-                    $estadoFinal = 'Enviado';
-                }
-
-                $total = '-';
-                if ($r['total'] !== null && $r['total'] !== '') {
-                    $total = number_format((float)$r['total'], 2, '.', '') . ' €';
-                }
-
-                $created = (string)($r['created_at'] ?? '');
-                $fecha = $created ? substr($created, 0, 10) : '-';
-
-                $changedAt = $r['changed_at'] ?? null;
-                $hasModified = $this->hasAnyModifiedImage($r['imagenes_locales'] ?? null);
-                $modifiedCount = $this->countModifiedImages($r['imagenes_locales'] ?? null);
- 
-                $orders[] = [
-                    'id'           => $oid,
-                    'numero'       => $r['numero'] ?: ('#' . $oid),
-                    'fecha'        => $fecha,
-                    'cliente'      => $r['cliente'] ?: '-',
-                    'total'        => $total,
-                    'estado'       => $estadoFinal,
-                    'articulos'    => (int)($r['articulos'] ?? 0),
-                    'estado_envio' => $r['estado_envio'] ?: '-',
-                    'forma_envio'  => $r['forma_envio'] ?: '-',
-                    'has_modified_image' => $hasModified ? 1 : 0,
-                    'modified_images_count' => $modifiedCount,
-
-                    'last_status_change' => $changedAt ? [
-                        'user_name'  => $r['user_name'] ?: 'Sistema',
-                        'changed_at' => $changedAt,
-                    ] : null,
-                ];
-            }
-
-            return $this->response->setJSON([
-                'success'        => true,
-                'orders'         => $orders,
-                'count'          => count($orders),
-                'limit'          => $limit,
-                'page'           => $page,
-                'total_orders'   => $totalOrders,
-                'total_pages'    => $totalPages,
-                'next_page_info' => ($page < $totalPages) ? (string)($page + 1) : null,
-                'prev_page_info' => ($page > 1) ? (string)($page - 1) : null,
-            ]);
-        } catch (\Throwable $e) {
-            log_message('error', 'pedidosFiltradosDb ERROR: ' . $e->getMessage());
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => 'Error interno filtrando pedidos',
-                'orders'  => [],
-                'count'   => 0,
-            ])->setStatusCode(200);
-        }
-    }
-
-    public function filter(): \CodeIgniter\HTTP\ResponseInterface
-    {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
-
-        try {
-            $page  = max(1, (int)($this->request->getGet('page') ?? 1));
-            $limit = 50;
-            $offset = ($page - 1) * $limit;
-
-            $q         = trim((string)($this->request->getGet('q') ?? ''));
-            $estado    = trim((string)($this->request->getGet('estado') ?? ''));   // estado interno
-            $envio     = trim((string)($this->request->getGet('envio') ?? ''));    // fulfilled/partial/unfulfilled/__none__
-            $forma     = trim((string)($this->request->getGet('forma') ?? ''));
-            $desde     = trim((string)($this->request->getGet('desde') ?? ''));    // YYYY-MM-DD
-            $hasta     = trim((string)($this->request->getGet('hasta') ?? ''));    // YYYY-MM-DD
-            $totalMin  = $this->moneyToDecimal($this->request->getGet('total_min'));
-            $totalMax  = $this->moneyToDecimal($this->request->getGet('total_max'));
-            $artMin    = is_numeric($this->request->getGet('art_min')) ? (int)$this->request->getGet('art_min') : null;
-            $artMax    = is_numeric($this->request->getGet('art_max')) ? (int)$this->request->getGet('art_max') : null;
-
-            if ($estado !== '') $estado = $this->normalizeEstado($estado);
-
-            $db = \Config\Database::connect();
-
-            // -------- COUNT ----------
-            $cb = $db->table('pedidos p');
-            $cb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
-
-            $this->applyDbFilters($cb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
-
-            $totalOrders = (int)($cb->select('COUNT(1) AS cnt', false)->get()->getRowArray()['cnt'] ?? 0);
-            $totalPages  = max(1, (int)ceil($totalOrders / $limit));
-
-            // -------- ROWS ----------
-            $qb = $db->table('pedidos p');
-            $qb->select(
-                'p.shopify_order_id, p.numero, p.cliente, p.total, p.articulos, p.estado_envio, p.forma_envio, p.created_at,' .
-                'pe.estado AS estado_interno, pe.estado_updated_by_name AS user_name,' .
-                'COALESCE(pe.estado_updated_at, pe.actualizado) AS changed_at',
-                false
-            );
-            $qb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
-
-            $this->applyDbFilters($qb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
-
-            $rows = $qb->orderBy('p.created_at', 'DESC')
-                ->limit($limit, $offset)
-                ->get()
-                ->getResultArray();
-
-            $orders = [];
-            foreach ($rows as $r) {
-                $oid = trim((string)($r['shopify_order_id'] ?? ''));
-                if ($oid === '') continue;
-
-                $estadoInterno = trim((string)($r['estado_interno'] ?? ''));
-                $estadoEnvioDb = (string)($r['estado_envio'] ?? '');
-
-                if ($estadoInterno !== '') {
-                    $estadoFinal = $this->normalizeEstado($estadoInterno);
-                } else {
-                    $estadoFinal = $this->estadoAutoFromShopifyEnvio($estadoEnvioDb);
-                }
-
-                if ($this->shopifyEsEnviado($estadoEnvioDb) && !in_array($estadoFinal, ['Cancelado', 'Repetir'], true)) {
-                    $estadoFinal = 'Enviado';
-                }
-
-                $total = '-';
-                if ($r['total'] !== null && $r['total'] !== '') {
-                    $total = number_format((float)$r['total'], 2, '.', '') . ' €';
-                }
-
-                $created = (string)($r['created_at'] ?? '');
-                $fecha = $created ? substr($created, 0, 10) : '-';
-
-                $changedAt = $r['changed_at'] ?? null;
-
-                $orders[] = [
-                    'id'           => $oid,
-                    'numero'       => $r['numero'] ?: ('#' . $oid),
-                    'fecha'        => $fecha,
-                    'cliente'      => $r['cliente'] ?: '-',
-                    'total'        => $total,
-                    'estado'       => $estadoFinal,
-                    'articulos'    => (int)($r['articulos'] ?? 0),
-                    'estado_envio' => $r['estado_envio'] ?: '-',
-                    'forma_envio'  => $r['forma_envio'] ?: '-',
-                    'last_status_change' => $changedAt ? [
-                        'user_name'  => $r['user_name'] ?: 'Sistema',
-                        'changed_at' => $changedAt,
-                    ] : null,
-                ];
-            }
-
-            $next = ($page < $totalPages) ? '1' : null;
-            $prev = ($page > 1) ? '1' : null;
-
-            return $this->response->setJSON([
-                'success'        => true,
-                'orders'         => $orders,
-                'count'          => count($orders),
-                'limit'          => $limit,
-                'page'           => $page,
-                'total_orders'   => $totalOrders,
-                'total_pages'    => $totalPages,
-                'next_page_info' => $next,
-                'prev_page_info' => $prev,
-            ]);
-        } catch (\Throwable $e) {
-            log_message('error', 'Dashboard filter ERROR: ' . $e->getMessage());
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => 'Error interno filtrando',
-                'orders'  => [],
-                'count'   => 0,
-            ])->setStatusCode(200);
-        }
-    }
-
-    private function applyDbFilters($b, string $q, string $estado, string $envio, string $forma, string $desde, string $hasta, ?float $totalMin, ?float $totalMax, ?int $artMin, ?int $artMax): void
-    {
-        if ($q !== '') {
-            $b->groupStart()
-                ->like('p.numero', $q)
-                ->orLike('p.cliente', $q)
-                ->groupEnd();
-        }
-
-        if ($estado !== '') {
-            $b->where('pe.estado', $estado);
-        }
-
-        if ($envio !== '') {
-            if ($envio === '__none__') {
-                $b->groupStart()
-                    ->where('p.estado_envio IS NULL', null, false)
-                    ->orWhere('p.estado_envio', '')
-                    ->orWhere('p.estado_envio', '-')
-                    ->groupEnd();
-            } else {
-                $b->where('p.estado_envio', $envio);
-            }
-        }
-
-        if ($forma !== '') {
-            $b->like('p.forma_envio', $forma);
-        }
-
-        if ($desde !== '') $b->where('p.created_at >=', $desde . ' 00:00:00');
-        if ($hasta !== '') $b->where('p.created_at <=', $hasta . ' 23:59:59');
-
-        if ($totalMin !== null) $b->where('p.total >=', $totalMin);
-        if ($totalMax !== null) $b->where('p.total <=', $totalMax);
-
-        if ($artMin !== null) $b->where('p.articulos >=', $artMin);
-        if ($artMax !== null) $b->where('p.articulos <=', $artMax);
-    }
-
     // ============================================================
     // ✅ NORMALIZAR ESTADOS (viejos -> nuevos) + CANCELADO
     // ============================================================
@@ -777,6 +479,45 @@ class DashboardController extends Controller
         $ts = strtotime($iso);
         if (!$ts) return null;
         return date('Y-m-d H:i:s', $ts);
+    }
+
+    private function applyDbFilters($b, string $q, string $estado, string $envio, string $forma, string $desde, string $hasta, ?float $totalMin, ?float $totalMax, ?int $artMin, ?int $artMax): void
+    {
+        if ($q !== '') {
+            $b->groupStart()
+                ->like('p.numero', $q)
+                ->orLike('p.cliente', $q)
+                ->groupEnd();
+        }
+
+        if ($estado !== '') {
+            $b->where('pe.estado', $estado);
+        }
+
+        if ($envio !== '') {
+            if ($envio === '__none__') {
+                $b->groupStart()
+                    ->where('p.estado_envio IS NULL', null, false)
+                    ->orWhere('p.estado_envio', '')
+                    ->orWhere('p.estado_envio', '-')
+                    ->groupEnd();
+            } else {
+                $b->where('p.estado_envio', $envio);
+            }
+        }
+
+        if ($forma !== '') {
+            $b->like('p.forma_envio', $forma);
+        }
+
+        if ($desde !== '') $b->where('p.created_at >=', $desde . ' 00:00:00');
+        if ($hasta !== '') $b->where('p.created_at <=', $hasta . ' 23:59:59');
+
+        if ($totalMin !== null) $b->where('p.total >=', $totalMin);
+        if ($totalMax !== null) $b->where('p.total <=', $totalMax);
+
+        if ($artMin !== null) $b->where('p.articulos >=', $artMin);
+        if ($artMax !== null) $b->where('p.articulos <=', $artMax);
     }
 
     /**
@@ -885,7 +626,7 @@ class DashboardController extends Controller
     }
 
     // ============================================================
-    // PEDIDOS (paginados)
+    // PEDIDOS (Shopify paginados)
     // ============================================================
 
     public function pedidos()
@@ -895,12 +636,7 @@ class DashboardController extends Controller
 
     private function pedidosPaginados(): ResponseInterface
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
+        if ($resp = $this->mustBeLoggedIn()) return $resp;
 
         try {
             $pageInfo = (string)($this->request->getGet('page_info') ?? '');
@@ -1023,9 +759,6 @@ class DashboardController extends Controller
 
                 $isCancelled = $this->shopifyDebeSerCancelado($cancelReason, $cancelledAt, $financialStatus);
 
-                // ✅ Por defecto:
-                // - si Shopify está cancelado o refunded -> Cancelado
-                // - si no -> según fulfillment (Enviado/Por preparar)
                 $estadoBase = $isCancelled
                     ? 'Cancelado'
                     : $this->estadoAutoFromShopifyEnvio((string)$estado_envio);
@@ -1144,17 +877,491 @@ class DashboardController extends Controller
     }
 
     // ============================================================
+    // FILTRO DB (paginado/filtrado desde MySQL)
+    // ============================================================
+
+    public function filterDb(): ResponseInterface
+    {
+        return $this->pedidosFiltradosDb();
+    }
+
+    private function pedidosFiltradosDb(): ResponseInterface
+    {
+        if ($resp = $this->mustBeLoggedIn()) return $resp;
+
+        try {
+            $page  = (int)($this->request->getGet('page') ?? 1);
+            if ($page < 1) $page = 1;
+
+            $limit = (int)($this->request->getGet('limit') ?? 50);
+            if ($limit < 10) $limit = 10;
+            if ($limit > 200) $limit = 200;
+
+            $q         = trim((string)($this->request->getGet('q') ?? ''));
+            $estado    = trim((string)($this->request->getGet('estado') ?? ''));
+            $envio     = trim((string)($this->request->getGet('envio') ?? ''));
+            $forma     = trim((string)($this->request->getGet('forma') ?? ''));
+            $desde     = trim((string)($this->request->getGet('desde') ?? ''));
+            $hasta     = trim((string)($this->request->getGet('hasta') ?? ''));
+
+            $totalMin  = $this->moneyToDecimal($this->request->getGet('total_min'));
+            $totalMax  = $this->moneyToDecimal($this->request->getGet('total_max'));
+            $artMinRaw = trim((string)($this->request->getGet('art_min') ?? ''));
+            $artMaxRaw = trim((string)($this->request->getGet('art_max') ?? ''));
+
+            $artMin = is_numeric($artMinRaw) ? (int)$artMinRaw : null;
+            $artMax = is_numeric($artMaxRaw) ? (int)$artMaxRaw : null;
+
+            if ($estado !== '') $estado = $this->normalizeEstado($estado);
+
+            $db = \Config\Database::connect();
+
+            // -------- COUNT ----------
+            $cb = $db->table('pedidos p');
+            $cb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
+
+            $this->applyDbFilters($cb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
+
+            $countRow = $cb->select('COUNT(1) AS cnt', false)->get()->getRowArray();
+            $totalOrders = (int)($countRow['cnt'] ?? 0);
+
+            $totalPages = $totalOrders > 0 ? (int)ceil($totalOrders / $limit) : 1;
+            if ($page > $totalPages) $page = $totalPages;
+
+            $offset = ($page - 1) * $limit;
+
+            // -------- ROWS ----------
+            $qb = $db->table('pedidos p');
+            $hasImgLocales = $db->fieldExists('imagenes_locales', 'pedidos');
+
+            $qb->select(
+                'p.shopify_order_id, p.numero, p.cliente, p.total, p.articulos, p.estado_envio, p.forma_envio, p.created_at,' .
+                ($hasImgLocales ? 'p.imagenes_locales,' : 'NULL AS imagenes_locales,') .
+                'pe.estado AS estado_interno, pe.estado_updated_by_name AS user_name,' .
+                'COALESCE(pe.estado_updated_at, pe.actualizado) AS changed_at',
+                false
+            );
+            $qb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
+
+            $this->applyDbFilters($qb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
+
+            $rows = $qb->orderBy('p.created_at', 'DESC')
+                ->limit($limit, $offset)
+                ->get()
+                ->getResultArray();
+
+            $orders = [];
+            foreach ($rows as $r) {
+                $oid = trim((string)($r['shopify_order_id'] ?? ''));
+                if ($oid === '') continue;
+
+                $estadoInterno = trim((string)($r['estado_interno'] ?? ''));
+                $estadoEnvioDb = (string)($r['estado_envio'] ?? '');
+
+                if ($estadoInterno !== '') {
+                    $estadoFinal = $this->normalizeEstado($estadoInterno);
+                } else {
+                    $estadoFinal = $this->estadoAutoFromShopifyEnvio($estadoEnvioDb);
+                }
+
+                if ($this->shopifyEsEnviado($estadoEnvioDb) && !in_array($estadoFinal, ['Cancelado', 'Repetir'], true)) {
+                    $estadoFinal = 'Enviado';
+                }
+
+                $total = '-';
+                if ($r['total'] !== null && $r['total'] !== '') {
+                    $total = number_format((float)$r['total'], 2, '.', '') . ' €';
+                }
+
+                $created = (string)($r['created_at'] ?? '');
+                $fecha = $created ? substr($created, 0, 10) : '-';
+
+                $changedAt = $r['changed_at'] ?? null;
+                $hasModified = $this->hasAnyModifiedImage($r['imagenes_locales'] ?? null);
+                $modifiedCount = $this->countModifiedImages($r['imagenes_locales'] ?? null);
+
+                $orders[] = [
+                    'id'           => $oid,
+                    'numero'       => $r['numero'] ?: ('#' . $oid),
+                    'fecha'        => $fecha,
+                    'cliente'      => $r['cliente'] ?: '-',
+                    'total'        => $total,
+                    'estado'       => $estadoFinal,
+                    'articulos'    => (int)($r['articulos'] ?? 0),
+                    'estado_envio' => $r['estado_envio'] ?: '-',
+                    'forma_envio'  => $r['forma_envio'] ?: '-',
+                    'has_modified_image' => $hasModified ? 1 : 0,
+                    'modified_images_count' => $modifiedCount,
+                    'last_status_change' => $changedAt ? [
+                        'user_name'  => $r['user_name'] ?: 'Sistema',
+                        'changed_at' => $changedAt,
+                    ] : null,
+                ];
+            }
+
+            return $this->response->setJSON([
+                'success'        => true,
+                'orders'         => $orders,
+                'count'          => count($orders),
+                'limit'          => $limit,
+                'page'           => $page,
+                'total_orders'   => $totalOrders,
+                'total_pages'    => $totalPages,
+                'next_page_info' => ($page < $totalPages) ? (string)($page + 1) : null,
+                'prev_page_info' => ($page > 1) ? (string)($page - 1) : null,
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'pedidosFiltradosDb ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error interno filtrando pedidos',
+                'orders'  => [],
+                'count'   => 0,
+            ])->setStatusCode(200);
+        }
+    }
+
+    // ============================================================
+    // ✅ ENDPOINT EXTRA (TU REQUERIMIENTO): PULL Diseñado (5/10)
+    // - Trae 5 o 10 pedidos cuyo estado actual sea "Diseñado"
+    // - (Opcional) los asigna al usuario logueado si existen columnas assigned_to_user_id/assigned_at
+    // ============================================================
+
+    public function pullDisenados(): ResponseInterface
+    {
+        if ($resp = $this->mustBeLoggedIn()) return $resp;
+
+        try {
+            $take = (int)($this->request->getGet('take') ?? 10);
+            if ($take <= 0) $take = 10;
+            if (!in_array($take, [5, 10], true)) {
+                // permito más, pero por defecto tu lógica es 5/10
+                if ($take < 5) $take = 5;
+                if ($take > 50) $take = 50;
+            }
+
+            $userId = session('user_id');
+            $userId = $userId ? (int)$userId : null;
+
+            $db = \Config\Database::connect();
+
+            $hasAssignedUser = $db->fieldExists('assigned_to_user_id', 'pedidos');
+            $hasAssignedAt   = $db->fieldExists('assigned_at', 'pedidos');
+
+            $qb = $db->table('pedidos p');
+            $qb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'inner');
+            $qb->select('p.shopify_order_id, p.numero, p.cliente, p.total, p.articulos, p.estado_envio, p.forma_envio, p.created_at', false);
+            $qb->where('pe.estado', 'Diseñado');
+
+            // si existen columnas, solo traer "no asignados"
+            if ($hasAssignedUser) {
+                $qb->groupStart()
+                    ->where('p.assigned_to_user_id IS NULL', null, false)
+                    ->orWhere('p.assigned_to_user_id', 0)
+                    ->groupEnd();
+            }
+
+            $rows = $qb->orderBy('p.created_at', 'ASC')
+                ->limit($take)
+                ->get()
+                ->getResultArray();
+
+            $ids = [];
+            $orders = [];
+            foreach ($rows as $r) {
+                $oid = trim((string)($r['shopify_order_id'] ?? ''));
+                if ($oid === '') continue;
+                $ids[] = $oid;
+
+                $total = '-';
+                if ($r['total'] !== null && $r['total'] !== '') {
+                    $total = number_format((float)$r['total'], 2, '.', '') . ' €';
+                }
+
+                $created = (string)($r['created_at'] ?? '');
+                $fecha = $created ? substr($created, 0, 10) : '-';
+
+                $orders[] = [
+                    'id'           => $oid,
+                    'numero'       => $r['numero'] ?: ('#' . $oid),
+                    'fecha'        => $fecha,
+                    'cliente'      => $r['cliente'] ?: '-',
+                    'total'        => $total,
+                    'estado'       => 'Diseñado',
+                    'articulos'    => (int)($r['articulos'] ?? 0),
+                    'estado_envio' => $r['estado_envio'] ?: '-',
+                    'forma_envio'  => $r['forma_envio'] ?: '-',
+                ];
+            }
+
+            // Asignar al usuario (si hay columnas y hay userId)
+            if (!empty($ids) && $userId && ($hasAssignedUser || $hasAssignedAt)) {
+                $upd = [];
+                if ($hasAssignedUser) $upd['assigned_to_user_id'] = $userId;
+                if ($hasAssignedAt)   $upd['assigned_at'] = date('Y-m-d H:i:s');
+
+                if (!empty($upd)) {
+                    $u = $db->table('pedidos')
+                        ->whereIn('shopify_order_id', $ids);
+
+                    // intentar no pisar si alguien asignó en paralelo
+                    if ($hasAssignedUser) {
+                        $u->groupStart()
+                            ->where('assigned_to_user_id IS NULL', null, false)
+                            ->orWhere('assigned_to_user_id', 0)
+                            ->groupEnd();
+                    }
+
+                    $u->update($upd);
+                }
+            }
+
+            return $this->response->setJSON([
+                'success' => true,
+                'orders'  => $orders,
+                'count'   => count($orders),
+                'take'    => $take,
+            ])->setStatusCode(200);
+        } catch (\Throwable $e) {
+            log_message('error', 'pullDisenados ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error interno en pullDisenados',
+                'orders'  => [],
+                'count'   => 0,
+            ])->setStatusCode(200);
+        }
+    }
+
+    // ============================================================
+    // ✅ ENDPOINT EXTRA (TU REQUERIMIENTO): Botón "Cargado"
+    // - Cambia estado a "Por producir"
+    // - Desasigna el pedido (assigned_to_user_id / assigned_at => NULL)
+    // ============================================================
+
+    public function marcarCargado(): ResponseInterface
+    {
+        if ($resp = $this->mustBeLoggedIn()) return $resp;
+
+        $data = $this->request->getJSON(true);
+        if (!is_array($data)) $data = [];
+
+        $orderId = trim((string)(
+            $data['order_id'] ??
+            $data['shopify_order_id'] ??
+            $data['id'] ??
+            ''
+        ));
+
+        if ($orderId === '' || $orderId === '0') {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'order_id inválido (vacío o 0).',
+                'debug_received' => $data,
+            ])->setStatusCode(200);
+        }
+
+        try {
+            $userId   = session('user_id');
+            $userName = session('nombre') ?? session('user_name') ?? session('name') ?? 'Usuario';
+
+            $model = new PedidosEstadoModel();
+
+            // ✅ Estado final por botón "Cargado"
+            $estado = 'Por producir';
+
+            $ok = $model->setEstadoPedido(
+                $orderId,
+                $estado,
+                $userId ? (int)$userId : null,
+                (string)$userName
+            );
+
+            if ($ok) {
+                // ✅ Desasignar (para que salga de la lista del usuario)
+                try {
+                    $db = \Config\Database::connect();
+
+                    $hasAssignedUser = $db->fieldExists('assigned_to_user_id', 'pedidos');
+                    $hasAssignedAt   = $db->fieldExists('assigned_at', 'pedidos');
+                    $hasShopifyId    = $db->fieldExists('shopify_order_id', 'pedidos');
+
+                    if ($hasShopifyId && ($hasAssignedUser || $hasAssignedAt)) {
+                        $upd = [];
+                        if ($hasAssignedUser) $upd['assigned_to_user_id'] = null;
+                        if ($hasAssignedAt)   $upd['assigned_at'] = null;
+
+                        if (!empty($upd)) {
+                            $db->table('pedidos')->where('shopify_order_id', (string)$orderId)->update($upd);
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    log_message('error', 'marcarCargado unassign ERROR: ' . $e->getMessage());
+                }
+
+                // ✅ Historial
+                try {
+                    $db  = \Config\Database::connect();
+                    $now = date('Y-m-d H:i:s');
+
+                    $db->table('pedidos_estado_historial')->insert([
+                        'order_id'    => (string)$orderId,
+                        'estado'      => $estado,
+                        'user_id'     => $userId ? (int)$userId : null,
+                        'user_name'   => (string)$userName,
+                        'created_at'  => $now,
+                        'pedido_json' => null,
+                    ]);
+                } catch (\Throwable $e) {
+                    log_message('error', 'marcarCargado historial ERROR: ' . $e->getMessage());
+                }
+            }
+
+            return $this->response->setJSON([
+                'success'  => (bool)$ok,
+                'message'  => $ok ? 'Marcado como Cargado (Por producir) y desasignado' : 'No se pudo marcar como Cargado',
+                'order_id' => $orderId,
+                'estado'   => $estado,
+            ])->setStatusCode(200);
+        } catch (\Throwable $e) {
+            log_message('error', 'marcarCargado ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error interno marcando como Cargado',
+            ])->setStatusCode(200);
+        }
+    }
+
+    // ============================================================
+    // FILTRO (legacy, mantiene tu endpoint original)
+    // ============================================================
+
+    public function filter(): ResponseInterface
+    {
+        if ($resp = $this->mustBeLoggedIn()) return $resp;
+
+        try {
+            $page  = max(1, (int)($this->request->getGet('page') ?? 1));
+            $limit = 50;
+            $offset = ($page - 1) * $limit;
+
+            $q         = trim((string)($this->request->getGet('q') ?? ''));
+            $estado    = trim((string)($this->request->getGet('estado') ?? ''));
+            $envio     = trim((string)($this->request->getGet('envio') ?? ''));
+            $forma     = trim((string)($this->request->getGet('forma') ?? ''));
+            $desde     = trim((string)($this->request->getGet('desde') ?? ''));
+            $hasta     = trim((string)($this->request->getGet('hasta') ?? ''));
+            $totalMin  = $this->moneyToDecimal($this->request->getGet('total_min'));
+            $totalMax  = $this->moneyToDecimal($this->request->getGet('total_max'));
+            $artMin    = is_numeric($this->request->getGet('art_min')) ? (int)$this->request->getGet('art_min') : null;
+            $artMax    = is_numeric($this->request->getGet('art_max')) ? (int)$this->request->getGet('art_max') : null;
+
+            if ($estado !== '') $estado = $this->normalizeEstado($estado);
+
+            $db = \Config\Database::connect();
+
+            // -------- COUNT ----------
+            $cb = $db->table('pedidos p');
+            $cb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
+            $this->applyDbFilters($cb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
+
+            $totalOrders = (int)($cb->select('COUNT(1) AS cnt', false)->get()->getRowArray()['cnt'] ?? 0);
+            $totalPages  = max(1, (int)ceil($totalOrders / $limit));
+
+            // -------- ROWS ----------
+            $qb = $db->table('pedidos p');
+            $qb->select(
+                'p.shopify_order_id, p.numero, p.cliente, p.total, p.articulos, p.estado_envio, p.forma_envio, p.created_at,' .
+                'pe.estado AS estado_interno, pe.estado_updated_by_name AS user_name,' .
+                'COALESCE(pe.estado_updated_at, pe.actualizado) AS changed_at',
+                false
+            );
+            $qb->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left');
+
+            $this->applyDbFilters($qb, $q, $estado, $envio, $forma, $desde, $hasta, $totalMin, $totalMax, $artMin, $artMax);
+
+            $rows = $qb->orderBy('p.created_at', 'DESC')
+                ->limit($limit, $offset)
+                ->get()
+                ->getResultArray();
+
+            $orders = [];
+            foreach ($rows as $r) {
+                $oid = trim((string)($r['shopify_order_id'] ?? ''));
+                if ($oid === '') continue;
+
+                $estadoInterno = trim((string)($r['estado_interno'] ?? ''));
+                $estadoEnvioDb = (string)($r['estado_envio'] ?? '');
+
+                if ($estadoInterno !== '') {
+                    $estadoFinal = $this->normalizeEstado($estadoInterno);
+                } else {
+                    $estadoFinal = $this->estadoAutoFromShopifyEnvio($estadoEnvioDb);
+                }
+
+                if ($this->shopifyEsEnviado($estadoEnvioDb) && !in_array($estadoFinal, ['Cancelado', 'Repetir'], true)) {
+                    $estadoFinal = 'Enviado';
+                }
+
+                $total = '-';
+                if ($r['total'] !== null && $r['total'] !== '') {
+                    $total = number_format((float)$r['total'], 2, '.', '') . ' €';
+                }
+
+                $created = (string)($r['created_at'] ?? '');
+                $fecha = $created ? substr($created, 0, 10) : '-';
+
+                $changedAt = $r['changed_at'] ?? null;
+
+                $orders[] = [
+                    'id'           => $oid,
+                    'numero'       => $r['numero'] ?: ('#' . $oid),
+                    'fecha'        => $fecha,
+                    'cliente'      => $r['cliente'] ?: '-',
+                    'total'        => $total,
+                    'estado'       => $estadoFinal,
+                    'articulos'    => (int)($r['articulos'] ?? 0),
+                    'estado_envio' => $r['estado_envio'] ?: '-',
+                    'forma_envio'  => $r['forma_envio'] ?: '-',
+                    'last_status_change' => $changedAt ? [
+                        'user_name'  => $r['user_name'] ?: 'Sistema',
+                        'changed_at' => $changedAt,
+                    ] : null,
+                ];
+            }
+
+            $next = ($page < $totalPages) ? '1' : null;
+            $prev = ($page > 1) ? '1' : null;
+
+            return $this->response->setJSON([
+                'success'        => true,
+                'orders'         => $orders,
+                'count'          => count($orders),
+                'limit'          => $limit,
+                'page'           => $page,
+                'total_orders'   => $totalOrders,
+                'total_pages'    => $totalPages,
+                'next_page_info' => $next,
+                'prev_page_info' => $prev,
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'Dashboard filter ERROR: ' . $e->getMessage());
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => 'Error interno filtrando',
+                'orders'  => [],
+                'count'   => 0,
+            ])->setStatusCode(200);
+        }
+    }
+
+    // ============================================================
     // GUARDAR ESTADO (endpoint para el modal)
     // ============================================================
 
-    public function guardarEstadoPedido()
+    public function guardarEstadoPedido(): ResponseInterface
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
+        if ($resp = $this->mustBeLoggedIn()) return $resp;
 
         $data = $this->request->getJSON(true);
         if (!is_array($data)) $data = [];
@@ -1198,7 +1405,7 @@ class DashboardController extends Controller
                 (string)$userName
             );
 
-            // ✅ DESASIGNAR cuando Cancelado o Confirmado (para que salga de colas por usuario)
+            // ✅ DESASIGNAR cuando Cancelado o Confirmado (tu lógica original)
             if ($ok && in_array($estado, ['Cancelado', 'Confirmado'], true)) {
                 try {
                     $db = \Config\Database::connect();
@@ -1219,7 +1426,7 @@ class DashboardController extends Controller
                 }
             }
 
-            // ✅ guardar también en historial (solo si OK)
+            // ✅ historial (solo si OK)
             if ($ok) {
                 $db  = \Config\Database::connect();
                 $now = date('Y-m-d H:i:s');
@@ -1253,14 +1460,9 @@ class DashboardController extends Controller
     // DETALLES DEL PEDIDO + IMÁGENES LOCALES
     // ============================================================
 
-    public function detalles($orderId)
+    public function detalles($orderId): ResponseInterface
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
+        if ($resp = $this->mustBeLoggedIn()) return $resp;
 
         $orderId = trim((string)$orderId);
         if ($orderId === '' || $orderId === '0') {
@@ -1280,18 +1482,18 @@ class DashboardController extends Controller
 
             // 1) Traer pedido desde Shopify
             $urlOrder = "https://{$this->shop}/admin/api/{$this->apiVersion}/orders/" . urlencode($orderId) . ".json";
-            $resp = $this->curlShopify($urlOrder, 'GET');
+            $respS = $this->curlShopify($urlOrder, 'GET');
 
-            if ($resp['status'] >= 400 || $resp['status'] === 0) {
-                log_message('error', 'DETALLES ORDER HTTP ' . $resp['status'] . ': ' . ($resp['body'] ?? ''));
+            if ($respS['status'] >= 400 || $respS['status'] === 0) {
+                log_message('error', 'DETALLES ORDER HTTP ' . $respS['status'] . ': ' . ($respS['body'] ?? ''));
                 return $this->response->setJSON([
                     'success' => false,
                     'message' => 'Error consultando pedido en Shopify',
-                    'status'  => $resp['status'],
+                    'status'  => $respS['status'],
                 ])->setStatusCode(200);
             }
 
-            $json  = json_decode($resp['body'], true) ?: [];
+            $json  = json_decode($respS['body'], true) ?: [];
             $order = $json['order'] ?? null;
 
             if (!$order) {
@@ -1373,13 +1575,11 @@ class DashboardController extends Controller
                 if ($img) $productImages[(string)$pid] = $img;
             }
 
-            // 4) Imágenes locales
             // 4) Imágenes locales (leer desde pedidos.imagenes_locales)
             $imagenesLocales = [];
             try {
                 $db = \Config\Database::connect();
 
-                // si existe la columna, leer JSON
                 $hasImgLocales = $db->fieldExists('imagenes_locales', 'pedidos');
 
                 if ($hasImgLocales) {
@@ -1390,14 +1590,14 @@ class DashboardController extends Controller
                         ->getRowArray();
 
                     if ($pedidoRow && !empty($pedidoRow['imagenes_locales'])) {
-                        $json = json_decode($pedidoRow['imagenes_locales'], true);
-                        if (is_array($json)) {
-                            $imagenesLocales = $json; // <-- ojo: aquí vienen objetos {url, modified_by, modified_at}
+                        $jLoc = json_decode($pedidoRow['imagenes_locales'], true);
+                        if (is_array($jLoc)) {
+                            $imagenesLocales = $jLoc;
                         }
                     }
                 }
 
-                // fallback (si quieres mantener compatibilidad con pedido_imagenes)
+                // fallback compat (pedido_imagenes)
                 if (empty($imagenesLocales) && $db->tableExists('pedido_imagenes')) {
                     $rows = $db->table('pedido_imagenes')
                         ->select('line_index, local_url')
@@ -1416,7 +1616,6 @@ class DashboardController extends Controller
             } catch (\Throwable $e) {
                 log_message('error', 'DETALLES imagenesLocales ERROR: ' . $e->getMessage());
             }
-
 
             return $this->response->setJSON([
                 'success'          => true,
@@ -1438,14 +1637,9 @@ class DashboardController extends Controller
     // ENDPOINTS
     // ============================================================
 
-    public function ping()
+    public function ping(): ResponseInterface
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
+        if ($resp = $this->mustBeLoggedIn()) return $resp;
 
         return $this->response->setJSON([
             'success' => true,
@@ -1454,14 +1648,9 @@ class DashboardController extends Controller
         ]);
     }
 
-    public function usuariosEstado()
+    public function usuariosEstado(): ResponseInterface
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON([
-                'success' => false,
-                'message' => 'No autenticado',
-            ]);
-        }
+        if ($resp = $this->mustBeLoggedIn()) return $resp;
 
         return $this->response->setJSON([
             'success' => true,

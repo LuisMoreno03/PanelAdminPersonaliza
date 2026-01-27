@@ -19,17 +19,31 @@ class ProduccionController extends BaseController
     // =========================
     // Helpers (resolver pedido/carpeta)
     // =========================
+
+    /**
+     * Sanitiza el nombre de carpeta para evitar caracteres raros (ej: "#1234" -> "1234")
+     */
+    private function sanitizeFolderKey(string $key): string
+    {
+        $key = trim($key);
+        // permite letras, números, guion y guion bajo
+        $key = preg_replace('/[^a-zA-Z0-9_-]/', '', $key);
+        return $key !== '' ? $key : '0';
+    }
+
     private function resolvePedidoKeys(string $orderIdRaw): array
     {
         $orderIdRaw = trim($orderIdRaw);
 
         $db = \Config\Database::connect();
 
+        // ✅ IMPORTANTE: traemos también "numero" para usarlo como carpeta
         $pedido = $db->table('pedidos')
-            ->select('id, shopify_order_id, assigned_to_user_id')
+            ->select('id, numero, shopify_order_id, assigned_to_user_id')
             ->groupStart()
                 ->where('id', $orderIdRaw)
                 ->orWhere('shopify_order_id', $orderIdRaw)
+                ->orWhere('numero', $orderIdRaw) // por si te mandan el numero directamente
             ->groupEnd()
             ->get()
             ->getRowArray();
@@ -47,26 +61,39 @@ class ProduccionController extends BaseController
             }
         }
 
-        // preferencia: carpeta por pedido interno si existe
-        $preferredFolderKey = $pedidoId ? (string)$pedidoId : $orderIdRaw;
+        // ✅ NUEVO: carpeta por NUMERO (más humano), si no existe -> id, si no -> raw
+        $pedidoNumero = $pedido['numero'] ?? null;
+        $preferredFolderKeyRaw = $pedidoNumero
+            ? (string)$pedidoNumero
+            : ($pedidoId ? (string)$pedidoId : $orderIdRaw);
+
+        $preferredFolderKey = $this->sanitizeFolderKey($preferredFolderKeyRaw);
 
         return [
             'pedido' => $pedido,
             'pedido_id' => $pedidoId,
+            'pedido_numero' => $pedidoNumero ? (string)$pedidoNumero : null,
             'shopify_order_id' => $shopifyOrderId,
             'preferred_folder_key' => $preferredFolderKey,
         ];
     }
 
-    private function resolveExistingFolderKey(string $orderIdRaw, ?string $preferredFolderKey, ?string $pedidoIdStr, ?string $shopifyOrderId): string
-    {
+    private function resolveExistingFolderKey(
+        string $orderIdRaw,
+        ?string $preferredFolderKey,
+        ?string $pedidoIdStr,
+        ?string $shopifyOrderId,
+        ?string $pedidoNumero = null
+    ): string {
         $orderIdRaw = trim((string)$orderIdRaw);
         $candidates = [];
 
-        if ($preferredFolderKey) $candidates[] = $preferredFolderKey;
-        if ($pedidoIdStr) $candidates[] = $pedidoIdStr;
-        if ($orderIdRaw !== '') $candidates[] = $orderIdRaw;
-        if ($shopifyOrderId) $candidates[] = $shopifyOrderId;
+        // ✅ Prioridad: numero -> preferred -> pedidoId -> raw -> shopify
+        if ($pedidoNumero) $candidates[] = $this->sanitizeFolderKey((string)$pedidoNumero);
+        if ($preferredFolderKey) $candidates[] = $this->sanitizeFolderKey((string)$preferredFolderKey);
+        if ($pedidoIdStr) $candidates[] = $this->sanitizeFolderKey((string)$pedidoIdStr);
+        if ($orderIdRaw !== '') $candidates[] = $this->sanitizeFolderKey((string)$orderIdRaw);
+        if ($shopifyOrderId) $candidates[] = $this->sanitizeFolderKey((string)$shopifyOrderId);
 
         // unique manteniendo orden
         $seen = [];
@@ -83,8 +110,9 @@ class ProduccionController extends BaseController
             if (is_dir($dir)) return $key;
         }
 
-        // si no existe ninguna, devolvemos el preferido o el raw
-        return $preferredFolderKey ?: ($orderIdRaw ?: '0');
+        // si no existe ninguna, devolvemos el preferido o el raw (sanitizado)
+        $fallback = $preferredFolderKey ?: ($orderIdRaw ?: '0');
+        return $this->sanitizeFolderKey($fallback);
     }
 
     // =========================
@@ -135,7 +163,7 @@ class ProduccionController extends BaseController
                 ";
             }
 
-           $coll = 'utf8mb4_unicode_ci';
+            $coll = 'utf8mb4_unicode_ci';
             $rows = $db->query("
                 SELECT
                     p.id,
@@ -163,7 +191,14 @@ class ProduccionController extends BaseController
                 FROM pedidos p
 
                 LEFT JOIN pedidos_estado pe
-                    ON (pe.order_id = p.id OR pe.order_id = p.shopify_order_id)
+                ON (
+                    CAST(pe.order_id AS UNSIGNED) = p.id
+                    OR (
+                        p.shopify_order_id IS NOT NULL
+                        AND p.shopify_order_id <> 0
+                        AND CAST(pe.order_id AS UNSIGNED) = p.shopify_order_id
+                    )
+                )
 
                 LEFT JOIN (
                     SELECT h1.order_id, h1.estado, h1.user_name, h1.created_at
@@ -176,9 +211,12 @@ class ProduccionController extends BaseController
                     ON hx.order_id = h1.order_id AND hx.max_created = h1.created_at
                 ) h
                 ON (
-                    h.order_id = p.id
-                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
-                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                    CAST(h.order_id AS UNSIGNED) = p.id
+                    OR (
+                        p.shopify_order_id IS NOT NULL
+                        AND p.shopify_order_id <> 0
+                        AND CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                    )
                 )
 
                 WHERE p.assigned_to_user_id = ?
@@ -189,7 +227,6 @@ class ProduccionController extends BaseController
 
                 ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
             ", [$userId])->getResultArray();
-
 
             return $this->response->setJSON([
                 'ok' => true,
@@ -273,10 +310,14 @@ class ProduccionController extends BaseController
                         FROM pedidos_estado_historial
                         GROUP BY order_id
                     ) x ON x.last_id = h1.id
-                ) h ON (
-                    h.order_id = p.id
-                    OR h.order_id = CAST(p.shopify_order_id AS CHAR)
-                    OR CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                ) h
+                ON (
+                    CAST(h.order_id AS UNSIGNED) = p.id
+                    OR (
+                        p.shopify_order_id IS NOT NULL
+                        AND p.shopify_order_id <> 0
+                        AND CAST(h.order_id AS UNSIGNED) = p.shopify_order_id
+                    )
                 )
 
                 WHERE LOWER(TRIM(CAST(h.estado AS CHAR) COLLATE {$coll}))
@@ -287,7 +328,6 @@ class ProduccionController extends BaseController
                 ORDER BY h.created_at ASC, p.id ASC
                 LIMIT {$count}
             ")->getResultArray();
-
 
             if (!$candidatos) {
                 return $this->response->setJSON([
@@ -424,13 +464,12 @@ class ProduccionController extends BaseController
         $shopifyOrderId = $keys['shopify_order_id'];
 
         // ------------------------------------------------------------
-        // 2) Guardar archivos
+        // 2) Guardar archivos (✅ ahora en carpeta por NUMERO de pedido)
         // ------------------------------------------------------------
         $saved = 0;
         $out = [];
 
-        // ✅ Carpeta siempre por pedido interno si existe, si no por el raw
-        $folderKey = $keys['preferred_folder_key'];
+        $folderKey = $keys['preferred_folder_key']; // ya viene sanitizado
         $dir = WRITEPATH . "uploads/produccion/" . $folderKey;
         if (!is_dir($dir)) mkdir($dir, 0777, true);
 
@@ -438,7 +477,7 @@ class ProduccionController extends BaseController
             if (!$f || !$f->isValid()) continue;
 
             $newName  = $f->getRandomName();
-            $original = $f->getClientName(); // ✅ nombre real del usuario
+            $original = $f->getClientName();
             $mime     = $f->getClientMimeType();
 
             $f->move($dir, $newName);
@@ -471,7 +510,6 @@ class ProduccionController extends BaseController
         $didEstado = false;
         $didHist = false;
 
-        // ✅ estado centralizado (según property)
         $estadoNuevo = $this->estadoProduccion; // 'Diseñado'
 
         try {
@@ -495,7 +533,7 @@ class ProduccionController extends BaseController
                     $estadoModel = new PedidosEstadoModel();
                     $didEstado = (bool) $estadoModel->setEstadoPedido(
                         (string)$shopifyOrderId,
-                        $estadoNuevo,            // ✅ Diseñado
+                        $estadoNuevo,
                         $userId ?: null,
                         $userName
                     );
@@ -503,7 +541,7 @@ class ProduccionController extends BaseController
                     // 3.3) historial
                     $okHist = $db->table('pedidos_estado_historial')->insert([
                         'order_id'   => (string)$shopifyOrderId,
-                        'estado'     => $estadoNuevo, // ✅ Diseñado
+                        'estado'     => $estadoNuevo,
                         'user_id'    => $userId ?: null,
                         'user_name'  => $userName,
                         'created_at' => $now,
@@ -555,7 +593,7 @@ class ProduccionController extends BaseController
             'estado_set' => $didEstado,
             'historial_inserted' => $didHist,
             'unassigned' => $didUnassign,
-            'new_estado' => $estadoNuevo, // ✅ Diseñado
+            'new_estado' => $estadoNuevo,
         ])->setStatusCode(200);
     }
 
@@ -609,7 +647,7 @@ class ProduccionController extends BaseController
         $keys = $this->resolvePedidoKeys($orderIdRaw);
         $pedidoId = $keys['pedido_id'];
         $shopifyOrderId = $keys['shopify_order_id'];
-        $folderKey = $keys['preferred_folder_key'];
+        $folderKey = $keys['preferred_folder_key']; // ya viene sanitizado
 
         $dir = WRITEPATH . "uploads/produccion/" . $folderKey;
         if (!is_dir($dir)) mkdir($dir, 0777, true);
@@ -639,7 +677,7 @@ class ProduccionController extends BaseController
 
     // =========================
     // GET /produccion/list-general
-    // ✅ FIX: resuelve carpeta correcta (pedidoId vs shopify)
+    // ✅ FIX: resuelve carpeta correcta (ahora prioriza "numero")
     // =========================
     public function listGeneral()
     {
@@ -661,13 +699,15 @@ class ProduccionController extends BaseController
         $keys = $this->resolvePedidoKeys($orderIdRaw);
         $pedidoIdStr = $keys['pedido_id'] ? (string)$keys['pedido_id'] : null;
         $shopifyOrderId = $keys['shopify_order_id'] ?: null;
+        $pedidoNumero = $keys['pedido_numero'] ?? null;
 
-        // ✅ busca una carpeta existente (por compatibilidad con carpetas viejas)
+        // ✅ busca una carpeta existente (compatibilidad con carpetas viejas)
         $folderKey = $this->resolveExistingFolderKey(
             $orderIdRaw,
             $keys['preferred_folder_key'] ?? null,
             $pedidoIdStr,
-            $shopifyOrderId
+            $shopifyOrderId,
+            $pedidoNumero
         );
 
         $dir = WRITEPATH . "uploads/produccion/" . $folderKey;

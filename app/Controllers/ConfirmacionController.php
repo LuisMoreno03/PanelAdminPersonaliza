@@ -393,11 +393,42 @@ class ConfirmacionController extends BaseController
 
         $index = (int)$this->request->getPost('line_index');
         $file  = $this->request->getFile('file');
+        // ✅ Límite 20MB (en KB)
+        $maxKB = 20480;
+
+        $rules = [
+            'file' => [
+                'rules'  => 'uploaded[file]|max_size[file,' . $maxKB . ']|is_image[file]|mime_in[file,image/jpg,image/jpeg,image/png,image/webp,image/gif]',
+                'errors' => [
+                    'uploaded'  => 'Debes subir un archivo.',
+                    'max_size'  => 'La imagen no puede superar 20MB.',
+                    'is_image'  => 'El archivo debe ser una imagen válida.',
+                    'mime_in'   => 'Formato no permitido. Usa JPG, PNG, WEBP o GIF.',
+                ],
+            ],
+        ];
+
+        if (!$this->validate($rules)) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => $this->validator->getError('file') ?? 'Archivo inválido',
+            ]);
+        }
+
+        // Si por alguna razón PHP/servidor lo bloqueó antes
+        if (!$file || !$file->isValid()) {
+            return $this->response->setJSON([
+                'success' => false,
+                'message' => $file ? $file->getErrorString() : 'Archivo inválido',
+            ]);
+        }
+
 
         $modifiedBy = trim((string)$this->request->getPost('modified_by'));
         $modifiedAt = trim((string)$this->request->getPost('modified_at'));
         if ($modifiedBy === '') $modifiedBy = session('nombre') ?? 'Sistema';
         if ($modifiedAt === '') $modifiedAt = date('c');
+        
 
         if ($orderId === '' || !$file || !$file->isValid()) {
             return $this->response->setJSON(['success' => false, 'message' => 'Archivo inválido']);
@@ -425,6 +456,7 @@ class ConfirmacionController extends BaseController
         // leer json actual
         $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
         if (!is_array($imagenes)) $imagenes = [];
+        
 
         // borrar anterior del mismo index si existe y es local
         $prev = $imagenes[(string)$index] ?? $imagenes[$index] ?? null;
