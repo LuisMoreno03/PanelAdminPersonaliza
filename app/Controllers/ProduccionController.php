@@ -424,6 +424,10 @@ class ProduccionController extends BaseController
 
         // ✅ robusto con name="files[]"
         $uploaded = $this->request->getFileMultiple('files');
+        if (!$uploaded) {
+            $uploaded = $this->request->getFileMultiple('files[]');
+        }
+
         if (!$uploaded || !is_array($uploaded) || count($uploaded) === 0) {
             return $this->response->setStatusCode(400)->setJSON([
                 'success' => false,

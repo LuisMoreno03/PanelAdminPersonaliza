@@ -1249,8 +1249,7 @@ async function subirArchivosGenerales(orderId, fileList) {
   fd.append("order_id", oid);
 
   for (const f of Array.from(fileList || [])) {
-    // ✅ importante: "files[]" para que PHP lo trate como array y CI4 lo lea con getFileMultiple('files')
-    fd.append("files[]", f);
+    fd.append("files[]", f); // ✅ ok con tu input name="files[]" y CI4
   }
 
   let res, data, raw, url;
@@ -1262,7 +1261,6 @@ async function subirArchivosGenerales(orderId, fileList) {
     return false;
   }
 
-  // si no vino JSON, te muestro el raw para debug
   if (!data) {
     console.error("upload-general non-json:", url, res?.status, raw);
     if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Respuesta inválida del servidor.</span>`;
@@ -1276,26 +1274,7 @@ async function subirArchivosGenerales(orderId, fileList) {
     return false;
   }
 
-  const backendEstado = String(data.new_estado || data.estado || "").trim();
-  const wanted = "Diseñado";
-
-  let forced = false;
-  if (backendEstado && backendEstado.toLowerCase() !== wanted.toLowerCase()) {
-    forced = await setEstadoTrasUpload(oid, wanted);
-  }
-
-  if (msg) {
-    if (!backendEstado || backendEstado.toLowerCase() === wanted.toLowerCase() || forced) {
-      msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
-        Subido (${data.saved || 0}). Estado → ${escapeHtml(wanted)}. Pedido desasignado.
-      </span>`;
-    } else {
-      msg.innerHTML = `<span class="text-amber-700 font-extrabold">
-        Subido (${data.saved || 0}), pero el backend dejó estado → ${escapeHtml(backendEstado || "Por producir")}.
-      </span>`;
-    }
-  }
-
+  if (msg) msg.innerHTML = `<span class="text-emerald-700 font-extrabold">Subido (${data.saved || 0}).</span>`;
   return true;
 }
 
