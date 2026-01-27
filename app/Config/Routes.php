@@ -162,7 +162,7 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 
     // ✅ NUEVO (tu JS lo intenta como fallback)
     $routes->post('set-estado', 'ProduccionController::setEstado');
-
+    
     // ✅ NUEVO (para abrir urls devueltas por list-general)
     $routes->get('file/(:segment)/(:segment)', 'ProduccionController::file/$1/$2');
 });
