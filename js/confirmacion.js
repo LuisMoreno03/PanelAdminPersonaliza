@@ -37,8 +37,10 @@ let EDITED_BLOBS  = {}; // { "<orderId>_<index>": Blob }
 let EDITED_NAMES  = {}; // { "<orderId>_<index>": "nombre_edit.png" }
 
 function keyFile(orderId, index) {
-  return `${String(orderId)}_${String(index)}`;
+  const oid = normalizeOrderId(orderId);
+  return `${String(oid)}_${String(index)}`;
 }
+
 
 const $ = (id) => document.getElementById(id);
 
@@ -680,14 +682,20 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
    DROPZONES + PREVIEW + AUDITORÍA
 ===================================================== */
 function initDropzones(orderId) {
-  const oidStr = String(orderId);
-  const zones = document.querySelectorAll(`[data-dropzone="1"][data-order="${CSS.escape(oidStr)}"]`);
+  const oidStr = String(normalizeOrderId(orderId));
+
+  // ✅ NO uses CSS.escape aquí porque tu data-order es numérico (y a veces cambia)
+  const zones = document.querySelectorAll(`[data-dropzone="1"]`);
 
   zones.forEach((zone) => {
-    const oid = zone.getAttribute("data-order");
+    const oidRaw = zone.getAttribute("data-order");
+    const oid = String(normalizeOrderId(oidRaw));
     const idx = Number(zone.getAttribute("data-index"));
 
-    const input = document.getElementById(`file_${oid}_${idx}`);
+    // ✅ Solo inicializa los del pedido actual
+    if (oid !== oidStr) return;
+
+    const input = document.getElementById(`file_${oidRaw}_${idx}`) || zone.querySelector(`input[type="file"]`);
     const btnEdit = zone.querySelector(`[data-action="edit"]`);
     const btnUpload = zone.querySelector(`[data-action="upload"]`);
     const btnClear = zone.querySelector(`[data-action="clear"]`);
@@ -700,14 +708,17 @@ function initDropzones(orderId) {
 
     const onPick = (file) => {
       if (!file) return;
+
       const k = keyFile(oid, idx);
       PENDING_FILES[k] = file;
       delete EDITED_BLOBS[k];
       delete EDITED_NAMES[k];
-      renderLocalPreview(oid, idx, file);
+
+      renderLocalPreview(oidRaw, idx, file);
       enableBtns(true);
     };
 
+    // ✅ Click en la zona abre el input
     zone.addEventListener("click", (e) => {
       if ((e.target?.tagName || "").toLowerCase() === "button") return;
       input?.click();
@@ -735,7 +746,7 @@ function initDropzones(orderId) {
       delete EDITED_BLOBS[k];
       delete EDITED_NAMES[k];
       if (input) input.value = "";
-      clearLocalPreview(oid, idx);
+      clearLocalPreview(oidRaw, idx);
       enableBtns(false);
     });
 
@@ -754,13 +765,20 @@ function initDropzones(orderId) {
       const editedBlob = EDITED_BLOBS[k];
       const editedName = EDITED_NAMES[k];
       const originalFile = PENDING_FILES[k];
-      if (!originalFile && !editedBlob) return;
+
+      if (!originalFile && !editedBlob) {
+        alert("No hay archivo seleccionado para este producto.");
+        return;
+      }
 
       const payloadFile = editedBlob
         ? new File([editedBlob], editedName || originalFile?.name || `edit_${idx}.png`, {
             type: editedBlob.type || "image/png",
           })
         : originalFile;
+
+      // ✅ Debug: confirma qué archivo se manda
+      console.log("[UPLOAD CLICK]", { oid, idx, name: payloadFile?.name, size: payloadFile?.size, type: payloadFile?.type });
 
       await subirImagenProductoFile(oid, idx, payloadFile, { edited: !!editedBlob });
 
@@ -770,8 +788,12 @@ function initDropzones(orderId) {
       if (input) input.value = "";
       enableBtns(false);
     });
+
+    // ✅ Arranca deshabilitado
+    enableBtns(false);
   });
 }
+
 
 function renderLocalPreview(orderId, index, fileOrBlob) {
   const prev = document.getElementById(`preview_${orderId}_${index}`);
