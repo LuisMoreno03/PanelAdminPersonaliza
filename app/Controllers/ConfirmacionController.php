@@ -48,7 +48,7 @@ class ConfirmacionController extends BaseController
             $pFields = $db->getFieldNames('pedidos') ?? [];
             $hasShopifyId  = in_array('shopify_order_id', $pFields, true);
             $hasPedidoJson = in_array('pedido_json', $pFields, true);
-            $hasAssignedAt = in_array('assigned_at', $pFields, true); // ✅
+            $hasAssignedAt = in_array('assigned_at', $pFields, true);
 
             $peFields = $db->getFieldNames('pedidos_estado') ?? [];
             $hasPeUpdatedBy = in_array('estado_updated_by_name', $peFields, true);
@@ -72,7 +72,6 @@ class ConfirmacionController extends BaseController
                     : "CAST(p.id AS TEXT)";
             }
 
-            // ✅ over_24h basado en assigned_at (si no existe la columna, siempre 0)
             if (!$hasAssignedAt) {
                 $assignedAtSelect = "NULL as assigned_at";
                 $over24Expr = "0";
@@ -98,8 +97,8 @@ class ConfirmacionController extends BaseController
                     ($hasShopifyId ? "p.shopify_order_id, " : "NULL as shopify_order_id, ") .
                     ($hasPedidoJson ? "p.pedido_json, " : "NULL as pedido_json, ") .
                     "p.numero, p.cliente, p.total, p.estado_envio, p.forma_envio, p.etiquetas, p.articulos, p.created_at, " .
-                    "$assignedAtSelect, " .           // ✅ lo devolvemos al front
-                    "($over24Expr) as over_24h, " .   // ✅ flag 0/1 para pintar rojo
+                    "$assignedAtSelect, " .
+                    "($over24Expr) as over_24h, " .
                     "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect",
                     false
                 )
@@ -120,11 +119,10 @@ class ConfirmacionController extends BaseController
             $this->applyEtiquetaExclusions($q, $db);
             $this->applyPedidoJsonExclusions($q, $db, $hasPedidoJson);
 
-            // ✅ más antiguos primero + desempate por id
             $rows = $q->orderBy('p.created_at', 'ASC')
-                      ->orderBy('p.id', 'ASC')
-                      ->get()
-                      ->getResultArray();
+                ->orderBy('p.id', 'ASC')
+                ->get()
+                ->getResultArray();
 
             if ($hasPedidoJson && $rows) {
                 $rows = array_values(array_filter($rows, function ($r) {
@@ -194,7 +192,7 @@ class ConfirmacionController extends BaseController
 
             $candidatosRaw = $candQuery
                 ->orderBy('p.created_at', 'ASC')
-                ->orderBy('p.id', 'ASC') // ✅ desempate
+                ->orderBy('p.id', 'ASC')
                 ->limit($limitFetch)
                 ->get()
                 ->getResultArray();
@@ -354,7 +352,6 @@ class ConfirmacionController extends BaseController
         return $this->subirImagen();
     }
 
-    // ✅ opcional: devuelve imagenes_locales de un pedido por query ?order_id=
     public function listFiles()
     {
         if (!session()->get('logged_in')) {
@@ -381,126 +378,154 @@ class ConfirmacionController extends BaseController
     /* =====================================================
       POST /confirmacion/subir-imagen
       ✅ guarda archivo público + persiste en DB + borra anterior del mismo index
+      ✅ FIX: ext_in + try/catch + control mkdir/move
     ===================================================== */
     public function subirImagen()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No auth']);
-        }
+        try {
+            if (!session()->get('logged_in')) {
+                return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No auth']);
+            }
 
-        $orderIdRaw = (string)$this->request->getPost('order_id');
-        $orderId    = $this->normalizeShopifyOrderId($orderIdRaw);
+            $orderIdRaw = (string)$this->request->getPost('order_id');
+            $orderId    = $this->normalizeShopifyOrderId($orderIdRaw);
 
-        $index = (int)$this->request->getPost('line_index');
-        $file  = $this->request->getFile('file');
-        // ✅ Límite 20MB (en KB)
-        $maxKB = 20480;
+            $index = (int)$this->request->getPost('line_index');
+            $file  = $this->request->getFile('file');
 
-        $rules = [
-            'file' => [
-                'rules'  => 'uploaded[file]|max_size[file,' . $maxKB . ']|is_image[file]|mime_in[file,image/jpg,image/jpeg,image/png,image/webp,image/gif]',
-                'errors' => [
-                    'uploaded'  => 'Debes subir un archivo.',
-                    'max_size'  => 'La imagen no puede superar 20MB.',
-                    'is_image'  => 'El archivo debe ser una imagen válida.',
-                    'mime_in'   => 'Formato no permitido. Usa JPG, PNG, WEBP o GIF.',
+            // ✅ Límite 20MB (en KB)
+            $maxKB = 20480;
+
+            // ✅ VALIDACIÓN más robusta: ext_in en vez de mime_in
+            $rules = [
+                'file' => [
+                    'rules'  => 'uploaded[file]|max_size[file,' . $maxKB . ']|is_image[file]|ext_in[file,jpg,jpeg,png,webp,gif,svg]',
+                    'errors' => [
+                        'uploaded'  => 'Debes subir un archivo.',
+                        'max_size'  => 'La imagen no puede superar 20MB.',
+                        'is_image'  => 'El archivo debe ser una imagen válida.',
+                        'ext_in'    => 'Formato no permitido. Usa JPG, PNG, WEBP o GIF.',
+                    ],
                 ],
-            ],
-        ];
+            ];
 
-        if (!$this->validate($rules)) {
+            if (!$this->validate($rules)) {
+                $err = $this->validator->getError('file') ?? 'Archivo inválido';
+                log_message('error', 'Upload validate error: ' . $err);
+
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => $err,
+                ]);
+            }
+
+            if (!$file || !$file->isValid()) {
+                $msg = $file ? $file->getErrorString() : 'Archivo inválido';
+                log_message('error', 'Upload invalid file: ' . $msg);
+
+                return $this->response->setJSON([
+                    'success' => false,
+                    'message' => $msg,
+                ]);
+            }
+
+            $modifiedBy = trim((string)$this->request->getPost('modified_by'));
+            $modifiedAt = trim((string)$this->request->getPost('modified_at'));
+            if ($modifiedBy === '') $modifiedBy = session('nombre') ?? 'Sistema';
+            if ($modifiedAt === '') $modifiedAt = date('c');
+
+            if ($orderId === '') {
+                return $this->response->setStatusCode(400)->setJSON([
+                    'success' => false,
+                    'message' => 'order_id inválido'
+                ]);
+            }
+
+            $db = \Config\Database::connect();
+
+            $pedido = $db->table('pedidos')->where('shopify_order_id', $orderId)->get()->getRowArray();
+            if (!$pedido) $pedido = $db->table('pedidos')->where('id', $orderId)->get()->getRowArray();
+            if (!$pedido) return $this->response->setStatusCode(404)->setJSON(['success' => false, 'message' => 'Pedido no encontrado']);
+
+            $pFields = $db->getFieldNames('pedidos') ?? [];
+            if (!in_array('imagenes_locales', $pFields, true)) {
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'Falta columna pedidos.imagenes_locales'
+                ]);
+            }
+
+            $orderKey = $this->orderKeyFromPedido($pedido);
+            if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $orderId);
+
+            $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
+            if (!is_array($imagenes)) $imagenes = [];
+
+            // borrar anterior del mismo index si existe y es local
+            $prev = $imagenes[(string)$index] ?? $imagenes[$index] ?? null;
+            $prevUrl = '';
+            if (is_string($prev)) $prevUrl = $prev;
+            if (is_array($prev))  $prevUrl = (string)($prev['url'] ?? $prev['value'] ?? '');
+            if ($prevUrl) $this->tryDeleteLocalUploadByUrl($prevUrl);
+
+            // guardar en PUBLIC: /public/uploads/confirmacion/{orderKey}/
+            $dir = rtrim(FCPATH, '/\\') . '/uploads/confirmacion/' . $orderKey;
+
+            if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
+                log_message('error', 'No se pudo crear el directorio: ' . $dir);
+
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'No se pudo crear el directorio de subida. Revisa permisos.'
+                ]);
+            }
+
+            $name = $file->getRandomName();
+
+            // evita re-mover si ya se movió
+            if (!$file->hasMoved()) {
+                $file->move($dir, $name);
+            }
+
+            if (!is_file($dir . '/' . $name)) {
+                log_message('error', 'move() no generó el archivo. Dir: '.$dir.' Name: '.$name);
+
+                return $this->response->setStatusCode(500)->setJSON([
+                    'success' => false,
+                    'message' => 'No se pudo guardar el archivo en el servidor.'
+                ]);
+            }
+
+            $url = base_url('uploads/confirmacion/' . $orderKey . '/' . $name);
+
+            $imagenes[(string)$index] = [
+                'url'         => $url,
+                'modified_by' => $modifiedBy,
+                'modified_at' => $modifiedAt,
+            ];
+
+            $db->table('pedidos')
+                ->where('id', (int)$pedido['id'])
+                ->update(['imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES)]);
+
+            $nuevoEstado = $this->validarEstadoAutomatico((int)$pedido['id'], $orderKey);
+
             return $this->response->setJSON([
-                'success' => false,
-                'message' => $this->validator->getError('file') ?? 'Archivo inválido',
+                'success'     => true,
+                'url'         => $url,
+                'modified_by' => $modifiedBy,
+                'modified_at' => $modifiedAt,
+                'estado'      => $nuevoEstado
             ]);
-        }
-
-        // Si por alguna razón PHP/servidor lo bloqueó antes
-        if (!$file || !$file->isValid()) {
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => $file ? $file->getErrorString() : 'Archivo inválido',
-            ]);
-        }
-
-
-        $modifiedBy = trim((string)$this->request->getPost('modified_by'));
-        $modifiedAt = trim((string)$this->request->getPost('modified_at'));
-        if ($modifiedBy === '') $modifiedBy = session('nombre') ?? 'Sistema';
-        if ($modifiedAt === '') $modifiedAt = date('c');
-        
-
-        if ($orderId === '' || !$file || !$file->isValid()) {
-            return $this->response->setJSON(['success' => false, 'message' => 'Archivo inválido']);
-        }
-
-        $db = \Config\Database::connect();
-
-        // pedido por shopify_order_id o id
-        $pedido = $db->table('pedidos')->where('shopify_order_id', $orderId)->get()->getRowArray();
-        if (!$pedido) $pedido = $db->table('pedidos')->where('id', $orderId)->get()->getRowArray();
-        if (!$pedido) return $this->response->setJSON(['success' => false, 'message' => 'Pedido no encontrado']);
-
-        // validar columna (en tu captura ya existe ✅)
-        $pFields = $db->getFieldNames('pedidos') ?? [];
-        if (!in_array('imagenes_locales', $pFields, true)) {
+        } catch (\Throwable $e) {
+            log_message('error', 'subirImagen() error: ' . $e->getMessage());
             return $this->response->setStatusCode(500)->setJSON([
                 'success' => false,
-                'message' => 'Falta columna pedidos.imagenes_locales'
+                'message' => 'Error subiendo imagen: ' . $e->getMessage(),
             ]);
         }
-
-        $orderKey = $this->orderKeyFromPedido($pedido);
-        if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $orderId);
-
-        // leer json actual
-        $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
-        if (!is_array($imagenes)) $imagenes = [];
-        
-
-        // borrar anterior del mismo index si existe y es local
-        $prev = $imagenes[(string)$index] ?? $imagenes[$index] ?? null;
-        $prevUrl = '';
-        if (is_string($prev)) $prevUrl = $prev;
-        if (is_array($prev))  $prevUrl = (string)($prev['url'] ?? $prev['value'] ?? '');
-        if ($prevUrl) $this->tryDeleteLocalUploadByUrl($prevUrl);
-
-        // guardar en PUBLIC: /public/uploads/confirmacion/{orderKey}/
-        $dir = FCPATH . 'uploads/confirmacion/' . $orderKey;
-        if (!is_dir($dir)) @mkdir($dir, 0775, true);
-
-        $name = $file->getRandomName();
-        $file->move($dir, $name);
-
-        $url = base_url('uploads/confirmacion/' . $orderKey . '/' . $name);
-
-        // persistir en DB
-        $imagenes[(string)$index] = [
-            'url'         => $url,
-            'modified_by' => $modifiedBy,
-            'modified_at' => $modifiedAt,
-        ];
-
-        $db->table('pedidos')
-            ->where('id', (int)$pedido['id'])
-            ->update(['imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES)]);
-
-        // auto-estado (confirmado / faltan)
-        $nuevoEstado = $this->validarEstadoAutomatico((int)$pedido['id'], $orderKey);
-
-        return $this->response->setJSON([
-            'success'     => true,
-            'url'         => $url,
-            'modified_by' => $modifiedBy,
-            'modified_at' => $modifiedAt,
-            'estado'      => $nuevoEstado
-        ]);
     }
 
-    /**
-     * Borra archivo anterior si URL apunta a /uploads/confirmacion/...
-     * (evita llenar disco con versiones viejas)
-     */
     private function tryDeleteLocalUploadByUrl(string $url): void
     {
         $url = trim($url);
@@ -509,7 +534,6 @@ class ConfirmacionController extends BaseController
         $path = (string)parse_url($url, PHP_URL_PATH);
         if ($path === '') return;
 
-        // Permite subcarpetas (por ejemplo si tu app está en /algo/)
         $needle = '/uploads/confirmacion/';
         $pos = strpos($path, $needle);
         if ($pos === false) return;
@@ -583,10 +607,6 @@ class ConfirmacionController extends BaseController
                 $db->table('pedidos')
                     ->where('id', (int)$pedido['id'])
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
-            }
-
-            if ($estadoLower === 'faltan archivos' && $mantener === true) {
-                // no-op
             }
 
             return $this->response->setJSON(['success' => true, 'ok' => true]);
@@ -671,27 +691,22 @@ class ConfirmacionController extends BaseController
         return $nuevoEstado;
     }
 
-    private function requiereImagen(array $item): bool 
+    private function requiereImagen(array $item): bool
     {
         $title = strtolower($item['title'] ?? '');
         $sku   = strtolower($item['sku'] ?? '');
 
-        $keywords = ['llavero', 'lampara', 'lámpara', 'Lámpara'];
+        // strtolower ya deja todo en minúsculas
+        $keywords = ['llavero', 'lampara', 'lámpara'];
 
         foreach ($keywords as $word) {
-            if (str_contains($title, $word)) {
-                return true;
-            }
+            if (str_contains($title, $word)) return true;
         }
 
-        if (str_contains($sku, 'llav')) {
-            return true;
-        }
+        if (str_contains($sku, 'llav')) return true;
 
         foreach (($item['properties'] ?? []) as $p) {
-            if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', (string)($p['value'] ?? ''))) {
-                return true;
-            }
+            if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', (string)($p['value'] ?? ''))) return true;
         }
 
         return false;
@@ -738,26 +753,19 @@ class ConfirmacionController extends BaseController
         $needles = [
             '"cancelled_at":"', '"cancelled_at": "',
             '"canceled_at":"',  '"canceled_at": "',
-
             '"cancel_reason":"', '"cancel_reason": "',
             '"cancelreason":"',  '"cancelreason": "',
-
             '"financial_status":"refunded', '"financial_status": "refunded',
             '"financial_status":"voided',   '"financial_status": "voided',
             '"financial_status":"partially_refunded', '"financial_status": "partially_refunded',
             '"financial_status":"partially-refunded', '"financial_status": "partially-refunded',
-
             '"refunds":[{', '"refunds": [{', '"refunds":[ {', '"refunds": [ {',
-
             '"kind":"refund"', '"kind": "refund"',
-
             '"restock_type":"cancel', '"restock_type": "cancel',
-
             'cliente pide cancelar pedido',
             'devolucion 100', 'devolución 100',
             'devolucion', 'devolución',
             'devuelto', 'devuelta',
-
             'chargeback', 'contracargo',
             'dispute', 'disputa',
         ];
