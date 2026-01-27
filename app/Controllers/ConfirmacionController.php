@@ -676,7 +676,7 @@ class ConfirmacionController extends BaseController
         $title = strtolower($item['title'] ?? '');
         $sku   = strtolower($item['sku'] ?? '');
 
-        $keywords = ['llavero', 'lampara', 'lámpara'];
+        $keywords = ['llavero', 'lampara', 'lámpara', 'Lámpara'];
 
         foreach ($keywords as $word) {
             if (str_contains($title, $word)) {
