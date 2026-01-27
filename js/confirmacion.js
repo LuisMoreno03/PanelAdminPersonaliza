@@ -1,12 +1,12 @@
 /**
- * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (FIXED)
+ * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (STABLE)
  * - Lista: /confirmacion/my-queue
  * - Pull:  /confirmacion/pull
  * - Detalles: /confirmacion/detalles/{id}
  * - Subir: /confirmacion/subir-imagen (o window.API.subirImagen)
  * - Guardar estado: /confirmacion/guardar-estado (o window.API.guardarEstado)
  *
- * Requiere (editor):
+ * Editor (Cropper.js) opcional:
  * <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
  * <script src="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.js"></script>
  */
@@ -18,7 +18,7 @@ const ENDPOINT_PULL       = (API.pull         || "/confirmacion/pull").replace(/
 const ENDPOINT_RETURN_ALL = (API.returnAll    || "/confirmacion/return-all").replace(/\/$/, "");
 const ENDPOINT_DETALLES   = (API.detalles     || "/confirmacion/detalles").replace(/\/$/, "");
 
-const ENDPOINT_SUBIR_IMAGEN = (API.subirImagen || "/confirmacion/subir-imagen").replace(/\/$/, "");
+const ENDPOINT_SUBIR_IMAGEN   = (API.subirImagen   || "/confirmacion/subir-imagen").replace(/\/$/, "");
 const ENDPOINT_GUARDAR_ESTADO = (API.guardarEstado || "/confirmacion/guardar-estado").replace(/\/$/, "");
 
 let pedidosCache = [];
@@ -35,12 +35,19 @@ let DET_ORDER = null;
 let PENDING_FILES = {}; // { "<orderId>_<index>": File }
 let EDITED_BLOBS  = {}; // { "<orderId>_<index>": Blob }
 let EDITED_NAMES  = {}; // { "<orderId>_<index>": "nombre_edit.png" }
+let PREVIEW_URLS  = {}; // { "<orderId>_<index>": "blob:..." }
+
+function normalizeOrderId(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const m = s.match(/\/Order\/(\d+)/i);
+  return m?.[1] ? m[1] : s;
+}
 
 function keyFile(orderId, index) {
   const oid = normalizeOrderId(orderId);
   return `${String(oid)}_${String(index)}`;
 }
-
 
 const $ = (id) => document.getElementById(id);
 
@@ -57,17 +64,9 @@ const esUrl = (u) => /^https?:\/\//i.test(String(u || "").trim());
 const esImagenUrl = (url) =>
   /https?:\/\/.*\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i.test(String(url || "").trim());
 
-const setLoader = (v) => $("globalLoader")?.classList.toggle("hidden", !v);
+const setLoader   = (v) => $("globalLoader")?.classList.toggle("hidden", !v);
 const setTextSafe = (id, v) => $(id) && ($(id).textContent = v ?? "");
 const setHtmlSafe = (id, h) => $(id) && ($(id).innerHTML = h ?? "");
-
-// ✅ Extrae número de Order desde gid://shopify/Order/123...
-function normalizeOrderId(v) {
-  const s = String(v ?? "").trim();
-  if (!s) return "";
-  const m = s.match(/\/Order\/(\d+)/i);
-  return m?.[1] ? m[1] : s;
-}
 
 function getCurrentUserLabel() {
   const metaUser = document.querySelector('meta[name="current-user"]')?.content?.trim();
@@ -154,8 +153,8 @@ function extraerLineItems(order) {
    REGLAS IMÁGENES
 ===================================================== */
 function isLlaveroItem(item) {
-  const title = String(item?.title || "").toLowerCase();
-  const sku = String(item?.sku || "").toLowerCase();
+  const title   = String(item?.title || "").toLowerCase();
+  const sku     = String(item?.sku || "").toLowerCase();
   const variant = String(item?.variant_title || "").toLowerCase();
 
   const isLampara =
@@ -167,24 +166,16 @@ function isLlaveroItem(item) {
   return title.includes("llavero") || sku.includes("llav") || isLampara;
 }
 
-
-
 function requiereImagenModificada(item) {
   const props = Array.isArray(item?.properties) ? item.properties : [];
 
   const tieneImagenCliente = props.some((p) => esImagenUrl(p?.value));
-
-  // ✅ También si el cliente manda solo el nombre del archivo (IMG_1250.png)
   const tieneNombreArchivoImagen = props.some((p) =>
     /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(String(p?.value || "").trim())
   );
 
   return isLlaveroItem(item) || tieneImagenCliente || tieneNombreArchivoImagen;
 }
-
-
-
-
 
 /* =====================================================
    LISTADO
@@ -208,14 +199,13 @@ function renderPedidos(pedidos) {
   visibles.forEach((p) => {
     const row = document.createElement("div");
     row.className = "orders-grid cols px-4 py-3 border-b items-center";
-    
-    if (Number(p?.over_24h) === 1) {
-      row.classList.add("pedido-overdue");
-    }
-    const numero = p.numero || p.name || ("#" + (p.order_number || p.id || ""));
-    const fecha = (p.created_at || p.fecha || "").slice(0, 10);
+
+    if (Number(p?.over_24h) === 1) row.classList.add("pedido-overdue");
+
+    const numero  = p.numero || p.name || ("#" + (p.order_number || p.id || ""));
+    const fecha   = (p.created_at || p.fecha || "").slice(0, 10);
     const cliente = p.cliente || p.customer_name || p.email || "—";
-    const total = Number(p.total || p.total_price || 0);
+    const total   = Number(p.total || p.total_price || 0);
 
     const estado = String(p.estado || "Por preparar");
     const estadoPill =
@@ -374,6 +364,7 @@ window.verDetalles = async function (orderId) {
   PENDING_FILES = {};
   EDITED_BLOBS = {};
   EDITED_NAMES = {};
+  PREVIEW_URLS = {};
 
   try {
     const r = await fetch(`${ENDPOINT_DETALLES}/${encodeURIComponent(pedidoActualId)}`, {
@@ -434,9 +425,7 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   if (!items.length) {
     setHtmlSafe(
       "detProductos",
-      `<div class="p-6 text-center text-slate-500">
-        Este pedido no tiene productos en detalles.
-      </div>`
+      `<div class="p-6 text-center text-slate-500">Este pedido no tiene productos en detalles.</div>`
     );
     setHtmlSafe("detResumen", "");
     return;
@@ -475,12 +464,10 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
       if (esImagenUrl(value)) imgs.push({ name, value });
       else txt.push({ name, value });
     }
-
     return { imgs, txt };
   }
 
   const orderKey = String(normalizeOrderId(order?.id || pedidoActualId || "order") || "").trim();
-
 
   const cardsHtml = items
     .map((item, i) => {
@@ -490,7 +477,6 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
 
       const requiere = requiereImagenModificada(item);
 
-      // 👇 Soporta keys string/number
       const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[String(i)] ?? imagenesLocales?.[i]);
       const imgMod = imgLocalObj.url || "";
       const imgModBust = imgMod ? withBust(imgMod, imgLocalObj.modified_at || Date.now()) : "";
@@ -552,7 +538,6 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
         `
         : "";
 
-      // 👇 Envolvemos para poder actualizarlo tras subir
       const imgModHtml = `
         <div id="imgModWrap_${orderKey}_${i}">
           ${
@@ -573,10 +558,11 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
         </div>
       `;
 
+      // ✅ IMPORTANTE: aunque ya haya imagen, mantenemos el dropzone para re-subir
       const uploadHtml = requiere
         ? `
           <div class="mt-4">
-            <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada</div>
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada (puedes reemplazarla)</div>
 
             <div
               id="dz_${orderKey}_${i}"
@@ -674,133 +660,26 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   );
 
   actualizarResumenAuto();
-  initDropzones(orderKey);
   hydrateAuditsFromExisting(orderKey, items.length, imagenesLocales);
 }
 
 /* =====================================================
-   DROPZONES + PREVIEW + AUDITORÍA
+   PREVIEW + AUDITORÍA
 ===================================================== */
-function initDropzones(orderId) {
-  const oidStr = String(normalizeOrderId(orderId));
-
-  // ✅ NO uses CSS.escape aquí porque tu data-order es numérico (y a veces cambia)
-  const zones = document.querySelectorAll(`[data-dropzone="1"]`);
-
-  zones.forEach((zone) => {
-    if (zone.dataset.inited === "1") return;
-    zone.dataset.inited = "1";
-    const oidRaw = zone.getAttribute("data-order");
-    const oid = String(normalizeOrderId(oidRaw));
-    const idx = Number(zone.getAttribute("data-index"));
-
-    // ✅ Solo inicializa los del pedido actual
-    if (oid !== oidStr) return;
-
-    const input = document.getElementById(`file_${oidRaw}_${idx}`) || zone.querySelector(`input[type="file"]`);
-    const btnEdit = zone.querySelector(`[data-action="edit"]`);
-    const btnUpload = zone.querySelector(`[data-action="upload"]`);
-    const btnClear = zone.querySelector(`[data-action="clear"]`);
-
-    const enableBtns = (v) => {
-      if (btnEdit) btnEdit.disabled = !v;
-      if (btnUpload) btnUpload.disabled = !v;
-      if (btnClear) btnClear.disabled = !v;
-    };
-
-    const onPick = (file) => {
-      if (!file) return;
-
-      const k = keyFile(oid, idx);
-      PENDING_FILES[k] = file;
-      delete EDITED_BLOBS[k];
-      delete EDITED_NAMES[k];
-
-      renderLocalPreview(oidRaw, idx, file);
-      enableBtns(true);
-    };
-
-    // ✅ Click en la zona abre el input
-    zone.addEventListener("click", (e) => {
-      if ((e.target?.tagName || "").toLowerCase() === "button") return;
-      input?.click();
-    });
-
-    input?.addEventListener("change", () => onPick(input.files?.[0]));
-
-    zone.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      zone.classList.add("border-blue-500");
-    });
-
-    zone.addEventListener("dragleave", () => zone.classList.remove("border-blue-500"));
-
-    zone.addEventListener("drop", (e) => {
-      e.preventDefault();
-      zone.classList.remove("border-blue-500");
-      onPick(e.dataTransfer?.files?.[0]);
-    });
-
-    btnClear?.addEventListener("click", (e) => {
-      e.preventDefault();
-      const k = keyFile(oid, idx);
-      delete PENDING_FILES[k];
-      delete EDITED_BLOBS[k];
-      delete EDITED_NAMES[k];
-      if (input) input.value = "";
-      clearLocalPreview(oidRaw, idx);
-      enableBtns(false);
-    });
-
-    btnEdit?.addEventListener("click", (e) => {
-      e.preventDefault();
-      const k = keyFile(oid, idx);
-      const file = PENDING_FILES[k];
-      if (!file) return;
-      openImageEditor(oid, idx, file);
-    });
-
-    btnUpload?.addEventListener("click", async (e) => {
-      e.preventDefault();
-      const k = keyFile(oid, idx);
-
-      const editedBlob = EDITED_BLOBS[k];
-      const editedName = EDITED_NAMES[k];
-      const originalFile = PENDING_FILES[k];
-
-      if (!originalFile && !editedBlob) {
-        alert("No hay archivo seleccionado para este producto.");
-        return;
-      }
-
-      const payloadFile = editedBlob
-        ? new File([editedBlob], editedName || originalFile?.name || `edit_${idx}.png`, {
-            type: editedBlob.type || "image/png",
-          })
-        : originalFile;
-
-      // ✅ Debug: confirma qué archivo se manda
-      console.log("[UPLOAD CLICK]", { oid, idx, name: payloadFile?.name, size: payloadFile?.size, type: payloadFile?.type });
-
-      await subirImagenProductoFile(oid, idx, payloadFile, { edited: !!editedBlob });
-
-      delete PENDING_FILES[k];
-      delete EDITED_BLOBS[k];
-      delete EDITED_NAMES[k];
-      if (input) input.value = "";
-      enableBtns(false);
-    });
-
-    // ✅ Arranca deshabilitado
-    enableBtns(false);
-  });
-}
-
-
 function renderLocalPreview(orderId, index, fileOrBlob) {
   const prev = document.getElementById(`preview_${orderId}_${index}`);
   if (!prev) return;
+
+  const k = keyFile(orderId, index);
+  const oldUrl = PREVIEW_URLS[k];
+  if (oldUrl) {
+    try { URL.revokeObjectURL(oldUrl); } catch {}
+    delete PREVIEW_URLS[k];
+  }
+
   const url = URL.createObjectURL(fileOrBlob);
+  PREVIEW_URLS[k] = url;
+
   prev.innerHTML = `
     <div>
       <div class="text-xs font-extrabold text-slate-500 mb-2">Vista previa (local)</div>
@@ -814,6 +693,13 @@ function renderLocalPreview(orderId, index, fileOrBlob) {
 function clearLocalPreview(orderId, index) {
   const prev = document.getElementById(`preview_${orderId}_${index}`);
   if (prev) prev.innerHTML = "";
+
+  const k = keyFile(orderId, index);
+  const oldUrl = PREVIEW_URLS[k];
+  if (oldUrl) {
+    try { URL.revokeObjectURL(oldUrl); } catch {}
+    delete PREVIEW_URLS[k];
+  }
 }
 
 function hydrateAuditsFromExisting(orderId, count, imagenesLocales) {
@@ -833,18 +719,10 @@ function hydrateAuditsFromExisting(orderId, count, imagenesLocales) {
 /* =====================================================
    SUBIR IMAGEN
 ===================================================== */
-window.subirImagenProducto = async function (orderId, index, input) {
-  const file = input?.files?.[0];
-  if (!file) return;
-  await subirImagenProductoFile(String(orderId), Number(index), file, { edited: false });
-  try { input.value = ""; } catch {}
-};
-
 async function subirImagenProductoFile(orderId, index, file, meta = {}) {
   const modified_by = getCurrentUserLabel();
   const modified_at = new Date().toISOString();
 
-  // ✅ Validaciones duras
   if (!(file instanceof File) && !(file instanceof Blob)) {
     alert("Archivo inválido (no es File/Blob).");
     return false;
@@ -864,23 +742,12 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
   for (const url of endpoints) {
     try {
       const fd = new FormData();
-      fd.append("order_id", String(orderId));
+      fd.append("order_id", String(normalizeOrderId(orderId)));
       fd.append("line_index", String(index));
       fd.append("file", file, file.name || `img_${index}.png`);
       fd.append("modified_by", modified_by);
       fd.append("modified_at", modified_at);
       fd.append("edited", meta?.edited ? "1" : "0");
-
-      // ✅ DEBUG: confirma que el file viaja
-      const sent = fd.get("file");
-      console.log("[UPLOAD] sending:", {
-        url,
-        orderId,
-        index,
-        fileType: sent?.type,
-        fileSize: sent?.size,
-        fileName: sent?.name,
-      });
 
       const r = await fetch(url, {
         method: "POST",
@@ -892,15 +759,14 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
       if (r.status === 404) continue;
 
       const d = await r.json().catch(() => null);
-
       if (!r.ok || d?.success !== true || !d?.url) {
         throw new Error(d?.message || `HTTP ${r.status}`);
       }
 
-      // ✅ éxito
       const urlFinal = String(d.url);
       const bust = withBust(urlFinal, d.modified_at || modified_at || Date.now());
 
+      // preview zona
       const prev = document.getElementById(`preview_${orderId}_${index}`);
       if (prev) {
         prev.innerHTML = `
@@ -914,6 +780,7 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         `;
       }
 
+      // auditoría
       const audit = document.getElementById(`audit_${orderId}_${index}`);
       if (audit) {
         audit.innerHTML = `Última modificación: <b class="text-slate-900">${escapeHtml(modified_by)}</b> · ${escapeHtml(
@@ -921,6 +788,7 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         )}`;
       }
 
+      // imagen modificada del card
       const wrap = document.getElementById(`imgModWrap_${orderId}_${index}`);
       if (wrap) {
         wrap.innerHTML = `
@@ -934,10 +802,12 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         `;
       }
 
+      // estado local
       imagenesCargadas[index] = true;
       if (!DET_IMAGENES_LOCALES || typeof DET_IMAGENES_LOCALES !== "object") DET_IMAGENES_LOCALES = {};
       DET_IMAGENES_LOCALES[String(index)] = { url: urlFinal, modified_by, modified_at };
 
+      // badge
       const badge = document.getElementById(`badge_item_${orderId}_${index}`);
       if (badge) {
         badge.innerHTML = `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`;
@@ -945,8 +815,6 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
 
       actualizarResumenAuto();
       await window.validarEstadoAuto(String(orderId));
-      // ✅ Reengancha dropzones por si el DOM cambió
-      initDropzones(normalizeOrderId(orderId));
 
       return true;
     } catch (e) {
@@ -958,7 +826,6 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
   alert("Error subiendo imagen: " + (lastErr?.message || lastErr));
   return false;
 }
-
 
 /* =====================================================
    RESUMEN
@@ -1095,8 +962,6 @@ window.validarEstadoAuto = async function (orderId) {
     if (pedidoLocal) pedidoLocal.estado = nuevoEstado;
 
     actualizarResumenAuto();
-
-    // refresca lista siempre para que se vea en “todos lados” en esta pantalla
     await cargarMiCola();
 
     if (saved && nuevoEstado === "Confirmado") {
@@ -1222,14 +1087,6 @@ async function saveImageEditor() {
     imageSmoothingEnabled: true,
     imageSmoothingQuality: "high",
   });
-  if (!(file instanceof File) && !(file instanceof Blob)) {
-  alert("Archivo inválido (no es File/Blob).");
-  return false;
-}
-if ((file.size ?? 0) <= 0) {
-  alert("El archivo está vacío (0 bytes).");
-  return false;
-}
 
   const blob = await new Promise((res) => canvas.toBlob(res, "image/png", 0.92));
   if (!blob) return alert("No se pudo generar la imagen editada.");
@@ -1237,8 +1094,185 @@ if ((file.size ?? 0) <= 0) {
   EDITED_BLOBS[k] = blob;
   EDITED_NAMES[k] = (file?.name ? file.name.replace(/\.[a-z0-9]+$/i, "") : `edit_${index}`) + "_edit.png";
 
-  renderLocalPreview(orderId, index, blob);
+  renderLocalPreview(normalizeOrderId(orderId), index, blob);
   closeImageEditor();
+}
+
+/* =====================================================
+   DROPZONES — EVENT DELEGATION (FIX PERMANENTE)
+===================================================== */
+function zoneInfoFromEl(zone) {
+  const orderId = String(zone?.getAttribute("data-order") || "").trim();
+  const index = Number(zone?.getAttribute("data-index"));
+  const oid = normalizeOrderId(orderId);
+
+  const input = zone.querySelector('input[type="file"]') || document.getElementById(`file_${orderId}_${index}`);
+  const btnEdit = zone.querySelector('[data-action="edit"]');
+  const btnUpload = zone.querySelector('[data-action="upload"]');
+  const btnClear = zone.querySelector('[data-action="clear"]');
+
+  return { orderId, oid, index, input, btnEdit, btnUpload, btnClear, zone };
+}
+
+function setZoneButtonsEnabled(zone, enabled) {
+  const { btnEdit, btnUpload, btnClear } = zoneInfoFromEl(zone);
+  if (btnEdit) btnEdit.disabled = !enabled;
+  if (btnUpload) btnUpload.disabled = !enabled;
+  if (btnClear) btnClear.disabled = !enabled;
+}
+
+function onPickInZone(zone, file) {
+  const { oid, orderId, index, input } = zoneInfoFromEl(zone);
+  if (!oid || !Number.isFinite(index)) return;
+  if (!file) return;
+
+  // ✅ siempre reset edited si eligen archivo nuevo
+  const k = keyFile(oid, index);
+  PENDING_FILES[k] = file;
+  delete EDITED_BLOBS[k];
+  delete EDITED_NAMES[k];
+
+  // para permitir elegir el mismo archivo otra vez
+  try { if (input) input.value = ""; } catch {}
+
+  renderLocalPreview(orderId, index, file);
+  setZoneButtonsEnabled(zone, true);
+}
+
+async function uploadFromZone(zone) {
+  const { oid, orderId, index, input } = zoneInfoFromEl(zone);
+  if (!oid || !Number.isFinite(index)) return;
+
+  const k = keyFile(oid, index);
+  const editedBlob = EDITED_BLOBS[k];
+  const editedName = EDITED_NAMES[k];
+  const originalFile = PENDING_FILES[k];
+
+  if (!originalFile && !editedBlob) {
+    alert("No hay archivo seleccionado para este producto.");
+    return;
+  }
+
+  const payloadFile = editedBlob
+    ? new File([editedBlob], editedName || originalFile?.name || `edit_${index}.png`, {
+        type: editedBlob.type || "image/png",
+      })
+    : originalFile;
+
+  const ok = await subirImagenProductoFile(orderId, index, payloadFile, { edited: !!editedBlob });
+  if (!ok) return;
+
+  // limpiar selección local para permitir re-subir cuando quieran
+  delete PENDING_FILES[k];
+  delete EDITED_BLOBS[k];
+  delete EDITED_NAMES[k];
+
+  try { if (input) input.value = ""; } catch {}
+  clearLocalPreview(orderId, index);
+  setZoneButtonsEnabled(zone, false);
+}
+
+function clearZone(zone) {
+  const { oid, orderId, index, input } = zoneInfoFromEl(zone);
+  if (!oid || !Number.isFinite(index)) return;
+
+  const k = keyFile(oid, index);
+  delete PENDING_FILES[k];
+  delete EDITED_BLOBS[k];
+  delete EDITED_NAMES[k];
+
+  try { if (input) input.value = ""; } catch {}
+  clearLocalPreview(orderId, index);
+  setZoneButtonsEnabled(zone, false);
+}
+
+function setupDropzoneDelegation() {
+  // click / buttons
+  document.addEventListener("click", async (e) => {
+    const btn = e.target?.closest?.("[data-action]");
+    if (btn) {
+      const zone = btn.closest('[data-dropzone="1"]');
+      if (!zone) return;
+
+      e.preventDefault();
+
+      const action = btn.getAttribute("data-action");
+      if (action === "clear") return clearZone(zone);
+
+      if (action === "edit") {
+        const { oid, index } = zoneInfoFromEl(zone);
+        const k = keyFile(oid, index);
+        const file = PENDING_FILES[k];
+        if (!file) return alert("Primero selecciona una imagen para poder editar.");
+        return openImageEditor(oid, index, file);
+      }
+
+      if (action === "upload") {
+        btn.disabled = true;
+        try {
+          await uploadFromZone(zone);
+        } finally {
+          // si siguen teniendo file seleccionado, se re-habilita; si no, queda off
+          const { oid, index } = zoneInfoFromEl(zone);
+          const k = keyFile(oid, index);
+          btn.disabled = !(PENDING_FILES[k] || EDITED_BLOBS[k]);
+        }
+        return;
+      }
+    }
+
+    // click en zona abre input
+    const zone = e.target?.closest?.('[data-dropzone="1"]');
+    if (!zone) return;
+
+    // si hizo click sobre un link de imagen, no interrumpimos
+    if (e.target?.closest?.("a")) return;
+
+    const { input } = zoneInfoFromEl(zone);
+    if (!input) return;
+
+    // ✅ IMPORTANTÍSIMO: reset para permitir seleccionar el mismo archivo
+    try { input.value = ""; } catch {}
+    input.click();
+  });
+
+  // change del input
+  document.addEventListener("change", (e) => {
+    const input = e.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    if (input.type !== "file") return;
+
+    const zone = input.closest?.('[data-dropzone="1"]');
+    if (!zone) return;
+
+    const file = input.files?.[0];
+    onPickInZone(zone, file);
+  });
+
+  // drag & drop
+  document.addEventListener("dragover", (e) => {
+    const zone = e.target?.closest?.('[data-dropzone="1"]');
+    if (!zone) return;
+    e.preventDefault();
+    zone.classList.add("border-blue-500");
+  });
+
+  document.addEventListener("dragleave", (e) => {
+    const zone = e.target?.closest?.('[data-dropzone="1"]');
+    if (!zone) return;
+    zone.classList.remove("border-blue-500");
+  });
+
+  document.addEventListener("drop", (e) => {
+    const zone = e.target?.closest?.('[data-dropzone="1"]');
+    if (!zone) return;
+
+    e.preventDefault();
+    zone.classList.remove("border-blue-500");
+
+    const file = e.dataTransfer?.files?.[0];
+    onPickInZone(zone, file);
+  });
 }
 
 /* =====================================================
@@ -1248,7 +1282,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btnTraer5")?.addEventListener("click", () => traerPedidos(5));
   $("btnTraer10")?.addEventListener("click", () => traerPedidos(10));
   $("btnDevolver")?.addEventListener("click", devolverPedidos);
+
+  // ✅ FIX PERMANENTE
+  setupDropzoneDelegation();
+
   cargarMiCola();
 });
-
-
