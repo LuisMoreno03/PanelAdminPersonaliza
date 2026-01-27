@@ -688,6 +688,8 @@ function initDropzones(orderId) {
   const zones = document.querySelectorAll(`[data-dropzone="1"]`);
 
   zones.forEach((zone) => {
+    if (zone.dataset.inited === "1") return;
+    zone.dataset.inited = "1";
     const oidRaw = zone.getAttribute("data-order");
     const oid = String(normalizeOrderId(oidRaw));
     const idx = Number(zone.getAttribute("data-index"));
@@ -943,6 +945,8 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
 
       actualizarResumenAuto();
       await window.validarEstadoAuto(String(orderId));
+      // ✅ Reengancha dropzones por si el DOM cambió
+      initDropzones(normalizeOrderId(orderId));
 
       return true;
     } catch (e) {
