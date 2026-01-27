@@ -477,7 +477,8 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
     return { imgs, txt };
   }
 
-  const orderKey = normalizeOrderId(order?.id || pedidoActualId || "order");
+  const orderKey = String(normalizeOrderId(order?.id || pedidoActualId || "order") || "").trim();
+
 
   const cardsHtml = items
     .map((item, i) => {
@@ -819,10 +820,19 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
   const modified_by = getCurrentUserLabel();
   const modified_at = new Date().toISOString();
 
-  // intentamos 2 endpoints: limpio y con index.php
+  // ✅ Validaciones duras
+  if (!(file instanceof File) && !(file instanceof Blob)) {
+    alert("Archivo inválido (no es File/Blob).");
+    return false;
+  }
+  if ((file.size ?? 0) <= 0) {
+    alert("El archivo está vacío (0 bytes). Vuelve a seleccionarlo.");
+    return false;
+  }
+
   const endpoints = [
     ENDPOINT_SUBIR_IMAGEN,
-    "/index.php" + ENDPOINT_SUBIR_IMAGEN, // fallback si aún tienes index.php
+    "/index.php" + ENDPOINT_SUBIR_IMAGEN,
   ].filter(Boolean);
 
   let lastErr = null;
@@ -832,10 +842,21 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
       const fd = new FormData();
       fd.append("order_id", String(orderId));
       fd.append("line_index", String(index));
-      fd.append("file", file);
+      fd.append("file", file, file.name || `img_${index}.png`);
       fd.append("modified_by", modified_by);
       fd.append("modified_at", modified_at);
       fd.append("edited", meta?.edited ? "1" : "0");
+
+      // ✅ DEBUG: confirma que el file viaja
+      const sent = fd.get("file");
+      console.log("[UPLOAD] sending:", {
+        url,
+        orderId,
+        index,
+        fileType: sent?.type,
+        fileSize: sent?.size,
+        fileName: sent?.name,
+      });
 
       const r = await fetch(url, {
         method: "POST",
@@ -847,12 +868,15 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
       if (r.status === 404) continue;
 
       const d = await r.json().catch(() => null);
-      if (!r.ok || d?.success !== true || !d?.url) throw new Error(d?.message || `HTTP ${r.status}`);
 
+      if (!r.ok || d?.success !== true || !d?.url) {
+        throw new Error(d?.message || `HTTP ${r.status}`);
+      }
+
+      // ✅ éxito
       const urlFinal = String(d.url);
       const bust = withBust(urlFinal, d.modified_at || modified_at || Date.now());
 
-      // preview zona
       const prev = document.getElementById(`preview_${orderId}_${index}`);
       if (prev) {
         prev.innerHTML = `
@@ -866,7 +890,6 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         `;
       }
 
-      // auditoría
       const audit = document.getElementById(`audit_${orderId}_${index}`);
       if (audit) {
         audit.innerHTML = `Última modificación: <b class="text-slate-900">${escapeHtml(modified_by)}</b> · ${escapeHtml(
@@ -874,7 +897,6 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         )}`;
       }
 
-      // 👇 actualiza “Imagen modificada (subida)” del card al instante
       const wrap = document.getElementById(`imgModWrap_${orderId}_${index}`);
       if (wrap) {
         wrap.innerHTML = `
@@ -888,20 +910,16 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         `;
       }
 
-      // estado local
       imagenesCargadas[index] = true;
       if (!DET_IMAGENES_LOCALES || typeof DET_IMAGENES_LOCALES !== "object") DET_IMAGENES_LOCALES = {};
       DET_IMAGENES_LOCALES[String(index)] = { url: urlFinal, modified_by, modified_at };
 
-      // badge
       const badge = document.getElementById(`badge_item_${orderId}_${index}`);
       if (badge) {
         badge.innerHTML = `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`;
       }
 
       actualizarResumenAuto();
-
-      // 👇 intenta autoestado (Confirmado/Faltan)
       await window.validarEstadoAuto(String(orderId));
 
       return true;
@@ -914,6 +932,7 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
   alert("Error subiendo imagen: " + (lastErr?.message || lastErr));
   return false;
 }
+
 
 /* =====================================================
    RESUMEN
@@ -1177,6 +1196,14 @@ async function saveImageEditor() {
     imageSmoothingEnabled: true,
     imageSmoothingQuality: "high",
   });
+  if (!(file instanceof File) && !(file instanceof Blob)) {
+  alert("Archivo inválido (no es File/Blob).");
+  return false;
+}
+if ((file.size ?? 0) <= 0) {
+  alert("El archivo está vacío (0 bytes).");
+  return false;
+}
 
   const blob = await new Promise((res) => canvas.toBlob(res, "image/png", 0.92));
   if (!blob) return alert("No se pudo generar la imagen editada.");
