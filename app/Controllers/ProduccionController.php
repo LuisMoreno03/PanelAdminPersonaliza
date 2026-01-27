@@ -121,6 +121,30 @@ class ProduccionController extends BaseController
         return $t === '' || $t === '0' || $t === 'null' || $t === 'undefined';
     }
 
+    /**
+     * ✅ Detecta el caso típico: el archivo excede límites (post_max_size/upload_max_filesize)
+     * y PHP llega con $_POST vacío / sin files.
+     */
+    private function payloadTooLargeLikely(): bool
+    {
+        // Si el body es grande y aun así no hay variables, suele ser límite de PHP/Nginx
+        $cl = (int)($this->request->getHeaderLine('Content-Length') ?: 0);
+
+        // Si Content-Length existe y es > 0, pero CI4 no ve nada en post/var, sospechamos.
+        $orderIdPost = trim((string)($this->request->getPost('order_id') ?? ''));
+        $orderIdVar  = trim((string)($this->request->getVar('order_id') ?? ''));
+
+        if ($cl > 0 && $orderIdPost === '' && $orderIdVar === '') {
+            // También check rápido de files: si no hay, refuerza la sospecha
+            $f1 = $this->request->getFileMultiple('files');
+            $f2 = $this->request->getFileMultiple('files[]');
+            $hasFiles = (is_array($f1) && count($f1)) || (is_array($f2) && count($f2));
+            if (!$hasFiles) return true;
+        }
+
+        return false;
+    }
+
     // =========================
     // GET /produccion/my-queue
     // =========================
@@ -413,7 +437,14 @@ class ProduccionController extends BaseController
     {
         if (!session()->get('logged_in')) return $this->json401();
 
-        // ✅ acepta también getVar por si algo manda JSON/form distinto
+        // ✅ Si el body fue rechazado por tamaño, CI4 no verá order_id ni files.
+        if ($this->payloadTooLargeLikely()) {
+            return $this->response->setStatusCode(413)->setJSON([
+                'success' => false,
+                'message' => 'El archivo (o conjunto de archivos) excede el límite permitido del servidor (post_max_size / upload_max_filesize / client_max_body_size).',
+            ]);
+        }
+
         $orderIdRaw = trim((string)($this->request->getPost('order_id') ?? $this->request->getVar('order_id') ?? ''));
         if ($this->isBadOrderId($orderIdRaw)) {
             return $this->response->setStatusCode(400)->setJSON([
@@ -422,12 +453,7 @@ class ProduccionController extends BaseController
             ]);
         }
 
-        /**
-         * ✅ FIX CLAVE:
-         * - CI4 puede recibir el input como "files" o como "files[]"
-         * - dependiendo de cómo se construya el multipart.
-         * - Leemos ambos para hacerlo a prueba de todo.
-         */
+        // ✅ robusto con name="files" o name="files[]"
         $uploaded = $this->request->getFileMultiple('files');
         if (!$uploaded || !is_array($uploaded) || count($uploaded) === 0) {
             $uploaded = $this->request->getFileMultiple('files[]');
@@ -447,7 +473,6 @@ class ProduccionController extends BaseController
         $pedidoId = $keys['pedido_id'];
         $shopifyOrderId = $keys['shopify_order_id'];
 
-        // 2) Guardar archivos en carpeta por NUMERO (o fallback)
         $saved = 0;
         $out = [];
 
@@ -482,7 +507,6 @@ class ProduccionController extends BaseController
             ]);
         }
 
-        // 3) Post-actions: estado + desasignar + historial
         $estadoNuevo = $this->estadoProduccion;
         $didUnassign = false;
         $didEstado = false;
@@ -501,7 +525,6 @@ class ProduccionController extends BaseController
                 $didUnassign = true;
             }
 
-            // set estado e historial con shopify_order_id (si existe)
             if ($shopifyOrderId !== '') {
                 $estadoModel = new PedidosEstadoModel();
                 $didEstado = (bool)$estadoModel->setEstadoPedido(
