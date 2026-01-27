@@ -422,9 +422,14 @@ class ProduccionController extends BaseController
             ]);
         }
 
-        // ✅ robusto con name="files[]"
+        /**
+         * ✅ FIX CLAVE:
+         * - CI4 puede recibir el input como "files" o como "files[]"
+         * - dependiendo de cómo se construya el multipart.
+         * - Leemos ambos para hacerlo a prueba de todo.
+         */
         $uploaded = $this->request->getFileMultiple('files');
-        if (!$uploaded) {
+        if (!$uploaded || !is_array($uploaded) || count($uploaded) === 0) {
             $uploaded = $this->request->getFileMultiple('files[]');
         }
 
