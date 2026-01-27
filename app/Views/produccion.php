@@ -248,8 +248,9 @@
               <div class="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm mt-4">
                 <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Archivos Diseñados</div>
 
-                <form id="formGeneralUpload" class="mt-3 space-y-3">
-                  <input type="hidden" id="generalOrderId" value="">
+                <form id="formGeneralUpload" class="mt-3 space-y-3" method="post" enctype="multipart/form-data">
+                  <input type="hidden" id="generalOrderId" name="order_id" value="">
+
 
                   <input
                     id="generalFiles"
