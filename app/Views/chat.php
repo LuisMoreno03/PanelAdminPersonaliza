@@ -521,7 +521,7 @@
 
   elSearch.addEventListener("input", () => renderUsers(users));
 
-  // ===== Boot Auto =====
+  // ===== Boot =====
   (async () => {
     if (booted) return;
     booted = true;
