@@ -1241,15 +1241,15 @@ async function subirArchivosGenerales(orderId, fileList) {
 
   const oid = normalizeOrderId(orderId);
   if (!oid) {
-    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">order_id requerido (vacío).</span>`;
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">order_id requerido.</span>`;
     return false;
   }
 
   const fd = new FormData();
-  fd.append("order_id", oid);
+  fd.append("order_id", oid); // ✅ CORRECTO
 
   for (const f of Array.from(fileList || [])) {
-    fd.append("files[]", f); // ✅ ok con tu input name="files[]" y CI4
+    fd.append("files[]", f); // ✅ CORRECTO PARA CI4
   }
 
   let res, data, raw, url;
@@ -1257,26 +1257,30 @@ async function subirArchivosGenerales(orderId, fileList) {
     ({ res, data, raw, url } = await apiPostFormPath("/produccion/upload-general", fd));
   } catch (e) {
     console.error("upload-general fetch error:", e);
-    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Error de red subiendo archivo.</span>`;
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Error de red.</span>`;
     return false;
   }
 
   if (!data) {
-    console.error("upload-general non-json:", url, res?.status, raw);
+    console.error("upload-general non-json:", raw);
     if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Respuesta inválida del servidor.</span>`;
     return false;
   }
 
   if (!res.ok || data.success !== true) {
-    const err = data?.message || `Error subiendo (HTTP ${res.status})`;
-    console.error("upload-general FAIL:", url, res.status, data);
-    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(err)}</span>`;
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">${data.message}</span>`;
     return false;
   }
 
-  if (msg) msg.innerHTML = `<span class="text-emerald-700 font-extrabold">Subido (${data.saved || 0}).</span>`;
+  if (msg) {
+    msg.innerHTML = `<span class="text-emerald-700 font-extrabold">
+      Subido (${data.saved || 0}). Pedido enviado a producción.
+    </span>`;
+  }
+
   return true;
 }
+
 
 // =========================
 // Eventos
