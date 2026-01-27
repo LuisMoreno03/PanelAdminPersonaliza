@@ -671,15 +671,27 @@ class ConfirmacionController extends BaseController
         return $nuevoEstado;
     }
 
-    private function requiereImagen(array $item): bool
+    private function requiereImagen(array $item): bool 
     {
         $title = strtolower($item['title'] ?? '');
         $sku   = strtolower($item['sku'] ?? '');
 
-        if (str_contains($title, 'llavero') || str_contains($sku, 'llav')) return true;
+        $keywords = ['llavero', 'lampara', 'lámpara'];
+
+        foreach ($keywords as $word) {
+            if (str_contains($title, $word)) {
+                return true;
+            }
+        }
+
+        if (str_contains($sku, 'llav')) {
+            return true;
+        }
 
         foreach (($item['properties'] ?? []) as $p) {
-            if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', (string)($p['value'] ?? ''))) return true;
+            if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', (string)($p['value'] ?? ''))) {
+                return true;
+            }
         }
 
         return false;
