@@ -394,10 +394,12 @@ class ConfirmacionController extends BaseController
         $index = (int)$this->request->getPost('line_index');
         $file  = $this->request->getFile('file');
 
+
         $modifiedBy = trim((string)$this->request->getPost('modified_by'));
         $modifiedAt = trim((string)$this->request->getPost('modified_at'));
         if ($modifiedBy === '') $modifiedBy = session('nombre') ?? 'Sistema';
         if ($modifiedAt === '') $modifiedAt = date('c');
+        
 
         if ($orderId === '' || !$file || !$file->isValid()) {
             return $this->response->setJSON(['success' => false, 'message' => 'Archivo inválido']);
@@ -425,6 +427,7 @@ class ConfirmacionController extends BaseController
         // leer json actual
         $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
         if (!is_array($imagenes)) $imagenes = [];
+        
 
         // borrar anterior del mismo index si existe y es local
         $prev = $imagenes[(string)$index] ?? $imagenes[$index] ?? null;
@@ -448,7 +451,7 @@ class ConfirmacionController extends BaseController
             'modified_by' => $modifiedBy,
             'modified_at' => $modifiedAt,
         ];
-
+        
         $db->table('pedidos')
             ->where('id', (int)$pedido['id'])
             ->update(['imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES)]);
