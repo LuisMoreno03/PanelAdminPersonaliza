@@ -35,20 +35,6 @@
   let cacheRows = [];
   let detalleState = { userId: null, userName: "", offset: 0, limit: 50, total: 0 };
 
-  function isoToday() {
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  function ensureTodayDefaults() {
-    const t = isoToday();
-    if (fromEl && !fromEl.value) fromEl.value = t;
-    if (toEl && !toEl.value) toEl.value = t;
-  }
-
   function setLoading(v) {
     if (!globalLoader) return;
     globalLoader.classList.toggle("hidden", !v);
@@ -121,8 +107,7 @@
 
       const row = document.createElement("div");
       row.className =
-        "seg-grid-cols px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 " +
-        "hover:bg-slate-50 transition";
+        "seg-grid-cols px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
 
       row.innerHTML = `
         <div class="min-w-0">
@@ -229,8 +214,6 @@
   }
 
   async function fetchResumen() {
-    ensureTodayDefaults();
-
     const params = new URLSearchParams();
     if (fromEl?.value) params.set("from", fromEl.value);
     if (toEl?.value) params.set("to", toEl.value);
@@ -238,18 +221,9 @@
     const url = `${base}/seguimiento/resumen?${params.toString()}`;
 
     const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
-
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`;
-      try {
-        const j = await res.json();
-        if (j?.message) msg += ` - ${j.message}`;
-      } catch (_) {}
-      throw new Error(msg);
-    }
-
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
-    if (!json?.ok) throw new Error(json?.message || "Respuesta inválida del servidor.");
+    if (!json?.ok) throw new Error(json?.message || "Respuesta inválida");
     return json.data || [];
   }
 
@@ -277,9 +251,7 @@
     }
   }
 
-  window.__seguimientoRefresh = cargar;
-
-  // ---------------- MODAL DETALLE ----------------
+  // ---------- Modal ----------
   function modalSetLoading(v) {
     detalleLoading?.classList.toggle("hidden", !v);
   }
@@ -305,10 +277,7 @@
   function openModalDetalle(userId, userName) {
     const uid = Number(userId ?? 0);
     detalleState.userId = uid;
-    detalleState.userName = (userName && userName !== "null")
-      ? userName
-      : (uid === 0 ? "Sin usuario (no registrado)" : `Usuario #${uid}`);
-
+    detalleState.userName = userName || (uid === 0 ? "Sin usuario (no registrado)" : `Usuario #${uid}`);
     detalleState.offset = 0;
 
     if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${detalleState.userName}`;
@@ -319,8 +288,6 @@
   }
 
   async function fetchDetalle(userId, offset, limit) {
-    ensureTodayDefaults();
-
     const params = new URLSearchParams();
     if (fromEl?.value) params.set("from", fromEl.value);
     if (toEl?.value) params.set("to", toEl.value);
@@ -330,18 +297,9 @@
     const url = `${base}/seguimiento/detalle/${encodeURIComponent(userId)}?${params.toString()}`;
 
     const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
-
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`;
-      try {
-        const j = await res.json();
-        if (j?.message) msg += ` - ${j.message}`;
-      } catch (_) {}
-      throw new Error(msg);
-    }
-
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
-    if (!json?.ok) throw new Error(json?.message || "Respuesta inválida del servidor.");
+    if (!json?.ok) throw new Error(json?.message || "Respuesta inválida");
     return json;
   }
 
@@ -350,24 +308,11 @@
     if (detalleBodyCards) detalleBodyCards.innerHTML = "";
 
     if (!rows || rows.length === 0) {
-      if (detalleBodyTable) {
-        detalleBodyTable.innerHTML = `
-          <div class="px-4 py-6 text-sm font-extrabold text-slate-500">
-            No hay cambios para mostrar.
-          </div>
-        `;
-      }
-      if (detalleBodyCards) {
-        detalleBodyCards.innerHTML = `
-          <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">
-            No hay cambios para mostrar.
-          </div>
-        `;
-      }
+      if (detalleBodyTable) detalleBodyTable.innerHTML = `<div class="px-4 py-6 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
+      if (detalleBodyCards) detalleBodyCards.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
       return;
     }
 
-    // Desktop table
     if (detalleBodyTable) {
       const frag = document.createDocumentFragment();
       rows.forEach(r => {
@@ -386,7 +331,6 @@
       detalleBodyTable.appendChild(frag);
     }
 
-    // Mobile cards
     if (detalleBodyCards) {
       const frag = document.createDocumentFragment();
       rows.forEach(r => {
@@ -398,13 +342,9 @@
               <div class="text-sm font-extrabold text-slate-900 truncate">
                 ${escapeHtml(r.entidad || "-")} ${r.entidad_id ? "#" + escapeHtml(String(r.entidad_id)) : ""}
               </div>
-              <div class="text-xs font-bold text-slate-600 mt-0.5">
-                ${escapeHtml(r.created_at || "-")}
-              </div>
+              <div class="text-xs font-bold text-slate-600 mt-0.5">${escapeHtml(r.created_at || "-")}</div>
             </div>
-            <div class="shrink-0 text-[11px] font-extrabold text-slate-500">
-              ${escapeHtml(r.source || "")}
-            </div>
+            <div class="shrink-0 text-[11px] font-extrabold text-slate-500">${escapeHtml(r.source || "")}</div>
           </div>
 
           <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -412,7 +352,6 @@
               <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Antes</div>
               <div class="text-sm font-bold text-slate-900 mt-0.5">${escapeHtml(r.estado_anterior ?? "-")}</div>
             </div>
-
             <div class="rounded-2xl border border-slate-200 bg-white px-3 py-2">
               <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Después</div>
               <div class="text-sm font-extrabold text-slate-900 mt-0.5">${escapeHtml(r.estado_nuevo ?? "-")}</div>
@@ -431,13 +370,11 @@
 
     try {
       const json = await fetchDetalle(detalleState.userId, detalleState.offset, detalleState.limit);
-
       detalleState.total = Number(json.total || 0);
       renderDetalle(json.data || []);
 
       const fromN = detalleState.total ? (detalleState.offset + 1) : 0;
       const toN = Math.min(detalleState.offset + detalleState.limit, detalleState.total);
-
       if (detallePaginacionInfo) {
         detallePaginacionInfo.textContent = detalleState.total
           ? `Mostrando ${fromN}-${toN} de ${detalleState.total}`
@@ -446,10 +383,8 @@
 
       const hasPrev = detalleState.offset > 0;
       const hasNext = (detalleState.offset + detalleState.limit) < detalleState.total;
-
       detallePrev?.toggleAttribute("disabled", !hasPrev);
       detalleNext?.toggleAttribute("disabled", !hasNext);
-
       detallePrev?.classList.toggle("opacity-50", !hasPrev);
       detalleNext?.classList.toggle("opacity-50", !hasNext);
 
@@ -462,7 +397,7 @@
     }
   }
 
-  // Cerrar modal: botón, overlay, ESC
+  // cerrar modal
   detalleCerrar?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -502,15 +437,13 @@
 
   btnFiltrar?.addEventListener("click", cargar);
 
-  // ✅ Quitar filtros => vuelve a HOY
+  // ✅ Quitar filtros => vacía fechas => histórico completo
   btnLimpiarFechas?.addEventListener("click", () => {
-    const t = isoToday();
-    if (fromEl) fromEl.value = t;
-    if (toEl) toEl.value = t;
+    if (fromEl) fromEl.value = "";
+    if (toEl) toEl.value = "";
     cargar();
   });
 
-  // Carga inicial (HOY)
-  ensureTodayDefaults();
+  // carga inicial (histórico)
   cargar();
 })();
