@@ -134,59 +134,93 @@
   </main>
 
   <!-- Modal detalle -->
-  <div id="detalleModal" class="hidden fixed inset-0 z-[9998] bg-black/40 backdrop-blur-[1px]">
-    <div class="absolute inset-0 flex items-center justify-center p-4" data-close="1">
-      <div class="w-full max-w-5xl rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden" data-close="0">
-        <div class="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3">
+  <!-- Modal detalle -->
+<div id="detalleModal" class="hidden fixed inset-0 z-[9998] bg-black/40 backdrop-blur-[2px]">
+  <div class="absolute inset-0 flex items-center justify-center p-3 sm:p-6" data-close="1">
+    <div class="w-full max-w-6xl rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden" data-close="0">
+
+      <!-- Header -->
+      <div class="px-5 sm:px-7 py-5 border-b border-slate-200 bg-white sticky top-0 z-10">
+        <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
-            <div id="detalleTitulo" class="text-lg font-extrabold text-slate-900 truncate">Detalle</div>
+            <div id="detalleTitulo" class="text-lg sm:text-xl font-extrabold text-slate-900 truncate">
+              Detalle
+            </div>
 
-            <!-- ✅ Descripción acomodada -->
-            <div id="detalleDescripcion" class="mt-2 flex flex-wrap gap-2"></div>
-
-            <!-- ✅ Pedidos tocados -->
-            <div id="detallePedidosBox" class="mt-3"></div>
+            <!-- descripción del usuario -->
+            <div id="detalleDescripcion" class="mt-3 flex flex-wrap gap-2"></div>
           </div>
 
           <div class="shrink-0 flex items-center gap-2">
             <button id="detalleCerrar"
-              class="h-10 px-4 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm hover:bg-slate-100">
+              class="h-10 px-4 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm hover:bg-slate-100 transition">
               Cerrar
             </button>
           </div>
         </div>
 
-        <div class="px-5 py-4">
-          <div id="detalleLoading" class="hidden mb-3 text-sm font-extrabold text-slate-600">Cargando detalle…</div>
-          <div id="detalleError" class="hidden mb-3 rounded-2xl border border-red-200 bg-red-50 text-red-700 px-3 py-2 font-extrabold text-sm"></div>
-
-          <!-- Desktop -->
-          <div class="hidden sm:block rounded-3xl border border-slate-200 overflow-hidden">
-            <div class="grid grid-cols-10 px-4 py-3 bg-slate-50 border-b border-slate-200 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
-              <div class="col-span-2">Fecha</div>
-              <div class="col-span-2">Entidad</div>
-              <div class="col-span-2">ID</div>
-              <div class="col-span-2">Antes</div>
-              <div class="col-span-2">Después</div>
+        <!-- Pedidos tocados -->
+        <div class="mt-4">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div class="text-sm font-extrabold text-slate-800">
+              Pedidos tocados
+              <span id="detallePedidosCount" class="ml-2 inline-flex items-center px-2.5 py-1 rounded-2xl bg-slate-900 text-white text-xs font-extrabold">0</span>
             </div>
-            <div id="detalleBodyTable" class="max-h-[65vh] overflow-auto"></div>
+
+            <div class="text-xs font-extrabold text-slate-500">
+              Tip: puedes scroll horizontal si hay muchos pedidos.
+            </div>
           </div>
 
-          <!-- Mobile -->
-          <div id="detalleBodyCards" class="sm:hidden"></div>
-
-          <div class="mt-4 flex items-center justify-between gap-2">
-            <div id="detallePaginacionInfo" class="text-sm font-extrabold text-slate-600">—</div>
-            <div class="flex items-center gap-2">
-              <button id="detallePrev" class="h-10 px-4 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm hover:bg-slate-100">Anterior</button>
-              <button id="detalleNext" class="h-10 px-4 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm hover:bg-slate-100">Siguiente</button>
-            </div>
+          <!-- contenedor chips -->
+          <div id="detallePedidosBox"
+               class="mt-3 flex gap-2 overflow-x-auto pb-2 scroll-smooth"
+               style="scrollbar-width: thin;">
           </div>
         </div>
-
       </div>
+
+      <!-- Body -->
+      <div class="px-5 sm:px-7 py-5 bg-slate-50">
+        <div id="detalleLoading" class="hidden mb-3 text-sm font-extrabold text-slate-600">Cargando detalle…</div>
+        <div id="detalleError" class="hidden mb-3 rounded-2xl border border-red-200 bg-red-50 text-red-700 px-3 py-2 font-extrabold text-sm"></div>
+
+        <!-- Tabla desktop -->
+        <div class="hidden sm:block rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="grid grid-cols-12 px-4 py-3 bg-slate-100 border-b border-slate-200 text-[11px] font-extrabold uppercase tracking-wide text-slate-600 sticky top-[155px] z-[5]">
+            <div class="col-span-3">Fecha</div>
+            <div class="col-span-2">Entidad</div>
+            <div class="col-span-2">ID</div>
+            <div class="col-span-2">Antes</div>
+            <div class="col-span-3">Después</div>
+          </div>
+
+          <div id="detalleBodyTable" class="max-h-[58vh] overflow-auto"></div>
+        </div>
+
+        <!-- Cards mobile -->
+        <div id="detalleBodyCards" class="sm:hidden"></div>
+
+        <!-- Footer -->
+        <div class="mt-4 flex items-center justify-between gap-2">
+          <div id="detallePaginacionInfo" class="text-sm font-extrabold text-slate-600">—</div>
+          <div class="flex items-center gap-2">
+            <button id="detallePrev"
+              class="h-10 px-4 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm hover:bg-slate-100 transition">
+              Anterior
+            </button>
+            <button id="detalleNext"
+              class="h-10 px-4 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm hover:bg-slate-100 transition">
+              Siguiente
+            </button>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
+</div>
+
 
   <!-- ✅ Flatpickr JS -->
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
