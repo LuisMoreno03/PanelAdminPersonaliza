@@ -35,6 +35,20 @@
   let cacheRows = [];
   let detalleState = { userId: null, userName: "", offset: 0, limit: 50, total: 0 };
 
+  function isoToday() {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function ensureTodayDefaults() {
+    const t = isoToday();
+    if (fromEl && !fromEl.value) fromEl.value = t;
+    if (toEl && !toEl.value) toEl.value = t;
+  }
+
   function setLoading(v) {
     if (!globalLoader) return;
     globalLoader.classList.toggle("hidden", !v);
@@ -83,7 +97,6 @@
     if (totalCambiosEl) totalCambiosEl.textContent = String(totalCambios);
   }
 
-  // ---------- RESUMEN (tabla principal) ----------
   function renderTableRows(rows, target) {
     if (!target) return;
     target.innerHTML = "";
@@ -216,6 +229,8 @@
   }
 
   async function fetchResumen() {
+    ensureTodayDefaults();
+
     const params = new URLSearchParams();
     if (fromEl?.value) params.set("from", fromEl.value);
     if (toEl?.value) params.set("to", toEl.value);
@@ -264,7 +279,7 @@
 
   window.__seguimientoRefresh = cargar;
 
-  // ---------- MODAL DETALLE ----------
+  // ---------------- MODAL DETALLE ----------------
   function modalSetLoading(v) {
     detalleLoading?.classList.toggle("hidden", !v);
   }
@@ -290,7 +305,10 @@
   function openModalDetalle(userId, userName) {
     const uid = Number(userId ?? 0);
     detalleState.userId = uid;
-    detalleState.userName = (userName && userName !== "null") ? userName : (uid === 0 ? "Sin usuario (no registrado)" : `Usuario #${uid}`);
+    detalleState.userName = (userName && userName !== "null")
+      ? userName
+      : (uid === 0 ? "Sin usuario (no registrado)" : `Usuario #${uid}`);
+
     detalleState.offset = 0;
 
     if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${detalleState.userName}`;
@@ -301,6 +319,8 @@
   }
 
   async function fetchDetalle(userId, offset, limit) {
+    ensureTodayDefaults();
+
     const params = new URLSearchParams();
     if (fromEl?.value) params.set("from", fromEl.value);
     if (toEl?.value) params.set("to", toEl.value);
@@ -322,7 +342,6 @@
 
     const json = await res.json();
     if (!json?.ok) throw new Error(json?.message || "Respuesta inválida del servidor.");
-
     return json;
   }
 
@@ -348,14 +367,12 @@
       return;
     }
 
-    // Desktop table (lg+)
+    // Desktop table
     if (detalleBodyTable) {
       const frag = document.createDocumentFragment();
-
       rows.forEach(r => {
         const div = document.createElement("div");
         div.className = "grid grid-cols-12 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
-
         div.innerHTML = `
           <div class="col-span-3 text-slate-700 font-bold">${escapeHtml(r.created_at || "-")}</div>
           <div class="col-span-2">${escapeHtml(r.entidad || "-")}</div>
@@ -364,21 +381,17 @@
           <div class="col-span-2 text-slate-900 font-extrabold">${escapeHtml(r.estado_nuevo ?? "-")}</div>
           <div class="col-span-1 text-right text-[11px] font-extrabold text-slate-500">${escapeHtml(r.source || "")}</div>
         `;
-
         frag.appendChild(div);
       });
-
       detalleBodyTable.appendChild(frag);
     }
 
-    // Mobile cards (<lg)
+    // Mobile cards
     if (detalleBodyCards) {
       const frag = document.createDocumentFragment();
-
       rows.forEach(r => {
         const card = document.createElement("div");
         card.className = "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
-
         card.innerHTML = `
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -406,10 +419,8 @@
             </div>
           </div>
         `;
-
         frag.appendChild(card);
       });
-
       detalleBodyCards.appendChild(frag);
     }
   }
@@ -451,7 +462,7 @@
     }
   }
 
-  // Cerrar modal (botón, overlay, ESC)
+  // Cerrar modal: botón, overlay, ESC
   detalleCerrar?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -481,7 +492,7 @@
     loadDetalle();
   });
 
-  // ---------- Eventos UI principal ----------
+  // UI principal
   inputBuscar?.addEventListener("input", renderAll);
 
   btnLimpiarBusqueda?.addEventListener("click", () => {
@@ -491,12 +502,15 @@
 
   btnFiltrar?.addEventListener("click", cargar);
 
+  // ✅ Quitar filtros => vuelve a HOY
   btnLimpiarFechas?.addEventListener("click", () => {
-    if (fromEl) fromEl.value = "";
-    if (toEl) toEl.value = "";
+    const t = isoToday();
+    if (fromEl) fromEl.value = t;
+    if (toEl) toEl.value = t;
     cargar();
   });
 
-  // Load inicial
+  // Carga inicial (HOY)
+  ensureTodayDefaults();
   cargar();
 })();

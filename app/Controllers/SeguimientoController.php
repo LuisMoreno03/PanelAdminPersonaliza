@@ -13,16 +13,24 @@ class SeguimientoController extends BaseController
 
     /**
      * GET /seguimiento/resumen?from=YYYY-MM-DD&to=YYYY-MM-DD
+     * Si no mandas fechas => HOY por defecto.
      */
     public function resumen()
     {
         try {
+            $db = db_connect();
+
             $from = $this->request->getGet('from');
             $to   = $this->request->getGet('to');
 
-            $db = db_connect();
+            // ✅ Por defecto HOY si no hay filtros
+            if (!$from && !$to) {
+                $tz = config('App')->appTimezone ?? 'UTC';
+                $today = (new \DateTime('now', new \DateTimeZone($tz)))->format('Y-m-d');
+                $from = $today;
+                $to = $today;
+            }
 
-            // UNION normalizado desde historiales reales
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnion($db, $from, $to);
 
             if (!$unionSQL) {
@@ -30,28 +38,36 @@ class SeguimientoController extends BaseController
                     'ok' => true,
                     'data' => [],
                     'sources' => [],
+                    'range' => ['from' => $from, 'to' => $to],
                 ]);
             }
 
-            // Detectar campos en tabla usuarios
-            [$nameField, $emailField] = $this->detectUsuarioFields($db);
+            // Detecta cómo leer nombre/email y cómo hacer el JOIN
+            $userMap = $this->detectUsuariosMapping($db);
 
-            // Resumen por user_id (siempre usar t.user_id, no u.id)
+            $joinUsuarios = $userMap['hasUsuarios']
+                ? "LEFT JOIN usuarios u ON {$userMap['joinOn']}"
+                : "";
+
+            // Armamos expresiones de nombre/email
+            $nameAgg  = $userMap['nameExpr']  ? "MAX({$userMap['nameExpr']})"  : "NULL";
+            $emailAgg = $userMap['emailExpr'] ? "MAX({$userMap['emailExpr']})" : "NULL";
+
             $sql = "
                 SELECT
                     t.user_id as user_id,
                     CASE
                         WHEN t.user_id = 0 THEN 'Sin usuario (no registrado)'
-                        ELSE COALESCE(MAX(u.$nameField), CONCAT('Usuario #', t.user_id))
+                        ELSE COALESCE($nameAgg, CONCAT('Usuario #', t.user_id))
                     END as user_name,
                     CASE
                         WHEN t.user_id = 0 THEN '-'
-                        ELSE " . ($emailField ? "COALESCE(MAX(u.$emailField), '-')" : "'-'") . "
+                        ELSE COALESCE($emailAgg, '-')
                     END as user_email,
                     COUNT(*) as total_cambios,
                     MAX(t.created_at) as ultimo_cambio
                 FROM ($unionSQL) t
-                LEFT JOIN usuarios u ON u.id = t.user_id
+                $joinUsuarios
                 GROUP BY t.user_id
                 ORDER BY total_cambios DESC
             ";
@@ -62,10 +78,15 @@ class SeguimientoController extends BaseController
                 'ok' => true,
                 'data' => $rows,
                 'sources' => $sourcesUsed,
+                'range' => ['from' => $from, 'to' => $to],
+                'user_map' => [
+                    'join_on' => $userMap['joinOn'],
+                    'name_expr' => $userMap['nameExpr'],
+                    'email_expr' => $userMap['emailExpr'],
+                ],
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'Seguimiento/resumen ERROR: ' . $e->getMessage());
-
             return $this->response->setStatusCode(500)->setJSON([
                 'ok' => false,
                 'message' => $e->getMessage(),
@@ -75,14 +96,24 @@ class SeguimientoController extends BaseController
 
     /**
      * GET /seguimiento/detalle/{userId}?from=...&to=...&limit=50&offset=0
+     * Si no mandas fechas => HOY por defecto.
      */
     public function detalle($userId)
     {
         try {
+            $db = db_connect();
             $userId = (int)$userId;
 
             $from = $this->request->getGet('from');
             $to   = $this->request->getGet('to');
+
+            // ✅ Por defecto HOY si no hay filtros
+            if (!$from && !$to) {
+                $tz = config('App')->appTimezone ?? 'UTC';
+                $today = (new \DateTime('now', new \DateTimeZone($tz)))->format('Y-m-d');
+                $from = $today;
+                $to = $today;
+            }
 
             $limit  = (int)($this->request->getGet('limit') ?? 50);
             $offset = (int)($this->request->getGet('offset') ?? 0);
@@ -90,8 +121,6 @@ class SeguimientoController extends BaseController
             if ($limit < 1) $limit = 50;
             if ($limit > 200) $limit = 200;
             if ($offset < 0) $offset = 0;
-
-            $db = db_connect();
 
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnionDetail($db, $from, $to);
 
@@ -104,15 +133,13 @@ class SeguimientoController extends BaseController
                     'offset' => $offset,
                     'data' => [],
                     'sources' => [],
+                    'range' => ['from' => $from, 'to' => $to],
                 ]);
             }
 
-            // total
             $totalSql = "SELECT COUNT(*) as total FROM ($unionSQL) t WHERE t.user_id = ?";
-            $totalBinds = array_merge($binds, [$userId]);
-            $total = (int)($db->query($totalSql, $totalBinds)->getRowArray()['total'] ?? 0);
+            $total = (int)($db->query($totalSql, array_merge($binds, [$userId]))->getRowArray()['total'] ?? 0);
 
-            // page
             $pageSql = "
                 SELECT
                   t.user_id, t.created_at, t.entidad, t.entidad_id,
@@ -122,9 +149,7 @@ class SeguimientoController extends BaseController
                 ORDER BY t.created_at DESC
                 LIMIT ? OFFSET ?
             ";
-
-            $pageBinds = array_merge($binds, [$userId, $limit, $offset]);
-            $rows = $db->query($pageSql, $pageBinds)->getResultArray();
+            $rows = $db->query($pageSql, array_merge($binds, [$userId, $limit, $offset]))->getResultArray();
 
             return $this->response->setJSON([
                 'ok' => true,
@@ -134,10 +159,10 @@ class SeguimientoController extends BaseController
                 'offset' => $offset,
                 'data' => $rows,
                 'sources' => $sourcesUsed,
+                'range' => ['from' => $from, 'to' => $to],
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'Seguimiento/detalle ERROR: ' . $e->getMessage());
-
             return $this->response->setStatusCode(500)->setJSON([
                 'ok' => false,
                 'message' => $e->getMessage(),
@@ -145,26 +170,27 @@ class SeguimientoController extends BaseController
         }
     }
 
-    /**
-     * UNION "resumen": user_id, created_at
-     */
+    // ---------------------------------------------------------------------
+    // UNION (RESUMEN)
+    // ---------------------------------------------------------------------
     private function buildHistoryUnion($db, ?string $from, ?string $to): array
     {
         $tables = [
             'pedidos_estado_historial',
             'pedido_estado_historial',
             'order_status_history',
-            'order_status_history', // si está duplicada no afecta, pero puedes quitar una
         ];
 
         $userCandidates = [
-            'usuario_id','id_usuario','user_id',
+            'usuario_id','id_usuario','user_id','users_id','id_user',
             'admin_id','empleado_id','operador_id',
             'created_by','updated_by','changed_by','responsable_id'
         ];
 
+        // ✅ Agregamos más candidatos para cubrir "hoy"
         $dateCandidates = [
-            'created_at','fecha','changed_at','updated_at','fecha_cambio','created'
+            'created_at','updated_at','changed_at','fecha','fecha_cambio','created',
+            'timestamp','fecha_hora','fechaHora','createdAt','created_on','date_created'
         ];
 
         $parts = [];
@@ -179,6 +205,7 @@ class SeguimientoController extends BaseController
 
             $userField = $this->pickUserFieldWithData($db, $table, $userCandidates);
 
+            // Normaliza user_id => 0 si no existe campo o si viene vacío
             $userExpr = $userField
                 ? "CAST(COALESCE(NULLIF(TRIM($userField), ''), 0) AS UNSIGNED)"
                 : "0";
@@ -197,9 +224,9 @@ class SeguimientoController extends BaseController
         return [implode(" UNION ALL ", $parts), $binds, $sources];
     }
 
-    /**
-     * UNION "detalle": user_id, created_at, entidad, entidad_id, estado_anterior, estado_nuevo, source
-     */
+    // ---------------------------------------------------------------------
+    // UNION (DETALLE)
+    // ---------------------------------------------------------------------
     private function buildHistoryUnionDetail($db, ?string $from, ?string $to): array
     {
         $tables = [
@@ -209,16 +236,19 @@ class SeguimientoController extends BaseController
         ];
 
         $userCandidates = [
-            'usuario_id','id_usuario','user_id',
+            'usuario_id','id_usuario','user_id','users_id','id_user',
             'admin_id','empleado_id','operador_id',
             'created_by','updated_by','changed_by','responsable_id'
         ];
 
-        $dateCandidates = ['created_at','fecha','changed_at','updated_at','fecha_cambio','created'];
+        $dateCandidates = [
+            'created_at','updated_at','changed_at','fecha','fecha_cambio','created',
+            'timestamp','fecha_hora','fechaHora','createdAt','created_on','date_created'
+        ];
 
         $entityCandidates = [
             'pedido_id','id_pedido','pedidos_id',
-            'order_id','id_order',
+            'order_id','id_order','orders_id',
             'entidad_id'
         ];
 
@@ -291,6 +321,76 @@ class SeguimientoController extends BaseController
         return [implode(" UNION ALL ", $parts), $binds, $sources];
     }
 
+    // ---------------------------------------------------------------------
+    // USERS MAPPING (para traer nombres)
+    // ---------------------------------------------------------------------
+    private function detectUsuariosMapping($db): array
+    {
+        $hasUsuarios = $db->tableExists('usuarios');
+
+        if (!$hasUsuarios) {
+            return [
+                'hasUsuarios' => false,
+                'joinOn' => '1=0',
+                'nameExpr' => null,
+                'emailExpr' => null,
+            ];
+        }
+
+        // Columnas posibles de ID en usuarios
+        $idCols = [
+            'id','id_usuario','usuario_id','user_id','users_id','id_user'
+        ];
+
+        $joinParts = [];
+        foreach ($idCols as $c) {
+            if ($db->fieldExists($c, 'usuarios')) {
+                $joinParts[] = "u.$c = t.user_id";
+            }
+        }
+        $joinOn = $joinParts ? '(' . implode(' OR ', $joinParts) . ')' : '1=0';
+
+        // Nombre: detecta el mejor formato
+        $nameExpr = null;
+
+        $hasNombres = $db->fieldExists('nombres', 'usuarios');
+        $hasApellidos = $db->fieldExists('apellidos', 'usuarios');
+        if ($hasNombres && $hasApellidos) {
+            $nameExpr = "CONCAT(u.nombres, ' ', u.apellidos)";
+        } elseif ($db->fieldExists('nombre', 'usuarios')) {
+            $nameExpr = "u.nombre";
+        } elseif ($db->fieldExists('nombre_completo', 'usuarios')) {
+            $nameExpr = "u.nombre_completo";
+        } elseif ($db->fieldExists('usuario', 'usuarios')) {
+            $nameExpr = "u.usuario";
+        } elseif ($db->fieldExists('username', 'usuarios')) {
+            $nameExpr = "u.username";
+        } elseif ($db->fieldExists('name', 'usuarios')) {
+            $nameExpr = "u.name";
+        } else {
+            $nameExpr = null; // fallback: Usuario #id
+        }
+
+        // Email:
+        $emailExpr = null;
+        if ($db->fieldExists('correo', 'usuarios')) {
+            $emailExpr = "u.correo";
+        } elseif ($db->fieldExists('email', 'usuarios')) {
+            $emailExpr = "u.email";
+        } elseif ($db->fieldExists('mail', 'usuarios')) {
+            $emailExpr = "u.mail";
+        } else {
+            $emailExpr = null;
+        }
+
+        return [
+            'hasUsuarios' => true,
+            'joinOn' => $joinOn,
+            'nameExpr' => $nameExpr,
+            'emailExpr' => $emailExpr,
+        ];
+    }
+
     private function bestExistingField($db, string $table, array $fields): ?string
     {
         foreach ($fields as $f) {
@@ -299,9 +399,6 @@ class SeguimientoController extends BaseController
         return null;
     }
 
-    /**
-     * Escoge el campo de usuario con más valores útiles (>0).
-     */
     private function pickUserFieldWithData($db, string $table, array $candidates): ?string
     {
         $bestField = null;
@@ -315,6 +412,7 @@ class SeguimientoController extends BaseController
                     WHERE $f IS NOT NULL
                       AND TRIM(CAST($f AS CHAR)) <> ''
                       AND CAST($f AS UNSIGNED) > 0";
+
             $c = (int)($db->query($sql)->getRowArray()['c'] ?? 0);
 
             if ($c > $bestCount) {
@@ -323,24 +421,6 @@ class SeguimientoController extends BaseController
             }
         }
 
-        return $bestField; // null si ninguno sirve
-    }
-
-    /**
-     * Detecta campos de nombre/email en usuarios. Devuelve [nameField, emailField|null]
-     */
-    private function detectUsuarioFields($db): array
-    {
-        $nameField = $db->fieldExists('nombre', 'usuarios') ? 'nombre'
-                  : ($db->fieldExists('nombre_completo', 'usuarios') ? 'nombre_completo'
-                  : ($db->fieldExists('usuario', 'usuarios') ? 'usuario'
-                  : ($db->fieldExists('username', 'usuarios') ? 'username'
-                  : ($db->fieldExists('name', 'usuarios') ? 'name'
-                  : 'id')))); // fallback seguro
-
-        $emailField = $db->fieldExists('correo', 'usuarios') ? 'correo'
-                   : ($db->fieldExists('email', 'usuarios') ? 'email' : null);
-
-        return [$nameField, $emailField];
+        return $bestField;
     }
 }
