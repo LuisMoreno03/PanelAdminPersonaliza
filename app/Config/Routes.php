@@ -312,3 +312,4 @@ $routes->group('api/por-producir', static function ($routes) {
 
 $routes->get('seguimiento', 'SeguimientoController::index');
 $routes->get('seguimiento/resumen', 'SeguimientoController::resumen');
+$routes->get('seguimiento/detalle/(:num)', 'SeguimientoController::detalle/$1');

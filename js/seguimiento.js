@@ -18,6 +18,20 @@
   const tabla2xl = document.getElementById("tablaSeguimiento");
   const tablaXl = document.getElementById("tablaSeguimientoTable");
   const cards = document.getElementById("cardsSeguimiento");
+  // Modal detalle
+    const detalleModal = document.getElementById("detalleModal");
+    const detalleCerrar = document.getElementById("detalleCerrar");
+    const detalleTitulo = document.getElementById("detalleTitulo");
+    const detalleSub = document.getElementById("detalleSub");
+    const detalleLoading = document.getElementById("detalleLoading");
+    const detalleError = document.getElementById("detalleError");
+    const detalleBody = document.getElementById("detalleBody");
+    const detallePrev = document.getElementById("detallePrev");
+    const detalleNext = document.getElementById("detalleNext");
+    const detallePaginacionInfo = document.getElementById("detallePaginacionInfo");
+
+    let detalleState = { userId: null, userName: "", offset: 0, limit: 50, total: 0 };
+
 
   let cacheRows = [];
 
@@ -121,7 +135,7 @@
       `;
 
       row.querySelector("button[data-user]")?.addEventListener("click", () => {
-        alert(`Detalle (pendiente) del usuario #${r.user_id}`);
+        openModalDetalle(r.user_id, r.user_name);
       });
 
       frag.appendChild(row);
@@ -183,7 +197,8 @@
       `;
 
       card.querySelector("button[data-user]")?.addEventListener("click", () => {
-        alert(`Detalle (pendiente) del usuario #${r.user_id}`);
+        openModalDetalle(r.user_id, r.user_name);
+
       });
 
       frag.appendChild(card);
@@ -191,6 +206,137 @@
 
     cards.appendChild(frag);
   }
+function modalSetLoading(v) {
+  detalleLoading?.classList.toggle("hidden", !v);
+}
+
+function modalSetError(msg) {
+  if (!detalleError) return;
+  if (!msg) {
+    detalleError.classList.add("hidden");
+    detalleError.textContent = "";
+    return;
+  }
+  detalleError.textContent = msg;
+  detalleError.classList.remove("hidden");
+}
+
+function openModalDetalle(userId, userName) {
+  detalleState.userId = Number(userId);
+  detalleState.userName = userName || `Usuario #${userId}`;
+  detalleState.offset = 0;
+
+  if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${detalleState.userName}`;
+  if (detalleSub) detalleSub.textContent = `Usuario ID: ${detalleState.userId}`;
+
+  detalleModal?.classList.remove("hidden");
+  loadDetalle();
+}
+
+function closeModalDetalle() {
+  detalleModal?.classList.add("hidden");
+  if (detalleBody) detalleBody.innerHTML = "";
+  modalSetError("");
+}
+
+async function fetchDetalle(userId, offset, limit) {
+  const params = new URLSearchParams();
+  if (fromEl?.value) params.set("from", fromEl.value);
+  if (toEl?.value) params.set("to", toEl.value);
+  params.set("offset", String(offset));
+  params.set("limit", String(limit));
+
+  const url = `${base}/seguimiento/detalle/${encodeURIComponent(userId)}?${params.toString()}`;
+
+  const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.message) msg += ` - ${j.message}`;
+    } catch (_) {}
+    throw new Error(msg);
+  }
+
+  const json = await res.json();
+  if (!json?.ok) throw new Error(json?.message || "Respuesta inválida del servidor.");
+
+  return json;
+}
+
+function renderDetalle(rows) {
+  if (!detalleBody) return;
+
+  detalleBody.innerHTML = "";
+
+  if (!rows || rows.length === 0) {
+    detalleBody.innerHTML = `
+      <div class="px-4 py-6 text-sm font-extrabold text-slate-500">
+        No hay cambios para mostrar.
+      </div>
+    `;
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+
+  rows.forEach(r => {
+    const div = document.createElement("div");
+    div.className = "grid grid-cols-12 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
+
+    div.innerHTML = `
+      <div class="col-span-3 text-slate-700 font-bold">${escapeHtml(r.created_at || "-")}</div>
+      <div class="col-span-2">${escapeHtml(r.entidad || "-")}</div>
+      <div class="col-span-2">${r.entidad_id ? escapeHtml(String(r.entidad_id)) : "-"}</div>
+      <div class="col-span-2 text-slate-700">${escapeHtml(r.estado_anterior ?? "-")}</div>
+      <div class="col-span-2 text-slate-900 font-extrabold">${escapeHtml(r.estado_nuevo ?? "-")}</div>
+      <div class="col-span-1 text-right text-[11px] font-extrabold text-slate-500">${escapeHtml(r.source || "")}</div>
+    `;
+
+    frag.appendChild(div);
+  });
+
+  detalleBody.appendChild(frag);
+}
+
+async function loadDetalle() {
+  modalSetError("");
+  modalSetLoading(true);
+
+  try {
+    const json = await fetchDetalle(detalleState.userId, detalleState.offset, detalleState.limit);
+
+    detalleState.total = Number(json.total || 0);
+
+    renderDetalle(json.data || []);
+
+    const from = detalleState.offset + 1;
+    const to = Math.min(detalleState.offset + detalleState.limit, detalleState.total);
+    if (detallePaginacionInfo) {
+      detallePaginacionInfo.textContent =
+        detalleState.total
+          ? `Mostrando ${from}-${to} de ${detalleState.total}`
+          : "Mostrando 0";
+    }
+
+    // botones
+    const hasPrev = detalleState.offset > 0;
+    const hasNext = (detalleState.offset + detalleState.limit) < detalleState.total;
+
+    detallePrev?.toggleAttribute("disabled", !hasPrev);
+    detalleNext?.toggleAttribute("disabled", !hasNext);
+
+    detallePrev?.classList.toggle("opacity-50", !hasPrev);
+    detalleNext?.classList.toggle("opacity-50", !hasNext);
+
+  } catch (e) {
+    renderDetalle([]);
+    modalSetError("Error cargando detalle: " + (e?.message || e));
+  } finally {
+    modalSetLoading(false);
+  }
+}
 
   async function fetchResumen() {
     const params = new URLSearchParams();
