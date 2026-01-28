@@ -68,13 +68,18 @@ class SeguimientoController extends BaseController
                 // Sin join a tabla usuarios (por si no existiera)
                 $sql = "
                     SELECT
-                        t.user_id,
-                        COUNT(t.user_id) as total_cambios,
+                        t.user_id as user_id,
+                        MAX(u.$nameField) as user_name,
+                        " . ($emailField ? "MAX(u.$emailField) as user_email," : "NULL as user_email,") . "
+                        COUNT(*) as total_cambios,
                         MAX(t.created_at) as ultimo_cambio
                     FROM ($unionSQL) t
+                    LEFT JOIN usuarios u ON u.id = t.user_id
+                    WHERE t.user_id IS NOT NULL AND t.user_id > 0
                     GROUP BY t.user_id
                     ORDER BY total_cambios DESC
                 ";
+
 
                 $rows = $db->query($sql, $binds)->getResultArray();
             }
@@ -135,7 +140,8 @@ class SeguimientoController extends BaseController
             }
 
             // Armamos SELECT normalizado
-            $part = "SELECT $userField as user_id, $dateField as created_at FROM $table WHERE 1=1";
+            $part = "SELECT CAST($userField AS UNSIGNED) as user_id, $dateField as created_at FROM $table WHERE 1=1";
+
 
             if ($from) {
                 $part .= " AND $dateField >= ?";
@@ -147,7 +153,8 @@ class SeguimientoController extends BaseController
             }
 
             // Excluir null/0 si aplica
-            $part .= " AND $userField IS NOT NULL";
+            $part .= " AND $userField IS NOT NULL AND CAST($userField AS UNSIGNED) > 0";
+
 
             $parts[] = $part;
             $sourcesUsed[] = "$table($userField,$dateField)";
