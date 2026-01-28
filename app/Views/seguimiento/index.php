@@ -147,30 +147,35 @@
   </main>
 
     <!-- Modal Detalle -->
+    <!-- Modal Detalle (Responsive) -->
     <div id="detalleModal" class="hidden fixed inset-0 z-[9999]">
     <div class="absolute inset-0 bg-black/40" data-close="1"></div>
 
-    <div class="absolute inset-0 flex items-center justify-center p-4">
-        <div class="w-full max-w-4xl rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
-        <div class="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3">
+    <div class="absolute inset-0 flex items-center justify-center p-3 sm:p-4">
+        <div class="w-full max-w-5xl rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
+
+        <div class="px-4 sm:px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3">
             <div class="min-w-0">
-            <div id="detalleTitulo" class="text-lg font-extrabold truncate">Detalle</div>
-            <div id="detalleSub" class="text-sm font-bold text-slate-600">—</div>
+            <div id="detalleTitulo" class="text-base sm:text-lg font-extrabold truncate">Detalle</div>
+            <div id="detalleSub" class="text-xs sm:text-sm font-bold text-slate-600 truncate">—</div>
             </div>
+
             <button id="detalleCerrar"
             class="h-10 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-sm shadow-sm hover:bg-slate-100 transition">
             Cerrar
             </button>
         </div>
 
-        <div class="px-5 py-4">
+        <!-- Cuerpo con altura máxima + scroll interno -->
+        <div class="px-4 sm:px-5 py-4 max-h-[75vh] overflow-y-auto">
             <div id="detalleLoading" class="hidden rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 font-extrabold">
             Cargando…
             </div>
 
             <div id="detalleError" class="hidden rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 font-extrabold"></div>
 
-            <div class="mt-3 rounded-3xl border border-slate-200 overflow-hidden">
+            <!-- Desktop table (lg+) -->
+            <div class="hidden lg:block mt-3 rounded-3xl border border-slate-200 overflow-hidden">
             <div class="grid grid-cols-12 bg-slate-50 px-4 py-3 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
                 <div class="col-span-3">Fecha</div>
                 <div class="col-span-2">Entidad</div>
@@ -179,12 +184,16 @@
                 <div class="col-span-2">Después</div>
                 <div class="col-span-1 text-right">Src</div>
             </div>
-            <div id="detalleBody"></div>
+            <div id="detalleBodyTable"></div>
             </div>
 
-            <div class="mt-4 flex items-center justify-between">
+            <!-- Mobile/Tablet cards (<lg) -->
+            <div class="lg:hidden mt-3" id="detalleBodyCards"></div>
+
+            <div class="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div id="detallePaginacionInfo" class="text-sm font-extrabold text-slate-600">—</div>
-            <div class="flex items-center gap-2">
+
+            <div class="flex items-center gap-2 justify-end">
                 <button id="detallePrev"
                 class="h-10 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-sm shadow-sm hover:bg-slate-100 transition">
                 ← Anterior
@@ -195,11 +204,12 @@
                 </button>
             </div>
             </div>
+        </div>
 
         </div>
-        </div>
     </div>
     </div>
+
 
 
   <script src="<?= base_url('js/seguimiento.js') ?>"></script>

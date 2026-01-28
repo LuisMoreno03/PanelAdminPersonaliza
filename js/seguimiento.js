@@ -25,7 +25,9 @@
     const detalleSub = document.getElementById("detalleSub");
     const detalleLoading = document.getElementById("detalleLoading");
     const detalleError = document.getElementById("detalleError");
-    const detalleBody = document.getElementById("detalleBody");
+    const detalleBodyTable = document.getElementById("detalleBodyTable");
+    const detalleBodyCards = document.getElementById("detalleBodyCards");
+
     const detallePrev = document.getElementById("detallePrev");
     const detalleNext = document.getElementById("detalleNext");
     const detallePaginacionInfo = document.getElementById("detallePaginacionInfo");
@@ -199,6 +201,7 @@
       card.querySelector("button[data-user]")?.addEventListener("click", () => {
         openModalDetalle(r.user_id, r.user_name);
 
+
       });
 
       frag.appendChild(card);
@@ -235,7 +238,9 @@ function openModalDetalle(userId, userName) {
 
 function closeModalDetalle() {
   detalleModal?.classList.add("hidden");
-  if (detalleBody) detalleBody.innerHTML = "";
+  if (detalleBodyTable) detalleBodyTable.innerHTML = "";
+  if (detalleBodyCards) detalleBodyCards.innerHTML = "";
+
   modalSetError("");
 }
 
@@ -266,39 +271,94 @@ async function fetchDetalle(userId, offset, limit) {
 }
 
 function renderDetalle(rows) {
-  if (!detalleBody) return;
-
-  detalleBody.innerHTML = "";
+  if (detalleBodyTable) detalleBodyTable.innerHTML = "";
+  if (detalleBodyCards) detalleBodyCards.innerHTML = "";
 
   if (!rows || rows.length === 0) {
-    detalleBody.innerHTML = `
-      <div class="px-4 py-6 text-sm font-extrabold text-slate-500">
-        No hay cambios para mostrar.
-      </div>
-    `;
+    if (detalleBodyTable) {
+      detalleBodyTable.innerHTML = `
+        <div class="px-4 py-6 text-sm font-extrabold text-slate-500">
+          No hay cambios para mostrar.
+        </div>
+      `;
+    }
+    if (detalleBodyCards) {
+      detalleBodyCards.innerHTML = `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">
+          No hay cambios para mostrar.
+        </div>
+      `;
+    }
     return;
   }
 
-  const frag = document.createDocumentFragment();
+  // ---------- Desktop table ----------
+  if (detalleBodyTable) {
+    const frag = document.createDocumentFragment();
 
-  rows.forEach(r => {
-    const div = document.createElement("div");
-    div.className = "grid grid-cols-12 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
+    rows.forEach(r => {
+      const div = document.createElement("div");
+      div.className =
+        "grid grid-cols-12 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
 
-    div.innerHTML = `
-      <div class="col-span-3 text-slate-700 font-bold">${escapeHtml(r.created_at || "-")}</div>
-      <div class="col-span-2">${escapeHtml(r.entidad || "-")}</div>
-      <div class="col-span-2">${r.entidad_id ? escapeHtml(String(r.entidad_id)) : "-"}</div>
-      <div class="col-span-2 text-slate-700">${escapeHtml(r.estado_anterior ?? "-")}</div>
-      <div class="col-span-2 text-slate-900 font-extrabold">${escapeHtml(r.estado_nuevo ?? "-")}</div>
-      <div class="col-span-1 text-right text-[11px] font-extrabold text-slate-500">${escapeHtml(r.source || "")}</div>
-    `;
+      div.innerHTML = `
+        <div class="col-span-3 text-slate-700 font-bold">${escapeHtml(r.created_at || "-")}</div>
+        <div class="col-span-2">${escapeHtml(r.entidad || "-")}</div>
+        <div class="col-span-2">${r.entidad_id ? escapeHtml(String(r.entidad_id)) : "-"}</div>
+        <div class="col-span-2 text-slate-700">${escapeHtml(r.estado_anterior ?? "-")}</div>
+        <div class="col-span-2 text-slate-900 font-extrabold">${escapeHtml(r.estado_nuevo ?? "-")}</div>
+        <div class="col-span-1 text-right text-[11px] font-extrabold text-slate-500">${escapeHtml(r.source || "")}</div>
+      `;
 
-    frag.appendChild(div);
-  });
+      frag.appendChild(div);
+    });
 
-  detalleBody.appendChild(frag);
+    detalleBodyTable.appendChild(frag);
+  }
+
+  // ---------- Mobile/Tablet cards ----------
+  if (detalleBodyCards) {
+    const frag = document.createDocumentFragment();
+
+    rows.forEach(r => {
+      const card = document.createElement("div");
+      card.className = "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
+
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-sm font-extrabold text-slate-900 truncate">
+              ${escapeHtml(r.entidad || "-")} ${r.entidad_id ? "#" + escapeHtml(String(r.entidad_id)) : ""}
+            </div>
+            <div class="text-xs font-bold text-slate-600 mt-0.5">
+              ${escapeHtml(r.created_at || "-")}
+            </div>
+          </div>
+          <div class="shrink-0 text-[11px] font-extrabold text-slate-500">
+            ${escapeHtml(r.source || "")}
+          </div>
+        </div>
+
+        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Antes</div>
+            <div class="text-sm font-bold text-slate-900 mt-0.5">${escapeHtml(r.estado_anterior ?? "-")}</div>
+          </div>
+
+          <div class="rounded-2xl border border-slate-200 bg-white px-3 py-2">
+            <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Después</div>
+            <div class="text-sm font-extrabold text-slate-900 mt-0.5">${escapeHtml(r.estado_nuevo ?? "-")}</div>
+          </div>
+        </div>
+      `;
+
+      frag.appendChild(card);
+    });
+
+    detalleBodyCards.appendChild(frag);
+  }
 }
+
 
 async function loadDetalle() {
   modalSetError("");
