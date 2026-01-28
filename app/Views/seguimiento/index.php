@@ -7,7 +7,7 @@
 
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
   <script src="https://cdn.tailwindcss.com"></script>
-
+    <script src="https://unpkg.com/alpinejs" defer></script>
   <!-- ✅ Flatpickr (calendario moderno) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
