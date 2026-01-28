@@ -76,7 +76,7 @@ class SeguimientoController extends BaseController
                 ]);
             }
 
-            // ✅ CTE: UNION solo una vez (evita 500 por binds repetidos)
+            // ✅ CTE (Union solo una vez)
             $cte = "
                 WITH h AS (
                     $unionSQL
@@ -104,7 +104,7 @@ class SeguimientoController extends BaseController
                 )
             ";
 
-            // Si no hay tabla users -> devolvemos por id
+            // Si no hay users table -> devolvemos por id
             if (!$usersTable) {
                 $sql = $cte . "
                     SELECT
@@ -116,7 +116,7 @@ class SeguimientoController extends BaseController
                       c.pedidos_tocados,
                       c.ultimo_cambio
                     FROM c
-                    ORDER BY (c.user_id=0) DESC, c.total_cambios DESC, user_name ASC
+                    ORDER BY (c.user_id=0) ASC, c.total_cambios DESC, user_name ASC
                 ";
 
                 $rows  = $db->query($sql, $binds)->getResultArray();
@@ -139,7 +139,6 @@ class SeguimientoController extends BaseController
 
             $sql = $cte . "
                 SELECT * FROM (
-                    -- todos los users (con o sin cambios)
                     SELECT
                       CAST(u.`$bestJoinCol` AS UNSIGNED) AS user_id,
                       COALESCE($nameExpr, CONCAT('Usuario #', u.`$bestJoinCol`)) AS user_name,
@@ -152,7 +151,7 @@ class SeguimientoController extends BaseController
 
                     UNION ALL
 
-                    -- sin usuario (id=0) siempre
+                    -- sin usuario (id=0)
                     SELECT
                       0 AS user_id,
                       'Sin usuario (no registrado)' AS user_name,
@@ -177,7 +176,7 @@ class SeguimientoController extends BaseController
                     LEFT JOIN `$usersTable` u2 ON CAST(u2.`$bestJoinCol` AS UNSIGNED) = c2.user_id
                     WHERE c2.user_id > 0 AND u2.`$bestJoinCol` IS NULL
                 ) x
-                ORDER BY (x.user_id=0) DESC, x.total_cambios DESC, x.user_name ASC
+                ORDER BY (x.user_id=0) ASC, x.total_cambios DESC, x.user_name ASC
             ";
 
             $rows  = $db->query($sql, $binds)->getResultArray();
@@ -190,6 +189,7 @@ class SeguimientoController extends BaseController
                 'sources' => $sourcesUsed,
                 'range' => ['from' => $from, 'to' => $to],
             ]);
+
         } catch (\Throwable $e) {
             log_message('error', 'Seguimiento/resumen ERROR: ' . $e->getMessage());
             return $this->response->setStatusCode(500)->setJSON([
@@ -201,9 +201,9 @@ class SeguimientoController extends BaseController
 
     /**
      * GET /seguimiento/detalle/{userId}?from=...&to=...&limit=50&offset=0
-     * - Sin SRC
      * - estado_anterior real (LAG)
-     * - pedidos tocados individuales (lista de IDs + cambios + ultimo)
+     * - devuelve pedidos tocados individuales (lista)
+     * - sin source en el detalle
      */
     public function detalle($userId)
     {
@@ -253,7 +253,6 @@ class SeguimientoController extends BaseController
                 ]);
             }
 
-            // ✅ CTE con LAG
             $cte = "
                 WITH h AS (
                     $unionSQL
@@ -269,11 +268,9 @@ class SeguimientoController extends BaseController
                 )
             ";
 
-            // total de cambios del usuario
             $totalSql = $cte . " SELECT COUNT(*) AS total FROM hx WHERE user_id = ?";
             $total = (int)($db->query($totalSql, array_merge($binds, [$userId]))->getRowArray()['total'] ?? 0);
 
-            // pedidos tocados (count)
             $ptSql = $cte . "
                 SELECT COUNT(DISTINCT CONCAT(entidad,':',entidad_id)) AS pedidos_tocados
                 FROM hx
@@ -284,7 +281,7 @@ class SeguimientoController extends BaseController
             ";
             $pt = (int)($db->query($ptSql, array_merge($binds, [$userId]))->getRowArray()['pedidos_tocados'] ?? 0);
 
-            // ✅ pedidos tocados (lista)
+            // ✅ lista de pedidos tocados por este usuario
             $pedidosSql = $cte . "
                 SELECT
                   entidad,
@@ -302,7 +299,7 @@ class SeguimientoController extends BaseController
             ";
             $pedidosList = $db->query($pedidosSql, array_merge($binds, [$userId]))->getResultArray();
 
-            // page de detalle (sin source)
+            // ✅ detalle paginado (sin source)
             $pageSql = $cte . "
                 SELECT
                   user_id,
@@ -332,6 +329,7 @@ class SeguimientoController extends BaseController
                 'sources' => $sourcesUsed,
                 'range' => ['from' => $from, 'to' => $to],
             ]);
+
         } catch (\Throwable $e) {
             log_message('error', 'Seguimiento/detalle ERROR: ' . $e->getMessage());
             return $this->response->setStatusCode(500)->setJSON([

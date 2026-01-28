@@ -7,8 +7,8 @@
   const inputBuscar = document.getElementById("inputBuscar");
   const btnLimpiarBusqueda = document.getElementById("btnLimpiarBusqueda");
 
-  const fromEl = document.getElementById("from");
-  const toEl = document.getElementById("to");
+  // ✅ rango
+  const rangeEl = document.getElementById("range");
   const btnFiltrar = document.getElementById("btnFiltrar");
   const btnLimpiarFechas = document.getElementById("btnLimpiarFechas");
   const btnActualizar = document.getElementById("btnActualizar");
@@ -24,7 +24,7 @@
   const detalleModal = document.getElementById("detalleModal");
   const detalleCerrar = document.getElementById("detalleCerrar");
   const detalleTitulo = document.getElementById("detalleTitulo");
-  const detalleSub = document.getElementById("detalleSub");
+  const detalleDescripcion = document.getElementById("detalleDescripcion");
   const detallePedidosBox = document.getElementById("detallePedidosBox");
   const detalleLoading = document.getElementById("detalleLoading");
   const detalleError = document.getElementById("detalleError");
@@ -36,7 +36,9 @@
 
   let cacheRows = [];
   let lastStats = { pedidos_tocados: 0 };
-  let detalleState = { userId: null, userName: "", offset: 0, limit: 50, total: 0 };
+  let rangePicker = null;
+
+  let detalleState = { userId: null, offset: 0, limit: 50, total: 0 };
 
   function setLoading(v) {
     globalLoader?.classList.toggle("hidden", !v);
@@ -62,32 +64,62 @@
       .replaceAll("'", "&#039;");
   }
 
-  function toISODate(v) {
-    const s = String(v || "").trim();
+  // --------- Calendario moderno (Flatpickr range) ----------
+  if (window.flatpickr && rangeEl) {
+    flatpickr.localize(flatpickr.l10ns.es);
+
+    rangePicker = flatpickr(rangeEl, {
+      mode: "range",
+      dateFormat: "d/m/Y",
+      allowInput: true,
+      disableMobile: true,
+      rangeSeparator: " a ",
+      animate: true
+    });
+  }
+
+  function toISODate(dmy) {
+    const s = String(dmy || "").trim();
     if (!s) return "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
     const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (m) {
-      const dd = String(m[1]).padStart(2, "0");
-      const mm = String(m[2]).padStart(2, "0");
-      const yy = m[3];
-      return `${yy}-${mm}-${dd}`;
-    }
-    return "";
+    if (!m) return "";
+    const dd = String(m[1]).padStart(2, "0");
+    const mm = String(m[2]).padStart(2, "0");
+    const yy = m[3];
+    return `${yy}-${mm}-${dd}`;
   }
 
-  function fmtDate(v) {
-    return v ? String(v) : "-";
+  function getRangeISO() {
+    const raw = String(rangeEl?.value || "").trim();
+    if (!raw) return { from: "", to: "", label: "" };
+
+    const parts = raw.split(" a ").map(s => s.trim()).filter(Boolean);
+    const fromISO = toISODate(parts[0] || "");
+    const toISO = toISODate(parts[1] || "");
+
+    if (!fromISO && raw) throw new Error("Rango inválido. Usa el calendario o formato dd/mm/aaaa");
+    if (parts.length >= 2 && !toISO) throw new Error("Rango inválido. Selecciona fecha final.");
+
+    // si solo seleccionó 1 fecha, filtramos ese día completo (from=to)
+    const finalTo = toISO || fromISO;
+
+    if (fromISO && finalTo && fromISO > finalTo) throw new Error("Rango inválido: desde > hasta");
+
+    return {
+      from: fromISO,
+      to: finalTo,
+      label: raw
+    };
   }
 
   function sortRows(rows) {
     return [...rows].sort((a, b) => {
       const au = Number(a.user_id ?? 0);
       const bu = Number(b.user_id ?? 0);
-      const aZero = au === 0 ? 1 : 0;
-      const bZero = bu === 0 ? 1 : 0;
-      if (aZero !== bZero) return bZero - aZero; // sin usuario arriba
+      // ✅ primero users normales, luego user_id=0
+      if ((au === 0) !== (bu === 0)) return (au === 0) ? 1 : -1;
 
       const at = Number(a.total_cambios || 0);
       const bt = Number(b.total_cambios || 0);
@@ -134,7 +166,7 @@
       const userEmail = r.user_email || "-";
       const pedidos = Number(r.pedidos_tocados || 0);
       const total = Number(r.total_cambios || 0);
-      const ultimo = fmtDate(r.ultimo_cambio);
+      const ultimo = r.ultimo_cambio ? String(r.ultimo_cambio) : "-";
 
       const row = document.createElement("div");
       row.className = "seg-grid-cols px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
@@ -164,17 +196,14 @@
         <div class="text-right">
           <button type="button"
             class="inline-flex items-center justify-center h-9 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs shadow-sm hover:bg-slate-100 transition"
-            data-user="${escapeHtml(userId)}"
-            data-name="${escapeHtml(userName)}">
+            data-user="${escapeHtml(userId)}">
             Ver
           </button>
         </div>
       `;
 
-      row.querySelector("button[data-user]")?.addEventListener("click", (e) => {
-        const uid = e.currentTarget.getAttribute("data-user");
-        const uname = e.currentTarget.getAttribute("data-name");
-        openModalDetalle(uid, uname);
+      row.querySelector("button[data-user]")?.addEventListener("click", () => {
+        openModalDetalle(userId);
       });
 
       frag.appendChild(row);
@@ -200,7 +229,7 @@
       const userEmail = r.user_email || "-";
       const pedidos = Number(r.pedidos_tocados || 0);
       const total = Number(r.total_cambios || 0);
-      const ultimo = fmtDate(r.ultimo_cambio);
+      const ultimo = r.ultimo_cambio ? String(r.ultimo_cambio) : "-";
 
       const card = document.createElement("div");
       card.className = "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
@@ -230,17 +259,14 @@
         <div class="mt-3 flex justify-end">
           <button type="button"
             class="h-10 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-sm shadow-sm hover:bg-slate-100 transition"
-            data-user="${escapeHtml(userId)}"
-            data-name="${escapeHtml(userName)}">
+            data-user="${escapeHtml(userId)}">
             Ver
           </button>
         </div>
       `;
 
-      card.querySelector("button[data-user]")?.addEventListener("click", (e) => {
-        const uid = e.currentTarget.getAttribute("data-user");
-        const uname = e.currentTarget.getAttribute("data-name");
-        openModalDetalle(uid, uname);
+      card.querySelector("button[data-user]")?.addEventListener("click", () => {
+        openModalDetalle(userId);
       });
 
       frag.appendChild(card);
@@ -259,14 +285,9 @@
   async function fetchResumen() {
     const params = new URLSearchParams();
 
-    const fromISO = toISODate(fromEl?.value);
-    const toISO = toISODate(toEl?.value);
-
-    if (fromEl?.value && !fromISO) throw new Error("Fecha 'desde' inválida (usa dd/mm/aaaa)");
-    if (toEl?.value && !toISO) throw new Error("Fecha 'hasta' inválida (usa dd/mm/aaaa)");
-
-    if (fromISO) params.set("from", fromISO);
-    if (toISO) params.set("to", toISO);
+    const r = getRangeISO();
+    if (r.from) params.set("from", r.from);
+    if (r.to) params.set("to", r.to);
 
     const url = `${base}/seguimiento/resumen?${params.toString()}`;
     const res = await fetch(url, { headers: { "Accept": "application/json" } });
@@ -297,7 +318,7 @@
     }
   }
 
-  // -------- MODAL --------
+  // ---------------- MODAL ----------------
   function modalSetLoading(v) {
     detalleLoading?.classList.toggle("hidden", !v);
   }
@@ -313,22 +334,33 @@
     detalleError.classList.remove("hidden");
   }
 
+  function pill(label, value, strong = false) {
+    return `
+      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <span class="text-[11px] font-extrabold text-slate-500 uppercase">${escapeHtml(label)}</span>
+        <span class="${strong ? 'text-sm font-extrabold text-slate-900' : 'text-sm font-bold text-slate-700'}">
+          ${escapeHtml(value)}
+        </span>
+      </div>
+    `;
+  }
+
   function closeModalDetalle() {
     detalleModal?.classList.add("hidden");
     detalleBodyTable && (detalleBodyTable.innerHTML = "");
     detalleBodyCards && (detalleBodyCards.innerHTML = "");
     detallePedidosBox && (detallePedidosBox.innerHTML = "");
+    detalleDescripcion && (detalleDescripcion.innerHTML = "");
     modalSetError("");
   }
 
-  function openModalDetalle(userId, userName) {
-    const uid = Number(userId ?? 0);
-    detalleState.userId = uid;
-    detalleState.userName = userName || (uid === 0 ? "Sin usuario (no registrado)" : `Usuario #${uid}`);
+  function openModalDetalle(userId) {
+    detalleState.userId = Number(userId ?? 0);
     detalleState.offset = 0;
 
-    detalleTitulo && (detalleTitulo.textContent = `Detalle - ${detalleState.userName}`);
-    detalleSub && (detalleSub.textContent = `Usuario ID: ${detalleState.userId}`);
+    detalleTitulo && (detalleTitulo.textContent = "Detalle");
+    detalleDescripcion && (detalleDescripcion.innerHTML = "");
+    detallePedidosBox && (detallePedidosBox.innerHTML = "");
 
     detalleModal?.classList.remove("hidden");
     loadDetalle();
@@ -337,11 +369,9 @@
   async function fetchDetalle(userId, offset, limit) {
     const params = new URLSearchParams();
 
-    const fromISO = toISODate(fromEl?.value);
-    const toISO = toISODate(toEl?.value);
-
-    if (fromISO) params.set("from", fromISO);
-    if (toISO) params.set("to", toISO);
+    const r = getRangeISO();
+    if (r.from) params.set("from", r.from);
+    if (r.to) params.set("to", r.to);
 
     params.set("offset", String(offset));
     params.set("limit", String(limit));
@@ -457,12 +487,24 @@
 
     try {
       const json = await fetchDetalle(detalleState.userId, detalleState.offset, detalleState.limit);
-
       detalleState.total = Number(json.total || 0);
 
-      // ✅ nombre real desde backend
-      if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${json.user_name || detalleState.userName}`;
-      if (detalleSub) detalleSub.textContent = `Usuario ID: ${detalleState.userId} • Pedidos tocados: ${Number(json.pedidos_tocados || 0)}`;
+      const r = getRangeISO();
+      const rangeLabel = r.label ? r.label : "Histórico";
+
+      // ✅ título + descripción acomodada
+      if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${json.user_name || "Usuario"}`;
+
+      if (detalleDescripcion) {
+        detalleDescripcion.innerHTML = [
+          pill("Usuario", json.user_name || "-", true),
+          pill("Email", json.user_email || "-"),
+          pill("ID", String(json.user_id ?? detalleState.userId)),
+          pill("Cambios", String(json.total ?? 0), true),
+          pill("Pedidos tocados", String(json.pedidos_tocados ?? 0), true),
+          pill("Rango", rangeLabel)
+        ].join("");
+      }
 
       renderPedidosTocados(json.pedidos || []);
       renderDetalle(json.data || []);
@@ -494,22 +536,18 @@
     }
   }
 
-  // Cerrar modal
+  // cerrar modal
   detalleCerrar?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     closeModalDetalle();
   });
 
-  // Click fuera cierra
   detalleModal?.addEventListener("click", (e) => {
     const t = e.target;
-    if (t && t.getAttribute && t.getAttribute("data-close") === "1") {
-      closeModalDetalle();
-    }
+    if (t && t.getAttribute && t.getAttribute("data-close") === "1") closeModalDetalle();
   });
 
-  // ESC cierra
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && detalleModal && !detalleModal.classList.contains("hidden")) {
       closeModalDetalle();
@@ -528,7 +566,7 @@
     loadDetalle();
   });
 
-  // UI
+  // UI principal
   inputBuscar?.addEventListener("input", renderAll);
 
   btnLimpiarBusqueda?.addEventListener("click", () => {
@@ -539,13 +577,13 @@
   btnFiltrar?.addEventListener("click", cargar);
 
   btnLimpiarFechas?.addEventListener("click", () => {
-    if (fromEl) fromEl.value = "";
-    if (toEl) toEl.value = "";
+    rangePicker?.clear();
+    if (rangeEl) rangeEl.value = "";
     cargar();
   });
 
   btnActualizar?.addEventListener("click", cargar);
 
-  // Init
+  // init
   cargar();
 })();
