@@ -8,9 +8,7 @@ class SeguimientoController extends BaseController
 {
     public function index()
     {
-        return view('seguimiento/index', [
-            'title' => 'Seguimiento',
-        ]);
+        return view('seguimiento/index', ['title' => 'Seguimiento']);
     }
 
     public function resumen()
@@ -21,86 +19,71 @@ class SeguimientoController extends BaseController
 
             $db = db_connect();
 
-            // Base query SIEMPRE válida si existe seguimiento_cambios
-            $b = $db->table('seguimiento_cambios sc');
-
-            // Detectar join de usuarios
+            // 1) Detectar modo usuarios (tu API ya mostraba mode: "usuarios")
             $joinMode = $this->detectUserJoinMode($db);
 
-            if ($joinMode === 'shield') {
-                // Shield: users + auth_identities (email suele estar en auth_identities.secret)
-                $nameField = $db->fieldExists('username', 'users') ? 'username' : 'name';
+            // 2) Construir UNION desde las tablas de historial reales
+            [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnion($db, $from, $to);
 
-                $b->select([
-                    'u.id as user_id',
-                    "u.$nameField as user_name",
-                    // email desde auth_identities.secret: elegimos uno tipo email
-                    "MAX(CASE 
-                        WHEN ai.type IN ('email_password','email') THEN ai.secret
-                        WHEN ai.type LIKE '%email%' THEN ai.secret
-                        ELSE NULL
-                    END) as user_email",
-                    'COUNT(sc.id) as total_cambios',
-                    'MAX(sc.created_at) as ultimo_cambio',
-                ], false);
+            // Si no hay ninguna fuente válida, devolvemos vacío
+            if (!$unionSQL) {
+                return $this->response->setJSON([
+                    'ok' => true,
+                    'data' => [],
+                    'mode' => $joinMode,
+                    'sources' => [],
+                ]);
+            }
 
-                $b->join('users u', 'u.id = sc.user_id', 'left');
-                $b->join('auth_identities ai', 'ai.user_id = u.id', 'left');
-
-                if ($from) $b->where('sc.created_at >=', $from . ' 00:00:00');
-                if ($to)   $b->where('sc.created_at <=', $to . ' 23:59:59');
-
-                $b->groupBy(['u.id', "u.$nameField"]);
-                $b->orderBy('total_cambios', 'DESC');
-
-                $rows = $b->get()->getResultArray();
-            } elseif ($joinMode === 'usuarios') {
-                // Tabla "usuarios" típica
+            // 3) Resumen por usuario desde el UNION
+            //    Luego join a usuarios (si existe) para nombre/correo
+            if ($joinMode === 'usuarios') {
+                // Detectar campos de usuarios automáticamente
                 $nameField  = $db->fieldExists('nombre', 'usuarios') ? 'nombre'
                            : ($db->fieldExists('name', 'usuarios') ? 'name'
-                           : ($db->fieldExists('username', 'usuarios') ? 'username' : 'id'));
+                           : ($db->fieldExists('username', 'usuarios') ? 'username' : null));
 
                 $emailField = $db->fieldExists('correo', 'usuarios') ? 'correo'
-                           : ($db->fieldExists('email', 'usuarios') ? 'email' : 'id');
+                           : ($db->fieldExists('email', 'usuarios') ? 'email' : null);
 
-                $b->select([
-                    'u.id as user_id',
-                    "u.$nameField as user_name",
-                    "u.$emailField as user_email",
-                    'COUNT(sc.id) as total_cambios',
-                    'MAX(sc.created_at) as ultimo_cambio',
-                ]);
+                // Si no hay name/email, igual devolvemos por ID
+                $selectName  = $nameField  ? "u.$nameField as user_name," : "NULL as user_name,";
+                $selectEmail = $emailField ? "u.$emailField as user_email," : "NULL as user_email,";
 
-                $b->join('usuarios u', 'u.id = sc.user_id', 'left');
+                $sql = "
+                    SELECT
+                        u.id as user_id,
+                        $selectName
+                        $selectEmail
+                        COUNT(t.user_id) as total_cambios,
+                        MAX(t.created_at) as ultimo_cambio
+                    FROM ($unionSQL) t
+                    LEFT JOIN usuarios u ON u.id = t.user_id
+                    GROUP BY u.id" . ($nameField ? ", u.$nameField" : "") . ($emailField ? ", u.$emailField" : "") . "
+                    ORDER BY total_cambios DESC
+                ";
 
-                if ($from) $b->where('sc.created_at >=', $from . ' 00:00:00');
-                if ($to)   $b->where('sc.created_at <=', $to . ' 23:59:59');
-
-                $b->groupBy(['u.id', "u.$nameField", "u.$emailField"]);
-                $b->orderBy('total_cambios', 'DESC');
-
-                $rows = $b->get()->getResultArray();
+                $rows = $db->query($sql, $binds)->getResultArray();
             } else {
-                // Sin join: solo user_id + conteo (nunca debe explotar por usuarios)
-                $b->select([
-                    'sc.user_id as user_id',
-                    'COUNT(sc.id) as total_cambios',
-                    'MAX(sc.created_at) as ultimo_cambio',
-                ]);
+                // Sin join a tabla usuarios (por si no existiera)
+                $sql = "
+                    SELECT
+                        t.user_id,
+                        COUNT(t.user_id) as total_cambios,
+                        MAX(t.created_at) as ultimo_cambio
+                    FROM ($unionSQL) t
+                    GROUP BY t.user_id
+                    ORDER BY total_cambios DESC
+                ";
 
-                if ($from) $b->where('sc.created_at >=', $from . ' 00:00:00');
-                if ($to)   $b->where('sc.created_at <=', $to . ' 23:59:59');
-
-                $b->groupBy('sc.user_id');
-                $b->orderBy('total_cambios', 'DESC');
-
-                $rows = $b->get()->getResultArray();
+                $rows = $db->query($sql, $binds)->getResultArray();
             }
 
             return $this->response->setJSON([
-                'ok'   => true,
+                'ok' => true,
                 'data' => $rows,
                 'mode' => $joinMode,
+                'sources' => $sourcesUsed,
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'Seguimiento/resumen ERROR: ' . $e->getMessage());
@@ -108,31 +91,92 @@ class SeguimientoController extends BaseController
             return $this->response
                 ->setStatusCode(500)
                 ->setJSON([
-                    'ok'      => false,
+                    'ok' => false,
                     'message' => $e->getMessage(),
                 ]);
         }
     }
 
-    private function detectUserJoinMode($db): string
+    /**
+     * Construye un UNION ALL de las tablas de historial que existan y tengan:
+     * - campo de usuario
+     * - campo fecha
+     * Devuelve: [sql, binds, sourcesUsed]
+     */
+    private function buildHistoryUnion($db, ?string $from, ?string $to): array
     {
-        // Shield
-        if (
-            $db->tableExists('users') &&
-            $db->tableExists('auth_identities') &&
-            $db->fieldExists('id', 'users') &&
-            $db->fieldExists('user_id', 'auth_identities') &&
-            $db->fieldExists('secret', 'auth_identities') &&
-            $db->fieldExists('type', 'auth_identities')
-        ) {
-            return 'shield';
+        $candidates = [
+            'pedidos_estado_historial',
+            'pedido_estado_historial',
+            'order_status_history',
+        ];
+
+        // posibles nombres de campo usuario
+        $userFields = ['user_id', 'usuario_id', 'id_usuario', 'created_by', 'updated_by', 'changed_by', 'admin_id'];
+
+        // posibles nombres de fecha
+        $dateFields = ['created_at', 'fecha', 'changed_at', 'updated_at', 'fecha_cambio', 'created'];
+
+        $parts = [];
+        $binds = [];
+        $sourcesUsed = [];
+
+        foreach ($candidates as $table) {
+            if (!$db->tableExists($table)) {
+                continue;
+            }
+
+            $userField = $this->firstExistingField($db, $table, $userFields);
+            $dateField = $this->firstExistingField($db, $table, $dateFields);
+
+            // si no cumple mínimo, saltar
+            if (!$userField || !$dateField) {
+                continue;
+            }
+
+            // Armamos SELECT normalizado
+            $part = "SELECT $userField as user_id, $dateField as created_at FROM $table WHERE 1=1";
+
+            if ($from) {
+                $part .= " AND $dateField >= ?";
+                $binds[] = $from . ' 00:00:00';
+            }
+            if ($to) {
+                $part .= " AND $dateField <= ?";
+                $binds[] = $to . ' 23:59:59';
+            }
+
+            // Excluir null/0 si aplica
+            $part .= " AND $userField IS NOT NULL";
+
+            $parts[] = $part;
+            $sourcesUsed[] = "$table($userField,$dateField)";
         }
 
-        // Tabla usuarios propia
+        if (empty($parts)) {
+            return [null, [], []];
+        }
+
+        $unionSQL = implode(" UNION ALL ", $parts);
+        return [$unionSQL, $binds, $sourcesUsed];
+    }
+
+    private function firstExistingField($db, string $table, array $fields): ?string
+    {
+        foreach ($fields as $f) {
+            if ($db->fieldExists($f, $table)) {
+                return $f;
+            }
+        }
+        return null;
+    }
+
+    private function detectUserJoinMode($db): string
+    {
+        // Tu caso parece usar tabla "usuarios"
         if ($db->tableExists('usuarios') && $db->fieldExists('id', 'usuarios')) {
             return 'usuarios';
         }
-
         return 'none';
     }
 }
