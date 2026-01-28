@@ -1,28 +1,23 @@
 (() => {
   const base = window.API_BASE || "";
 
-  // -------- helpers para IDs variables --------
-  const byIdAny = (...ids) => ids.map(id => document.getElementById(id)).find(Boolean) || null;
-
   const globalLoader = document.getElementById("globalLoader");
   const errorBox = document.getElementById("errorBox");
 
   const inputBuscar = document.getElementById("inputBuscar");
   const btnLimpiarBusqueda = document.getElementById("btnLimpiarBusqueda");
 
-  // ✅ soporta varios ids por si en tu html cambian
-  const fromEl = byIdAny("from", "dateFrom", "fromDate", "fechaFrom", "fechaDesde");
-  const toEl   = byIdAny("to", "dateTo", "toDate", "fechaTo", "fechaHasta");
-
-  const btnFiltrar       = byIdAny("btnFiltrar", "btnFilter");
-  const btnLimpiarFechas = byIdAny("btnLimpiarFechas", "btnQuitarFiltros", "btnClearFilters");
-  const btnActualizar    = byIdAny("btnActualizar", "btnRefresh", "btnActualizarSeguimiento");
+  const fromEl = document.getElementById("from");
+  const toEl = document.getElementById("to");
+  const btnFiltrar = document.getElementById("btnFiltrar");
+  const btnLimpiarFechas = document.getElementById("btnLimpiarFechas");
+  const btnActualizar = document.getElementById("btnActualizar");
 
   const totalUsuariosEl = document.getElementById("total-usuarios");
   const totalCambiosEl = document.getElementById("total-cambios");
+  const totalPedidosTocadosEl = document.getElementById("total-pedidos-tocados");
 
-  const tabla2xl = document.getElementById("tablaSeguimiento");
-  const tablaXl = document.getElementById("tablaSeguimientoTable");
+  const tabla = document.getElementById("tablaSeguimiento");
   const cards = document.getElementById("cardsSeguimiento");
 
   // Modal detalle
@@ -39,6 +34,7 @@
   const detallePaginacionInfo = document.getElementById("detallePaginacionInfo");
 
   let cacheRows = [];
+  let lastStats = { pedidos_tocados: 0 }; // global del rango
   let detalleState = { userId: null, userName: "", offset: 0, limit: 50, total: 0 };
 
   function setLoading(v) {
@@ -66,66 +62,44 @@
       .replaceAll("'", "&#039;");
   }
 
+  // ✅ acepta "YYYY-MM-DD" o "DD/MM/YYYY"
+  function toISODate(v) {
+    const s = String(v || "").trim();
+    if (!s) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // ya ISO
+
+    // dd/mm/yyyy
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) {
+      const dd = String(m[1]).padStart(2, "0");
+      const mm = String(m[2]).padStart(2, "0");
+      const yy = m[3];
+      return `${yy}-${mm}-${dd}`;
+    }
+    return ""; // inválido
+  }
+
   function fmtDate(v) {
     return v ? String(v) : "-";
   }
 
-  // ✅ convierte DD/MM/YYYY o DD-MM-YYYY a YYYY-MM-DD.
-  // acepta YYYY-MM-DD (input type="date") tal cual.
-  function toISODate(value) {
-    const v = String(value || "").trim();
-    if (!v) return "";
+  function sortRows(rows) {
+    // orden estable: sin usuario primero, luego total_cambios desc, luego nombre asc
+    return [...rows].sort((a, b) => {
+      const au = Number(a.user_id ?? 0);
+      const bu = Number(b.user_id ?? 0);
+      const aZero = au === 0 ? 1 : 0;
+      const bZero = bu === 0 ? 1 : 0;
+      if (aZero !== bZero) return bZero - aZero; // 0 primero
 
-    // YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+      const at = Number(a.total_cambios || 0);
+      const bt = Number(b.total_cambios || 0);
+      if (bt !== at) return bt - at;
 
-    // DD/MM/YYYY o DD-MM-YYYY
-    const m = v.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/);
-    if (m) {
-      const dd = m[1], mm = m[2], yyyy = m[3];
-      return `${yyyy}-${mm}-${dd}`;
-    }
-
-    // Si viene con hora, intentamos parse básico
-    // (pero lo normal es que no)
-    return "";
-  }
-
-  function validateRange(fromISO, toISO) {
-    if (!fromISO || !toISO) return true;
-    // string compare sirve para YYYY-MM-DD
-    return fromISO <= toISO;
-  }
-
-  function normalizeAndSortRows(rows) {
-    const out = (rows || []).map(r => {
-      const user_id = Number(r.user_id ?? 0);
-      const total_cambios = Number(r.total_cambios ?? 0);
-      const user_name =
-        (r.user_name && String(r.user_name).trim()) ||
-        (user_id === 0 ? "Sin usuario (no registrado)" : `Usuario #${user_id}`);
-      const user_email = (r.user_email && String(r.user_email).trim()) || "-";
-      const ultimo_cambio = r.ultimo_cambio ?? null;
-
-      return { ...r, user_id, total_cambios, user_name, user_email, ultimo_cambio };
+      const an = String(a.user_name || "").toLowerCase();
+      const bn = String(b.user_name || "").toLowerCase();
+      return an.localeCompare(bn);
     });
-
-    // ✅ Orden “bien”:
-    // 1) user_id==0 (Sin usuario) siempre al final
-    // 2) total_cambios DESC
-    // 3) user_name ASC
-    out.sort((a, b) => {
-      const aNoUser = a.user_id === 0 ? 1 : 0;
-      const bNoUser = b.user_id === 0 ? 1 : 0;
-      if (aNoUser !== bNoUser) return aNoUser - bNoUser;
-
-      const dt = (b.total_cambios - a.total_cambios);
-      if (dt !== 0) return dt;
-
-      return String(a.user_name).localeCompare(String(b.user_name), "es");
-    });
-
-    return out;
   }
 
   function applySearch(rows) {
@@ -139,12 +113,15 @@
     });
   }
 
-  function updateCounters(rows) {
-    const totalUsuarios = rows.length;
-    const totalCambios = rows.reduce((acc, r) => acc + Number(r.total_cambios || 0), 0);
+  function updateCounters(rowsFiltered) {
+    const totalUsuarios = rowsFiltered.length;
+    const totalCambios = rowsFiltered.reduce((acc, r) => acc + Number(r.total_cambios || 0), 0);
 
     if (totalUsuariosEl) totalUsuariosEl.textContent = String(totalUsuarios);
     if (totalCambiosEl) totalCambiosEl.textContent = String(totalCambios);
+
+    // global del rango (no depende del buscador)
+    if (totalPedidosTocadosEl) totalPedidosTocadosEl.textContent = String(lastStats?.pedidos_tocados || 0);
   }
 
   function renderTableRows(rows, target) {
@@ -166,6 +143,7 @@
       const userId = Number(r.user_id ?? 0);
       const userName = r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
       const userEmail = r.user_email || "-";
+      const pedidos = Number(r.pedidos_tocados || 0);
       const total = Number(r.total_cambios || 0);
       const ultimo = fmtDate(r.ultimo_cambio);
 
@@ -180,6 +158,12 @@
         </div>
 
         <div class="min-w-0 truncate text-slate-700 font-bold">${escapeHtml(userEmail)}</div>
+
+        <div class="text-right">
+          <span class="inline-flex items-center px-3 py-1 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs">
+            ${escapeHtml(pedidos)}
+          </span>
+        </div>
 
         <div class="text-right">
           <span class="inline-flex items-center px-3 py-1 rounded-2xl bg-slate-900 text-white font-extrabold text-xs">
@@ -230,6 +214,7 @@
       const userId = Number(r.user_id ?? 0);
       const userName = r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
       const userEmail = r.user_email || "-";
+      const pedidos = Number(r.pedidos_tocados || 0);
       const total = Number(r.total_cambios || 0);
       const ultimo = fmtDate(r.ultimo_cambio);
 
@@ -244,9 +229,12 @@
             <div class="text-xs font-bold text-slate-500 mt-1">ID: ${escapeHtml(userId)}</div>
           </div>
 
-          <div class="shrink-0">
+          <div class="shrink-0 flex flex-col gap-2 items-end">
             <span class="inline-flex items-center px-3 py-1 rounded-2xl bg-slate-900 text-white font-extrabold text-xs">
               ${escapeHtml(total)} cambios
+            </span>
+            <span class="inline-flex items-center px-3 py-1 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs">
+              ${escapeHtml(pedidos)} pedidos
             </span>
           </div>
         </div>
@@ -281,31 +269,31 @@
     const params = new URLSearchParams();
 
     const fromISO = toISODate(fromEl?.value);
-    const toISOv  = toISODate(toEl?.value);
+    const toISO = toISODate(toEl?.value);
 
-    // ✅ si el usuario escribió algo raro, no pegamos al backend (evita 500)
-    if (fromEl?.value && !fromISO) throw new Error("Fecha DESDE inválida. Usa DD/MM/AAAA o YYYY-MM-DD.");
-    if (toEl?.value && !toISOv) throw new Error("Fecha HASTA inválida. Usa DD/MM/AAAA o YYYY-MM-DD.");
-    if (!validateRange(fromISO, toISOv)) throw new Error("El rango de fechas es inválido (DESDE > HASTA).");
+    if (fromEl?.value && !fromISO) throw new Error("Fecha 'desde' inválida (usa dd/mm/aaaa)");
+    if (toEl?.value && !toISO) throw new Error("Fecha 'hasta' inválida (usa dd/mm/aaaa)");
 
     if (fromISO) params.set("from", fromISO);
-    if (toISOv) params.set("to", toISOv);
+    if (toISO) params.set("to", toISO);
 
     const url = `${base}/seguimiento/resumen?${params.toString()}`;
 
-    const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
+    const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) throw new Error((json && json.message) ? json.message : `HTTP ${res.status}`);
     if (!json?.ok) throw new Error(json?.message || "Respuesta inválida");
-    return json.data || [];
+
+    return json;
   }
 
   function renderAll() {
-    const sorted = normalizeAndSortRows(cacheRows);
+    const sorted = sortRows(cacheRows);
     const rows = applySearch(sorted);
+
     updateCounters(rows);
-    renderTableRows(rows, tabla2xl);
-    renderTableRows(rows, tablaXl);
+    renderTableRows(rows, tabla);
     renderCards(rows);
   }
 
@@ -313,10 +301,13 @@
     setError("");
     setLoading(true);
     try {
-      cacheRows = await fetchResumen();
+      const json = await fetchResumen();
+      cacheRows = Array.isArray(json.data) ? json.data : [];
+      lastStats = json.stats || { pedidos_tocados: 0 };
       renderAll();
     } catch (e) {
       cacheRows = [];
+      lastStats = { pedidos_tocados: 0 };
       renderAll();
       setError("Error cargando seguimiento: " + (e?.message || e));
       console.error(e);
@@ -365,24 +356,22 @@
     const params = new URLSearchParams();
 
     const fromISO = toISODate(fromEl?.value);
-    const toISOv  = toISODate(toEl?.value);
-
-    if (fromEl?.value && !fromISO) throw new Error("Fecha DESDE inválida. Usa DD/MM/AAAA o YYYY-MM-DD.");
-    if (toEl?.value && !toISOv) throw new Error("Fecha HASTA inválida. Usa DD/MM/AAAA o YYYY-MM-DD.");
-    if (!validateRange(fromISO, toISOv)) throw new Error("El rango de fechas es inválido (DESDE > HASTA).");
+    const toISO = toISODate(toEl?.value);
 
     if (fromISO) params.set("from", fromISO);
-    if (toISOv) params.set("to", toISOv);
+    if (toISO) params.set("to", toISO);
 
     params.set("offset", String(offset));
     params.set("limit", String(limit));
 
     const url = `${base}/seguimiento/detalle/${encodeURIComponent(userId)}?${params.toString()}`;
 
-    const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
+    const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) throw new Error((json && json.message) ? json.message : `HTTP ${res.status}`);
     if (!json?.ok) throw new Error(json?.message || "Respuesta inválida");
+
     return json;
   }
 
@@ -396,22 +385,18 @@
       return;
     }
 
-    // Desktop table
+    // Desktop table (sin SRC)
     if (detalleBodyTable) {
       const frag = document.createDocumentFragment();
-      rows.forEach((r) => {
-        const antes = (r.estado_anterior == null || r.estado_anterior === "") ? "-" : r.estado_anterior;
-        const despues = (r.estado_nuevo == null || r.estado_nuevo === "") ? "-" : r.estado_nuevo;
-
+      rows.forEach(r => {
         const div = document.createElement("div");
-        div.className = "grid grid-cols-12 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
+        div.className = "grid grid-cols-10 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
         div.innerHTML = `
-          <div class="col-span-3 text-slate-700 font-bold">${escapeHtml(r.created_at || "-")}</div>
+          <div class="col-span-2 text-slate-700 font-bold">${escapeHtml(r.created_at || "-")}</div>
           <div class="col-span-2">${escapeHtml(r.entidad || "-")}</div>
           <div class="col-span-2">${r.entidad_id ? escapeHtml(String(r.entidad_id)) : "-"}</div>
-          <div class="col-span-2 text-slate-700">${escapeHtml(antes)}</div>
-          <div class="col-span-2 text-slate-900 font-extrabold">${escapeHtml(despues)}</div>
-          <div class="col-span-1 text-right text-[11px] font-extrabold text-slate-500">${escapeHtml(r.source || "")}</div>
+          <div class="col-span-2 text-slate-700">${escapeHtml(r.estado_anterior ?? "-")}</div>
+          <div class="col-span-2 text-slate-900 font-extrabold">${escapeHtml(r.estado_nuevo ?? "-")}</div>
         `;
         frag.appendChild(div);
       });
@@ -421,10 +406,7 @@
     // Mobile cards
     if (detalleBodyCards) {
       const frag = document.createDocumentFragment();
-      rows.forEach((r) => {
-        const antes = (r.estado_anterior == null || r.estado_anterior === "") ? "-" : r.estado_anterior;
-        const despues = (r.estado_nuevo == null || r.estado_nuevo === "") ? "-" : r.estado_nuevo;
-
+      rows.forEach(r => {
         const card = document.createElement("div");
         card.className = "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
         card.innerHTML = `
@@ -435,17 +417,16 @@
               </div>
               <div class="text-xs font-bold text-slate-600 mt-0.5">${escapeHtml(r.created_at || "-")}</div>
             </div>
-            <div class="shrink-0 text-[11px] font-extrabold text-slate-500">${escapeHtml(r.source || "")}</div>
           </div>
 
           <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
               <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Antes</div>
-              <div class="text-sm font-bold text-slate-900 mt-0.5">${escapeHtml(antes)}</div>
+              <div class="text-sm font-bold text-slate-900 mt-0.5">${escapeHtml(r.estado_anterior ?? "-")}</div>
             </div>
             <div class="rounded-2xl border border-slate-200 bg-white px-3 py-2">
               <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Después</div>
-              <div class="text-sm font-extrabold text-slate-900 mt-0.5">${escapeHtml(despues)}</div>
+              <div class="text-sm font-extrabold text-slate-900 mt-0.5">${escapeHtml(r.estado_nuevo ?? "-")}</div>
             </div>
           </div>
         `;
@@ -462,20 +443,18 @@
     try {
       const json = await fetchDetalle(detalleState.userId, detalleState.offset, detalleState.limit);
 
-      // ✅ título real desde backend
-      if (json.user_name) {
-        detalleState.userName = json.user_name;
-        if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${json.user_name}`;
-        const extra = json.user_email ? ` • ${json.user_email}` : "";
-        if (detalleSub) detalleSub.textContent = `Usuario ID: ${json.user_id}${extra}`;
+      detalleState.total = Number(json.total || 0);
+
+      // ✅ mostrar pedidos tocados del usuario en el subtítulo
+      if (detalleSub) {
+        const pt = Number(json.pedidos_tocados || 0);
+        detalleSub.textContent = `Usuario ID: ${detalleState.userId} • Pedidos tocados: ${pt}`;
       }
 
-      detalleState.total = Number(json.total || 0);
       renderDetalle(json.data || []);
 
       const fromN = detalleState.total ? (detalleState.offset + 1) : 0;
       const toN = Math.min(detalleState.offset + detalleState.limit, detalleState.total);
-
       if (detallePaginacionInfo) {
         detallePaginacionInfo.textContent = detalleState.total
           ? `Mostrando ${fromN}-${toN} de ${detalleState.total}`
@@ -484,7 +463,6 @@
 
       const hasPrev = detalleState.offset > 0;
       const hasNext = (detalleState.offset + detalleState.limit) < detalleState.total;
-
       detallePrev?.toggleAttribute("disabled", !hasPrev);
       detalleNext?.toggleAttribute("disabled", !hasNext);
       detallePrev?.classList.toggle("opacity-50", !hasPrev);
@@ -499,18 +477,20 @@
     }
   }
 
-  // cerrar modal   
+  // Cerrar modal
   detalleCerrar?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
     closeModalDetalle();
   });
 
+  // Click fuera cierra (overlay)
   detalleModal?.addEventListener("click", (e) => {
-    const isOverlay = e.target && e.target.getAttribute && e.target.getAttribute("data-close") === "1";
-    if (isOverlay) closeModalDetalle();
+    const t = e.target;
+    if (t && t.getAttribute && t.getAttribute("data-close") === "1") closeModalDetalle();
   });
 
+  // ESC cierra
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && detalleModal && !detalleModal.classList.contains("hidden")) {
       closeModalDetalle();
@@ -537,22 +517,16 @@
     renderAll();
   });
 
-  btnFiltrar?.addEventListener("click", () => {
-    // ✅ filtrar debe cargar del backend
-    cargar();
-  });
-
-  btnActualizar?.addEventListener("click", () => {
-    cargar();
-  });
+  btnFiltrar?.addEventListener("click", cargar);
 
   btnLimpiarFechas?.addEventListener("click", () => {
     if (fromEl) fromEl.value = "";
     if (toEl) toEl.value = "";
-    setError("");
     cargar();
   });
 
-  // carga inicial (histórico sin filtros)
+  btnActualizar?.addEventListener("click", cargar);
+
+  // Carga inicial
   cargar();
 })();

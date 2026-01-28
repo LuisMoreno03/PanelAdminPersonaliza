@@ -5,21 +5,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <!-- CSRF para CodeIgniter -->
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
   <meta name="csrf-header" content="<?= function_exists('csrf_header') ? csrf_header() : 'X-CSRF-TOKEN' ?>">
 
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/alpinejs" defer></script>
 
-  <title>Seguimiento</title>
+  <title><?= esc($title ?? 'Seguimiento') ?></title>
 
   <style>
     .seg-grid-cols{
       display:grid;
-      grid-template-columns:
-        260px minmax(220px, 1fr) 170px 210px 160px;
+      grid-template-columns: 240px minmax(240px,1fr) 150px 150px 200px 120px;
       align-items:center;
+      gap: 0.75rem;
     }
   </style>
 
@@ -44,15 +42,14 @@
 
   <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-7">
     <div class="flex flex-col gap-4">
+
       <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
           <div class="flex items-center gap-3">
             <div class="h-10 w-10 rounded-3xl bg-slate-900 text-white flex items-center justify-center font-black">S</div>
             <div class="min-w-0">
               <h1 class="text-2xl font-extrabold tracking-tight truncate">Seguimiento</h1>
-              <p class="text-sm text-slate-600 mt-0.5">
-                Resumen de <b>cambios de estados internos</b> realizados por cada usuario.
-              </p>
+              <p class="text-sm text-slate-600 mt-0.5">Resumen de cambios de estados internos realizados por cada usuario.</p>
             </div>
           </div>
         </div>
@@ -64,35 +61,34 @@
           <span class="px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm text-sm font-extrabold">
             Cambios: <span id="total-cambios">0</span>
           </span>
+          <span class="px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm text-sm font-extrabold">
+            Pedidos tocados: <span id="total-pedidos-tocados">0</span>
+          </span>
         </div>
       </div>
 
-      <!-- Buscador + filtros + acciones -->
+      <!-- Buscador + filtros -->
       <div class="flex flex-col lg:flex-row lg:items-center gap-3">
         <div class="flex-1 flex items-center gap-2">
           <div class="relative flex-1">
-            <input id="inputBuscar" type="text" placeholder="Buscar por usuario o email…"
+            <input id="inputBuscar" type="text" placeholder="Buscar por usuario o email..."
               class="w-full h-11 rounded-2xl border border-slate-200 bg-white px-4 pr-10 text-sm font-semibold outline-none
                      focus:ring-4 focus:ring-slate-200 focus:border-slate-300">
             <div class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</div>
           </div>
 
           <button id="btnLimpiarBusqueda" type="button"
-            class="h-11 px-4 rounded-2xl bg-white border border-slate-200 shadow-sm text-slate-900 font-extrabold text-sm
-                   hover:bg-slate-100 transition">
+            class="h-11 px-4 rounded-2xl bg-white border border-slate-200 shadow-sm text-slate-900 font-extrabold text-sm hover:bg-slate-100 transition">
             Limpiar
           </button>
         </div>
 
         <div class="flex items-center gap-2 justify-end flex-wrap">
-          <div class="flex items-center gap-2">
-            <input id="from" type="date"
-              class="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold outline-none
-                     focus:ring-4 focus:ring-slate-200 focus:border-slate-300">
-            <input id="to" type="date"
-              class="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold outline-none
-                     focus:ring-4 focus:ring-slate-200 focus:border-slate-300">
-          </div>
+          <input id="from" type="text" placeholder="dd/mm/aaaa"
+            class="h-11 w-36 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:ring-4 focus:ring-slate-200">
+
+          <input id="to" type="text" placeholder="dd/mm/aaaa"
+            class="h-11 w-36 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none focus:ring-4 focus:ring-slate-200">
 
           <button id="btnFiltrar" type="button"
             class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold text-sm shadow-sm hover:bg-slate-800 transition">
@@ -104,113 +100,84 @@
             Quitar filtros
           </button>
 
-          <button type="button" onclick="window.__seguimientoRefresh && window.__seguimientoRefresh()"
+          <button type="button" id="btnActualizar"
             class="h-11 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-sm shadow-sm hover:bg-slate-100 transition">
             Actualizar
           </button>
         </div>
       </div>
 
-      <!-- Mensaje error -->
-      <div id="errorBox" class="hidden rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 font-bold text-sm"></div>
+      <div id="errorBox" class="hidden rounded-3xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 font-extrabold text-sm"></div>
     </div>
 
     <!-- Listado -->
     <section class="mt-6">
-      <!-- Vista XL -->
-      <div class="hidden xl:block 2xl:hidden rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div class="seg-grid-cols px-4 py-3 bg-slate-50 border-b border-slate-200 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
-          <div>Usuario</div>
-          <div>Email</div>
-          <div class="text-right">Total cambios</div>
-          <div>Último cambio</div>
-          <div class="text-right">Acciones</div>
-        </div>
-        <div id="tablaSeguimientoTable"></div>
-      </div>
 
-      <!-- Vista 2XL -->
-      <div class="hidden 2xl:block rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <!-- XL/2XL tabla -->
+      <div class="hidden xl:block rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div class="seg-grid-cols px-4 py-3 bg-slate-50 border-b border-slate-200 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
           <div>Usuario</div>
           <div>Email</div>
+          <div class="text-right">Pedidos tocados</div>
           <div class="text-right">Total cambios</div>
           <div>Último cambio</div>
           <div class="text-right">Acciones</div>
         </div>
+
         <div id="tablaSeguimiento"></div>
       </div>
 
-      <!-- Mobile -->
+      <!-- Mobile cards -->
       <div id="cardsSeguimiento" class="xl:hidden"></div>
     </section>
   </main>
 
-    <!-- Modal Detalle -->
-    <!-- Modal Detalle (Responsive) -->
-    <div id="detalleModal" class="hidden fixed inset-0 z-[9999]">
-    <div class="absolute inset-0 bg-black/40" data-close="1"></div>
-
-    <div class="absolute inset-0 flex items-center justify-center p-3 sm:p-4">
-        <div class="w-full max-w-5xl rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
-
-        <div class="px-4 sm:px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3">
-            <div class="min-w-0">
-            <div id="detalleTitulo" class="text-base sm:text-lg font-extrabold truncate">Detalle</div>
-            <div id="detalleSub" class="text-xs sm:text-sm font-bold text-slate-600 truncate">—</div>
-            </div>
-
-            <button id="detalleCerrar"
-            class="h-10 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-sm shadow-sm hover:bg-slate-100 transition">
-            Cerrar
-            </button>
+  <!-- Modal detalle -->
+  <div id="detalleModal" class="hidden fixed inset-0 z-[9998] bg-black/40 backdrop-blur-[1px]" data-close="1">
+    <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="w-full max-w-5xl rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden" data-close="0">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div id="detalleTitulo" class="text-lg font-extrabold text-slate-900 truncate">Detalle</div>
+            <div id="detalleSub" class="text-sm font-bold text-slate-600 truncate">—</div>
+          </div>
+          <div class="shrink-0 flex items-center gap-2">
+            <button id="detalleCerrar" class="h-10 px-4 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm hover:bg-slate-100">Cerrar</button>
+          </div>
         </div>
 
-        <!-- Cuerpo con altura máxima + scroll interno -->
-        <div class="px-4 sm:px-5 py-4 max-h-[75vh] overflow-y-auto">
-            <div id="detalleLoading" class="hidden rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 font-extrabold">
-            Cargando…
+        <div class="px-5 py-4">
+          <div id="detalleLoading" class="hidden mb-3 text-sm font-extrabold text-slate-600">Cargando detalle…</div>
+          <div id="detalleError" class="hidden mb-3 rounded-2xl border border-red-200 bg-red-50 text-red-700 px-3 py-2 font-extrabold text-sm"></div>
+
+          <!-- Tabla (desktop) -->
+          <div class="hidden sm:block rounded-3xl border border-slate-200 overflow-hidden">
+            <div class="grid grid-cols-10 px-4 py-3 bg-slate-50 border-b border-slate-200 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
+              <div class="col-span-2">Fecha</div>
+              <div class="col-span-2">Entidad</div>
+              <div class="col-span-2">ID</div>
+              <div class="col-span-2">Antes</div>
+              <div class="col-span-2">Después</div>
             </div>
+            <div id="detalleBodyTable" class="max-h-[65vh] overflow-auto"></div>
+          </div>
 
-            <div id="detalleError" class="hidden rounded-3xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700 font-extrabold"></div>
+          <!-- Cards (mobile) -->
+          <div id="detalleBodyCards" class="sm:hidden"></div>
 
-            <!-- Desktop table (lg+) -->
-            <div class="hidden lg:block mt-3 rounded-3xl border border-slate-200 overflow-hidden">
-            <div class="grid grid-cols-12 bg-slate-50 px-4 py-3 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
-                <div class="col-span-3">Fecha</div>
-                <div class="col-span-2">Entidad</div>
-                <div class="col-span-2">ID</div>
-                <div class="col-span-2">Antes</div>
-                <div class="col-span-2">Después</div>
-                <div class="col-span-1 text-right">Src</div>
-            </div>
-            <div id="detalleBodyTable"></div>
-            </div>
-
-            <!-- Mobile/Tablet cards (<lg) -->
-            <div class="lg:hidden mt-3" id="detalleBodyCards"></div>
-
-            <div class="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <!-- Paginación -->
+          <div class="mt-4 flex items-center justify-between gap-2">
             <div id="detallePaginacionInfo" class="text-sm font-extrabold text-slate-600">—</div>
-
-            <div class="flex items-center gap-2 justify-end">
-                <button id="detallePrev"
-                class="h-10 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-sm shadow-sm hover:bg-slate-100 transition">
-                ← Anterior
-                </button>
-                <button id="detalleNext"
-                class="h-10 px-4 rounded-2xl bg-slate-900 text-white font-extrabold text-sm shadow-sm hover:bg-slate-800 transition">
-                Siguiente →
-                </button>
+            <div class="flex items-center gap-2">
+              <button id="detallePrev" class="h-10 px-4 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm hover:bg-slate-100">Anterior</button>
+              <button id="detalleNext" class="h-10 px-4 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm hover:bg-slate-100">Siguiente</button>
             </div>
-            </div>
+          </div>
         </div>
 
-        </div>
+      </div>
     </div>
-    </div>
-
-
+  </div>
 
   <script src="<?= base_url('js/seguimiento.js') ?>"></script>
 </body>
