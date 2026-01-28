@@ -348,6 +348,13 @@
                 d="M8 10h8M8 14h5m9-2a8 8 0 01-8 8H7l-4 3V6a8 8 0 018-8h3a8 8 0 018 8z"/>
         </svg>'
       ); ?>
+      
+      <?php $item(base_url('seguimiento'), $isActive('seguimiento'), 'Seguimiento',
+        '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>'
+      ); ?>
 
       <!-- ✅ AMAZON (DESHABILITADO) -->
       <div
