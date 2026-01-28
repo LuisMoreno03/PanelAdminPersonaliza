@@ -499,7 +499,7 @@
     }
   }
 
-  // cerrar modal
+  // cerrar modal   
   detalleCerrar?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
