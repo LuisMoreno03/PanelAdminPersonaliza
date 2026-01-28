@@ -68,16 +68,23 @@
     const q = (inputBuscar?.value || "").trim().toLowerCase();
     if (!q) return rows;
 
-    return rows.filter(r => {
+    return rows.filter((r) => {
       const name = (r.user_name || "").toLowerCase();
       const email = (r.user_email || "").toLowerCase();
-      return name.includes(q) || email.includes(q) || String(r.user_id || "").includes(q);
+      return (
+        name.includes(q) ||
+        email.includes(q) ||
+        String(r.user_id || "").includes(q)
+      );
     });
   }
 
   function updateCounters(rows) {
     const totalUsuarios = rows.length;
-    const totalCambios = rows.reduce((acc, r) => acc + Number(r.total_cambios || 0), 0);
+    const totalCambios = rows.reduce(
+      (acc, r) => acc + Number(r.total_cambios || 0),
+      0
+    );
 
     if (totalUsuariosEl) totalUsuariosEl.textContent = String(totalUsuarios);
     if (totalCambiosEl) totalCambiosEl.textContent = String(totalCambios);
@@ -100,7 +107,8 @@
 
     rows.forEach((r) => {
       const userId = Number(r.user_id ?? 0);
-      const userName = r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
+      const userName =
+        r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
       const userEmail = r.user_email || "-";
       const total = Number(r.total_cambios || 0);
       const ultimo = fmtDate(r.ultimo_cambio);
@@ -164,7 +172,8 @@
 
     rows.forEach((r) => {
       const userId = Number(r.user_id ?? 0);
-      const userName = r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
+      const userName =
+        r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
       const userEmail = r.user_email || "-";
       const total = Number(r.total_cambios || 0);
       const ultimo = fmtDate(r.ultimo_cambio);
@@ -220,7 +229,7 @@
 
     const url = `${base}/seguimiento/resumen?${params.toString()}`;
 
-    const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+    const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
     if (!json?.ok) throw new Error(json?.message || "Respuesta inválida");
@@ -277,9 +286,11 @@
   function openModalDetalle(userId, userName) {
     const uid = Number(userId ?? 0);
     detalleState.userId = uid;
-    detalleState.userName = userName || (uid === 0 ? "Sin usuario (no registrado)" : `Usuario #${uid}`);
+    detalleState.userName =
+      userName || (uid === 0 ? "Sin usuario (no registrado)" : `Usuario #${uid}`);
     detalleState.offset = 0;
 
+    // Título inicial (luego se sobreescribe con el nombre REAL desde backend)
     if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${detalleState.userName}`;
     if (detalleSub) detalleSub.textContent = `Usuario ID: ${detalleState.userId}`;
 
@@ -296,7 +307,7 @@
 
     const url = `${base}/seguimiento/detalle/${encodeURIComponent(userId)}?${params.toString()}`;
 
-    const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+    const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
     if (!json?.ok) throw new Error(json?.message || "Respuesta inválida");
@@ -308,34 +319,54 @@
     if (detalleBodyCards) detalleBodyCards.innerHTML = "";
 
     if (!rows || rows.length === 0) {
-      if (detalleBodyTable) detalleBodyTable.innerHTML = `<div class="px-4 py-6 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
-      if (detalleBodyCards) detalleBodyCards.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
+      if (detalleBodyTable)
+        detalleBodyTable.innerHTML =
+          `<div class="px-4 py-6 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
+      if (detalleBodyCards)
+        detalleBodyCards.innerHTML =
+          `<div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
       return;
     }
 
+    // Desktop table
     if (detalleBodyTable) {
       const frag = document.createDocumentFragment();
-      rows.forEach(r => {
+
+      rows.forEach((r) => {
+        // ✅ ahora backend devuelve estado_anterior real (calculado con LAG si faltaba)
+        const antes = (r.estado_anterior == null || r.estado_anterior === "") ? "-" : r.estado_anterior;
+        const despues = (r.estado_nuevo == null || r.estado_nuevo === "") ? "-" : r.estado_nuevo;
+
         const div = document.createElement("div");
-        div.className = "grid grid-cols-12 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
+        div.className =
+          "grid grid-cols-12 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
+
         div.innerHTML = `
           <div class="col-span-3 text-slate-700 font-bold">${escapeHtml(r.created_at || "-")}</div>
           <div class="col-span-2">${escapeHtml(r.entidad || "-")}</div>
           <div class="col-span-2">${r.entidad_id ? escapeHtml(String(r.entidad_id)) : "-"}</div>
-          <div class="col-span-2 text-slate-700">${escapeHtml(r.estado_anterior ?? "-")}</div>
-          <div class="col-span-2 text-slate-900 font-extrabold">${escapeHtml(r.estado_nuevo ?? "-")}</div>
+          <div class="col-span-2 text-slate-700">${escapeHtml(antes)}</div>
+          <div class="col-span-2 text-slate-900 font-extrabold">${escapeHtml(despues)}</div>
           <div class="col-span-1 text-right text-[11px] font-extrabold text-slate-500">${escapeHtml(r.source || "")}</div>
         `;
         frag.appendChild(div);
       });
+
       detalleBodyTable.appendChild(frag);
     }
 
+    // Mobile cards
     if (detalleBodyCards) {
       const frag = document.createDocumentFragment();
-      rows.forEach(r => {
+
+      rows.forEach((r) => {
+        const antes = (r.estado_anterior == null || r.estado_anterior === "") ? "-" : r.estado_anterior;
+        const despues = (r.estado_nuevo == null || r.estado_nuevo === "") ? "-" : r.estado_nuevo;
+
         const card = document.createElement("div");
-        card.className = "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
+        card.className =
+          "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
+
         card.innerHTML = `
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -350,16 +381,17 @@
           <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
               <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Antes</div>
-              <div class="text-sm font-bold text-slate-900 mt-0.5">${escapeHtml(r.estado_anterior ?? "-")}</div>
+              <div class="text-sm font-bold text-slate-900 mt-0.5">${escapeHtml(antes)}</div>
             </div>
             <div class="rounded-2xl border border-slate-200 bg-white px-3 py-2">
               <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Después</div>
-              <div class="text-sm font-extrabold text-slate-900 mt-0.5">${escapeHtml(r.estado_nuevo ?? "-")}</div>
+              <div class="text-sm font-extrabold text-slate-900 mt-0.5">${escapeHtml(despues)}</div>
             </div>
           </div>
         `;
         frag.appendChild(card);
       });
+
       detalleBodyCards.appendChild(frag);
     }
   }
@@ -369,12 +401,28 @@
     modalSetLoading(true);
 
     try {
-      const json = await fetchDetalle(detalleState.userId, detalleState.offset, detalleState.limit);
+      const json = await fetchDetalle(
+        detalleState.userId,
+        detalleState.offset,
+        detalleState.limit
+      );
+
+      // ✅ Nombre REAL desde backend (tabla users)
+      if (json.user_name) {
+        detalleState.userName = json.user_name;
+
+        if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${json.user_name}`;
+
+        const extra = json.user_email ? ` • ${json.user_email}` : "";
+        if (detalleSub) detalleSub.textContent = `Usuario ID: ${json.user_id}${extra}`;
+      }
+
       detalleState.total = Number(json.total || 0);
       renderDetalle(json.data || []);
 
-      const fromN = detalleState.total ? (detalleState.offset + 1) : 0;
+      const fromN = detalleState.total ? detalleState.offset + 1 : 0;
       const toN = Math.min(detalleState.offset + detalleState.limit, detalleState.total);
+
       if (detallePaginacionInfo) {
         detallePaginacionInfo.textContent = detalleState.total
           ? `Mostrando ${fromN}-${toN} de ${detalleState.total}`
@@ -382,12 +430,12 @@
       }
 
       const hasPrev = detalleState.offset > 0;
-      const hasNext = (detalleState.offset + detalleState.limit) < detalleState.total;
+      const hasNext = detalleState.offset + detalleState.limit < detalleState.total;
+
       detallePrev?.toggleAttribute("disabled", !hasPrev);
       detalleNext?.toggleAttribute("disabled", !hasNext);
       detallePrev?.classList.toggle("opacity-50", !hasPrev);
       detalleNext?.classList.toggle("opacity-50", !hasNext);
-
     } catch (e) {
       renderDetalle([]);
       modalSetError("Error cargando detalle: " + (e?.message || e));
@@ -405,7 +453,8 @@
   });
 
   detalleModal?.addEventListener("click", (e) => {
-    const isOverlay = e.target && e.target.getAttribute && e.target.getAttribute("data-close") === "1";
+    const isOverlay =
+      e.target && e.target.getAttribute && e.target.getAttribute("data-close") === "1";
     if (isOverlay) closeModalDetalle();
   });
 
@@ -422,13 +471,13 @@
   });
 
   detalleNext?.addEventListener("click", () => {
-    if ((detalleState.offset + detalleState.limit) >= detalleState.total) return;
+    if (detalleState.offset + detalleState.limit >= detalleState.total) return;
     detalleState.offset += detalleState.limit;
     loadDetalle();
   });
 
   // UI principal
-  inputBuscar?.addEventListener("input", renderAll);
+  inputBuscar?.addEventListener("input": renderAll);
 
   btnLimpiarBusqueda?.addEventListener("click", () => {
     if (inputBuscar) inputBuscar.value = "";

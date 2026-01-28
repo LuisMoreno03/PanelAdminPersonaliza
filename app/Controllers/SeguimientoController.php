@@ -13,8 +13,7 @@ class SeguimientoController extends BaseController
 
     /**
      * GET /seguimiento/resumen?from=YYYY-MM-DD&to=YYYY-MM-DD
-     * - Si no mandas fechas => trae TODO el histórico
-     * - Devuelve TODOS los usuarios (incluye 0 cambios)
+     * - Devuelve TODOS los users, incluso si tienen 0 cambios en el rango
      */
     public function resumen()
     {
@@ -26,27 +25,25 @@ class SeguimientoController extends BaseController
 
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnion($db, $from, $to);
 
-            // Si no hay tablas / no hay union
-            if (!$unionSQL) {
-                return $this->response->setJSON([
-                    'ok' => true,
-                    'data' => [],
-                    'sources' => [],
-                    'range' => ['from' => $from, 'to' => $to],
-                ]);
-            }
-
-            // Subquery counts
-            $countsSQL = "
-                SELECT user_id, COUNT(*) AS total_cambios, MAX(created_at) AS ultimo_cambio
-                FROM ($unionSQL) h
-                GROUP BY user_id
-            ";
-
-            // Detectar tabla de usuarios
-            $usersTable = $this->detectUsersTable($db); // normalmente "usuarios"
+            // tabla users (preferida)
+            $usersTable = $this->detectUsersTable($db); // users primero
             if (!$usersTable) {
-                // sin tabla de usuarios -> solo devuelve lo que hay en el historial
+                // si no hay users, devolver solo historial
+                if (!$unionSQL) {
+                    return $this->response->setJSON([
+                        'ok' => true,
+                        'data' => [],
+                        'sources' => [],
+                        'range' => ['from' => $from, 'to' => $to],
+                    ]);
+                }
+
+                $countsSQL = "
+                    SELECT user_id, COUNT(*) AS total_cambios, MAX(created_at) AS ultimo_cambio
+                    FROM ($unionSQL) h
+                    GROUP BY user_id
+                ";
+
                 $sqlOnly = "
                     SELECT
                       c.user_id,
@@ -60,7 +57,6 @@ class SeguimientoController extends BaseController
                 ";
 
                 $rows = $db->query($sqlOnly, $binds)->getResultArray();
-
                 return $this->response->setJSON([
                     'ok' => true,
                     'data' => $rows,
@@ -69,20 +65,61 @@ class SeguimientoController extends BaseController
                 ]);
             }
 
-            // Detecta expresiones de nombre/email y mejor columna para join
-            $userMeta = $this->detectUsersMeta($db, $usersTable);
+            // si no hay union (no hay historial) igual devolvemos users con 0
+            if (!$unionSQL) {
+                $meta = $this->detectUsersMeta($db, $usersTable);
+                $idCol = $meta['idCandidates'][0] ?? 'id';
 
-            // Elegir la mejor columna de join contra el historial (esto arregla el problema de nombres)
-            $bestJoinCol = $this->pickBestUsersJoinColumn($db, $usersTable, $countsSQL, $binds, $userMeta['idCandidates']);
-            if (!$bestJoinCol) {
-                // fallback seguro
-                $bestJoinCol = $userMeta['idCandidates'][0] ?? 'id';
+                $nameExpr  = $meta['nameExpr']  ?: "CONCAT('Usuario #', u.$idCol)";
+                $emailExpr = $meta['emailExpr'] ?: "NULL";
+
+                $sqlAllZero = "
+                    SELECT
+                      CAST(u.$idCol AS UNSIGNED) AS user_id,
+                      COALESCE($nameExpr, CONCAT('Usuario #', u.$idCol)) AS user_name,
+                      COALESCE($emailExpr, '-') AS user_email,
+                      0 AS total_cambios,
+                      NULL AS ultimo_cambio
+                    FROM $usersTable u
+                    ORDER BY user_name ASC
+                ";
+
+                $rows = $db->query($sqlAllZero)->getResultArray();
+
+                return $this->response->setJSON([
+                    'ok' => true,
+                    'data' => $rows,
+                    'sources' => [],
+                    'range' => ['from' => $from, 'to' => $to],
+                ]);
             }
 
-            $nameExpr  = $userMeta['nameExpr']  ? $userMeta['nameExpr']  : "CONCAT('Usuario #', u.$bestJoinCol)";
-            $emailExpr = $userMeta['emailExpr'] ? $userMeta['emailExpr'] : "NULL";
+            // Subquery counts
+            $countsSQL = "
+                SELECT user_id, COUNT(*) AS total_cambios, MAX(created_at) AS ultimo_cambio
+                FROM ($unionSQL) h
+                GROUP BY user_id
+            ";
 
-            // 1) Todos los usuarios, con 0 si no hay cambios
+            // detectar columnas de users y mejor columna para join
+            $meta = $this->detectUsersMeta($db, $usersTable);
+
+            $bestJoinCol = $this->pickBestUsersJoinColumn(
+                $db,
+                $usersTable,
+                $countsSQL,
+                $binds,
+                $meta['idCandidates']
+            );
+
+            if (!$bestJoinCol) {
+                $bestJoinCol = $meta['idCandidates'][0] ?? 'id';
+            }
+
+            $nameExpr  = $meta['nameExpr']  ?: "CONCAT('Usuario #', u.$bestJoinCol)";
+            $emailExpr = $meta['emailExpr'] ?: "NULL";
+
+            // 1) todos los users con cambios (o 0)
             $sqlAllUsers = "
                 SELECT
                   CAST(u.$bestJoinCol AS UNSIGNED) AS user_id,
@@ -94,7 +131,7 @@ class SeguimientoController extends BaseController
                 LEFT JOIN ($countsSQL) c ON c.user_id = CAST(u.$bestJoinCol AS UNSIGNED)
             ";
 
-            // 2) Fila para user_id = 0 (sin usuario)
+            // 2) fila user_id = 0
             $sqlNoUser = "
                 SELECT
                   0 AS user_id,
@@ -106,7 +143,7 @@ class SeguimientoController extends BaseController
                 WHERE c0.user_id = 0
             ";
 
-            // 3) IDs del historial que NO existen en usuarios (para no perderlos)
+            // 3) IDs del historial que no existen en users
             $sqlUnknown = "
                 SELECT
                   c.user_id,
@@ -140,8 +177,8 @@ class SeguimientoController extends BaseController
                 'debug' => [
                     'users_table' => $usersTable,
                     'best_join_col' => $bestJoinCol,
-                    'name_expr' => $userMeta['nameExpr'],
-                    'email_expr' => $userMeta['emailExpr'],
+                    'name_expr' => $meta['nameExpr'],
+                    'email_expr' => $meta['emailExpr'],
                 ],
             ]);
         } catch (\Throwable $e) {
@@ -155,6 +192,8 @@ class SeguimientoController extends BaseController
 
     /**
      * GET /seguimiento/detalle/{userId}?from=...&to=...&limit=50&offset=0
+     * - Devuelve detalle con estado_anterior REAL calculado (LAG)
+     * - Devuelve user_name/user_email desde users
      */
     public function detalle($userId)
     {
@@ -174,10 +213,15 @@ class SeguimientoController extends BaseController
 
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnionDetail($db, $from, $to);
 
+            $usersTable = $this->detectUsersTable($db);
+            $userInfo = $this->getUserInfo($db, $usersTable, $userId); // name/email
+
             if (!$unionSQL) {
                 return $this->response->setJSON([
                     'ok' => true,
                     'user_id' => $userId,
+                    'user_name' => $userInfo['name'],
+                    'user_email' => $userInfo['email'],
                     'total' => 0,
                     'limit' => $limit,
                     'offset' => $offset,
@@ -187,16 +231,35 @@ class SeguimientoController extends BaseController
                 ]);
             }
 
+            // total solo del usuario
             $totalSql = "SELECT COUNT(*) as total FROM ($unionSQL) t WHERE t.user_id = ?";
             $total = (int)($db->query($totalSql, array_merge($binds, [$userId]))->getRowArray()['total'] ?? 0);
 
+            /**
+             * ✅ Calcula ANTES con LAG:
+             * - se calcula sobre TODO el historial (no solo el del usuario)
+             * - y luego filtramos por user_id en el SELECT externo
+             */
             $pageSql = "
                 SELECT
-                  t.user_id, t.created_at, t.entidad, t.entidad_id,
-                  t.estado_anterior, t.estado_nuevo, t.source
-                FROM ($unionSQL) t
-                WHERE t.user_id = ?
-                ORDER BY t.created_at DESC
+                    x.user_id,
+                    x.created_at,
+                    x.entidad,
+                    x.entidad_id,
+                    COALESCE(NULLIF(x.estado_anterior,''), x.prev_estado) AS estado_anterior,
+                    x.estado_nuevo,
+                    x.source
+                FROM (
+                    SELECT
+                        t.*,
+                        LAG(t.estado_nuevo) OVER (
+                            PARTITION BY t.entidad, t.entidad_id
+                            ORDER BY t.created_at
+                        ) AS prev_estado
+                    FROM ($unionSQL) t
+                ) x
+                WHERE x.user_id = ?
+                ORDER BY x.created_at DESC
                 LIMIT ? OFFSET ?
             ";
 
@@ -205,6 +268,8 @@ class SeguimientoController extends BaseController
             return $this->response->setJSON([
                 'ok' => true,
                 'user_id' => $userId,
+                'user_name' => $userInfo['name'],
+                'user_email' => $userInfo['email'],
                 'total' => $total,
                 'limit' => $limit,
                 'offset' => $offset,
@@ -221,12 +286,13 @@ class SeguimientoController extends BaseController
         }
     }
 
-    // ------------------------ HELPERS ------------------------
+    // ------------------------ USERS ------------------------
 
     private function detectUsersTable($db): ?string
     {
-        if ($db->tableExists('usuarios')) return 'usuarios';
+        // ✅ tu caso: "users"
         if ($db->tableExists('users')) return 'users';
+        if ($db->tableExists('usuarios')) return 'usuarios';
         return null;
     }
 
@@ -237,43 +303,36 @@ class SeguimientoController extends BaseController
         foreach ($idCandidatesAll as $c) {
             if ($db->fieldExists($c, $table)) $idCandidates[] = $c;
         }
+        if (!$idCandidates) $idCandidates = ['id'];
 
-        // Nombre
+        // Nombre (users suele tener name/username)
         $nameExpr = null;
-        $hasNombres = $db->fieldExists('nombres', $table);
-        $hasApellidos = $db->fieldExists('apellidos', $table);
-
-        if ($hasNombres && $hasApellidos) $nameExpr = "CONCAT(u.nombres,' ',u.apellidos)";
+        if ($db->fieldExists('name', $table)) $nameExpr = "u.name";
+        elseif ($db->fieldExists('username', $table)) $nameExpr = "u.username";
+        elseif ($db->fieldExists('usuario', $table)) $nameExpr = "u.usuario";
         elseif ($db->fieldExists('nombre', $table)) $nameExpr = "u.nombre";
         elseif ($db->fieldExists('nombre_completo', $table)) $nameExpr = "u.nombre_completo";
-        elseif ($db->fieldExists('usuario', $table)) $nameExpr = "u.usuario";
-        elseif ($db->fieldExists('username', $table)) $nameExpr = "u.username";
-        elseif ($db->fieldExists('name', $table)) $nameExpr = "u.name";
+        elseif ($db->fieldExists('nombres', $table) && $db->fieldExists('apellidos', $table)) $nameExpr = "CONCAT(u.nombres,' ',u.apellidos)";
 
         // Email
         $emailExpr = null;
-        if ($db->fieldExists('correo', $table)) $emailExpr = "u.correo";
-        elseif ($db->fieldExists('email', $table)) $emailExpr = "u.email";
+        if ($db->fieldExists('email', $table)) $emailExpr = "u.email";
+        elseif ($db->fieldExists('correo', $table)) $emailExpr = "u.correo";
         elseif ($db->fieldExists('mail', $table)) $emailExpr = "u.mail";
 
         return [
-            'idCandidates' => $idCandidates ?: ['id'],
+            'idCandidates' => $idCandidates,
             'nameExpr' => $nameExpr,
             'emailExpr' => $emailExpr,
         ];
     }
 
-    /**
-     * Elige la columna de usuarios que más coincide con user_id del historial
-     * (esto arregla el "no muestra nombres")
-     */
     private function pickBestUsersJoinColumn($db, string $usersTable, string $countsSQL, array $binds, array $idCandidates): ?string
     {
         $bestCol = null;
         $bestCount = -1;
 
         foreach ($idCandidates as $col) {
-            // cuenta cuántos IDs del historial existen en usuarios usando esta columna
             $sql = "
                 SELECT COUNT(*) AS c
                 FROM (
@@ -292,6 +351,46 @@ class SeguimientoController extends BaseController
 
         return $bestCol;
     }
+
+    private function getUserInfo($db, ?string $usersTable, int $userId): array
+    {
+        if (!$usersTable) {
+            return [
+                'name' => $userId === 0 ? 'Sin usuario (no registrado)' : "Usuario #$userId",
+                'email' => '-',
+            ];
+        }
+
+        $meta = $this->detectUsersMeta($db, $usersTable);
+
+        // intentamos encontrar el registro por cualquier id candidate
+        foreach ($meta['idCandidates'] as $idCol) {
+            $sql = "SELECT * FROM $usersTable WHERE $idCol = ? LIMIT 1";
+            $row = $db->query($sql, [$userId])->getRowArray();
+            if ($row) {
+                $name = null;
+                foreach (['name','username','usuario','nombre','nombre_completo'] as $k) {
+                    if (isset($row[$k]) && $row[$k] !== '') { $name = $row[$k]; break; }
+                }
+                if (!$name && isset($row['nombres'])) {
+                    $name = trim(($row['nombres'] ?? '') . ' ' . ($row['apellidos'] ?? ''));
+                    if ($name === '') $name = null;
+                }
+                if (!$name) $name = "Usuario #$userId";
+
+                $email = $row['email'] ?? ($row['correo'] ?? ($row['mail'] ?? '-'));
+
+                return ['name' => $name, 'email' => $email ?: '-'];
+            }
+        }
+
+        return [
+            'name' => $userId === 0 ? 'Sin usuario (no registrado)' : "Usuario #$userId",
+            'email' => '-',
+        ];
+    }
+
+    // ------------------------ HISTORIAL ------------------------
 
     private function buildHistoryUnion($db, ?string $from, ?string $to): array
     {
@@ -367,6 +466,7 @@ class SeguimientoController extends BaseController
             'entidad_id'
         ];
 
+        // en muchas tablas NO existe "antes"; por eso calculamos con LAG
         $oldCandidates = [
             'estado_anterior','status_anterior',
             'from_status','status_from',
