@@ -3,19 +3,16 @@
 namespace App\Controllers;
 
 use App\Controllers\BaseController;
-use App\Models\SeguimientoCambioModel;
 
 class SeguimientoController extends BaseController
 {
     public function index()
     {
-        // Puedes proteger esto con tu auth/roles si lo necesitas
         return view('seguimiento/index', [
-            'title' => 'Seguimiento'
+            'title' => 'Seguimiento',
         ]);
     }
 
-    
     public function resumen()
     {
         try {
@@ -24,40 +21,86 @@ class SeguimientoController extends BaseController
 
             $db = db_connect();
 
-            // Base: SIEMPRE funciona aunque no haya tabla users/usuarios
-            $builder = $db->table('seguimiento_cambios sc');
-            $builder->select([
-                'sc.user_id as user_id',
-                'COUNT(sc.id) as total_cambios',
-                'MAX(sc.created_at) as ultimo_cambio',
-            ]);
+            // Base query SIEMPRE válida si existe seguimiento_cambios
+            $b = $db->table('seguimiento_cambios sc');
 
-            if ($from) $builder->where('sc.created_at >=', $from . ' 00:00:00');
-            if ($to)   $builder->where('sc.created_at <=', $to . ' 23:59:59');
+            // Detectar join de usuarios
+            $joinMode = $this->detectUserJoinMode($db);
 
-            // Intentar JOIN dinámico con tablas típicas de usuarios (si existen)
-            $userJoin = $this->detectUserJoin($db);
-            if ($userJoin) {
-                [$table, $idField, $nameField, $emailField] = $userJoin;
+            if ($joinMode === 'shield') {
+                // Shield: users + auth_identities (email suele estar en auth_identities.secret)
+                $nameField = $db->fieldExists('username', 'users') ? 'username' : 'name';
 
-                $builder->select([
+                $b->select([
+                    'u.id as user_id',
+                    "u.$nameField as user_name",
+                    // email desde auth_identities.secret: elegimos uno tipo email
+                    "MAX(CASE 
+                        WHEN ai.type IN ('email_password','email') THEN ai.secret
+                        WHEN ai.type LIKE '%email%' THEN ai.secret
+                        ELSE NULL
+                    END) as user_email",
+                    'COUNT(sc.id) as total_cambios',
+                    'MAX(sc.created_at) as ultimo_cambio',
+                ], false);
+
+                $b->join('users u', 'u.id = sc.user_id', 'left');
+                $b->join('auth_identities ai', 'ai.user_id = u.id', 'left');
+
+                if ($from) $b->where('sc.created_at >=', $from . ' 00:00:00');
+                if ($to)   $b->where('sc.created_at <=', $to . ' 23:59:59');
+
+                $b->groupBy(['u.id', "u.$nameField"]);
+                $b->orderBy('total_cambios', 'DESC');
+
+                $rows = $b->get()->getResultArray();
+            } elseif ($joinMode === 'usuarios') {
+                // Tabla "usuarios" típica
+                $nameField  = $db->fieldExists('nombre', 'usuarios') ? 'nombre'
+                           : ($db->fieldExists('name', 'usuarios') ? 'name'
+                           : ($db->fieldExists('username', 'usuarios') ? 'username' : 'id'));
+
+                $emailField = $db->fieldExists('correo', 'usuarios') ? 'correo'
+                           : ($db->fieldExists('email', 'usuarios') ? 'email' : 'id');
+
+                $b->select([
+                    'u.id as user_id',
                     "u.$nameField as user_name",
                     "u.$emailField as user_email",
+                    'COUNT(sc.id) as total_cambios',
+                    'MAX(sc.created_at) as ultimo_cambio',
                 ]);
 
-                $builder->join("$table u", "u.$idField = sc.user_id", 'left');
-                $builder->groupBy(["sc.user_id", "u.$nameField", "u.$emailField"]);
+                $b->join('usuarios u', 'u.id = sc.user_id', 'left');
+
+                if ($from) $b->where('sc.created_at >=', $from . ' 00:00:00');
+                if ($to)   $b->where('sc.created_at <=', $to . ' 23:59:59');
+
+                $b->groupBy(['u.id', "u.$nameField", "u.$emailField"]);
+                $b->orderBy('total_cambios', 'DESC');
+
+                $rows = $b->get()->getResultArray();
             } else {
-                $builder->groupBy(["sc.user_id"]);
+                // Sin join: solo user_id + conteo (nunca debe explotar por usuarios)
+                $b->select([
+                    'sc.user_id as user_id',
+                    'COUNT(sc.id) as total_cambios',
+                    'MAX(sc.created_at) as ultimo_cambio',
+                ]);
+
+                if ($from) $b->where('sc.created_at >=', $from . ' 00:00:00');
+                if ($to)   $b->where('sc.created_at <=', $to . ' 23:59:59');
+
+                $b->groupBy('sc.user_id');
+                $b->orderBy('total_cambios', 'DESC');
+
+                $rows = $b->get()->getResultArray();
             }
 
-            $builder->orderBy('total_cambios', 'DESC');
-
-            $rows = $builder->get()->getResultArray();
-
             return $this->response->setJSON([
-                'ok' => true,
-                'data' => $rows
+                'ok'   => true,
+                'data' => $rows,
+                'mode' => $joinMode,
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'Seguimiento/resumen ERROR: ' . $e->getMessage());
@@ -65,41 +108,31 @@ class SeguimientoController extends BaseController
             return $this->response
                 ->setStatusCode(500)
                 ->setJSON([
-                    'ok' => false,
-                    'message' => $e->getMessage()
+                    'ok'      => false,
+                    'message' => $e->getMessage(),
                 ]);
         }
     }
 
-    /**
-     * Detecta automáticamente una tabla de usuarios y campos comunes.
-     * Devuelve: [table, idField, nameField, emailField] o null
-     */
-    private function detectUserJoin($db): ?array
+    private function detectUserJoinMode($db): string
     {
-        $candidates = [
-            // CodeIgniter Shield (a veces username)
-            ['users', 'id', 'name', 'email'],
-            ['users', 'id', 'username', 'email'],
-
-            // Tipos comunes en español
-            ['usuarios', 'id', 'nombre', 'correo'],
-            ['usuarios', 'id', 'nombre', 'email'],
-            ['usuarios', 'id', 'usuario', 'email'],
-        ];
-
-        foreach ($candidates as $c) {
-            [$table, $idField, $nameField, $emailField] = $c;
-
-            if (!$db->tableExists($table)) continue;
-            if (!$db->fieldExists($idField, $table)) continue;
-            if (!$db->fieldExists($nameField, $table)) continue;
-            if (!$db->fieldExists($emailField, $table)) continue;
-
-            return $c;
+        // Shield
+        if (
+            $db->tableExists('users') &&
+            $db->tableExists('auth_identities') &&
+            $db->fieldExists('id', 'users') &&
+            $db->fieldExists('user_id', 'auth_identities') &&
+            $db->fieldExists('secret', 'auth_identities') &&
+            $db->fieldExists('type', 'auth_identities')
+        ) {
+            return 'shield';
         }
 
-        return null;
-    }
+        // Tabla usuarios propia
+        if ($db->tableExists('usuarios') && $db->fieldExists('id', 'usuarios')) {
+            return 'usuarios';
+        }
 
+        return 'none';
+    }
 }

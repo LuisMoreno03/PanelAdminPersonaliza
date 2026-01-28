@@ -117,8 +117,7 @@
 
     <!-- Listado -->
     <section class="mt-6">
-
-      <!-- Vista XL (grid tipo tabla) -->
+      <!-- Vista XL -->
       <div class="hidden xl:block 2xl:hidden rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div class="seg-grid-cols px-4 py-3 bg-slate-50 border-b border-slate-200 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
           <div>Usuario</div>
@@ -127,12 +126,10 @@
           <div>Último cambio</div>
           <div class="text-right">Acciones</div>
         </div>
-
-        <!-- Aquí el JS pinta filas (DIVs) -->
         <div id="tablaSeguimientoTable"></div>
       </div>
 
-      <!-- Vista 2XL (grid tipo tabla) -->
+      <!-- Vista 2XL -->
       <div class="hidden 2xl:block rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div class="seg-grid-cols px-4 py-3 bg-slate-50 border-b border-slate-200 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
           <div>Usuario</div>
@@ -141,17 +138,14 @@
           <div>Último cambio</div>
           <div class="text-right">Acciones</div>
         </div>
-
-        <!-- Aquí el JS pinta filas (DIVs) -->
         <div id="tablaSeguimiento"></div>
       </div>
 
-      <!-- Mobile cards -->
+      <!-- Mobile -->
       <div id="cardsSeguimiento" class="xl:hidden"></div>
     </section>
   </main>
 
-  <!-- Tu JS -->
   <script src="<?= base_url('js/seguimiento.js') ?>"></script>
 </body>
 </html>

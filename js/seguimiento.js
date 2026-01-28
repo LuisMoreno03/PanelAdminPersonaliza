@@ -47,8 +47,7 @@
   }
 
   function fmtDate(v) {
-    if (!v) return "-";
-    return v; // ya viene "YYYY-MM-DD HH:MM:SS" normalmente
+    return v ? String(v) : "-";
   }
 
   function applySearch(rows) {
@@ -121,7 +120,6 @@
         </div>
       `;
 
-      // Acción "Ver" (placeholder: aquí luego puedes abrir modal o ir a detalle)
       row.querySelector("button[data-user]")?.addEventListener("click", () => {
         alert(`Detalle (pendiente) del usuario #${r.user_id}`);
       });
@@ -199,32 +197,31 @@
     if (fromEl?.value) params.set("from", fromEl.value);
     if (toEl?.value) params.set("to", toEl.value);
 
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
-    const csrfHeader = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "X-CSRF-TOKEN";
-
     const url = `${base}/seguimiento/resumen?${params.toString()}`;
 
     const res = await fetch(url, {
       method: "GET",
-      headers: {
-        "Accept": "application/json",
-        // aunque sea GET, lo dejamos listo para cuando agregues endpoints POST
-        [csrfHeader]: csrfToken
-      }
+      headers: { "Accept": "application/json" }
     });
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const j = await res.json();
+        if (j?.message) msg += ` - ${j.message}`;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+
     const json = await res.json();
-    if (!json || json.ok !== true) throw new Error("Respuesta inválida del servidor.");
+    if (!json?.ok) throw new Error(json?.message || "Respuesta inválida del servidor.");
 
     return json.data || [];
   }
 
   function renderAll() {
     const rows = applySearch(cacheRows);
-
     updateCounters(rows);
-
     renderTableRows(rows, tabla2xl);
     renderTableRows(rows, tablaXl);
     renderCards(rows);
@@ -240,23 +237,22 @@
       cacheRows = [];
       renderAll();
       setError("Error cargando seguimiento: " + (e?.message || e));
+      console.error(e);
     } finally {
       setLoading(false);
     }
   }
 
-  // Exponer refresh como en Montaje
   window.__seguimientoRefresh = cargar;
 
-  // Eventos UI
-  inputBuscar?.addEventListener("input", () => renderAll());
+  inputBuscar?.addEventListener("input", renderAll);
 
   btnLimpiarBusqueda?.addEventListener("click", () => {
     if (inputBuscar) inputBuscar.value = "";
     renderAll();
   });
 
-  btnFiltrar?.addEventListener("click", () => cargar());
+  btnFiltrar?.addEventListener("click", cargar);
 
   btnLimpiarFechas?.addEventListener("click", () => {
     if (fromEl) fromEl.value = "";
@@ -264,6 +260,5 @@
     cargar();
   });
 
-  // Carga inicial
   cargar();
 })();
