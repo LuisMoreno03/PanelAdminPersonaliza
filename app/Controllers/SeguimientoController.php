@@ -2,22 +2,20 @@
 
 namespace App\Controllers;
 
-use CodeIgniter\Controller;
+use App\Controllers\BaseController;
 
-class Seguimiento extends BaseController
+class SeguimientoController extends BaseController
 {
     public function index()
     {
-        // Cambia la ruta de la vista si tu archivo se llama distinto
-        return view('seguimiento');
+        return view('seguimiento/index', ['title' => 'Seguimiento']);
     }
 
     /**
      * GET /seguimiento/resumen?from=YYYY-MM-DD&to=YYYY-MM-DD
-     * Devuelve:
-     *  - data: cambios por usuario
-     *  - stats: pedidos_modificados (general)
-     *  - range, sources
+     * - Devuelve TODOS los users, incluso si tienen 0 cambios en el rango
+     * - FIX: UNION solo aparece UNA vez (CTE), así nunca da 500 con binds
+     * - Incluye stats.pedidos_modificados
      */
     public function resumen()
     {
@@ -27,7 +25,7 @@ class Seguimiento extends BaseController
             $from = $this->request->getGet('from'); // YYYY-MM-DD
             $to   = $this->request->getGet('to');   // YYYY-MM-DD
 
-            // Validación simple
+            // Validación
             if ($from && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
                 return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>'from inválido (usa YYYY-MM-DD)']);
             }
@@ -42,18 +40,44 @@ class Seguimiento extends BaseController
 
             $usersTable = $this->detectUsersTable($db);
 
-            // Si no hay union (no existen tablas), devolvemos vacío
+            // No hay historial => devolvemos users (si existen) con 0
             if (!$unionSQL) {
+                if (!$usersTable) {
+                    return $this->response->setJSON([
+                        'ok' => true,
+                        'data' => [],
+                        'stats' => ['pedidos_modificados' => 0],
+                        'sources' => [],
+                        'range' => ['from' => $from, 'to' => $to],
+                    ]);
+                }
+
+                $meta = $this->detectUsersMeta($db, $usersTable);
+                $idCol = $meta['idCandidates'][0] ?? 'id';
+                $nameExpr  = $meta['nameExpr']  ?: "CONCAT('Usuario #', u.`$idCol`)";
+                $emailExpr = $meta['emailExpr'] ?: "NULL";
+
+                $sql = "
+                    SELECT
+                      CAST(u.`$idCol` AS UNSIGNED) AS user_id,
+                      COALESCE($nameExpr, CONCAT('Usuario #', u.`$idCol`)) AS user_name,
+                      COALESCE($emailExpr, '-') AS user_email,
+                      0 AS total_cambios,
+                      NULL AS ultimo_cambio
+                    FROM `$usersTable` u
+                    ORDER BY user_name ASC
+                ";
+
                 return $this->response->setJSON([
                     'ok' => true,
-                    'data' => [],
+                    'data' => $db->query($sql)->getResultArray(),
                     'stats' => ['pedidos_modificados' => 0],
                     'sources' => [],
                     'range' => ['from' => $from, 'to' => $to],
                 ]);
             }
 
-            // CTE con el UNION UNA sola vez (evita 500 por binds duplicados)
+            // ✅ CTE: el UNION solo aparece UNA vez
             $cte = "
                 WITH h AS (
                     $unionSQL
@@ -72,7 +96,7 @@ class Seguimiento extends BaseController
                 )
             ";
 
-            // Si no existe tabla users, devolvemos usuarios por id
+            // Si no existe users => por id
             if (!$usersTable) {
                 $sql = $cte . "
                     SELECT
@@ -98,29 +122,28 @@ class Seguimiento extends BaseController
                 ]);
             }
 
-            // users existe: resolvemos nombre/email
+            // Users existe
             $meta = $this->detectUsersMeta($db, $usersTable);
-            $idCol = $meta['idCandidates'][0] ?? 'id';
-            $nameExpr  = $meta['nameExpr']  ?: "CONCAT('Usuario #', u.`$idCol`)";
+            $bestJoinCol = $meta['idCandidates'][0] ?? 'id';
+
+            $nameExpr  = $meta['nameExpr']  ?: "CONCAT('Usuario #', u.`$bestJoinCol`)";
             $emailExpr = $meta['emailExpr'] ?: "NULL";
 
-            // Traemos:
-            // 1) todos los users con LEFT JOIN a c (0 cambios incluidos)
-            // 2) fila sin usuario (0)
-            // 3) ids del historial que NO existen en users
             $sql = $cte . "
                 SELECT * FROM (
+                    -- todos los users (con o sin cambios)
                     SELECT
-                      CAST(u.`$idCol` AS UNSIGNED) AS user_id,
-                      COALESCE($nameExpr, CONCAT('Usuario #', u.`$idCol`)) AS user_name,
+                      CAST(u.`$bestJoinCol` AS UNSIGNED) AS user_id,
+                      COALESCE($nameExpr, CONCAT('Usuario #', u.`$bestJoinCol`)) AS user_name,
                       COALESCE($emailExpr, '-') AS user_email,
                       COALESCE(c.total_cambios, 0) AS total_cambios,
                       c.ultimo_cambio
                     FROM `$usersTable` u
-                    LEFT JOIN c ON c.user_id = CAST(u.`$idCol` AS UNSIGNED)
+                    LEFT JOIN c ON c.user_id = CAST(u.`$bestJoinCol` AS UNSIGNED)
 
                     UNION ALL
 
+                    -- sin usuario (id=0) SIEMPRE
                     SELECT
                       0 AS user_id,
                       'Sin usuario (no registrado)' AS user_name,
@@ -132,6 +155,7 @@ class Seguimiento extends BaseController
 
                     UNION ALL
 
+                    -- ids en historial que no existen en users
                     SELECT
                       c2.user_id,
                       CONCAT('Usuario #', c2.user_id) AS user_name,
@@ -140,8 +164,8 @@ class Seguimiento extends BaseController
                       c2.ultimo_cambio
                     FROM c c2
                     LEFT JOIN `$usersTable` u2
-                      ON CAST(u2.`$idCol` AS UNSIGNED) = c2.user_id
-                    WHERE c2.user_id > 0 AND u2.`$idCol` IS NULL
+                      ON CAST(u2.`$bestJoinCol` AS UNSIGNED) = c2.user_id
+                    WHERE c2.user_id > 0 AND u2.`$bestJoinCol` IS NULL
                 ) x
                 ORDER BY (x.user_id=0) ASC, x.total_cambios DESC, x.user_name ASC
             ";
@@ -167,26 +191,26 @@ class Seguimiento extends BaseController
     }
 
     /**
-     * GET /seguimiento/detalle/{userId}?from=YYYY-MM-DD&to=YYYY-MM-DD&offset=0&limit=50
-     * Devuelve:
-     *  - user_name/user_email si existe users
-     *  - data: lista paginada con estado_anterior calculado
+     * GET /seguimiento/detalle/{userId}?from=...&to=...&limit=50&offset=0
+     * - Devuelve detalle con estado_anterior REAL calculado (LAG)
+     * - Devuelve user_name/user_email desde users
+     * - FIX: usa CTE para NO repetir UNION y evitar 500 con binds
      */
-    public function detalle($userId = 0)
+    public function detalle($userId)
     {
         try {
             $db = db_connect();
-
-            $uid = (int)$userId;
+            $userId = (int)$userId;
 
             $from = $this->request->getGet('from');
             $to   = $this->request->getGet('to');
 
-            $offset = (int)($this->request->getGet('offset') ?? 0);
             $limit  = (int)($this->request->getGet('limit') ?? 50);
+            $offset = (int)($this->request->getGet('offset') ?? 0);
 
-            $offset = max(0, $offset);
-            $limit  = min(max(1, $limit), 200);
+            if ($limit < 1) $limit = 50;
+            if ($limit > 200) $limit = 200;
+            if ($offset < 0) $offset = 0;
 
             if ($from && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
                 return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>'from inválido (usa YYYY-MM-DD)']);
@@ -200,99 +224,70 @@ class Seguimiento extends BaseController
 
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnionDetail($db, $from, $to);
 
+            $usersTable = $this->detectUsersTable($db);
+            $userInfo = $this->getUserInfo($db, $usersTable, $userId);
+
             if (!$unionSQL) {
                 return $this->response->setJSON([
                     'ok' => true,
-                    'user_id' => $uid,
-                    'user_name' => $uid === 0 ? 'Sin usuario (no registrado)' : "Usuario #$uid",
-                    'user_email' => '-',
+                    'user_id' => $userId,
+                    'user_name' => $userInfo['name'],
+                    'user_email' => $userInfo['email'],
                     'total' => 0,
+                    'limit' => $limit,
+                    'offset' => $offset,
                     'data' => [],
                     'sources' => [],
                     'range' => ['from' => $from, 'to' => $to],
                 ]);
             }
 
-            // CTE: h base
-            // Luego:
-            // - filtramos por user_id
-            // - calculamos estado_anterior si está vacío usando LAG(estado_nuevo)
-            //   particionando por entidad, entidad_id
-            // (requiere MySQL 8+)
+            // ✅ CTE: h => hx (con LAG) => filtramos por user_id
             $cte = "
                 WITH h AS (
                     $unionSQL
                 ),
                 hx AS (
                     SELECT
-                      user_id,
-                      created_at,
-                      entidad,
-                      entidad_id,
-                      estado_anterior,
-                      estado_nuevo,
-                      source,
-                      COALESCE(
-                        NULLIF(estado_anterior, ''),
-                        LAG(estado_nuevo) OVER (PARTITION BY entidad, entidad_id ORDER BY created_at)
-                      ) AS estado_anterior_fix
-                    FROM h
-                    WHERE user_id = ?
+                      t.*,
+                      LAG(t.estado_nuevo) OVER (
+                        PARTITION BY t.entidad, t.entidad_id
+                        ORDER BY t.created_at
+                      ) AS prev_estado
+                    FROM h t
                 )
             ";
 
-            $bindsDetalle = array_merge($binds, [$uid]);
+            // total del usuario
+            $totalSql = $cte . " SELECT COUNT(*) AS total FROM hx WHERE user_id = ?";
+            $total = (int)($db->query($totalSql, array_merge($binds, [$userId]))->getRowArray()['total'] ?? 0);
 
-            $totalRow = $db->query($cte . " SELECT COUNT(*) AS total FROM hx", $bindsDetalle)->getRowArray();
-            $total = (int)($totalRow['total'] ?? 0);
-
-            $sqlData = $cte . "
+            // página
+            $pageSql = $cte . "
                 SELECT
+                  user_id,
                   created_at,
                   entidad,
                   entidad_id,
-                  estado_anterior_fix AS estado_anterior,
+                  COALESCE(NULLIF(estado_anterior,''), prev_estado) AS estado_anterior,
                   estado_nuevo,
                   source
                 FROM hx
+                WHERE user_id = ?
                 ORDER BY created_at DESC
                 LIMIT $limit OFFSET $offset
             ";
 
-            $rows = $db->query($sqlData, $bindsDetalle)->getResultArray();
-
-            // user name/email
-            $usersTable = $this->detectUsersTable($db);
-            $userName = $uid === 0 ? 'Sin usuario (no registrado)' : "Usuario #$uid";
-            $userEmail = '-';
-
-            if ($usersTable && $uid > 0) {
-                $meta = $this->detectUsersMeta($db, $usersTable);
-                $idCol = $meta['idCandidates'][0] ?? 'id';
-                $nameExpr  = $meta['nameExpr']  ?: "CONCAT('Usuario #', u.`$idCol`)";
-                $emailExpr = $meta['emailExpr'] ?: "NULL";
-
-                $uSql = "
-                    SELECT
-                      COALESCE($nameExpr, CONCAT('Usuario #', u.`$idCol`)) AS user_name,
-                      COALESCE($emailExpr, '-') AS user_email
-                    FROM `$usersTable` u
-                    WHERE CAST(u.`$idCol` AS UNSIGNED) = ?
-                    LIMIT 1
-                ";
-                $u = $db->query($uSql, [$uid])->getRowArray();
-                if ($u) {
-                    $userName = $u['user_name'] ?? $userName;
-                    $userEmail = $u['user_email'] ?? $userEmail;
-                }
-            }
+            $rows = $db->query($pageSql, array_merge($binds, [$userId]))->getResultArray();
 
             return $this->response->setJSON([
                 'ok' => true,
-                'user_id' => $uid,
-                'user_name' => $userName,
-                'user_email' => $userEmail,
+                'user_id' => $userId,
+                'user_name' => $userInfo['name'],
+                'user_email' => $userInfo['email'],
                 'total' => $total,
+                'limit' => $limit,
+                'offset' => $offset,
                 'data' => $rows,
                 'sources' => $sourcesUsed,
                 'range' => ['from' => $from, 'to' => $to],
@@ -307,30 +302,137 @@ class Seguimiento extends BaseController
         }
     }
 
-    // ======================================================
-    // ================== HELPERS PRIVADOS ==================
-    // ======================================================
+    // ------------------------ USERS ------------------------
 
+    private function detectUsersTable($db): ?string
+    {
+        if ($db->tableExists('users')) return 'users';
+        if ($db->tableExists('usuarios')) return 'usuarios';
+        return null;
+    }
+
+    private function detectUsersMeta($db, string $table): array
+    {
+        $idCandidatesAll = ['id','id_usuario','usuario_id','user_id','users_id','id_user'];
+        $idCandidates = [];
+        foreach ($idCandidatesAll as $c) {
+            if ($db->fieldExists($c, $table)) $idCandidates[] = $c;
+        }
+        if (!$idCandidates) $idCandidates = ['id'];
+
+        $nameExpr = null;
+        if ($db->fieldExists('name', $table)) $nameExpr = "u.name";
+        elseif ($db->fieldExists('username', $table)) $nameExpr = "u.username";
+        elseif ($db->fieldExists('usuario', $table)) $nameExpr = "u.usuario";
+        elseif ($db->fieldExists('nombre', $table)) $nameExpr = "u.nombre";
+        elseif ($db->fieldExists('nombre_completo', $table)) $nameExpr = "u.nombre_completo";
+        elseif ($db->fieldExists('nombres', $table) && $db->fieldExists('apellidos', $table)) $nameExpr = "CONCAT(u.nombres,' ',u.apellidos)";
+
+        $emailExpr = null;
+        if ($db->fieldExists('email', $table)) $emailExpr = "u.email";
+        elseif ($db->fieldExists('correo', $table)) $emailExpr = "u.correo";
+        elseif ($db->fieldExists('mail', $table)) $emailExpr = "u.mail";
+
+        return [
+            'idCandidates' => $idCandidates,
+            'nameExpr' => $nameExpr,
+            'emailExpr' => $emailExpr,
+        ];
+    }
+
+    private function getUserInfo($db, ?string $usersTable, int $userId): array
+    {
+        if (!$usersTable) {
+            return [
+                'name' => $userId === 0 ? 'Sin usuario (no registrado)' : "Usuario #$userId",
+                'email' => '-',
+            ];
+        }
+
+        $meta = $this->detectUsersMeta($db, $usersTable);
+
+        foreach ($meta['idCandidates'] as $idCol) {
+            $sql = "SELECT * FROM `$usersTable` WHERE `$idCol` = ? LIMIT 1";
+            $row = $db->query($sql, [$userId])->getRowArray();
+            if ($row) {
+                $name = null;
+                foreach (['name','username','usuario','nombre','nombre_completo'] as $k) {
+                    if (!empty($row[$k])) { $name = $row[$k]; break; }
+                }
+                if (!$name && isset($row['nombres'])) {
+                    $name = trim(($row['nombres'] ?? '') . ' ' . ($row['apellidos'] ?? ''));
+                    if ($name === '') $name = null;
+                }
+                if (!$name) $name = "Usuario #$userId";
+
+                $email = $row['email'] ?? ($row['correo'] ?? ($row['mail'] ?? '-'));
+
+                return ['name' => $name, 'email' => $email ?: '-'];
+            }
+        }
+
+        return [
+            'name' => $userId === 0 ? 'Sin usuario (no registrado)' : "Usuario #$userId",
+            'email' => '-',
+        ];
+    }
+
+    // ------------------------ HISTORIAL ------------------------
+
+    /**
+     * UNION detalle:
+     * columnas obligatorias:
+     * user_id, created_at, entidad, entidad_id, estado_anterior, estado_nuevo, source
+     */
     private function buildHistoryUnionDetail($db, ?string $from, ?string $to): array
     {
         $tables = [
             'pedidos_estado_historial',
             'pedido_estado_historial',
             'order_status_history',
-            'seguimiento_cambios',
+            'seguimiento_cambios', // ✅ cambios generales (pedidos y otros)
         ];
 
-        $dateCandidates = ['created_at','fecha','date','created','updated_at','timestamp','createdOn'];
-        $userCandidates = ['user_id','usuario_id','id_usuario','idUser','user','usuario','responsable_id','created_by'];
+        $userCandidates = [
+            'usuario_id','id_usuario','user_id','users_id','id_user',
+            'admin_id','empleado_id','operador_id',
+            'created_by','updated_by','changed_by','responsable_id'
+        ];
+
+        $dateCandidates = [
+            'created_at','updated_at','changed_at','fecha','fecha_cambio','created',
+            'timestamp','fecha_hora','fechaHora','createdAt','created_on','date_created'
+        ];
+
+        $entityCandidates = [
+            'pedido_id','id_pedido','pedidos_id',
+            'order_id','id_order','orders_id',
+            'entidad_id','registro_id','record_id','row_id'
+        ];
+
+        $oldCandidates = [
+            'estado_anterior','status_anterior',
+            'from_status','status_from',
+            'old_status','previous_status',
+            'old_status_id','from_status_id',
+            'antes','valor_antes','old_value','old','from_value'
+        ];
+
+        $newCandidates = [
+            'estado_nuevo','status_nuevo',
+            'to_status','status_to',
+            'new_status','current_status',
+            'new_status_id','to_status_id',
+            'status_id','estado','status',
+            'despues','valor_despues','new_value','new','to_value'
+        ];
 
         $parts = [];
         $binds = [];
         $sources = [];
 
         foreach ($tables as $table) {
-            if (!$this->tableExists($db, $table)) {
-                continue;
-            }
+            if (!$db->tableExists($table)) continue;
 
             $dateField = $this->bestExistingField($db, $table, $dateCandidates);
             if (!$dateField) continue;
@@ -341,28 +443,31 @@ class Seguimiento extends BaseController
                 ? "CAST(COALESCE(NULLIF(TRIM(CAST($userField AS CHAR)), ''), '0') AS UNSIGNED)"
                 : "0";
 
-            // entidad / entidad_id
-            $entField = $this->bestExistingField($db, $table, ['entidad','entity','tabla','table_name','modulo','tipo']);
-            $idField  = $this->bestExistingField($db, $table, ['entidad_id','entity_id','registro_id','record_id','row_id','pedido_id','order_id','id_pedido','id_order']);
-
-            $entExpr = "LOWER('$table')";
+            // entidad y entidad_id
+            $entExpr = "'cambio'";
             $idExpr  = "NULL";
 
-            // Si tiene entidad/id propios
-            if ($entField) $entExpr = "LOWER(CAST($entField AS CHAR))";
+            if ($table === 'seguimiento_cambios') {
+                $entField = $this->bestExistingField($db, $table, ['entidad','tabla','table_name','entity','modulo']);
+                $idField  = $this->bestExistingField($db, $table, ['entidad_id','registro_id','record_id','row_id','pedido_id','order_id','id_registro']);
 
-            if ($idField) {
-                $idExpr = "CAST($idField AS UNSIGNED)";
-                // Si no hay entidad, inferimos por el idField
-                if (!$entField) {
-                    if (stripos($idField, 'order') !== false) $entExpr = "'order'";
-                    if (stripos($idField, 'pedido') !== false) $entExpr = "'pedido'";
+                if ($entField) $entExpr = "LOWER(CAST($entField AS CHAR))";
+                else $entExpr = "'cambio'";
+
+                if ($idField) $idExpr = "CAST($idField AS UNSIGNED)";
+            } else {
+                $entityField = $this->bestExistingField($db, $table, $entityCandidates);
+                if ($entityField) $idExpr = "CAST($entityField AS UNSIGNED)";
+
+                $entidad = 'pedido';
+                if (($entityField && stripos($entityField, 'order') !== false) || stripos($table, 'order_') !== false) {
+                    $entidad = 'order';
                 }
+                $entExpr = "'" . $entidad . "'";
             }
 
-            // estado antes/después
-            $oldField = $this->bestExistingField($db, $table, ['estado_anterior','antes','old_status','from_status','valor_antes','old_value']);
-            $newField = $this->bestExistingField($db, $table, ['estado_nuevo','despues','status','estado','new_status','to_status','valor_despues','new_value']);
+            $oldField = $this->bestExistingField($db, $table, $oldCandidates);
+            $newField = $this->bestExistingField($db, $table, $newCandidates);
 
             $oldExpr = $oldField ? "CAST($oldField AS CHAR)" : "NULL";
             $newExpr = $newField ? "CAST($newField AS CHAR)" : "NULL";
@@ -371,139 +476,56 @@ class Seguimiento extends BaseController
                 SELECT
                   $userExpr AS user_id,
                   $dateField AS created_at,
-                  $entExpr AS entidad,
-                  $idExpr AS entidad_id,
-                  $oldExpr AS estado_anterior,
-                  $newExpr AS estado_nuevo,
-                  '$table' AS source
+                  $entExpr  AS entidad,
+                  $idExpr   AS entidad_id,
+                  $oldExpr  AS estado_anterior,
+                  $newExpr  AS estado_nuevo,
+                  '$table'  AS source
                 FROM $table
                 WHERE 1=1
             ";
 
-            if ($from) {
-                $part .= " AND $dateField >= ?";
-                $binds[] = $from . " 00:00:00";
-            }
-            if ($to) {
-                $part .= " AND $dateField <= ?";
-                $binds[] = $to . " 23:59:59";
-            }
+            if ($from) { $part .= " AND $dateField >= ?"; $binds[] = $from . " 00:00:00"; }
+            if ($to)   { $part .= " AND $dateField <= ?"; $binds[] = $to . " 23:59:59"; }
 
             $parts[] = $part;
             $sources[] = $userField ? "$table($userField,$dateField)" : "$table(NO_USER,$dateField)";
         }
 
-        if (!$parts) {
-            return [null, [], []];
-        }
+        if (!$parts) return [null, [], []];
 
-        $unionSQL = implode("\nUNION ALL\n", $parts);
-        return [$unionSQL, $binds, $sources];
+        return [implode(" UNION ALL ", $parts), $binds, $sources];
     }
 
-    private function detectUsersTable($db): ?string
+    private function bestExistingField($db, string $table, array $fields): ?string
     {
-        // Preferimos "users" (tú dijiste que se llama users)
-        $candidates = ['users','Usuarios','usuario','usuarios','user','tbl_users'];
-
-        foreach ($candidates as $t) {
-            if ($this->tableExists($db, $t)) return $t;
-        }
-        return null;
-    }
-
-    private function detectUsersMeta($db, string $usersTable): array
-    {
-        $cols = $this->getColumns($db, $usersTable);
-
-        $idCandidates = array_values(array_filter([
-            in_array('id', $cols) ? 'id' : null,
-            in_array('user_id', $cols) ? 'user_id' : null,
-            in_array('id_usuario', $cols) ? 'id_usuario' : null,
-            in_array('usuario_id', $cols) ? 'usuario_id' : null,
-        ]));
-
-        if (!$idCandidates) $idCandidates = ['id'];
-
-        // Nombre: intentamos nombre+apellido, sino name, username, etc.
-        $nameExpr = null;
-        if (in_array('nombre', $cols) && in_array('apellido', $cols)) {
-            $nameExpr = "CONCAT_WS(' ', u.nombre, u.apellido)";
-        } elseif (in_array('name', $cols) && in_array('last_name', $cols)) {
-            $nameExpr = "CONCAT_WS(' ', u.name, u.last_name)";
-        } elseif (in_array('nombre', $cols)) {
-            $nameExpr = "u.nombre";
-        } elseif (in_array('name', $cols)) {
-            $nameExpr = "u.name";
-        } elseif (in_array('username', $cols)) {
-            $nameExpr = "u.username";
-        }
-
-        $emailExpr = null;
-        if (in_array('email', $cols)) $emailExpr = "u.email";
-        elseif (in_array('correo', $cols)) $emailExpr = "u.correo";
-
-        return [
-            'idCandidates' => $idCandidates,
-            'nameExpr' => $nameExpr,
-            'emailExpr' => $emailExpr,
-        ];
-    }
-
-    private function tableExists($db, string $table): bool
-    {
-        try {
-            $db->query("SELECT 1 FROM `$table` LIMIT 1");
-            return true;
-        } catch (\Throwable $e) {
-            return false;
-        }
-    }
-
-    private function getColumns($db, string $table): array
-    {
-        try {
-            $rows = $db->query("SHOW COLUMNS FROM `$table`")->getResultArray();
-            return array_map(fn($r) => $r['Field'], $rows);
-        } catch (\Throwable $e) {
-            return [];
-        }
-    }
-
-    private function bestExistingField($db, string $table, array $candidates): ?string
-    {
-        $cols = $this->getColumns($db, $table);
-        foreach ($candidates as $c) {
-            if (in_array($c, $cols, true)) return $c;
+        foreach ($fields as $f) {
+            if ($db->fieldExists($f, $table)) return $f;
         }
         return null;
     }
 
     private function pickUserFieldWithData($db, string $table, array $candidates): ?string
     {
-        $cols = $this->getColumns($db, $table);
-        $existing = array_values(array_filter($candidates, fn($c) => in_array($c, $cols, true)));
-        if (!$existing) return null;
+        $bestField = null;
+        $bestCount = 0;
 
-        // elegimos el que tenga más valores no nulos (muestra pequeña para no cargar DB)
-        $best = $existing[0];
-        $bestCount = -1;
+        foreach ($candidates as $f) {
+            if (!$db->fieldExists($f, $table)) continue;
 
-        foreach ($existing as $col) {
-            try {
-                $sql = "SELECT SUM(CASE WHEN `$col` IS NOT NULL AND TRIM(CAST(`$col` AS CHAR)) <> '' THEN 1 ELSE 0 END) AS c
-                        FROM `$table`";
-                $row = $db->query($sql)->getRowArray();
-                $c = (int)($row['c'] ?? 0);
-                if ($c > $bestCount) {
-                    $bestCount = $c;
-                    $best = $col;
-                }
-            } catch (\Throwable $e) {
-                // ignorar
+            $sql = "SELECT COUNT(*) as c
+                    FROM $table
+                    WHERE $f IS NOT NULL
+                      AND TRIM(CAST($f AS CHAR)) <> ''
+                      AND CAST($f AS UNSIGNED) > 0";
+
+            $c = (int)($db->query($sql)->getRowArray()['c'] ?? 0);
+            if ($c > $bestCount) {
+                $bestCount = $c;
+                $bestField = $f;
             }
         }
 
-        return $best;
+        return $bestField;
     }
 }
