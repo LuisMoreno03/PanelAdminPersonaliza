@@ -7,7 +7,7 @@
 
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
   <script src="https://cdn.tailwindcss.com"></script>
-
+  <script src="https://unpkg.com/alpinejs" defer></script>
   <title><?= esc($title ?? 'Seguimiento') ?></title>
 
   <style>
