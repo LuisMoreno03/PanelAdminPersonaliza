@@ -11,6 +11,9 @@ class SeguimientoController extends BaseController
         return view('seguimiento/index', ['title' => 'Seguimiento']);
     }
 
+    /**
+     * GET /seguimiento/resumen?from=YYYY-MM-DD&to=YYYY-MM-DD
+     */
     public function resumen()
     {
         try {
@@ -19,31 +22,21 @@ class SeguimientoController extends BaseController
 
             $db = db_connect();
 
-            $joinMode = $this->detectUserJoinMode($db);
-
+            // UNION normalizado desde historiales reales
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnion($db, $from, $to);
 
             if (!$unionSQL) {
                 return $this->response->setJSON([
                     'ok' => true,
                     'data' => [],
-                    'mode' => $joinMode,
                     'sources' => [],
                 ]);
             }
 
-            // Campos de tu tabla usuarios (auto)
-            $nameField  = $db->fieldExists('nombre', 'usuarios') ? 'nombre'
-                       : ($db->fieldExists('name', 'usuarios') ? 'name'
-                       : ($db->fieldExists('username', 'usuarios') ? 'username' : null));
+            // Detectar campos en tabla usuarios
+            [$nameField, $emailField] = $this->detectUsuarioFields($db);
 
-            $emailField = $db->fieldExists('correo', 'usuarios') ? 'correo'
-                       : ($db->fieldExists('email', 'usuarios') ? 'email' : null);
-
-            $selectEmail = $emailField ? "MAX(u.$emailField) as user_email," : "'-' as user_email,";
-
-            // ✅ Importante: SIEMPRE usar t.user_id (del historial), no u.id
-            // ✅ user_id viene normalizado (NULL => 0) en el UNION
+            // Resumen por user_id (siempre usar t.user_id, no u.id)
             $sql = "
                 SELECT
                     t.user_id as user_id,
@@ -68,7 +61,6 @@ class SeguimientoController extends BaseController
             return $this->response->setJSON([
                 'ok' => true,
                 'data' => $rows,
-                'mode' => $joinMode,
                 'sources' => $sourcesUsed,
             ]);
         } catch (\Throwable $e) {
@@ -82,107 +74,8 @@ class SeguimientoController extends BaseController
     }
 
     /**
-     * UNION de historiales. Normaliza user_id:
-     * - si el campo es NULL / vacío / no numérico -> user_id = 0
-     * - si hay campos alternativos con datos, usa el que tenga más registros útiles
+     * GET /seguimiento/detalle/{userId}?from=...&to=...&limit=50&offset=0
      */
-    private function buildHistoryUnion($db, ?string $from, ?string $to): array
-    {
-        $tables = [
-            'pedidos_estado_historial',
-            'pedido_estado_historial',
-            'order_status_history',
-        ];
-
-        // Añadí más candidatos típicos
-        $userCandidates = [
-            'usuario_id', 'id_usuario', 'user_id',
-            'admin_id', 'empleado_id', 'operador_id',
-            'created_by', 'updated_by', 'changed_by', 'responsable_id'
-        ];
-
-        $dateCandidates = [
-            'created_at', 'fecha', 'changed_at', 'updated_at', 'fecha_cambio', 'created'
-        ];
-
-        $parts = [];
-        $binds = [];
-        $sources = [];
-
-        foreach ($tables as $table) {
-            if (!$db->tableExists($table)) continue;
-
-            $dateField = $this->bestExistingField($db, $table, $dateCandidates);
-            if (!$dateField) continue;
-
-            // ✅ escoger el “mejor” campo de usuario (el que tenga más valores útiles)
-            $userField = $this->pickUserFieldWithData($db, $table, $userCandidates);
-
-            // Si no hay ningún campo con datos, igual incluimos pero lo marcamos como 0
-            if (!$userField) {
-                $userExpr = "0";
-                $sources[] = "$table(NO_USER,$dateField)";
-            } else {
-                // Normaliza a número: NULL/'' -> 0
-                $userExpr = "COALESCE(NULLIF(TRIM($userField), ''), 0)";
-                // CAST final para asegurar numérico
-                $userExpr = "CAST($userExpr AS UNSIGNED)";
-                $sources[] = "$table($userField,$dateField)";
-            }
-
-            $part = "SELECT $userExpr as user_id, $dateField as created_at FROM $table WHERE 1=1";
-
-            if ($from) { $part .= " AND $dateField >= ?"; $binds[] = $from . " 00:00:00"; }
-            if ($to)   { $part .= " AND $dateField <= ?"; $binds[] = $to . " 23:59:59"; }
-
-            $parts[] = $part;
-        }
-
-        if (!$parts) return [null, [], []];
-
-        return [implode(" UNION ALL ", $parts), $binds, $sources];
-    }
-
-    private function bestExistingField($db, string $table, array $fields): ?string
-    {
-        foreach ($fields as $f) {
-            if ($db->fieldExists($f, $table)) return $f;
-        }
-        return null;
-    }
-
-    /**
-     * Devuelve el campo de usuario con más “datos útiles” (CAST > 0).
-     */
-    private function pickUserFieldWithData($db, string $table, array $candidates): ?string
-    {
-        $bestField = null;
-        $bestCount = 0;
-
-        foreach ($candidates as $f) {
-            if (!$db->fieldExists($f, $table)) continue;
-
-            // Cuenta cuántas filas tienen un valor “usable” (>0)
-            $sql = "SELECT COUNT(*) as c
-                    FROM $table
-                    WHERE $f IS NOT NULL
-                      AND TRIM(CAST($f AS CHAR)) <> ''
-                      AND CAST($f AS UNSIGNED) > 0";
-            $c = (int)($db->query($sql)->getRowArray()['c'] ?? 0);
-
-            if ($c > $bestCount) {
-                $bestCount = $c;
-                $bestField = $f;
-            }
-        }
-
-        return $bestField; // null si ninguno sirve
-    }
-
-    private function detectUserJoinMode($db): string
-    {
-        return ($db->tableExists('usuarios') && $db->fieldExists('id', 'usuarios')) ? 'usuarios' : 'none';
-    }
     public function detalle($userId)
     {
         try {
@@ -222,8 +115,8 @@ class SeguimientoController extends BaseController
             // page
             $pageSql = "
                 SELECT
-                t.user_id, t.created_at, t.entidad, t.entidad_id,
-                t.estado_anterior, t.estado_nuevo, t.source
+                  t.user_id, t.created_at, t.entidad, t.entidad_id,
+                  t.estado_anterior, t.estado_nuevo, t.source
                 FROM ($unionSQL) t
                 WHERE t.user_id = ?
                 ORDER BY t.created_at DESC
@@ -253,8 +146,59 @@ class SeguimientoController extends BaseController
     }
 
     /**
-     * UNION de detalle: normaliza a columnas comunes:
-     * user_id, created_at, entidad, entidad_id, estado_anterior, estado_nuevo, source
+     * UNION "resumen": user_id, created_at
+     */
+    private function buildHistoryUnion($db, ?string $from, ?string $to): array
+    {
+        $tables = [
+            'pedidos_estado_historial',
+            'pedido_estado_historial',
+            'order_status_history',
+            'order_status_history', // si está duplicada no afecta, pero puedes quitar una
+        ];
+
+        $userCandidates = [
+            'usuario_id','id_usuario','user_id',
+            'admin_id','empleado_id','operador_id',
+            'created_by','updated_by','changed_by','responsable_id'
+        ];
+
+        $dateCandidates = [
+            'created_at','fecha','changed_at','updated_at','fecha_cambio','created'
+        ];
+
+        $parts = [];
+        $binds = [];
+        $sources = [];
+
+        foreach ($tables as $table) {
+            if (!$db->tableExists($table)) continue;
+
+            $dateField = $this->bestExistingField($db, $table, $dateCandidates);
+            if (!$dateField) continue;
+
+            $userField = $this->pickUserFieldWithData($db, $table, $userCandidates);
+
+            $userExpr = $userField
+                ? "CAST(COALESCE(NULLIF(TRIM($userField), ''), 0) AS UNSIGNED)"
+                : "0";
+
+            $part = "SELECT $userExpr as user_id, $dateField as created_at FROM $table WHERE 1=1";
+
+            if ($from) { $part .= " AND $dateField >= ?"; $binds[] = $from . " 00:00:00"; }
+            if ($to)   { $part .= " AND $dateField <= ?"; $binds[] = $to . " 23:59:59"; }
+
+            $parts[] = $part;
+            $sources[] = $userField ? "$table($userField,$dateField)" : "$table(NO_USER,$dateField)";
+        }
+
+        if (!$parts) return [null, [], []];
+
+        return [implode(" UNION ALL ", $parts), $binds, $sources];
+    }
+
+    /**
+     * UNION "detalle": user_id, created_at, entidad, entidad_id, estado_anterior, estado_nuevo, source
      */
     private function buildHistoryUnionDetail($db, ?string $from, ?string $to): array
     {
@@ -262,22 +206,19 @@ class SeguimientoController extends BaseController
             'pedidos_estado_historial',
             'pedido_estado_historial',
             'order_status_history',
-            // si luego quieres, añade otras aquí
         ];
 
         $userCandidates = [
-            'usuario_id','id_usuario','user_id','admin_id','empleado_id',
+            'usuario_id','id_usuario','user_id',
+            'admin_id','empleado_id','operador_id',
             'created_by','updated_by','changed_by','responsable_id'
         ];
 
         $dateCandidates = ['created_at','fecha','changed_at','updated_at','fecha_cambio','created'];
 
         $entityCandidates = [
-            // pedidos
             'pedido_id','id_pedido','pedidos_id',
-            // orders
             'order_id','id_order',
-            // genérico
             'entidad_id'
         ];
 
@@ -293,7 +234,6 @@ class SeguimientoController extends BaseController
             'to_status','status_to',
             'new_status','current_status',
             'new_status_id','to_status_id',
-            // a veces guardan solo el nuevo
             'status_id','estado','status'
         ];
 
@@ -308,8 +248,6 @@ class SeguimientoController extends BaseController
             if (!$dateField) continue;
 
             $userField = $this->pickUserFieldWithData($db, $table, $userCandidates);
-
-            // si no hay userField con datos, igual registramos como 0 (sin usuario)
             $userExpr = $userField
                 ? "CAST(COALESCE(NULLIF(TRIM($userField), ''), 0) AS UNSIGNED)"
                 : "0";
@@ -323,7 +261,6 @@ class SeguimientoController extends BaseController
             $oldExpr = $oldField ? "CAST($oldField AS CHAR)" : "NULL";
             $newExpr = $newField ? "CAST($newField AS CHAR)" : "NULL";
 
-            // etiqueta entidad según el campo o tabla
             $entidad = 'pedido';
             if (($entityField && stripos($entityField, 'order') !== false) || stripos($table, 'order_') !== false) {
                 $entidad = 'order';
@@ -331,13 +268,13 @@ class SeguimientoController extends BaseController
 
             $part = "
                 SELECT
-                $userExpr as user_id,
-                $dateField as created_at,
-                '$entidad' as entidad,
-                $entityExpr as entidad_id,
-                $oldExpr as estado_anterior,
-                $newExpr as estado_nuevo,
-                '$table' as source
+                  $userExpr as user_id,
+                  $dateField as created_at,
+                  '$entidad' as entidad,
+                  $entityExpr as entidad_id,
+                  $oldExpr as estado_anterior,
+                  $newExpr as estado_nuevo,
+                  '$table' as source
                 FROM $table
                 WHERE 1=1
             ";
@@ -354,4 +291,56 @@ class SeguimientoController extends BaseController
         return [implode(" UNION ALL ", $parts), $binds, $sources];
     }
 
+    private function bestExistingField($db, string $table, array $fields): ?string
+    {
+        foreach ($fields as $f) {
+            if ($db->fieldExists($f, $table)) return $f;
+        }
+        return null;
+    }
+
+    /**
+     * Escoge el campo de usuario con más valores útiles (>0).
+     */
+    private function pickUserFieldWithData($db, string $table, array $candidates): ?string
+    {
+        $bestField = null;
+        $bestCount = 0;
+
+        foreach ($candidates as $f) {
+            if (!$db->fieldExists($f, $table)) continue;
+
+            $sql = "SELECT COUNT(*) as c
+                    FROM $table
+                    WHERE $f IS NOT NULL
+                      AND TRIM(CAST($f AS CHAR)) <> ''
+                      AND CAST($f AS UNSIGNED) > 0";
+            $c = (int)($db->query($sql)->getRowArray()['c'] ?? 0);
+
+            if ($c > $bestCount) {
+                $bestCount = $c;
+                $bestField = $f;
+            }
+        }
+
+        return $bestField; // null si ninguno sirve
+    }
+
+    /**
+     * Detecta campos de nombre/email en usuarios. Devuelve [nameField, emailField|null]
+     */
+    private function detectUsuarioFields($db): array
+    {
+        $nameField = $db->fieldExists('nombre', 'usuarios') ? 'nombre'
+                  : ($db->fieldExists('nombre_completo', 'usuarios') ? 'nombre_completo'
+                  : ($db->fieldExists('usuario', 'usuarios') ? 'usuario'
+                  : ($db->fieldExists('username', 'usuarios') ? 'username'
+                  : ($db->fieldExists('name', 'usuarios') ? 'name'
+                  : 'id')))); // fallback seguro
+
+        $emailField = $db->fieldExists('correo', 'usuarios') ? 'correo'
+                   : ($db->fieldExists('email', 'usuarios') ? 'email' : null);
+
+        return [$nameField, $emailField];
+    }
 }
