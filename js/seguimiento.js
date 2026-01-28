@@ -1,16 +1,22 @@
 (() => {
   const base = window.API_BASE || "";
 
+  // -------- helpers para IDs variables --------
+  const byIdAny = (...ids) => ids.map(id => document.getElementById(id)).find(Boolean) || null;
+
   const globalLoader = document.getElementById("globalLoader");
   const errorBox = document.getElementById("errorBox");
 
   const inputBuscar = document.getElementById("inputBuscar");
   const btnLimpiarBusqueda = document.getElementById("btnLimpiarBusqueda");
 
-  const fromEl = document.getElementById("from");
-  const toEl = document.getElementById("to");
-  const btnFiltrar = document.getElementById("btnFiltrar");
-  const btnLimpiarFechas = document.getElementById("btnLimpiarFechas");
+  // ✅ soporta varios ids por si en tu html cambian
+  const fromEl = byIdAny("from", "dateFrom", "fromDate", "fechaFrom", "fechaDesde");
+  const toEl   = byIdAny("to", "dateTo", "toDate", "fechaTo", "fechaHasta");
+
+  const btnFiltrar       = byIdAny("btnFiltrar", "btnFilter");
+  const btnLimpiarFechas = byIdAny("btnLimpiarFechas", "btnQuitarFiltros", "btnClearFilters");
+  const btnActualizar    = byIdAny("btnActualizar", "btnRefresh", "btnActualizarSeguimiento");
 
   const totalUsuariosEl = document.getElementById("total-usuarios");
   const totalCambiosEl = document.getElementById("total-cambios");
@@ -64,27 +70,78 @@
     return v ? String(v) : "-";
   }
 
+  // ✅ convierte DD/MM/YYYY o DD-MM-YYYY a YYYY-MM-DD.
+  // acepta YYYY-MM-DD (input type="date") tal cual.
+  function toISODate(value) {
+    const v = String(value || "").trim();
+    if (!v) return "";
+
+    // YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+
+    // DD/MM/YYYY o DD-MM-YYYY
+    const m = v.match(/^(\d{2})[\/\-](\d{2})[\/\-](\d{4})$/);
+    if (m) {
+      const dd = m[1], mm = m[2], yyyy = m[3];
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    // Si viene con hora, intentamos parse básico
+    // (pero lo normal es que no)
+    return "";
+  }
+
+  function validateRange(fromISO, toISO) {
+    if (!fromISO || !toISO) return true;
+    // string compare sirve para YYYY-MM-DD
+    return fromISO <= toISO;
+  }
+
+  function normalizeAndSortRows(rows) {
+    const out = (rows || []).map(r => {
+      const user_id = Number(r.user_id ?? 0);
+      const total_cambios = Number(r.total_cambios ?? 0);
+      const user_name =
+        (r.user_name && String(r.user_name).trim()) ||
+        (user_id === 0 ? "Sin usuario (no registrado)" : `Usuario #${user_id}`);
+      const user_email = (r.user_email && String(r.user_email).trim()) || "-";
+      const ultimo_cambio = r.ultimo_cambio ?? null;
+
+      return { ...r, user_id, total_cambios, user_name, user_email, ultimo_cambio };
+    });
+
+    // ✅ Orden “bien”:
+    // 1) user_id==0 (Sin usuario) siempre al final
+    // 2) total_cambios DESC
+    // 3) user_name ASC
+    out.sort((a, b) => {
+      const aNoUser = a.user_id === 0 ? 1 : 0;
+      const bNoUser = b.user_id === 0 ? 1 : 0;
+      if (aNoUser !== bNoUser) return aNoUser - bNoUser;
+
+      const dt = (b.total_cambios - a.total_cambios);
+      if (dt !== 0) return dt;
+
+      return String(a.user_name).localeCompare(String(b.user_name), "es");
+    });
+
+    return out;
+  }
+
   function applySearch(rows) {
     const q = (inputBuscar?.value || "").trim().toLowerCase();
     if (!q) return rows;
 
-    return rows.filter((r) => {
+    return rows.filter(r => {
       const name = (r.user_name || "").toLowerCase();
       const email = (r.user_email || "").toLowerCase();
-      return (
-        name.includes(q) ||
-        email.includes(q) ||
-        String(r.user_id || "").includes(q)
-      );
+      return name.includes(q) || email.includes(q) || String(r.user_id || "").includes(q);
     });
   }
 
   function updateCounters(rows) {
     const totalUsuarios = rows.length;
-    const totalCambios = rows.reduce(
-      (acc, r) => acc + Number(r.total_cambios || 0),
-      0
-    );
+    const totalCambios = rows.reduce((acc, r) => acc + Number(r.total_cambios || 0), 0);
 
     if (totalUsuariosEl) totalUsuariosEl.textContent = String(totalUsuarios);
     if (totalCambiosEl) totalCambiosEl.textContent = String(totalCambios);
@@ -107,8 +164,7 @@
 
     rows.forEach((r) => {
       const userId = Number(r.user_id ?? 0);
-      const userName =
-        r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
+      const userName = r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
       const userEmail = r.user_email || "-";
       const total = Number(r.total_cambios || 0);
       const ultimo = fmtDate(r.ultimo_cambio);
@@ -172,8 +228,7 @@
 
     rows.forEach((r) => {
       const userId = Number(r.user_id ?? 0);
-      const userName =
-        r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
+      const userName = r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
       const userEmail = r.user_email || "-";
       const total = Number(r.total_cambios || 0);
       const ultimo = fmtDate(r.ultimo_cambio);
@@ -224,8 +279,17 @@
 
   async function fetchResumen() {
     const params = new URLSearchParams();
-    if (fromEl?.value) params.set("from", fromEl.value);
-    if (toEl?.value) params.set("to", toEl.value);
+
+    const fromISO = toISODate(fromEl?.value);
+    const toISOv  = toISODate(toEl?.value);
+
+    // ✅ si el usuario escribió algo raro, no pegamos al backend (evita 500)
+    if (fromEl?.value && !fromISO) throw new Error("Fecha DESDE inválida. Usa DD/MM/AAAA o YYYY-MM-DD.");
+    if (toEl?.value && !toISOv) throw new Error("Fecha HASTA inválida. Usa DD/MM/AAAA o YYYY-MM-DD.");
+    if (!validateRange(fromISO, toISOv)) throw new Error("El rango de fechas es inválido (DESDE > HASTA).");
+
+    if (fromISO) params.set("from", fromISO);
+    if (toISOv) params.set("to", toISOv);
 
     const url = `${base}/seguimiento/resumen?${params.toString()}`;
 
@@ -237,7 +301,8 @@
   }
 
   function renderAll() {
-    const rows = applySearch(cacheRows);
+    const sorted = normalizeAndSortRows(cacheRows);
+    const rows = applySearch(sorted);
     updateCounters(rows);
     renderTableRows(rows, tabla2xl);
     renderTableRows(rows, tablaXl);
@@ -286,11 +351,9 @@
   function openModalDetalle(userId, userName) {
     const uid = Number(userId ?? 0);
     detalleState.userId = uid;
-    detalleState.userName =
-      userName || (uid === 0 ? "Sin usuario (no registrado)" : `Usuario #${uid}`);
+    detalleState.userName = userName || (uid === 0 ? "Sin usuario (no registrado)" : `Usuario #${uid}`);
     detalleState.offset = 0;
 
-    // Título inicial (luego se sobreescribe con el nombre REAL desde backend)
     if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${detalleState.userName}`;
     if (detalleSub) detalleSub.textContent = `Usuario ID: ${detalleState.userId}`;
 
@@ -300,8 +363,17 @@
 
   async function fetchDetalle(userId, offset, limit) {
     const params = new URLSearchParams();
-    if (fromEl?.value) params.set("from", fromEl.value);
-    if (toEl?.value) params.set("to", toEl.value);
+
+    const fromISO = toISODate(fromEl?.value);
+    const toISOv  = toISODate(toEl?.value);
+
+    if (fromEl?.value && !fromISO) throw new Error("Fecha DESDE inválida. Usa DD/MM/AAAA o YYYY-MM-DD.");
+    if (toEl?.value && !toISOv) throw new Error("Fecha HASTA inválida. Usa DD/MM/AAAA o YYYY-MM-DD.");
+    if (!validateRange(fromISO, toISOv)) throw new Error("El rango de fechas es inválido (DESDE > HASTA).");
+
+    if (fromISO) params.set("from", fromISO);
+    if (toISOv) params.set("to", toISOv);
+
     params.set("offset", String(offset));
     params.set("limit", String(limit));
 
@@ -319,28 +391,20 @@
     if (detalleBodyCards) detalleBodyCards.innerHTML = "";
 
     if (!rows || rows.length === 0) {
-      if (detalleBodyTable)
-        detalleBodyTable.innerHTML =
-          `<div class="px-4 py-6 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
-      if (detalleBodyCards)
-        detalleBodyCards.innerHTML =
-          `<div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
+      if (detalleBodyTable) detalleBodyTable.innerHTML = `<div class="px-4 py-6 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
+      if (detalleBodyCards) detalleBodyCards.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
       return;
     }
 
     // Desktop table
     if (detalleBodyTable) {
       const frag = document.createDocumentFragment();
-
       rows.forEach((r) => {
-        // ✅ ahora backend devuelve estado_anterior real (calculado con LAG si faltaba)
         const antes = (r.estado_anterior == null || r.estado_anterior === "") ? "-" : r.estado_anterior;
         const despues = (r.estado_nuevo == null || r.estado_nuevo === "") ? "-" : r.estado_nuevo;
 
         const div = document.createElement("div");
-        div.className =
-          "grid grid-cols-12 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
-
+        div.className = "grid grid-cols-12 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
         div.innerHTML = `
           <div class="col-span-3 text-slate-700 font-bold">${escapeHtml(r.created_at || "-")}</div>
           <div class="col-span-2">${escapeHtml(r.entidad || "-")}</div>
@@ -351,22 +415,18 @@
         `;
         frag.appendChild(div);
       });
-
       detalleBodyTable.appendChild(frag);
     }
 
     // Mobile cards
     if (detalleBodyCards) {
       const frag = document.createDocumentFragment();
-
       rows.forEach((r) => {
         const antes = (r.estado_anterior == null || r.estado_anterior === "") ? "-" : r.estado_anterior;
         const despues = (r.estado_nuevo == null || r.estado_nuevo === "") ? "-" : r.estado_nuevo;
 
         const card = document.createElement("div");
-        card.className =
-          "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
-
+        card.className = "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
         card.innerHTML = `
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -391,7 +451,6 @@
         `;
         frag.appendChild(card);
       });
-
       detalleBodyCards.appendChild(frag);
     }
   }
@@ -401,18 +460,12 @@
     modalSetLoading(true);
 
     try {
-      const json = await fetchDetalle(
-        detalleState.userId,
-        detalleState.offset,
-        detalleState.limit
-      );
+      const json = await fetchDetalle(detalleState.userId, detalleState.offset, detalleState.limit);
 
-      // ✅ Nombre REAL desde backend (tabla users)
+      // ✅ título real desde backend
       if (json.user_name) {
         detalleState.userName = json.user_name;
-
         if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${json.user_name}`;
-
         const extra = json.user_email ? ` • ${json.user_email}` : "";
         if (detalleSub) detalleSub.textContent = `Usuario ID: ${json.user_id}${extra}`;
       }
@@ -420,7 +473,7 @@
       detalleState.total = Number(json.total || 0);
       renderDetalle(json.data || []);
 
-      const fromN = detalleState.total ? detalleState.offset + 1 : 0;
+      const fromN = detalleState.total ? (detalleState.offset + 1) : 0;
       const toN = Math.min(detalleState.offset + detalleState.limit, detalleState.total);
 
       if (detallePaginacionInfo) {
@@ -430,12 +483,13 @@
       }
 
       const hasPrev = detalleState.offset > 0;
-      const hasNext = detalleState.offset + detalleState.limit < detalleState.total;
+      const hasNext = (detalleState.offset + detalleState.limit) < detalleState.total;
 
       detallePrev?.toggleAttribute("disabled", !hasPrev);
       detalleNext?.toggleAttribute("disabled", !hasNext);
       detallePrev?.classList.toggle("opacity-50", !hasPrev);
       detalleNext?.classList.toggle("opacity-50", !hasNext);
+
     } catch (e) {
       renderDetalle([]);
       modalSetError("Error cargando detalle: " + (e?.message || e));
@@ -453,8 +507,7 @@
   });
 
   detalleModal?.addEventListener("click", (e) => {
-    const isOverlay =
-      e.target && e.target.getAttribute && e.target.getAttribute("data-close") === "1";
+    const isOverlay = e.target && e.target.getAttribute && e.target.getAttribute("data-close") === "1";
     if (isOverlay) closeModalDetalle();
   });
 
@@ -471,7 +524,7 @@
   });
 
   detalleNext?.addEventListener("click", () => {
-    if (detalleState.offset + detalleState.limit >= detalleState.total) return;
+    if ((detalleState.offset + detalleState.limit) >= detalleState.total) return;
     detalleState.offset += detalleState.limit;
     loadDetalle();
   });
@@ -484,15 +537,22 @@
     renderAll();
   });
 
-  btnFiltrar?.addEventListener("click", cargar);
-
-  // ✅ Quitar filtros => vacía fechas => histórico completo
-  btnLimpiarFechas?.addEventListener("click", () => {
-    if (fromEl) fromEl.value = "";
-    if (toEl) toEl.value = "";
+  btnFiltrar?.addEventListener("click", () => {
+    // ✅ filtrar debe cargar del backend
     cargar();
   });
 
-  // carga inicial (histórico)
+  btnActualizar?.addEventListener("click", () => {
+    cargar();
+  });
+
+  btnLimpiarFechas?.addEventListener("click", () => {
+    if (fromEl) fromEl.value = "";
+    if (toEl) toEl.value = "";
+    setError("");
+    cargar();
+  });
+
+  // carga inicial (histórico sin filtros)
   cargar();
 })();
