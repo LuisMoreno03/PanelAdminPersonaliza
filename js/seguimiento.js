@@ -20,11 +20,12 @@
   const tabla = document.getElementById("tablaSeguimiento");
   const cards = document.getElementById("cardsSeguimiento");
 
-  // Modal detalle
+  // Modal
   const detalleModal = document.getElementById("detalleModal");
   const detalleCerrar = document.getElementById("detalleCerrar");
   const detalleTitulo = document.getElementById("detalleTitulo");
   const detalleSub = document.getElementById("detalleSub");
+  const detallePedidosBox = document.getElementById("detallePedidosBox");
   const detalleLoading = document.getElementById("detalleLoading");
   const detalleError = document.getElementById("detalleError");
   const detalleBodyTable = document.getElementById("detalleBodyTable");
@@ -34,12 +35,11 @@
   const detallePaginacionInfo = document.getElementById("detallePaginacionInfo");
 
   let cacheRows = [];
-  let lastStats = { pedidos_tocados: 0 }; // global del rango
+  let lastStats = { pedidos_tocados: 0 };
   let detalleState = { userId: null, userName: "", offset: 0, limit: 50, total: 0 };
 
   function setLoading(v) {
-    if (!globalLoader) return;
-    globalLoader.classList.toggle("hidden", !v);
+    globalLoader?.classList.toggle("hidden", !v);
   }
 
   function setError(msg) {
@@ -62,13 +62,11 @@
       .replaceAll("'", "&#039;");
   }
 
-  // ✅ acepta "YYYY-MM-DD" o "DD/MM/YYYY"
   function toISODate(v) {
     const s = String(v || "").trim();
     if (!s) return "";
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // ya ISO
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-    // dd/mm/yyyy
     const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (m) {
       const dd = String(m[1]).padStart(2, "0");
@@ -76,7 +74,7 @@
       const yy = m[3];
       return `${yy}-${mm}-${dd}`;
     }
-    return ""; // inválido
+    return "";
   }
 
   function fmtDate(v) {
@@ -84,21 +82,18 @@
   }
 
   function sortRows(rows) {
-    // orden estable: sin usuario primero, luego total_cambios desc, luego nombre asc
     return [...rows].sort((a, b) => {
       const au = Number(a.user_id ?? 0);
       const bu = Number(b.user_id ?? 0);
       const aZero = au === 0 ? 1 : 0;
       const bZero = bu === 0 ? 1 : 0;
-      if (aZero !== bZero) return bZero - aZero; // 0 primero
+      if (aZero !== bZero) return bZero - aZero; // sin usuario arriba
 
       const at = Number(a.total_cambios || 0);
       const bt = Number(b.total_cambios || 0);
       if (bt !== at) return bt - at;
 
-      const an = String(a.user_name || "").toLowerCase();
-      const bn = String(b.user_name || "").toLowerCase();
-      return an.localeCompare(bn);
+      return String(a.user_name || "").toLowerCase().localeCompare(String(b.user_name || "").toLowerCase());
     });
   }
 
@@ -113,33 +108,27 @@
     });
   }
 
-  function updateCounters(rowsFiltered) {
-    const totalUsuarios = rowsFiltered.length;
-    const totalCambios = rowsFiltered.reduce((acc, r) => acc + Number(r.total_cambios || 0), 0);
+  function updateCounters() {
+    const totalUsuarios = cacheRows.length;
+    const totalCambios = cacheRows.reduce((acc, r) => acc + Number(r.total_cambios || 0), 0);
 
-    if (totalUsuariosEl) totalUsuariosEl.textContent = String(totalUsuarios);
-    if (totalCambiosEl) totalCambiosEl.textContent = String(totalCambios);
-
-    // global del rango (no depende del buscador)
-    if (totalPedidosTocadosEl) totalPedidosTocadosEl.textContent = String(lastStats?.pedidos_tocados || 0);
+    totalUsuariosEl && (totalUsuariosEl.textContent = String(totalUsuarios));
+    totalCambiosEl && (totalCambiosEl.textContent = String(totalCambios));
+    totalPedidosTocadosEl && (totalPedidosTocadosEl.textContent = String(lastStats?.pedidos_tocados || 0));
   }
 
-  function renderTableRows(rows, target) {
-    if (!target) return;
-    target.innerHTML = "";
+  function renderTableRows(rows) {
+    if (!tabla) return;
+    tabla.innerHTML = "";
 
     if (!rows.length) {
-      target.innerHTML = `
-        <div class="px-4 py-6 text-sm font-bold text-slate-500">
-          No hay registros para mostrar.
-        </div>
-      `;
+      tabla.innerHTML = `<div class="px-4 py-6 text-sm font-bold text-slate-500">No hay registros para mostrar.</div>`;
       return;
     }
 
     const frag = document.createDocumentFragment();
 
-    rows.forEach((r) => {
+    rows.forEach(r => {
       const userId = Number(r.user_id ?? 0);
       const userName = r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
       const userEmail = r.user_email || "-";
@@ -148,8 +137,7 @@
       const ultimo = fmtDate(r.ultimo_cambio);
 
       const row = document.createElement("div");
-      row.className =
-        "seg-grid-cols px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
+      row.className = "seg-grid-cols px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
 
       row.innerHTML = `
         <div class="min-w-0">
@@ -192,7 +180,7 @@
       frag.appendChild(row);
     });
 
-    target.appendChild(frag);
+    tabla.appendChild(frag);
   }
 
   function renderCards(rows) {
@@ -200,17 +188,13 @@
     cards.innerHTML = "";
 
     if (!rows.length) {
-      cards.innerHTML = `
-        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-bold text-slate-500">
-          No hay registros para mostrar.
-        </div>
-      `;
+      cards.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-bold text-slate-500">No hay registros para mostrar.</div>`;
       return;
     }
 
     const frag = document.createDocumentFragment();
 
-    rows.forEach((r) => {
+    rows.forEach(r => {
       const userId = Number(r.user_id ?? 0);
       const userName = r.user_name || (userId === 0 ? "Sin usuario (no registrado)" : `Usuario #${userId}`);
       const userEmail = r.user_email || "-";
@@ -265,6 +249,13 @@
     cards.appendChild(frag);
   }
 
+  function renderAll() {
+    updateCounters();
+    const rows = applySearch(sortRows(cacheRows));
+    renderTableRows(rows);
+    renderCards(rows);
+  }
+
   async function fetchResumen() {
     const params = new URLSearchParams();
 
@@ -278,23 +269,13 @@
     if (toISO) params.set("to", toISO);
 
     const url = `${base}/seguimiento/resumen?${params.toString()}`;
-
-    const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+    const res = await fetch(url, { headers: { "Accept": "application/json" } });
     const json = await res.json().catch(() => null);
 
-    if (!res.ok) throw new Error((json && json.message) ? json.message : `HTTP ${res.status}`);
+    if (!res.ok) throw new Error(json?.message || `HTTP ${res.status}`);
     if (!json?.ok) throw new Error(json?.message || "Respuesta inválida");
 
     return json;
-  }
-
-  function renderAll() {
-    const sorted = sortRows(cacheRows);
-    const rows = applySearch(sorted);
-
-    updateCounters(rows);
-    renderTableRows(rows, tabla);
-    renderCards(rows);
   }
 
   async function cargar() {
@@ -316,7 +297,7 @@
     }
   }
 
-  // ---------- Modal ----------
+  // -------- MODAL --------
   function modalSetLoading(v) {
     detalleLoading?.classList.toggle("hidden", !v);
   }
@@ -334,8 +315,9 @@
 
   function closeModalDetalle() {
     detalleModal?.classList.add("hidden");
-    if (detalleBodyTable) detalleBodyTable.innerHTML = "";
-    if (detalleBodyCards) detalleBodyCards.innerHTML = "";
+    detalleBodyTable && (detalleBodyTable.innerHTML = "");
+    detalleBodyCards && (detalleBodyCards.innerHTML = "");
+    detallePedidosBox && (detallePedidosBox.innerHTML = "");
     modalSetError("");
   }
 
@@ -345,8 +327,8 @@
     detalleState.userName = userName || (uid === 0 ? "Sin usuario (no registrado)" : `Usuario #${uid}`);
     detalleState.offset = 0;
 
-    if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${detalleState.userName}`;
-    if (detalleSub) detalleSub.textContent = `Usuario ID: ${detalleState.userId}`;
+    detalleTitulo && (detalleTitulo.textContent = `Detalle - ${detalleState.userName}`);
+    detalleSub && (detalleSub.textContent = `Usuario ID: ${detalleState.userId}`);
 
     detalleModal?.classList.remove("hidden");
     loadDetalle();
@@ -365,27 +347,64 @@
     params.set("limit", String(limit));
 
     const url = `${base}/seguimiento/detalle/${encodeURIComponent(userId)}?${params.toString()}`;
-
-    const res = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+    const res = await fetch(url, { headers: { "Accept": "application/json" } });
     const json = await res.json().catch(() => null);
 
-    if (!res.ok) throw new Error((json && json.message) ? json.message : `HTTP ${res.status}`);
+    if (!res.ok) throw new Error(json?.message || `HTTP ${res.status}`);
     if (!json?.ok) throw new Error(json?.message || "Respuesta inválida");
 
     return json;
   }
 
-  function renderDetalle(rows) {
-    if (detalleBodyTable) detalleBodyTable.innerHTML = "";
-    if (detalleBodyCards) detalleBodyCards.innerHTML = "";
+  function renderPedidosTocados(pedidos = []) {
+    if (!detallePedidosBox) return;
 
-    if (!rows || rows.length === 0) {
-      if (detalleBodyTable) detalleBodyTable.innerHTML = `<div class="px-4 py-6 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
-      if (detalleBodyCards) detalleBodyCards.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">No hay cambios.</div>`;
+    if (!pedidos.length) {
+      detallePedidosBox.innerHTML = `
+        <div class="text-sm font-bold text-slate-600">
+          Pedidos tocados: <span class="font-extrabold">0</span>
+        </div>
+      `;
       return;
     }
 
-    // Desktop table (sin SRC)
+    const chips = pedidos.map(p => {
+      const entidad = (p.entidad || "").toLowerCase();
+      const id = p.entidad_id ? String(p.entidad_id) : "-";
+      const cambios = Number(p.cambios || 0);
+      const ultimo = p.ultimo ? String(p.ultimo) : "-";
+      const label = entidad === "order" ? `Order #${id}` : `Pedido #${id}`;
+
+      return `
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white border border-slate-200 shadow-sm">
+          <span class="text-xs font-extrabold text-slate-900">${escapeHtml(label)}</span>
+          <span class="text-[11px] font-extrabold text-slate-600">${escapeHtml(cambios)} cambios</span>
+          <span class="text-[11px] font-bold text-slate-400">${escapeHtml(ultimo)}</span>
+        </div>
+      `;
+    }).join("");
+
+    detallePedidosBox.innerHTML = `
+      <div class="text-sm font-bold text-slate-700">
+        Pedidos tocados: <span class="font-extrabold">${escapeHtml(pedidos.length)}</span>
+      </div>
+      <div class="mt-2 flex flex-wrap gap-2">
+        ${chips}
+      </div>
+    `;
+  }
+
+  function renderDetalle(rows) {
+    detalleBodyTable && (detalleBodyTable.innerHTML = "");
+    detalleBodyCards && (detalleBodyCards.innerHTML = "");
+
+    if (!rows || rows.length === 0) {
+      detalleBodyTable && (detalleBodyTable.innerHTML = `<div class="px-4 py-6 text-sm font-extrabold text-slate-500">No hay cambios.</div>`);
+      detalleBodyCards && (detalleBodyCards.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">No hay cambios.</div>`);
+      return;
+    }
+
+    // Desktop
     if (detalleBodyTable) {
       const frag = document.createDocumentFragment();
       rows.forEach(r => {
@@ -403,21 +422,17 @@
       detalleBodyTable.appendChild(frag);
     }
 
-    // Mobile cards
+    // Mobile
     if (detalleBodyCards) {
       const frag = document.createDocumentFragment();
       rows.forEach(r => {
         const card = document.createElement("div");
         card.className = "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
         card.innerHTML = `
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="text-sm font-extrabold text-slate-900 truncate">
-                ${escapeHtml(r.entidad || "-")} ${r.entidad_id ? "#" + escapeHtml(String(r.entidad_id)) : ""}
-              </div>
-              <div class="text-xs font-bold text-slate-600 mt-0.5">${escapeHtml(r.created_at || "-")}</div>
-            </div>
+          <div class="text-sm font-extrabold text-slate-900">
+            ${escapeHtml(r.entidad || "-")} ${r.entidad_id ? "#" + escapeHtml(String(r.entidad_id)) : ""}
           </div>
+          <div class="text-xs font-bold text-slate-600 mt-1">${escapeHtml(r.created_at || "-")}</div>
 
           <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
@@ -445,16 +460,16 @@
 
       detalleState.total = Number(json.total || 0);
 
-      // ✅ mostrar pedidos tocados del usuario en el subtítulo
-      if (detalleSub) {
-        const pt = Number(json.pedidos_tocados || 0);
-        detalleSub.textContent = `Usuario ID: ${detalleState.userId} • Pedidos tocados: ${pt}`;
-      }
+      // ✅ nombre real desde backend
+      if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${json.user_name || detalleState.userName}`;
+      if (detalleSub) detalleSub.textContent = `Usuario ID: ${detalleState.userId} • Pedidos tocados: ${Number(json.pedidos_tocados || 0)}`;
 
+      renderPedidosTocados(json.pedidos || []);
       renderDetalle(json.data || []);
 
       const fromN = detalleState.total ? (detalleState.offset + 1) : 0;
       const toN = Math.min(detalleState.offset + detalleState.limit, detalleState.total);
+
       if (detallePaginacionInfo) {
         detallePaginacionInfo.textContent = detalleState.total
           ? `Mostrando ${fromN}-${toN} de ${detalleState.total}`
@@ -463,12 +478,14 @@
 
       const hasPrev = detalleState.offset > 0;
       const hasNext = (detalleState.offset + detalleState.limit) < detalleState.total;
+
       detallePrev?.toggleAttribute("disabled", !hasPrev);
       detalleNext?.toggleAttribute("disabled", !hasNext);
       detallePrev?.classList.toggle("opacity-50", !hasPrev);
       detalleNext?.classList.toggle("opacity-50", !hasNext);
 
     } catch (e) {
+      renderPedidosTocados([]);
       renderDetalle([]);
       modalSetError("Error cargando detalle: " + (e?.message || e));
       console.error(e);
@@ -484,10 +501,12 @@
     closeModalDetalle();
   });
 
-  // Click fuera cierra (overlay)
+  // Click fuera cierra
   detalleModal?.addEventListener("click", (e) => {
     const t = e.target;
-    if (t && t.getAttribute && t.getAttribute("data-close") === "1") closeModalDetalle();
+    if (t && t.getAttribute && t.getAttribute("data-close") === "1") {
+      closeModalDetalle();
+    }
   });
 
   // ESC cierra
@@ -509,7 +528,7 @@
     loadDetalle();
   });
 
-  // UI principal
+  // UI
   inputBuscar?.addEventListener("input", renderAll);
 
   btnLimpiarBusqueda?.addEventListener("click", () => {
@@ -527,6 +546,6 @@
 
   btnActualizar?.addEventListener("click", cargar);
 
-  // Carga inicial
+  // Init
   cargar();
 })();

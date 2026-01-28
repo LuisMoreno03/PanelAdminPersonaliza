@@ -6,8 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
-  <meta name="csrf-header" content="<?= function_exists('csrf_header') ? csrf_header() : 'X-CSRF-TOKEN' ?>">
-
   <script src="https://cdn.tailwindcss.com"></script>
 
   <title><?= esc($title ?? 'Seguimiento') ?></title>
@@ -17,7 +15,7 @@
       display:grid;
       grid-template-columns: 240px minmax(240px,1fr) 150px 150px 200px 120px;
       align-items:center;
-      gap: 0.75rem;
+      gap: .75rem;
     }
   </style>
 
@@ -30,7 +28,6 @@
 
   <?= view('layouts/menu') ?>
 
-  <!-- Loader global -->
   <div id="globalLoader" class="hidden fixed inset-0 z-[9999] bg-black/30 backdrop-blur-[1px]">
     <div class="absolute inset-0 flex items-center justify-center">
       <div class="rounded-3xl bg-white shadow-xl border border-slate-200 px-6 py-5 flex items-center gap-3">
@@ -67,7 +64,6 @@
         </div>
       </div>
 
-      <!-- Buscador + filtros -->
       <div class="flex flex-col lg:flex-row lg:items-center gap-3">
         <div class="flex-1 flex items-center gap-2">
           <div class="relative flex-1">
@@ -100,7 +96,7 @@
             Quitar filtros
           </button>
 
-          <button type="button" id="btnActualizar"
+          <button id="btnActualizar" type="button"
             class="h-11 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-sm shadow-sm hover:bg-slate-100 transition">
             Actualizar
           </button>
@@ -110,10 +106,7 @@
       <div id="errorBox" class="hidden rounded-3xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 font-extrabold text-sm"></div>
     </div>
 
-    <!-- Listado -->
     <section class="mt-6">
-
-      <!-- XL/2XL tabla -->
       <div class="hidden xl:block rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div class="seg-grid-cols px-4 py-3 bg-slate-50 border-b border-slate-200 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
           <div>Usuario</div>
@@ -127,19 +120,19 @@
         <div id="tablaSeguimiento"></div>
       </div>
 
-      <!-- Mobile cards -->
       <div id="cardsSeguimiento" class="xl:hidden"></div>
     </section>
   </main>
 
   <!-- Modal detalle -->
-  <div id="detalleModal" class="hidden fixed inset-0 z-[9998] bg-black/40 backdrop-blur-[1px]" data-close="1">
-    <div class="absolute inset-0 flex items-center justify-center p-4">
+  <div id="detalleModal" class="hidden fixed inset-0 z-[9998] bg-black/40 backdrop-blur-[1px]">
+    <div class="absolute inset-0 flex items-center justify-center p-4" data-close="1">
       <div class="w-full max-w-5xl rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden" data-close="0">
         <div class="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div id="detalleTitulo" class="text-lg font-extrabold text-slate-900 truncate">Detalle</div>
             <div id="detalleSub" class="text-sm font-bold text-slate-600 truncate">—</div>
+            <div id="detallePedidosBox" class="mt-2"></div>
           </div>
           <div class="shrink-0 flex items-center gap-2">
             <button id="detalleCerrar" class="h-10 px-4 rounded-2xl bg-white border border-slate-200 font-extrabold text-sm hover:bg-slate-100">Cerrar</button>
@@ -150,7 +143,6 @@
           <div id="detalleLoading" class="hidden mb-3 text-sm font-extrabold text-slate-600">Cargando detalle…</div>
           <div id="detalleError" class="hidden mb-3 rounded-2xl border border-red-200 bg-red-50 text-red-700 px-3 py-2 font-extrabold text-sm"></div>
 
-          <!-- Tabla (desktop) -->
           <div class="hidden sm:block rounded-3xl border border-slate-200 overflow-hidden">
             <div class="grid grid-cols-10 px-4 py-3 bg-slate-50 border-b border-slate-200 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
               <div class="col-span-2">Fecha</div>
@@ -162,10 +154,8 @@
             <div id="detalleBodyTable" class="max-h-[65vh] overflow-auto"></div>
           </div>
 
-          <!-- Cards (mobile) -->
           <div id="detalleBodyCards" class="sm:hidden"></div>
 
-          <!-- Paginación -->
           <div class="mt-4 flex items-center justify-between gap-2">
             <div id="detallePaginacionInfo" class="text-sm font-extrabold text-slate-600">—</div>
             <div class="flex items-center gap-2">
