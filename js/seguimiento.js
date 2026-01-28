@@ -477,7 +477,7 @@
   });
 
   // UI principal
-  inputBuscar?.addEventListener("input": renderAll);
+  inputBuscar?.addEventListener("input", renderAll);
 
   btnLimpiarBusqueda?.addEventListener("click", () => {
     if (inputBuscar) inputBuscar.value = "";
