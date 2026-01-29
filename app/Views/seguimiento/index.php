@@ -9,7 +9,7 @@
   <meta name="csrf-header" content="<?= function_exists('csrf_header') ? csrf_header() : 'X-CSRF-TOKEN' ?>">
 
   <script src="https://cdn.tailwindcss.com"></script>
-
+  <script src="https://unpkg.com/alpinejs" defer></script>
   <!-- Calendario moderno -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
