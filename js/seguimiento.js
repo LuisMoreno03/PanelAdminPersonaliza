@@ -33,6 +33,7 @@
   const detallePrev = document.getElementById("detallePrev");
   const detalleNext = document.getElementById("detalleNext");
   const detallePaginacionInfo = document.getElementById("detallePaginacionInfo");
+  const detallePedidosCount = document.getElementById("detallePedidosCount");
 
   let cacheRows = [];
   let lastStats = { pedidos_tocados: 0 };
@@ -387,99 +388,171 @@
   }
 
   function renderPedidosTocados(pedidos = []) {
-    if (!detallePedidosBox) return;
+  if (!detallePedidosBox) return;
 
-    if (!pedidos.length) {
-      detallePedidosBox.innerHTML = `
-        <div class="text-sm font-bold text-slate-600">
-          Pedidos tocados: <span class="font-extrabold">0</span>
-        </div>
-      `;
-      return;
-    }
+  const total = Array.isArray(pedidos) ? pedidos.length : 0;
+  if (detallePedidosCount) detallePedidosCount.textContent = String(total);
 
-    const chips = pedidos.map(p => {
-      const entidad = (p.entidad || "").toLowerCase();
-      const id = p.entidad_id ? String(p.entidad_id) : "-";
-      const cambios = Number(p.cambios || 0);
-      const ultimo = p.ultimo ? String(p.ultimo) : "-";
-      const label = entidad === "order" ? `Order #${id}` : `Pedido #${id}`;
+  detallePedidosBox.innerHTML = "";
 
-      return `
-        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white border border-slate-200 shadow-sm">
-          <span class="text-xs font-extrabold text-slate-900">${escapeHtml(label)}</span>
-          <span class="text-[11px] font-extrabold text-slate-600">${escapeHtml(cambios)} cambios</span>
-          <span class="text-[11px] font-bold text-slate-400">${escapeHtml(ultimo)}</span>
-        </div>
-      `;
-    }).join("");
-
+  if (!total) {
     detallePedidosBox.innerHTML = `
-      <div class="text-sm font-bold text-slate-700">
-        Pedidos tocados: <span class="font-extrabold">${escapeHtml(pedidos.length)}</span>
-      </div>
-      <div class="mt-2 flex flex-wrap gap-2">
-        ${chips}
+      <div class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600">
+        No hay pedidos tocados en este rango.
       </div>
     `;
+    return;
   }
 
-  function renderDetalle(rows) {
-    detalleBodyTable && (detalleBodyTable.innerHTML = "");
-    detalleBodyCards && (detalleBodyCards.innerHTML = "");
+  const frag = document.createDocumentFragment();
 
-    if (!rows || rows.length === 0) {
-      detalleBodyTable && (detalleBodyTable.innerHTML = `<div class="px-4 py-6 text-sm font-extrabold text-slate-500">No hay cambios.</div>`);
-      detalleBodyCards && (detalleBodyCards.innerHTML = `<div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">No hay cambios.</div>`);
-      return;
-    }
+  pedidos.forEach(p => {
+    const entidad = (p.entidad || "").toLowerCase();
+    const id = p.entidad_id ? String(p.entidad_id) : "-";
+    const cambios = Number(p.cambios || 0);
+    const ultimo = p.ultimo ? String(p.ultimo) : "-";
 
-    // Desktop
+    const label = entidad === "order" ? `Order #${id}` : `Pedido #${id}`;
+
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className =
+      "shrink-0 text-left rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm hover:bg-slate-50 transition";
+
+    chip.innerHTML = `
+      <div class="flex items-center gap-2">
+        <div class="text-xs font-extrabold text-slate-900">${escapeHtml(label)}</div>
+        <span class="inline-flex items-center px-2 py-0.5 rounded-xl bg-slate-900 text-white text-[10px] font-extrabold">
+          ${escapeHtml(cambios)} cambios
+        </span>
+      </div>
+      <div class="mt-1 text-[11px] font-bold text-slate-500 truncate">
+        Último: ${escapeHtml(ultimo)}
+      </div>
+    `;
+
+    // si quieres que al click filtre por ese pedido dentro del detalle, aquí puedes hacerlo
+    chip.addEventListener("click", () => {
+      // pequeño highlight visual
+      chip.classList.add("ring-4", "ring-slate-200");
+      setTimeout(() => chip.classList.remove("ring-4", "ring-slate-200"), 300);
+    });
+
+    frag.appendChild(chip);
+  });
+
+  detallePedidosBox.appendChild(frag);
+}
+
+
+  function statusBadge(text, strong = false) {
+  const v = String(text ?? "-").trim();
+  if (!v || v === "-") {
+    return `<span class="text-slate-400 font-extrabold">-</span>`;
+  }
+  return `
+    <span class="inline-flex items-center px-2.5 py-1 rounded-2xl border border-slate-200 ${
+      strong ? "bg-slate-900 text-white border-slate-900" : "bg-slate-50 text-slate-900"
+    } text-[12px] font-extrabold">
+      ${escapeHtml(v)}
+    </span>
+  `;
+}
+
+function renderDetalle(rows) {
+  detalleBodyTable && (detalleBodyTable.innerHTML = "");
+  detalleBodyCards && (detalleBodyCards.innerHTML = "");
+
+  if (!rows || rows.length === 0) {
     if (detalleBodyTable) {
-      const frag = document.createDocumentFragment();
-      rows.forEach(r => {
-        const div = document.createElement("div");
-        div.className = "grid grid-cols-10 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
-        div.innerHTML = `
-          <div class="col-span-2 text-slate-700 font-bold">${escapeHtml(r.created_at || "-")}</div>
-          <div class="col-span-2">${escapeHtml(r.entidad || "-")}</div>
-          <div class="col-span-2">${r.entidad_id ? escapeHtml(String(r.entidad_id)) : "-"}</div>
-          <div class="col-span-2 text-slate-700">${escapeHtml(r.estado_anterior ?? "-")}</div>
-          <div class="col-span-2 text-slate-900 font-extrabold">${escapeHtml(r.estado_nuevo ?? "-")}</div>
-        `;
-        frag.appendChild(div);
-      });
-      detalleBodyTable.appendChild(frag);
+      detalleBodyTable.innerHTML = `
+        <div class="px-4 py-10 text-sm font-extrabold text-slate-500">
+          No hay cambios en este rango.
+        </div>
+      `;
     }
-
-    // Mobile
     if (detalleBodyCards) {
-      const frag = document.createDocumentFragment();
-      rows.forEach(r => {
-        const card = document.createElement("div");
-        card.className = "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
-        card.innerHTML = `
-          <div class="text-sm font-extrabold text-slate-900">
-            ${escapeHtml(r.entidad || "-")} ${r.entidad_id ? "#" + escapeHtml(String(r.entidad_id)) : ""}
-          </div>
-          <div class="text-xs font-bold text-slate-600 mt-1">${escapeHtml(r.created_at || "-")}</div>
-
-          <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-              <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Antes</div>
-              <div class="text-sm font-bold text-slate-900 mt-0.5">${escapeHtml(r.estado_anterior ?? "-")}</div>
-            </div>
-            <div class="rounded-2xl border border-slate-200 bg-white px-3 py-2">
-              <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Después</div>
-              <div class="text-sm font-extrabold text-slate-900 mt-0.5">${escapeHtml(r.estado_nuevo ?? "-")}</div>
-            </div>
-          </div>
-        `;
-        frag.appendChild(card);
-      });
-      detalleBodyCards.appendChild(frag);
+      detalleBodyCards.innerHTML = `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4 text-sm font-extrabold text-slate-500">
+          No hay cambios en este rango.
+        </div>
+      `;
     }
+    return;
   }
+
+  // Desktop table
+  if (detalleBodyTable) {
+    const frag = document.createDocumentFragment();
+
+    rows.forEach(r => {
+      const entidad = r.entidad || "-";
+      const id = r.entidad_id ? String(r.entidad_id) : "-";
+      const fecha = r.created_at || "-";
+      const antes = r.estado_anterior ?? "-";
+      const despues = r.estado_nuevo ?? "-";
+
+      const div = document.createElement("div");
+      div.className =
+        "grid grid-cols-12 px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
+
+      div.innerHTML = `
+        <div class="col-span-3 text-slate-700 font-bold">${escapeHtml(fecha)}</div>
+        <div class="col-span-2 text-slate-700 font-extrabold">${escapeHtml(entidad)}</div>
+        <div class="col-span-2 font-extrabold">${escapeHtml(id)}</div>
+        <div class="col-span-2">${statusBadge(antes, false)}</div>
+        <div class="col-span-3">${statusBadge(despues, true)}</div>
+      `;
+
+      frag.appendChild(div);
+    });
+
+    detalleBodyTable.appendChild(frag);
+  }
+
+  // Mobile cards
+  if (detalleBodyCards) {
+    const frag = document.createDocumentFragment();
+
+    rows.forEach(r => {
+      const entidad = r.entidad || "-";
+      const id = r.entidad_id ? String(r.entidad_id) : "-";
+      const fecha = r.created_at || "-";
+      const antes = r.estado_anterior ?? "-";
+      const despues = r.estado_nuevo ?? "-";
+
+      const card = document.createElement("div");
+      card.className = "rounded-3xl border border-slate-200 bg-white shadow-sm p-4 mb-3";
+
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-sm font-extrabold text-slate-900 truncate">
+              ${escapeHtml(entidad)} #${escapeHtml(id)}
+            </div>
+            <div class="text-xs font-bold text-slate-500 mt-1">${escapeHtml(fecha)}</div>
+          </div>
+        </div>
+
+        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Antes</div>
+            <div class="mt-1">${statusBadge(antes, false)}</div>
+          </div>
+          <div class="rounded-2xl border border-slate-200 bg-white px-3 py-2">
+            <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">Después</div>
+            <div class="mt-1">${statusBadge(despues, true)}</div>
+          </div>
+        </div>
+      `;
+
+      frag.appendChild(card);
+    });
+
+    detalleBodyCards.appendChild(frag);
+  }
+}
+
 
   async function loadDetalle() {
     modalSetError("");

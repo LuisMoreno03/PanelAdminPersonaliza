@@ -184,10 +184,10 @@ $routes->group('placas', ['filter' => 'auth'], static function (RouteCollection 
         $routes->get('listar', 'PlacasArchivosController::listar');
         $routes->get('stats',  'PlacasArchivosController::stats');
         $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
-
+        $routes->get('(:segment)/archivos', 'PlacasController::archivos/$1');
         $routes->post('subir', 'PlacasArchivosController::subir');
         $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
-
+        $routes->get('descargar/(:segment)/(:segment)', 'PlacasController::descargar/$1/$2');
         $routes->post('renombrar', 'PlacasArchivosController::renombrar');
         $routes->post('eliminar',  'PlacasArchivosController::eliminar');
 
@@ -299,15 +299,9 @@ $routes->post('montaje/cargado', 'MontajeController::cargado');
 
 
 // ✅ Vista Por producir
-$routes->get('por-producir', 'PorProducir::index');
-
-// ✅ API Por producir
-$routes->group('api/por-producir', static function ($routes) {
-    $routes->get('mine', 'Api\PorProducir::mine');
-    $routes->post('claim', 'Api\PorProducir::claim');     // 50/100
-    $routes->post('return', 'Api\PorProducir::returnAll');
-    $routes->post('check', 'Api\PorProducir::check');     // auto remover enviados
-});
+Route::get('/por-producir', [PorProducir::class, 'index'])->name('porproducir.index');
+Route::get('/por-producir/pull', [PorProducir::class, 'pull'])->name('porproducir.pull');
+Route::patch('/por-producir/{id}/metodo-entrega', [PorProducir::class, 'updateMetodoEntrega'])->name('porproducir.updateMetodoEntrega');
 
 
 $routes->get('seguimiento', 'SeguimientoController::index');

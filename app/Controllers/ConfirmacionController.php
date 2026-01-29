@@ -26,9 +26,24 @@ class ConfirmacionController extends BaseController
         return (string)($pedido['id'] ?? '');
     }
 
+    /**
+     * ✅ Expresión SQL para ordenar:
+     *  - Express primero (0)
+     *  - Normal después (1)
+     * Detecta "express" dentro de p.forma_envio (case-insensitive)
+     */
+    private function expressOrderExpr(): string
+    {
+        return "CASE
+            WHEN LOWER(TRIM(COALESCE(p.forma_envio,''))) LIKE '%express%' THEN 0
+            ELSE 1
+        END";
+    }
+
     /* =====================================================
       GET /confirmacion/my-queue
-      ✅ Ordena por pedidos más antiguos primero
+      ✅ Express primero
+      ✅ Dentro de cada grupo: más antiguos primero
       ✅ over_24h = 1 si assigned_at tiene +24h
     ===================================================== */
     public function myQueue()
@@ -119,7 +134,11 @@ class ConfirmacionController extends BaseController
             $this->applyEtiquetaExclusions($q, $db);
             $this->applyPedidoJsonExclusions($q, $db, $hasPedidoJson);
 
-            $rows = $q->orderBy('p.created_at', 'ASC')
+            $expressOrderExpr = $this->expressOrderExpr();
+
+            $rows = $q
+                ->orderBy($expressOrderExpr, 'ASC', false) // ✅ Express primero
+                ->orderBy('p.created_at', 'ASC')           // ✅ luego más antiguos
                 ->orderBy('p.id', 'ASC')
                 ->get()
                 ->getResultArray();
@@ -141,7 +160,8 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       POST /confirmacion/pull
-      ✅ Ya está: pedidos más antiguos primero + desempate por id
+      ✅ Express primero
+      ✅ Si hay pocos express: completa con normales más antiguos
     ===================================================== */
     public function pull()
     {
@@ -190,8 +210,11 @@ class ConfirmacionController extends BaseController
             $this->applyEtiquetaExclusions($candQuery, $db);
             $this->applyPedidoJsonExclusions($candQuery, $db, $hasPedidoJson);
 
+            $expressOrderExpr = $this->expressOrderExpr();
+
             $candidatosRaw = $candQuery
-                ->orderBy('p.created_at', 'ASC')
+                ->orderBy($expressOrderExpr, 'ASC', false) // ✅ Express primero
+                ->orderBy('p.created_at', 'ASC')           // ✅ luego más antiguos
                 ->orderBy('p.id', 'ASC')
                 ->limit($limitFetch)
                 ->get()
@@ -210,6 +233,7 @@ class ConfirmacionController extends BaseController
                 }));
             }
 
+            // ✅ ya vienen ordenados por (express primero + antiguos)
             $candidatos = array_slice($candidatos, 0, $count);
 
             if (!$candidatos) {
@@ -696,7 +720,6 @@ class ConfirmacionController extends BaseController
         $title = strtolower($item['title'] ?? '');
         $sku   = strtolower($item['sku'] ?? '');
 
-        // strtolower ya deja todo en minúsculas
         $keywords = ['llavero', 'lampara', 'lámpara'];
 
         foreach ($keywords as $word) {
