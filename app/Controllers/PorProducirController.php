@@ -12,7 +12,7 @@ class PorProducirController extends Controller
      */
     public function index()
     {
-        return view('porproducir/porProducir');
+        return view('porproducir');
     }
 
     /**
