@@ -7,7 +7,10 @@
 //    - extraerUrls para props tipo objeto/array
 //    - imagenesLocales por index O por line_item_id
 //    - subirImagenProducto envía line_item_id
-// ✅ NUEVO: FILTRO "Solo cancelados" -> param cancelado=1 (checkbox #f_cancelado)
+// ✅ NUEVO: FILTRO "Solo cancelados" (checkbox #f_cancelado)
+// ✅ NUEVO (CLAVE): MODO CLIENT para filtros por:
+//    - estado interno (incluye pedidos MODIFICADOS y NO MODIFICADOS)
+//    - cancelados (muestra TODOS los cancelados aunque backend no lo resuelva perfecto)
 // =====================================================
 
 /* =====================================================
@@ -36,6 +39,36 @@ let lastFetchToken = 0;
 // protege cambios recientes (evita que LIVE sobrescriba el estado recién guardado)
 const dirtyOrders = new Map(); // id -> { until:number, estado:string, last_status_change:{} }
 const DIRTY_TTL_MS = 15000; // 15s
+
+// =====================================================
+// ✅ CLIENT AGG MODE (para estado interno y/o cancelados)
+// - Escanea páginas, aplica LS/dirty y filtra en frontend
+// - Así incluye pedidos MODIFICADOS (LS/dirty) y NO MODIFICADOS
+// =====================================================
+let clientAgg = {
+  key: null,
+  pageSize: 20,
+  loadedPages: 0,
+  exhausted: false,
+  results: [],
+  endpointResolved: null,
+  applyFilters: false, // si usamos /dashboard/filter para otros filtros server-side
+};
+
+const CLIENT_AGG_MAX_PAGES = 80; // seguridad
+const CLIENT_AGG_MAX_RESULTS = 8000; // seguridad
+
+function resetClientAgg() {
+  clientAgg = {
+    key: null,
+    pageSize: 20,
+    loadedPages: 0,
+    exhausted: false,
+    results: [],
+    endpointResolved: null,
+    applyFilters: false,
+  };
+}
 
 function escapeAttr(str) {
   return String(str ?? "")
@@ -120,7 +153,7 @@ const FILTERS = {
   total_max: "",
   art_min: "",
   art_max: "",
-  cancelado: "", // ✅ NUEVO: "1" si checkbox marcado
+  cancelado: "", // "1" si checkbox marcado
 };
 
 function readFiltersFromUI() {
@@ -137,7 +170,6 @@ function readFiltersFromUI() {
   FILTERS.art_min = v("f_art_min");
   FILTERS.art_max = v("f_art_max");
 
-  // ✅ NUEVO: checkbox "Solo cancelados" (id: f_cancelado)
   const chkCancelado = document.getElementById("f_cancelado");
   FILTERS.cancelado = chkCancelado && chkCancelado.checked ? "1" : "";
 
@@ -148,8 +180,12 @@ function hasActiveFilters() {
   return Object.values(FILTERS).some((val) => String(val ?? "").trim() !== "");
 }
 
-function applyFiltersToUrl(u) {
+// ✅ Permite saltar estado/cancelado cuando el filtrado se hace en el cliente
+function applyFiltersToUrl(u, { skipEstado = false, skipCancelado = false } = {}) {
   for (const [k, val] of Object.entries(FILTERS)) {
+    if (skipEstado && k === "estado") continue;
+    if (skipCancelado && k === "cancelado") continue;
+
     const s = String(val ?? "").trim();
     if (s !== "") u.searchParams.set(k, s);
     else u.searchParams.delete(k);
@@ -201,20 +237,20 @@ function setupFiltersUI() {
   };
 
   const runClear = () => {
-    ["f_q", "f_estado", "f_envio", "f_forma", "f_desde", "f_hasta", "f_total_min", "f_total_max", "f_art_min", "f_art_max"].forEach(
+    ["f_q", "f_q_top", "f_estado", "f_envio", "f_forma", "f_desde", "f_hasta", "f_total_min", "f_total_max", "f_art_min", "f_art_max"].forEach(
       (id) => {
         const el = document.getElementById(id);
         if (el) el.value = "";
       }
     );
 
-    // ✅ NUEVO: limpiar checkbox cancelado
     const chk = document.getElementById("f_cancelado");
     if (chk) chk.checked = false;
 
     readFiltersFromUI();
     filterMode = false;
 
+    resetClientAgg();
     resetToFirstPage({ withFetch: true });
     resumeLiveIfOnFirstPage();
   };
@@ -229,7 +265,7 @@ function setupFiltersUI() {
     });
   }
 
-  // ✅ buscador top (siempre visible)
+  // buscador top (siempre visible)
   const qTop = document.getElementById("f_q_top");
   const btnBuscarTop = document.getElementById("btnBuscarTop");
 
@@ -250,7 +286,7 @@ function setupFiltersUI() {
     });
   }
 
-  // ✅ NUEVO: si el checkbox cambia, aplica filtros (opcional pero útil)
+  // checkbox cancelado: aplicar al cambiar
   const chkCancelado = document.getElementById("f_cancelado");
   if (chkCancelado) chkCancelado.addEventListener("change", runApply);
 }
@@ -329,25 +365,20 @@ function resumeLiveIfOnFirstPage() {
   HELPERS
 ===================================================== */
 
-// ✅ FIX: esImagenUrl más tolerante (URLs sin extensión, rutas relativas, data:)
+// esImagenUrl más tolerante
 function esImagenUrl(url) {
   if (!url) return false;
   const u = String(url).trim();
 
-  // data urls
   if (/^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,/i.test(u)) return true;
-
-  // http(s) con extensión clásica
   if (/^https?:\/\/.+\.(jpeg|jpg|png|gif|webp|svg)(\?.*)?$/i.test(u)) return true;
 
-  // http(s) sin extensión pero con patrones comunes
   if (
     /^https?:\/\/.+/i.test(u) &&
     /(cdn\.shopify\.com|cloudfront|amazonaws|vercel|firebase|imgix|images|upload|storage|files)/i.test(u)
   )
     return true;
 
-  // rutas relativas típicas (ajusta a tus rutas si hace falta)
   if (/^(\/uploads\/|\/storage\/|\/files\/|\/img\/)/i.test(u)) return true;
 
   return false;
@@ -376,7 +407,7 @@ function esBadgeHtml(valor) {
   return s.startsWith("<span") || s.includes("<span") || s.includes("</span>");
 }
 
-// ✅ FIX: Extraer URLs desde props tipo string / array / object
+// Extraer URLs desde props tipo string / array / object
 function extraerUrls(value) {
   if (value == null) return [];
 
@@ -393,7 +424,6 @@ function extraerUrls(value) {
     if (value.file) candidates.push(value.file);
     if (value.image) candidates.push(value.image);
 
-    // por si es objeto indexado {0:"...",1:"..."}
     for (const k of Object.keys(value)) {
       const v = value[k];
       if (typeof v === "string") candidates.push(v);
@@ -419,7 +449,6 @@ function normalizeEstado(estado) {
   if (s.includes("enviado")) return "Enviado";
   if (s.includes("repetir")) return "Repetir";
 
-  // ✅ NUEVO: CANCELADO (variantes comunes)
   if (
     s.includes("cancelado") ||
     s.includes("cancelada") ||
@@ -431,6 +460,38 @@ function normalizeEstado(estado) {
     return "Cancelado";
 
   return estado ? String(estado).trim() : "Por preparar";
+}
+
+// ✅ Detectar cancelación (para el checkbox "Solo cancelados")
+function isOrderCanceled(o) {
+  if (!o || typeof o !== "object") return false;
+
+  const boolish = (v) => v === true || v === 1 || v === "1" || String(v || "").toLowerCase() === "true";
+
+  if (boolish(o.cancelado) || boolish(o.cancelled) || boolish(o.canceled) || boolish(o.is_cancelled) || boolish(o.is_canceled)) return true;
+
+  const dt =
+    o.cancelled_at ||
+    o.canceled_at ||
+    o.cancelado_en ||
+    o.cancelado_at ||
+    o.cancelledAt ||
+    o.canceledAt ||
+    o.cancelled_date ||
+    o.canceled_date;
+
+  if (dt && String(dt).trim() && String(dt).trim() !== "-" && String(dt).toLowerCase() !== "null") return true;
+
+  const st = String(o.status || o.estado_shopify || o.shopify_status || "").toLowerCase();
+  if (st.includes("cancel")) return true;
+
+  const fin = String(o.financial_status || "").toLowerCase();
+  if (fin.includes("void") || fin.includes("cancel")) return true;
+
+  // si su estado interno es Cancelado
+  if (normalizeEstado(o.estado) === "Cancelado") return true;
+
+  return false;
 }
 
 /* =====================================================
@@ -481,6 +542,60 @@ function applyEstadosLSToIncoming(incoming) {
       last_status_change: o.last_status_change || saved.last_status_change || null,
     };
   });
+}
+
+// ✅ dirty protection reusable
+function applyDirtyProtectionToIncoming(incoming) {
+  const now = Date.now();
+  return (incoming || []).map((o) => {
+    const id = String(o.id ?? "");
+    if (!id) return o;
+
+    const dirty = dirtyOrders.get(id);
+    if (dirty && dirty.until > now) return { ...o, estado: dirty.estado, last_status_change: dirty.last_status_change };
+    if (dirty) dirtyOrders.delete(id);
+    return o;
+  });
+}
+
+/* =====================================================
+  ✅ MODO CLIENT: decidir si se usa y cómo
+===================================================== */
+
+// cuando filtros incluyen estado y/o cancelado, lo filtramos en el cliente
+function shouldUseClientAggMode() {
+  const hasEstado = String(FILTERS.estado || "").trim() !== "";
+  const hasCancelado = String(FILTERS.cancelado || "").trim() === "1";
+  return filterMode && (hasEstado || hasCancelado);
+}
+
+// si hay filtros "reales" (q/envio/forma/fechas/totales/artículos) conviene usar /filter
+function hasServerFiltersBesidesClientOnes() {
+  const tmp = { ...FILTERS };
+  delete tmp.estado;
+  delete tmp.cancelado;
+  return Object.values(tmp).some((v) => String(v ?? "").trim() !== "");
+}
+
+function clientAggKey() {
+  // clave estable por filtros
+  return JSON.stringify({ ...FILTERS, __mode: "clientAgg_v1" });
+}
+
+function matchClientFilters(o) {
+  // AND lógico entre estado y cancelado si ambos se usan
+  const wantedEstado = String(FILTERS.estado || "").trim();
+  const wantEstado = wantedEstado ? normalizeEstado(wantedEstado) : "";
+
+  if (wantEstado) {
+    if (normalizeEstado(o?.estado) !== wantEstado) return false;
+  }
+
+  if (String(FILTERS.cancelado || "").trim() === "1") {
+    if (!isOrderCanceled(o)) return false;
+  }
+
+  return true;
 }
 
 /* =====================================================
@@ -599,7 +714,7 @@ function resetToFirstPage({ withFetch = false } = {}) {
 }
 
 /* =====================================================
-  CARGAR PEDIDOS
+  CARGAR PEDIDOS (NORMAL + CLIENT AGG)
 ===================================================== */
 function cargarPedidos({ page_info = "", reset = false } = {}) {
   if (isLoading) return;
@@ -610,9 +725,8 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
 
   readFiltersFromUI();
 
-  const base = filterMode ? window.API?.filter || apiUrl("/dashboard/filter") : window.API?.pedidos || apiUrl("/dashboard/pedidos");
-
-  const fallback = window.API?.filter || apiUrl("/dashboard/filter");
+  const ENDPOINT_FILTER = window.API?.filter || apiUrl("/dashboard/filter");
+  const ENDPOINT_PEDIDOS = window.API?.pedidos || apiUrl("/dashboard/pedidos");
 
   if (reset) {
     currentPage = 1;
@@ -621,20 +735,187 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
     page_info = "";
   }
 
-  const buildUrl = (endpoint) => {
+  const buildUrl = (endpoint, { pageNum = currentPage, applyFilters = false, skipEstado = false, skipCancelado = false, pageInfo = page_info } = {}) => {
     const u = new URL(endpoint, window.location.origin);
-    u.searchParams.set("page", String(currentPage));
+    u.searchParams.set("page", String(pageNum));
 
-    if (!filterMode && page_info) u.searchParams.set("page_info", page_info);
-    if (filterMode) applyFiltersToUrl(u);
+    // page_info sólo para modo no-filtro (si tu backend lo usa)
+    if (!applyFilters && pageInfo) u.searchParams.set("page_info", pageInfo);
+
+    if (applyFilters) applyFiltersToUrl(u, { skipEstado, skipCancelado });
 
     return u.toString();
   };
 
-  fetch(buildUrl(base), { headers: { Accept: "application/json" } })
+  const fetchJson = async (endpoint, opts) => {
+    const url = buildUrl(endpoint, opts);
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const data = await res.json().catch(() => null);
+    return { res, data, url };
+  };
+
+  // =====================================================
+  // ✅ MODO CLIENT AGG: estado interno y/o cancelados
+  // - NO envía estado/cancelado al backend
+  // - Aplica LS/dirty y filtra aquí
+  // =====================================================
+  const useClientAgg = shouldUseClientAggMode();
+
+  if (useClientAgg) {
+    const key = clientAggKey();
+    if (reset || clientAgg.key !== key) {
+      resetClientAgg();
+      clientAgg.key = key;
+      clientAgg.applyFilters = hasServerFiltersBesidesClientOnes(); // si hay filtros extra, usamos /filter
+    }
+
+    const scanEndpointBase = clientAgg.applyFilters ? ENDPOINT_FILTER : ENDPOINT_PEDIDOS;
+    const scanFallback = ENDPOINT_FILTER; // si /pedidos no existe, cae a /filter
+
+    const ensureEnoughThenRender = async () => {
+      try {
+        const targetNeed = (currentPage + 1) * clientAgg.pageSize; // page actual + saber si hay siguiente
+
+        while (!clientAgg.exhausted && clientAgg.results.length < targetNeed && clientAgg.loadedPages < CLIENT_AGG_MAX_PAGES) {
+          const pageNum = clientAgg.loadedPages + 1;
+
+          const endpointToUse = clientAgg.endpointResolved || scanEndpointBase;
+          let { res, data } = await fetchJson(endpointToUse, {
+            pageNum,
+            applyFilters: clientAgg.applyFilters, // sólo si estamos usando /filter por otros filtros
+            skipEstado: true,
+            skipCancelado: true,
+            pageInfo: "", // en agg no usamos page_info
+          });
+
+          // si 404, probar fallback
+          if (res.status === 404 && endpointToUse !== scanFallback) {
+            const r2 = await fetchJson(scanFallback, {
+              pageNum,
+              applyFilters: clientAgg.applyFilters,
+              skipEstado: true,
+              skipCancelado: true,
+              pageInfo: "",
+            });
+            res = r2.res;
+            data = r2.data;
+            clientAgg.endpointResolved = scanFallback;
+          } else {
+            clientAgg.endpointResolved = endpointToUse;
+          }
+
+          if (fetchToken !== lastFetchToken) return;
+
+          if (!data || data.success !== true) {
+            clientAgg.exhausted = true;
+            break;
+          }
+
+          let incoming = Array.isArray(data.orders) ? data.orders : [];
+
+          // infer page size en la primera carga
+          if (pageNum === 1) {
+            const ps = Number(data.per_page ?? data.page_size ?? data.limit ?? 0);
+            const inferred = ps > 0 ? ps : incoming.length || clientAgg.pageSize;
+            if (inferred > 0) clientAgg.pageSize = inferred;
+
+            fillFormaEntregaOptionsFromOrders(incoming);
+          }
+
+          // aplica LS (modificados) + dirty
+          incoming = applyEstadosLSToIncoming(incoming);
+          incoming = applyDirtyProtectionToIncoming(incoming);
+
+          // filtra en cliente
+          const matched = incoming.filter(matchClientFilters);
+
+          clientAgg.results.push(...matched);
+          clientAgg.loadedPages = pageNum;
+
+          // detectar si hay más páginas
+          const totalPages = Number(data.total_pages ?? 0);
+          const hasMore =
+            !!data.next_page_info ||
+            (totalPages > 0 && pageNum < totalPages) ||
+            (incoming.length > 0 && incoming.length >= clientAgg.pageSize);
+
+          if (!hasMore) clientAgg.exhausted = true;
+
+          if (clientAgg.results.length >= CLIENT_AGG_MAX_RESULTS) clientAgg.exhausted = true;
+        }
+
+        // render de la página actual desde results
+        const start = (currentPage - 1) * clientAgg.pageSize;
+        const pageItems = clientAgg.results.slice(start, start + clientAgg.pageSize);
+
+        ordersCache = pageItems;
+        ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
+
+        try {
+          actualizarTabla(ordersCache);
+        } catch (e) {
+          console.error("Error renderizando tabla:", e);
+          actualizarTabla([]);
+        }
+
+        // info filtros
+        const info = document.getElementById("filtersInfo");
+        if (info) {
+          const estadoTxt = String(FILTERS.estado || "").trim() ? `Estado: ${escapeHtml(normalizeEstado(FILTERS.estado))}` : "";
+          const cancTxt = String(FILTERS.cancelado || "") === "1" ? "Solo cancelados" : "";
+          const head = [estadoTxt, cancTxt].filter(Boolean).join(" · ");
+          const plus = clientAgg.exhausted ? "" : "+";
+          info.textContent = `${head}${head ? " · " : ""}Mostrando ${pageItems.length} · Acumulado ${clientAgg.results.length}${plus}`;
+        }
+
+        // total pedidos (en este modo es el acumulado)
+        const totalEl = document.getElementById("total-pedidos");
+        if (totalEl) totalEl.textContent = String(clientAgg.results.length);
+
+        // paginación
+        prevPageInfo = currentPage > 1 ? "1" : null;
+        const haveNextCached = clientAgg.results.length > start + clientAgg.pageSize;
+        const maybeNext = haveNextCached || !clientAgg.exhausted;
+        nextPageInfo = maybeNext ? "1" : null;
+
+        const totalPagesClient = clientAgg.exhausted ? Math.max(1, Math.ceil(clientAgg.results.length / clientAgg.pageSize)) : null;
+        setPaginaUI({ totalPages: totalPagesClient });
+
+        actualizarControlesPaginacion();
+      } catch (err) {
+        if (fetchToken !== lastFetchToken) return;
+        console.error("Error CLIENT AGG:", err);
+        actualizarTabla([]);
+        ordersCache = [];
+        ordersById = new Map();
+        nextPageInfo = null;
+        prevPageInfo = null;
+        actualizarControlesPaginacion();
+        setPaginaUI({ totalPages: null });
+      } finally {
+        if (fetchToken !== lastFetchToken) return;
+        isLoading = false;
+        silentFetch = false;
+        hideLoader();
+      }
+    };
+
+    ensureEnoughThenRender();
+    return;
+  }
+
+  // =====================================================
+  // ✅ MODO NORMAL (como estaba)
+  // =====================================================
+  const base = filterMode ? ENDPOINT_FILTER : ENDPOINT_PEDIDOS;
+  const fallback = ENDPOINT_FILTER;
+
+  fetch(buildUrl(base, { applyFilters: filterMode, skipEstado: false, skipCancelado: false, pageInfo: page_info }), { headers: { Accept: "application/json" } })
     .then(async (res) => {
       if (res.status === 404) {
-        const r2 = await fetch(buildUrl(fallback), { headers: { Accept: "application/json" } });
+        const r2 = await fetch(buildUrl(fallback, { applyFilters: true, skipEstado: false, skipCancelado: false, pageInfo: "" }), {
+          headers: { Accept: "application/json" },
+        });
         return r2.json();
       }
       return res.json();
@@ -667,18 +948,7 @@ function cargarPedidos({ page_info = "", reset = false } = {}) {
       }
 
       incoming = applyEstadosLSToIncoming(incoming);
-
-      // dirty protection
-      const now = Date.now();
-      incoming = incoming.map((o) => {
-        const id = String(o.id ?? "");
-        if (!id) return o;
-
-        const dirty = dirtyOrders.get(id);
-        if (dirty && dirty.until > now) return { ...o, estado: dirty.estado, last_status_change: dirty.last_status_change };
-        if (dirty) dirtyOrders.delete(id);
-        return o;
-      });
+      incoming = applyDirtyProtectionToIncoming(incoming);
 
       ordersCache = incoming;
       ordersById = new Map(ordersCache.map((o) => [String(o.id), o]));
@@ -1024,7 +1294,7 @@ async function guardarEstado(nuevoEstado) {
   const prevEstado = order?.estado ?? null;
   const prevLast = order?.last_status_change ?? null;
 
-  // 1) UI instantánea + dirty
+  // UI instantánea + dirty
   const userName = window.CURRENT_USER || "Sistema";
   const now = new Date();
   const nowStr = now.toISOString().slice(0, 19).replace("T", " ");
@@ -1079,7 +1349,7 @@ async function guardarEstado(nuevoEstado) {
           throw new Error(d?.message || `HTTP ${r.status}`);
         }
 
-        // 3) Sync desde backend (si viene)
+        // Sync desde backend (si viene)
         if (d?.order && order) {
           order.estado = d.order.estado ?? order.estado;
           order.last_status_change = d.order.last_status_change ?? order.last_status_change;
@@ -1388,7 +1658,7 @@ window.verDetalles = async function (orderId) {
           </div>
         `;
 
-        // ✅ FIX: imagen modificada puede venir por index o por line_item_id
+        // imagen modificada puede venir por index o por line_item_id
         const lineId = String(item.id || item.line_item_id || item.variant_id || "");
         const localUrl =
           (lineId && getLocalImageUrl(imagenesLocales, lineId)) ||
@@ -1488,7 +1758,7 @@ window.verDetalles = async function (orderId) {
         </div>
       `;
 
-        // ✅ FIX: Pasar line_item_id al subir
+        // Pasar line_item_id al subir
         const uploadHtml = requiere
           ? `
           <div class="mt-4">
@@ -1542,7 +1812,7 @@ window.verDetalles = async function (orderId) {
 
 // ===============================
 // SUBIR IMAGEN MODIFICADA (ROBUSTO)
-// ✅ FIX: recibe lineItemId y lo manda al backend
+// recibe lineItemId y lo manda al backend
 // ===============================
 window.subirImagenProducto = async function (orderId, index, lineItemId, input) {
   try {
@@ -1623,7 +1893,6 @@ window.subirImagenProducto = async function (orderId, index, lineItemId, input) 
         window.imagenesCargadas[index] = true;
 
         if (window.imagenesLocales && typeof window.imagenesLocales === "object") {
-          // ✅ guardar por line_item_id si existe, si no por index
           if (lineItemId) window.imagenesLocales[String(lineItemId)] = urlFinal;
           window.imagenesLocales[index] = urlFinal;
         }
@@ -1673,7 +1942,7 @@ window.validarEstadoAuto = async function (orderId) {
     const estadoActual = String(order?.estado || "").toLowerCase().trim();
     const nuevoLower = nuevoEstado.toLowerCase();
 
-    // ✅ NO sobrescribir si está CANCELADO
+    // NO sobrescribir si está CANCELADO
     if (
       estadoActual.includes("cancelado") ||
       estadoActual.includes("cancelada") ||
@@ -1739,7 +2008,7 @@ window.renderUsersStatus = function (payload) {
   if (!onlineEl || !offlineEl) return;
 
   const users = payload?.users || [];
-                                                                                                                                                                  
+
   const normalized = users.map((u) => {
     const secs =
       u.seconds_since_seen != null
