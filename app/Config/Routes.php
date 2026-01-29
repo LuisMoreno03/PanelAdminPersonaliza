@@ -299,9 +299,6 @@ $routes->post('montaje/cargado', 'MontajeController::cargado');
 
 
 // ✅ Vista Por producir
-Route::get('/por-producir', [PorProducir::class, 'index'])->name('porproducir.index');
-Route::get('/por-producir/pull', [PorProducir::class, 'pull'])->name('porproducir.pull');
-Route::patch('/por-producir/{id}/metodo-entrega', [PorProducir::class, 'updateMetodoEntrega'])->name('porproducir.updateMetodoEntrega');
 
 
 $routes->get('seguimiento', 'SeguimientoController::index');
