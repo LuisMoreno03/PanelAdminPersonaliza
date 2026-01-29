@@ -900,6 +900,24 @@
       q('cargaMsg').textContent = 'Error de red al subir.';
     };
 
+    // selectedPedidos debe ser un Set con los IDs seleccionados
+    // y productosData la lista devuelta por el endpoint (items)
+
+    const pedidosSeleccionados = Array.from(window.selectedPedidos || []);
+    const payloadPedidos = pedidosSeleccionados.map(id => {
+    const it = (window.productosData || []).find(x => String(x.id) === String(id));
+    return {
+        id: String(id),
+        numero: it?.pedido_display || it?.numero || it?.label || '',
+        cliente: it?.cliente || '',
+        fecha: it?.fecha || '',
+        articulos: it?.articulos ?? null,
+        estado: it?.estado || 'Por producir'
+    };
+    });
+
+    fd.append('pedidos_json', JSON.stringify(payloadPedidos));
+
     xhr.send(fd);
   }
 

@@ -212,7 +212,7 @@ class PlacasArchivosController extends BaseController
             $db = \Config\Database::connect();
             $tables = $db->listTables();
 
-            // Preferimos SIEMPRE tu tabla interna, NO Shopify
+            // ✅ Tabla interna de pedidos (ajusta si ya sabes el nombre exacto)
             $preferred = ['pedidos', 'pedidos_internos', 'pedidos_cache', 'panel_pedidos'];
             $orderTable = null;
 
@@ -243,23 +243,19 @@ class PlacasArchivosController extends BaseController
                 return null;
             };
 
-            // ✅ Columnas típicas del panel interno
-            $idCol     = $pick(['id', 'pedido_id', 'order_id']);
+            // ✅ Columnas típicas del panel interno (según tu screenshot: numero, estado, cliente, fecha, articulos)
+            $idCol     = $pick(['id', 'pedido_id', 'order_id']) ?: 'id';
             $numeroCol = $pick(['numero', 'number', 'pedido_numero', 'numero_pedido', 'order_number', 'folio', 'codigo']);
             $estadoCol = $pick(['estado', 'estado_interno', 'estado_actual', 'status']);
             $clienteCol= $pick(['cliente', 'cliente_nombre', 'nombre_cliente', 'customer', 'customer_name']);
             $fechaCol  = $pick(['fecha', 'created_at', 'created', 'fecha_creacion']);
             $artCol    = $pick(['articulos', 'items', 'items_count', 'total_items']);
 
-            if (!$idCol) $idCol = 'id';
-
-            // ✅ Estado deseado (por defecto: Por preparar)
-            $estadoWanted = trim((string)($this->request->getGet('estado') ?? 'Por preparar'));
-            $estadoWantedLike = strtolower($estadoWanted);
+            // ✅ Estado FIJO (no param): SOLO Por producir
+            $estadoWanted = 'Por producir';
 
             $b = $db->table($orderTable);
 
-            // SELECT mínimo
             $select = ["$idCol as id"];
             if ($numeroCol)  $select[] = "$numeroCol as numero";
             if ($estadoCol)  $select[] = "$estadoCol as estado";
@@ -269,53 +265,50 @@ class PlacasArchivosController extends BaseController
 
             $b->select(implode(',', $select));
 
-            // ✅ Filtro por estado interno = Por preparar (robusto)
+            // ✅ filtro fuerte a Por producir
             if ($estadoCol) {
-                // Si tu campo es texto: "Por preparar"
+                // En MySQL normalmente es case-insensitive por collation; igual dejamos robusto:
                 $b->groupStart()
-                ->like($estadoCol, $estadoWantedLike) // captura "Por preparar", "por preparar", etc.
-                ->orLike($estadoCol, 'prepar')        // extra robustez por si cambia
+                ->where($estadoCol, $estadoWanted)
+                ->orWhere("LOWER($estadoCol) = ", strtolower($estadoWanted), false)
+                ->orLike($estadoCol, 'por produc') // por si hay variaciones
                 ->groupEnd();
             }
 
-            // Orden
             if ($fechaCol) $b->orderBy($fechaCol, 'DESC');
             else $b->orderBy($idCol, 'DESC');
 
             $b->limit(300);
-
             $rows = $b->get()->getResultArray();
 
-            // ✅ Formateo: usar el numero REAL (#PEDIDO0000...) si existe
             $items = array_map(function($r) {
                 $numero = (string)($r['numero'] ?? '');
-                $estado = (string)($r['estado'] ?? '');
+                $estado = (string)($r['estado'] ?? 'Por producir');
                 $cliente = (string)($r['cliente'] ?? '');
                 $fecha = (string)($r['fecha'] ?? '');
                 $articulos = $r['articulos'] ?? null;
 
-                // Si viene solo un número, lo convertimos a #PEDIDO0000 (por si acaso)
+                // ✅ Asegura formato #PEDIDO....
+                if ($numero !== '' && strpos($numero, '#') !== 0 && stripos($numero, 'pedido') !== false) {
+                    $numero = '#'.strtoupper(ltrim($numero, '#'));
+                }
                 if ($numero !== '' && strpos($numero, '#') !== 0 && preg_match('/^\d+$/', $numero)) {
                     $numero = '#PEDIDO' . str_pad($numero, 4, '0', STR_PAD_LEFT);
                 }
 
-                // Si viene "pedido0001" sin #, se lo ponemos
-                if ($numero !== '' && stripos($numero, 'pedido') === 0 && strpos($numero, '#') !== 0) {
-                    $numero = '#'.strtoupper($numero);
-                }
-
-                $label = $numero !== '' ? $numero : ('Pedido #' . (string)($r['id'] ?? ''));
+                $label = ($numero !== '' ? $numero : ('Pedido #' . (string)($r['id'] ?? '')));
                 if ($cliente !== '') $label .= ' — ' . $cliente;
-                if ($estado !== '')  $label .= ' — ' . $estado;
+                $label .= ' — ' . $estado;
 
                 return [
-                    'id'      => (string)($r['id'] ?? ''),
-                    'numero'  => $numero,
-                    'estado'  => $estado,
-                    'cliente' => $cliente,
-                    'fecha'   => $fecha,
-                    'articulos' => $articulos,
-                    'label'   => $label,
+                    'id'             => (string)($r['id'] ?? ''),
+                    'pedido_display' => $numero,       // ✅ lo que verás en la UI
+                    'numero'         => $numero,
+                    'estado'         => $estado,
+                    'cliente'        => $cliente,
+                    'fecha'          => $fecha,
+                    'articulos'      => $articulos,
+                    'label'          => $label,
                 ];
             }, $rows);
 
@@ -332,6 +325,7 @@ class PlacasArchivosController extends BaseController
             ]);
         }
     }
+
 
     /**
      * POST /placas/archivos/subir-lote
