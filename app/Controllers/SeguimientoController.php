@@ -221,14 +221,12 @@ class SeguimientoController extends BaseController
             if ($limit > 200) $limit = 200;
             if ($offset < 0) $offset = 0;
 
+            // Validación fechas YYYY-MM-DD
             if ($from && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
                 return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>'from inválido (usa YYYY-MM-DD)']);
             }
             if ($to && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
                 return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>'to inválido (usa YYYY-MM-DD)']);
-            }
-            if ($from && $to && $from > $to) {
-                return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>'Rango inválido: from > to']);
             }
 
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnionDetail($db, $from, $to);
@@ -243,77 +241,99 @@ class SeguimientoController extends BaseController
                     'user_name' => $userInfo['name'],
                     'user_email' => $userInfo['email'],
                     'total' => 0,
-                    'pedidos_tocados' => 0,
-                    'pedidos' => [],
                     'limit' => $limit,
                     'offset' => $offset,
                     'data' => [],
+                    'pedidos' => [],
+                    'kpis' => ['confirmados' => 0, 'disenos' => 0],
                     'sources' => [],
                     'range' => ['from' => $from, 'to' => $to],
                 ]);
             }
 
-            $cte = "
-                WITH h AS (
-                    $unionSQL
-                ),
-                hx AS (
-                    SELECT
-                      t.*,
-                      LAG(t.estado_nuevo) OVER (
-                        PARTITION BY t.entidad, t.entidad_id
-                        ORDER BY t.created_at
-                      ) AS prev_estado
-                    FROM h t
-                )
-            ";
-
-            $totalSql = $cte . " SELECT COUNT(*) AS total FROM hx WHERE user_id = ?";
+            // Total SOLO del usuario
+            $totalSql = "SELECT COUNT(*) as total FROM ($unionSQL) t WHERE t.user_id = ?";
             $total = (int)($db->query($totalSql, array_merge($binds, [$userId]))->getRowArray()['total'] ?? 0);
 
-            $ptSql = $cte . "
-                SELECT COUNT(DISTINCT CONCAT(entidad,':',entidad_id)) AS pedidos_tocados
-                FROM hx
-                WHERE user_id = ?
-                  AND entidad IN ('pedido','order')
-                  AND entidad_id IS NOT NULL
-                  AND entidad_id <> 0
-            ";
-            $pt = (int)($db->query($ptSql, array_merge($binds, [$userId]))->getRowArray()['pedidos_tocados'] ?? 0);
-
-            // ✅ lista de pedidos tocados por este usuario
-            $pedidosSql = $cte . "
+            // ✅ Página con estado_anterior REAL (LAG)
+            $pageSql = "
                 SELECT
-                  entidad,
-                  entidad_id,
-                  COUNT(*) AS cambios,
-                  MAX(created_at) AS ultimo
-                FROM hx
-                WHERE user_id = ?
-                  AND entidad IN ('pedido','order')
-                  AND entidad_id IS NOT NULL
-                  AND entidad_id <> 0
-                GROUP BY entidad, entidad_id
+                    x.user_id,
+                    x.created_at,
+                    x.entidad,
+                    x.entidad_id,
+                    COALESCE(NULLIF(x.estado_anterior,''), x.prev_estado) AS estado_anterior,
+                    x.estado_nuevo
+                FROM (
+                    SELECT
+                        t.*,
+                        LAG(t.estado_nuevo) OVER (
+                            PARTITION BY t.entidad, t.entidad_id
+                            ORDER BY t.created_at
+                        ) AS prev_estado
+                    FROM ($unionSQL) t
+                ) x
+                WHERE x.user_id = ?
+                ORDER BY x.created_at DESC
+                LIMIT ? OFFSET ?
+            ";
+
+            $rows = $db->query($pageSql, array_merge($binds, [$userId, $limit, $offset]))->getResultArray();
+
+            // ✅ Pedidos tocados por usuario (para chips)
+            $pedidosSql = "
+                SELECT
+                    t.entidad,
+                    t.entidad_id,
+                    COUNT(*) AS cambios,
+                    MAX(t.created_at) AS ultimo
+                FROM ($unionSQL) t
+                WHERE t.user_id = ?
+                AND t.entidad IN ('pedido','order')
+                AND t.entidad_id IS NOT NULL
+                AND t.entidad_id <> 0
+                GROUP BY t.entidad, t.entidad_id
                 ORDER BY ultimo DESC
                 LIMIT 300
             ";
-            $pedidosList = $db->query($pedidosSql, array_merge($binds, [$userId]))->getResultArray();
+            $pedidos = $db->query($pedidosSql, array_merge($binds, [$userId]))->getResultArray();
 
-            // ✅ detalle paginado (sin source)
-            $pageSql = $cte . "
+            // ✅ KPIs (Confirmados / Diseños) por pedidos ÚNICOS
+            $prevExpr = "COALESCE(NULLIF(x.estado_anterior,''), x.prev_estado)";
+            $normNew  = $this->normSql("x.estado_nuevo");
+            $normPrev = $this->normSql($prevExpr);
+
+            $kpiSql = "
                 SELECT
-                  user_id,
-                  created_at,
-                  entidad,
-                  entidad_id,
-                  COALESCE(NULLIF(estado_anterior,''), prev_estado) AS estado_anterior,
-                  estado_nuevo
-                FROM hx
-                WHERE user_id = ?
-                ORDER BY created_at DESC
-                LIMIT $limit OFFSET $offset
+                    COUNT(DISTINCT CASE
+                        WHEN x.user_id = ?
+                        AND x.entidad IN ('pedido','order')
+                        AND x.entidad_id IS NOT NULL AND x.entidad_id <> 0
+                        AND $normNew = 'confirmado'
+                        AND $normPrev IN ('por producir','por producion','por produccion','faltan archivos')
+                        THEN x.entidad_id END
+                    ) AS confirmados,
+
+                    COUNT(DISTINCT CASE
+                        WHEN x.user_id = ?
+                        AND x.entidad IN ('pedido','order')
+                        AND x.entidad_id IS NOT NULL AND x.entidad_id <> 0
+                        AND $normNew = 'disenado'
+                        AND ( $normPrev IS NULL OR $normPrev <> 'disenado' )
+                        THEN x.entidad_id END
+                    ) AS disenos
+                FROM (
+                    SELECT
+                        t.*,
+                        LAG(t.estado_nuevo) OVER (
+                            PARTITION BY t.entidad, t.entidad_id
+                            ORDER BY t.created_at
+                        ) AS prev_estado
+                    FROM ($unionSQL) t
+                ) x
             ";
-            $rows = $db->query($pageSql, array_merge($binds, [$userId]))->getResultArray();
+
+            $kpiRow = $db->query($kpiSql, array_merge($binds, [$userId, $userId]))->getRowArray();
 
             return $this->response->setJSON([
                 'ok' => true,
@@ -321,11 +341,14 @@ class SeguimientoController extends BaseController
                 'user_name' => $userInfo['name'],
                 'user_email' => $userInfo['email'],
                 'total' => $total,
-                'pedidos_tocados' => $pt,
-                'pedidos' => $pedidosList,
                 'limit' => $limit,
                 'offset' => $offset,
                 'data' => $rows,
+                'pedidos' => $pedidos,
+                'kpis' => [
+                    'confirmados' => (int)($kpiRow['confirmados'] ?? 0),
+                    'disenos' => (int)($kpiRow['disenos'] ?? 0),
+                ],
                 'sources' => $sourcesUsed,
                 'range' => ['from' => $from, 'to' => $to],
             ]);
@@ -338,6 +361,23 @@ class SeguimientoController extends BaseController
             ]);
         }
     }
+
+    private function normSql(string $expr): string
+    {
+        // normaliza: lower + trim + quita acentos comunes
+        return "LOWER(TRIM(
+            REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                $expr,
+                'Á','a'),'á','a'),
+                'É','e'),'é','e'),
+                'Í','i'),'í','i'),
+                'Ó','o'),'ó','o'),
+                'Ú','u'),'ú','u')
+        ))";
+    }
+
+    
 
     // ------------------------ USERS ------------------------
 

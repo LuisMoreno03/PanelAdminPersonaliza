@@ -336,15 +336,42 @@
   }
 
   function pill(label, value, strong = false) {
-    return `
-      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <span class="text-[11px] font-extrabold text-slate-500 uppercase">${escapeHtml(label)}</span>
-        <span class="${strong ? 'text-sm font-extrabold text-slate-900' : 'text-sm font-bold text-slate-700'}">
-          ${escapeHtml(value)}
-        </span>
-      </div>
-    `;
+  return `
+    <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl border ${
+      strong ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-900 border-slate-200"
+    } text-xs font-extrabold">
+      <span class="text-[10px] uppercase tracking-wide ${strong ? "text-white/70" : "text-slate-500"}">${escapeHtml(label)}</span>
+      <span class="${strong ? "text-white" : "text-slate-900"}">${escapeHtml(value)}</span>
+    </span>
+  `;
   }
+
+  function renderDetalleDescripcion(json) {
+    const name = json.user_name || "-";
+    const email = json.user_email || "-";
+    const uid = json.user_id ?? 0;
+    const cambios = json.total ?? 0;
+
+    const pedidosTocados = Array.isArray(json.pedidos) ? json.pedidos.length : 0;
+    const confirmados = json.kpis?.confirmados ?? 0;
+    const disenos = json.kpis?.disenos ?? 0;
+
+    const range = (fromEl?.value || toEl?.value)
+      ? `${fromEl?.value || "…"} → ${toEl?.value || "…"}`
+      : "Histórico";
+
+    detalleDescripcion.innerHTML = [
+      pill("Usuario", name),
+      pill("Email", email),
+      pill("ID", uid),
+      pill("Cambios", cambios, true),
+      pill("Pedidos tocados", pedidosTocados, true),
+      pill("Confirmados", confirmados),
+      pill("Diseños", disenos),
+      pill("Rango", range),
+    ].join("");
+  }
+
 
   function closeModalDetalle() {
     detalleModal?.classList.add("hidden");
@@ -557,6 +584,13 @@ function renderDetalle(rows) {
   async function loadDetalle() {
     modalSetError("");
     modalSetLoading(true);
+    const json = await fetchDetalle(detalleState.userId, detalleState.offset, detalleState.limit);
+
+    if (detalleTitulo) detalleTitulo.textContent = `Detalle - ${json.user_name || detalleState.userName}`;
+    renderDetalleDescripcion(json);
+
+    renderPedidosTocados(json.pedidos || []);
+    renderDetalle(json.data || []);
 
     try {
       const json = await fetchDetalle(detalleState.userId, detalleState.offset, detalleState.limit);
