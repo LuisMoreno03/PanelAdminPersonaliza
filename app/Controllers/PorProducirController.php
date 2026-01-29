@@ -12,12 +12,14 @@ class PorProducirController extends Controller
      */
     public function index()
     {
+        // OJO: aquí tú ya dijiste que tu vista se llama "porproducir"
+        // (si realmente es views/porproducir/porProducir.php entonces sería view('porproducir/porProducir'))
         return view('porproducir');
     }
 
     /**
      * GET /porproducir/pull?limit=5|10
-     * Trae 5 o 10 pedidos con fulfillmen_status = "Diseñado"
+     * Trae 5 o 10 pedidos en estado "Diseñado"
      */
     public function pull(): ResponseInterface
     {
@@ -26,27 +28,63 @@ class PorProducirController extends Controller
             if (!in_array($limit, [5, 10], true)) $limit = 10;
 
             $db = db_connect();
+            $table = 'pedidos';
 
-            // Tabla y columnas reales (según tu captura)
-            $rows = $db->table('pedidos')
-                ->select([
-                    'id',
-                    'numero AS numero_pedido',
-                    'cliente',
-                    'total',
-                    'fulfillmen_status AS estado',
-                    'forma_envio AS metodo_entrega',
-                    'estado_envio AS entrega',
-                    'etiquetas',
-                    'articulos',
-                    'created_at',
-                    'last_change_at AS updated_at',
-                ])
-                ->where('fulfillmen_status', 'Diseñado')
-                ->orderBy('last_change_at', 'ASC')
-                ->limit($limit)
-                ->get()
-                ->getResultArray();
+            // Detecta campos reales
+            $fields = $db->getFieldNames($table);
+
+            $pick = function(array $candidates) use ($fields) {
+                foreach ($candidates as $c) {
+                    if (in_array($c, $fields, true)) return $c;
+                }
+                return null;
+            };
+
+            // ✅ Aquí está el FIX: detecta cuál existe de verdad
+            $colFulfillment = $pick(['fulfillment_status', 'fulfillmen_status', 'fulfilment_status', 'status']);
+            if (!$colFulfillment) {
+                return $this->response->setStatusCode(500)->setJSON([
+                    'ok' => false,
+                    'message' => "No se encontró columna de estado de fulfillment. Busca: fulfillment_status / fulfillmen_status / status.",
+                    'debug' => ['fields' => $fields],
+                    'csrf' => $this->freshCsrf(),
+                ]);
+            }
+
+            // Otros campos (según tu tabla)
+            $colNumero     = $pick(['numero']);
+            $colCliente    = $pick(['cliente']);
+            $colTotal      = $pick(['total']);
+            $colMetodo     = $pick(['forma_envio']);
+            $colEntrega    = $pick(['estado_envio']);
+            $colEtiquetas  = $pick(['etiquetas']);
+            $colArticulos  = $pick(['articulos']);
+            $colCreated    = $pick(['created_at']);
+            $colUpdated    = $pick(['last_change_at', 'updated_at', 'synced_at']);
+
+            // Select con alias estándar para tu JS
+            $select = [
+                'id',
+                ($colNumero ? "$colNumero AS numero_pedido" : "'' AS numero_pedido"),
+                ($colCliente ? "$colCliente AS cliente" : "'' AS cliente"),
+                ($colTotal ? "$colTotal AS total" : "0 AS total"),
+                "`$colFulfillment` AS estado",
+                ($colMetodo ? "$colMetodo AS metodo_entrega" : "'' AS metodo_entrega"),
+                ($colEntrega ? "$colEntrega AS entrega" : "'' AS entrega"),
+                ($colEtiquetas ? "$colEtiquetas AS etiquetas" : "'' AS etiquetas"),
+                ($colArticulos ? "$colArticulos AS articulos" : "0 AS articulos"),
+                ($colCreated ? "$colCreated AS created_at" : "NULL AS created_at"),
+                ($colUpdated ? "$colUpdated AS updated_at" : "NULL AS updated_at"),
+            ];
+
+            $builder = $db->table($table)
+                ->select(implode(', ', $select), false)
+                ->where($colFulfillment, 'Diseñado');
+
+            if ($colUpdated) $builder->orderBy($colUpdated, 'ASC');
+            else $builder->orderBy('id', 'ASC');
+
+            $rows = $builder->limit($limit)->get()->getResultArray();
 
             return $this->response->setJSON([
                 'ok'    => true,
@@ -65,20 +103,17 @@ class PorProducirController extends Controller
 
     /**
      * POST /porproducir/update-metodo
-     * Body JSON o form-data:
-     *  - id
-     *  - metodo_entrega  (esto actualiza forma_envio)
+     * Body: { id, metodo_entrega }
      *
      * Regla:
-     *  - Si metodo_entrega == "Enviado":
+     * - Si metodo_entrega == "Enviado":
      *      estado_envio = "Enviado"
-     *      fulfillmen_status = "Enviado"
+     *      (fulfillment_status o fulfillmen_status) = "Enviado"
      *      remove_from_list = true
      */
     public function updateMetodo(): ResponseInterface
     {
         try {
-            // Acepta JSON o form-data
             $payload = $this->request->getJSON(true);
             if (!is_array($payload)) $payload = [];
 
@@ -94,10 +129,36 @@ class PorProducirController extends Controller
             }
 
             $db = db_connect();
+            $table = 'pedidos';
+            $fields = $db->getFieldNames($table);
 
-            // Buscar pedido
-            $pedido = $db->table('pedidos')
-                ->select('id, fulfillmen_status, forma_envio, estado_envio')
+            $pick = function(array $candidates) use ($fields) {
+                foreach ($candidates as $c) {
+                    if (in_array($c, $fields, true)) return $c;
+                }
+                return null;
+            };
+
+            // Detecta columna fulfillment real
+            $colFulfillment = $pick(['fulfillment_status', 'fulfillmen_status', 'fulfilment_status', 'status']);
+            if (!$colFulfillment) {
+                return $this->response->setStatusCode(500)->setJSON([
+                    'ok' => false,
+                    'message' => "No se encontró columna de estado de fulfillment.",
+                    'csrf' => $this->freshCsrf(),
+                ]);
+            }
+
+            $colMetodo  = $pick(['forma_envio']);
+            $colEntrega = $pick(['estado_envio']);
+            $colUpdated = $pick(['last_change_at', 'updated_at']);
+
+            // Leer pedido
+            $pedido = $db->table($table)
+                ->select("id, `$colFulfillment` AS estado, " .
+                    ($colMetodo ? "$colMetodo AS forma_envio, " : "") .
+                    ($colEntrega ? "$colEntrega AS estado_envio" : "'' AS estado_envio")
+                , false)
                 ->where('id', $id)
                 ->get()
                 ->getRowArray();
@@ -111,40 +172,34 @@ class PorProducirController extends Controller
             }
 
             $metodoLower = mb_strtolower($metodo);
-
-            // Valores por defecto (mantener si no aplica regla)
-            $nuevoFulfillmen = $pedido['fulfillmen_status'];
+            $nuevoEstadoFulfillment = $pedido['estado'];
             $nuevoEstadoEnvio = $pedido['estado_envio'];
 
-            // REGLA: si método pasa a Enviado => estado_envio y fulfillmen_status pasan a Enviado
             if ($metodoLower === 'enviado') {
                 $nuevoEstadoEnvio = 'Enviado';
-                $nuevoFulfillmen  = 'Enviado';
+                $nuevoEstadoFulfillment = 'Enviado';
             }
 
             $now = date('Y-m-d H:i:s');
 
-            // Update en BD
-            $db->table('pedidos')
-                ->where('id', $id)
-                ->update([
-                    'forma_envio'       => $metodo,
-                    'estado_envio'      => $nuevoEstadoEnvio,
-                    'fulfillmen_status' => $nuevoFulfillmen,
-                    'last_change_at'    => $now,
-                ]);
+            $update = [];
+            if ($colMetodo)  $update[$colMetodo] = $metodo;
+            if ($colEntrega) $update[$colEntrega] = $nuevoEstadoEnvio;
+            $update[$colFulfillment] = $nuevoEstadoFulfillment;
+            if ($colUpdated) $update[$colUpdated] = $now;
 
-            // Si ya no está en Diseñado, se quita de la lista
-            $remove = ($nuevoFulfillmen !== 'Diseñado');
+            $db->table($table)->where('id', $id)->update($update);
+
+            $remove = ($nuevoEstadoFulfillment !== 'Diseñado');
 
             return $this->response->setJSON([
-                'ok'               => true,
-                'id'               => $id,
-                'metodo_entrega'   => $metodo,
-                'estado_envio'     => $nuevoEstadoEnvio,
-                'estado'           => $nuevoFulfillmen,
+                'ok' => true,
+                'id' => $id,
+                'metodo_entrega' => $metodo,
+                'estado_envio' => $nuevoEstadoEnvio,
+                'estado' => $nuevoEstadoFulfillment,
                 'remove_from_list' => $remove,
-                'csrf'             => $this->freshCsrf(),
+                'csrf' => $this->freshCsrf(),
             ]);
         } catch (\Throwable $e) {
             return $this->response->setStatusCode(500)->setJSON([
