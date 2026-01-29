@@ -250,7 +250,7 @@ window.CSRF = {
   function cerrarModalDetalles() {
     document.getElementById('modalDetallesFull')?.classList.add('hidden');
   }
-</script>
+</script> 
 
 </body>
 </html>
