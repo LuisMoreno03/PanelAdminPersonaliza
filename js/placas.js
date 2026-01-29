@@ -1,5 +1,4 @@
 /* public/js/placas.js */
-
 (function () {
   const q = (id) => document.getElementById(id);
 
@@ -27,6 +26,11 @@
   let modalItem = null;
   let modalSelectedId = null;
   let refresco = null;
+
+  // === Productos por producir (modal carga) ===
+  let productosPool = [];              // items del endpoint
+  let productosSelected = new Map();   // id => item
+  let productosSearch = '';
 
   // ===================== UTILS =====================
   function escapeHtml(str) {
@@ -59,7 +63,6 @@
     const raw = String(v).trim();
     if (!raw) return [];
 
-    // JSON?
     try {
       const j = JSON.parse(raw);
       if (Array.isArray(j)) return j.map(x => String(x).trim()).filter(Boolean);
@@ -68,20 +71,16 @@
     return raw.split(/[\n,]+/g).map(s => s.trim()).filter(Boolean);
   }
 
-  function renderBadges(containerId, items, emptyText) {
-    const el = q(containerId);
-    if (!el) return;
-
-    if (!items.length) {
-      el.innerHTML = `<span class="text-xs text-gray-400">${escapeHtml(emptyText)}</span>`;
-      return;
+  async function fetchJsonSafe(url, options = {}) {
+    const res = await fetch(url, { cache: 'no-store', ...options });
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (e) {}
+    if (!res.ok || !data) {
+      const snippet = (text || '').slice(0, 300);
+      throw new Error(`HTTP ${res.status} en ${url}. Respuesta: ${snippet}`);
     }
-
-    el.innerHTML = items.map(t => `
-      <span class="px-3 py-1 rounded-full bg-gray-100 border border-gray-200 text-xs font-black text-gray-700">
-        ${escapeHtml(t)}
-      </span>
-    `).join('');
+    return data;
   }
 
   function itemMatches(it, term) {
@@ -133,19 +132,32 @@
              <div class="muted" style="padding:10px;text-align:center;">${escapeHtml(it.original || 'Archivo')}</div>
            </div>`;
 
-    // nombre
     q('modalNombre').value = it.nombre || (it.original ? String(it.original).replace(/\.[^.]+$/, '') : '');
     q('modalFecha').textContent = formatFecha(it.created_at);
 
-    // marcar activo
     document.querySelectorAll('[data-modal-file]').forEach(el => {
       const active = Number(el.dataset.modalFile) === modalSelectedId;
       el.classList.toggle('ring-2', active);
       el.classList.toggle('ring-blue-300', active);
     });
 
-    // meta lote
     updateModalMetaByLote(it);
+  }
+
+  function renderBadges(containerId, items, emptyText) {
+    const el = q(containerId);
+    if (!el) return;
+
+    if (!items.length) {
+      el.innerHTML = `<span class="text-xs text-gray-400">${escapeHtml(emptyText)}</span>`;
+      return;
+    }
+
+    el.innerHTML = items.map(t => `
+      <span class="px-3 py-1 rounded-full bg-gray-100 border border-gray-200 text-xs font-black text-gray-700">
+        ${escapeHtml(t)}
+      </span>
+    `).join('');
   }
 
   function updateModalMetaByLote(item) {
@@ -157,17 +169,6 @@
 
     renderBadges('modalPedidos', pedidos, 'Sin pedidos vinculados');
     renderBadges('modalProductos', productos, 'Sin productos');
-
-    if (q('modalPedidosHint')) {
-      q('modalPedidosHint').textContent = pedidos.length
-        ? `Pedidos: ${pedidos.join(', ')}`
-        : 'Puedes vincular pedidos al subir el lote.';
-    }
-    if (q('modalProductosHint')) {
-      q('modalProductosHint').textContent = productos.length
-        ? `Productos: ${productos.length}`
-        : 'Puedes adjuntar productos al subir el lote.';
-    }
 
     const loteNombre = (item.lote_nombre || meta.lote_nombre || '').trim();
     if (q('modalLoteInfo')) q('modalLoteInfo').textContent = loteNombre ? `Lote: ${loteNombre}` : `Lote: ${lid}`;
@@ -268,14 +269,13 @@
     openModal(principal.id);
   };
 
-  // ===================== Render lotes por día =====================
+  // ===================== LISTA POR DÍA/LOTE =====================
   async function cargarVistaAgrupada() {
     placasMap = {};
     loteIndex = {};
     loteMeta = {};
 
-    const res = await fetch(API.listar, { cache: 'no-store' });
-    const data = await res.json();
+    const data = await fetchJsonSafe(API.listar);
 
     if (data?.success) q('placasHoy').textContent = data.placas_hoy ?? 0;
 
@@ -302,7 +302,6 @@
               const pedidos = toArrayList(lote.pedidos);
               const productos = toArrayList(lote.productos);
 
-              // filtrar items por term
               const items = (lote.items || []).filter(it => itemMatches({
                 ...it,
                 lote_id: lid,
@@ -311,7 +310,6 @@
                 productos
               }, term));
 
-              // match por lote/pedidos/productos
               const loteHay = normalizeText([
                 lid, lnombre, lote.created_at,
                 pedidos.join(' '),
@@ -354,7 +352,6 @@
         const lid = String(lote.lote_id ?? '');
         const lnombre = (lote.lote_nombre || '').trim() || 'Sin nombre';
 
-        // index + meta
         loteIndex[lid] = lote.items || [];
         loteMeta[lid] = {
           lote_nombre: lnombre,
@@ -371,15 +368,15 @@
         const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
         const thumb = principal?.thumb_url || (principal?.url && (principal.mime || '').startsWith('image/') ? principal.url : null);
 
-        const pedidos = toArrayList(loteMeta[lid].pedidos);
-        const productos = toArrayList(loteMeta[lid].productos);
+        const pedidosArr = toArrayList(loteMeta[lid].pedidos);
+        const productosArr = toArrayList(loteMeta[lid].productos);
 
-        const chipPedidos = pedidos.length
-          ? `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-700">🧾 ${pedidos.length} pedido(s)</span>`
+        const chipPedidos = pedidosArr.length
+          ? `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-700">🧾 ${pedidosArr.length} pedido(s)</span>`
           : `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-400">🧾 sin pedidos</span>`;
 
-        const chipProductos = productos.length
-          ? `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-700">🧩 ${productos.length} producto(s)</span>`
+        const chipProductos = productosArr.length
+          ? `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-700">🧩 ${productosArr.length} producto(s)</span>`
           : `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-400">🧩 sin productos</span>`;
 
         const loteBox = document.createElement('div');
@@ -431,13 +428,14 @@
   // ===================== Stats =====================
   async function cargarStats() {
     try {
-      const res = await fetch(API.stats, { cache: 'no-store' });
-      const data = await res.json();
+      const data = await fetchJsonSafe(API.stats);
       if (data.success) q('placasHoy').textContent = data.data?.total ?? 0;
-    } catch (e) {}
+    } catch (e) {
+      // no romper UI
+    }
   }
 
-  // ===================== Renombrar lote =====================
+  // ===================== Renombrar lote (modal) =====================
   async function renombrarLoteDesdeModal() {
     const sel = getSelectedItem();
     if (!sel) return;
@@ -456,13 +454,13 @@
     fd.append('lote_id', String(loteId));
     fd.append('lote_nombre', nombre);
 
-    const res = await fetch(API.renombrarLote, { method: 'POST', body: fd, credentials: 'same-origin' });
-    const data = await res.json().catch(() => null);
+    const data = await fetchJsonSafe(API.renombrarLote, {
+      method: 'POST',
+      body: fd,
+      credentials: 'same-origin'
+    });
 
-    if (!data?.success) {
-      q('modalMsg').textContent = data?.message || 'Error renombrando el lote';
-      return;
-    }
+    if (!data?.success) { q('modalMsg').textContent = data?.message || 'Error renombrando el lote'; return; }
 
     q('modalMsg').textContent = '✅ Lote renombrado';
     const keepId = sel.id;
@@ -482,13 +480,13 @@
     fd.append('id', sel.id);
     fd.append('nombre', nuevo);
 
-    const res = await fetch(API.renombrar, { method: 'POST', body: fd, credentials: 'same-origin' });
-    const data = await res.json().catch(() => null);
+    const data = await fetchJsonSafe(API.renombrar, {
+      method: 'POST',
+      body: fd,
+      credentials: 'same-origin'
+    });
 
-    if (!data?.success) {
-      q('modalMsg').textContent = data?.message || 'Error renombrando';
-      return;
-    }
+    if (!data?.success) { q('modalMsg').textContent = data?.message || 'Error renombrando'; return; }
 
     q('modalMsg').textContent = '✅ Nombre actualizado';
     const keepId = sel.id;
@@ -506,13 +504,13 @@
     const fd = addCsrf(new FormData());
     fd.append('id', sel.id);
 
-    const res = await fetch(API.eliminar, { method: 'POST', body: fd, credentials: 'same-origin' });
-    const data = await res.json().catch(() => null);
+    const data = await fetchJsonSafe(API.eliminar, {
+      method: 'POST',
+      body: fd,
+      credentials: 'same-origin'
+    });
 
-    if (!data?.success) {
-      q('modalMsg').textContent = data?.message || 'Error eliminando';
-      return;
-    }
+    if (!data?.success) { q('modalMsg').textContent = data?.message || 'Error eliminando'; return; }
 
     q('modalMsg').textContent = '✅ Eliminado';
     closeModal();
@@ -532,27 +530,170 @@
     window.open(`${API.descargarJpg}/${sel.id}`, '_blank');
   }
 
-  // ===================== MODAL CARGA =====================
+  // ============================================================
+  // ✅ PRODUCTOS "POR PRODUCIR" (Modal carga)
+  // ============================================================
+  function resetProductosSelector() {
+    productosPool = [];
+    productosSelected = new Map();
+    productosSearch = '';
+    if (q('cargaProductosBuscar')) q('cargaProductosBuscar').value = '';
+    renderProductosSelector();
+  }
+
+  async function loadProductosPorProducir() {
+    if (!API.productosPorProducir) {
+      console.warn("Falta API.productosPorProducir en PLACAS_API");
+      return;
+    }
+    try {
+      const data = await fetchJsonSafe(API.productosPorProducir);
+      productosPool = Array.isArray(data.items) ? data.items : [];
+      renderProductosSelector();
+    } catch (e) {
+      const box = q('cargaProductosLista');
+      if (box) box.innerHTML = `<div class="text-sm text-red-500">Error cargando productos: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  function toggleProducto(item) {
+    const id = String(item.id);
+    if (productosSelected.has(id)) productosSelected.delete(id);
+    else productosSelected.set(id, item);
+    renderProductosSelector();
+  }
+
+  function getSelectedLabels() {
+    return Array.from(productosSelected.values()).map(x => x.label || x.producto || String(x.id));
+  }
+
+  function getSelectedPedidos() {
+    const set = new Set();
+    for (const it of productosSelected.values()) {
+      const pn = it.pedido_numero ?? it.pedido ?? it.pedido_id;
+      if (pn != null && String(pn).trim() !== '') set.add(String(pn).trim());
+    }
+    return Array.from(set.values());
+  }
+
+  function renderProductosSelector() {
+    const listBox = q('cargaProductosLista');
+    const chipsBox = q('cargaProductosChips');
+    const pedidosBox = q('cargaPedidosChips');
+
+    if (!listBox || !chipsBox || !pedidosBox) return;
+
+    const term = normalizeText(productosSearch);
+
+    const filtered = term
+      ? productosPool.filter(it => normalizeText([it.label, it.producto, it.pedido_numero].join(' ')).includes(term))
+      : productosPool;
+
+    if (!productosPool.length) {
+      listBox.innerHTML = `<div class="text-sm text-gray-400">No hay productos en “Por producir”.</div>`;
+    } else if (!filtered.length) {
+      listBox.innerHTML = `<div class="text-sm text-gray-400">Sin resultados para "${escapeHtml(productosSearch)}".</div>`;
+    } else {
+      listBox.innerHTML = `
+        <div class="grid gap-2">
+          ${filtered.map(it => {
+            const id = String(it.id);
+            const checked = productosSelected.has(id);
+            const pedido = it.pedido_numero ? `Pedido #${it.pedido_numero}` : '';
+            const producto = it.producto ? it.producto : '';
+            const cant = it.cantidad ? `x${it.cantidad}` : '';
+            const label = it.label || `${pedido}${pedido && producto ? ' — ' : ''}${producto} ${cant}`.trim();
+
+            return `
+              <label class="flex items-start gap-3 p-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer">
+                <input type="checkbox" ${checked ? 'checked' : ''} class="mt-1"
+                  onchange="window.__PLACAS_toggleProducto('${escapeHtml(id)}')">
+                <div class="min-w-0">
+                  <div class="font-extrabold text-sm truncate">${escapeHtml(label)}</div>
+                  <div class="text-xs text-gray-500 mt-1 flex flex-wrap gap-2">
+                    ${pedido ? `<span class="px-2 py-1 rounded-full bg-gray-100 border">${escapeHtml(pedido)}</span>` : ''}
+                    ${producto ? `<span class="px-2 py-1 rounded-full bg-gray-100 border">${escapeHtml(producto)}</span>` : ''}
+                    ${cant ? `<span class="px-2 py-1 rounded-full bg-gray-100 border">${escapeHtml(cant)}</span>` : ''}
+                  </div>
+                </div>
+              </label>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    // chips seleccionados
+    const labels = getSelectedLabels();
+    chipsBox.innerHTML = labels.length
+      ? labels.map((t, i) => `
+          <span class="px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs font-black text-blue-800 inline-flex items-center gap-2">
+            ${escapeHtml(t)}
+            <button type="button" class="text-blue-700 hover:text-blue-900"
+              onclick="window.__PLACAS_removeSelectedByIndex(${i})">✕</button>
+          </span>
+        `).join('')
+      : `<span class="text-xs text-gray-400">Selecciona productos de “Por producir”.</span>`;
+
+    // chips pedidos auto
+    const pedidos = getSelectedPedidos();
+    pedidosBox.innerHTML = pedidos.length
+      ? pedidos.map(p => `
+          <span class="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-black text-emerald-800">
+            🧾 Pedido #${escapeHtml(p)}
+          </span>
+        `).join('')
+      : `<span class="text-xs text-gray-400">Al seleccionar productos, aquí aparecen los pedidos vinculados.</span>`;
+  }
+
+  // helpers globales para UI
+  window.__PLACAS_toggleProducto = function (id) {
+    const it = productosPool.find(x => String(x.id) === String(id));
+    if (!it) return;
+    toggleProducto(it);
+  };
+
+  window.__PLACAS_removeSelectedByIndex = function (idx) {
+    const arr = Array.from(productosSelected.entries());
+    const kv = arr[idx];
+    if (!kv) return;
+    productosSelected.delete(kv[0]);
+    renderProductosSelector();
+  };
+
+  // ===================== MODAL CARGA (SUBIR LOTE) =====================
   const modalCarga = q('modalCargaBackdrop');
   let filesSeleccionados = [];
 
   function abrirModalCarga() {
+    if (!modalCarga) return;
     modalCarga.classList.remove('hidden');
     q('cargaMsg').textContent = '';
+
+    // reset y carga productos por producir cada vez que abres
+    resetProductosSelector();
+    loadProductosPorProducir();
   }
+
   function cerrarModalCarga() {
+    if (!modalCarga) return;
     modalCarga.classList.add('hidden');
-    q('cargaArchivo').value = '';
+    if (q('cargaArchivo')) q('cargaArchivo').value = '';
     filesSeleccionados = [];
-    q('cargaPreview').innerHTML = 'Vista previa';
-    q('cargaMsg').textContent = '';
-    q('uploadProgressWrap').classList.add('hidden');
-    q('uploadProgressBar').style.width = '0%';
-    q('uploadProgressText').textContent = '0%';
+    if (q('cargaPreview')) q('cargaPreview').innerHTML = 'Vista previa';
+    if (q('cargaMsg')) q('cargaMsg').textContent = '';
+
+    if (q('uploadProgressWrap')) q('uploadProgressWrap').classList.add('hidden');
+    if (q('uploadProgressBar')) q('uploadProgressBar').style.width = '0%';
+    if (q('uploadProgressText')) q('uploadProgressText').textContent = '0%';
+
+    resetProductosSelector();
   }
 
   function renderPreviewSeleccion() {
     const box = q('cargaPreview');
+    if (!box) return;
+
     if (!filesSeleccionados.length) {
       box.innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
       return;
@@ -592,26 +733,29 @@
     filesSeleccionados.splice(idx, 1);
     const dt = new DataTransfer();
     filesSeleccionados.forEach(f => dt.items.add(f));
-    q('cargaArchivo').files = dt.files;
+    if (q('cargaArchivo')) q('cargaArchivo').files = dt.files;
     renderPreviewSeleccion();
   };
 
-  function subirLote() {
+  async function subirLote() {
     const loteNombre = (q('cargaLoteNombre')?.value || '').trim();
     const numeroPlaca = (q('cargaNumero')?.value || '').trim();
-    const pedidosRaw = (q('cargaPedidos')?.value || '').trim();
-    const productosRaw = (q('cargaProductos')?.value || '').trim();
 
     if (!loteNombre) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
     if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
 
+    // ✅ productos seleccionados => labels + pedidos
+    const productosLabels = getSelectedLabels();
+    const pedidosAuto = getSelectedPedidos();
+
+    // progreso
     const wrap = q('uploadProgressWrap');
     const bar  = q('uploadProgressBar');
     const txt  = q('uploadProgressText');
 
-    wrap.classList.remove('hidden');
-    bar.style.width = '0%';
-    txt.textContent = '0%';
+    if (wrap) wrap.classList.remove('hidden');
+    if (bar) bar.style.width = '0%';
+    if (txt) txt.textContent = '0%';
 
     q('btnGuardarCarga').disabled = true;
     q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
@@ -619,19 +763,23 @@
     const fd = addCsrf(new FormData());
     fd.append('lote_nombre', loteNombre);
     fd.append('numero_placa', numeroPlaca);
-    fd.append('pedidos', pedidosRaw);
-    fd.append('productos', productosRaw);
+
+    // ✅ Guardar en el lote
+    // Se guardan como JSON strings (tu backend parsea JSON arrays)
+    fd.append('productos', JSON.stringify(productosLabels));
+    fd.append('pedidos', JSON.stringify(pedidosAuto));
 
     filesSeleccionados.forEach(file => fd.append('archivos[]', file));
 
+    // xhr con progreso
     const xhr = new XMLHttpRequest();
     xhr.open('POST', API.subir, true);
 
     xhr.upload.onprogress = (e) => {
       if (!e.lengthComputable) return;
       const percent = Math.round((e.loaded / e.total) * 100);
-      bar.style.width = percent + '%';
-      txt.textContent = percent + '%';
+      if (bar) bar.style.width = percent + '%';
+      if (txt) txt.textContent = percent + '%';
     };
 
     xhr.onload = async () => {
@@ -645,8 +793,8 @@
         return;
       }
 
-      bar.style.width = '100%';
-      txt.textContent = '100%';
+      if (bar) bar.style.width = '100%';
+      if (txt) txt.textContent = '100%';
       q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
 
       setTimeout(async () => {
@@ -664,7 +812,7 @@
     xhr.send(fd);
   }
 
-  // ===================== BUSCADOR =====================
+  // ===================== BUSCADOR principal =====================
   function applySearch(v) {
     searchTerm = v || '';
     if (q('searchClear')) q('searchClear').classList.toggle('hidden', !searchTerm.trim());
@@ -673,7 +821,7 @@
 
   // ===================== INIT EVENTS =====================
   function bindEvents() {
-    // modal
+    // modal editar
     q('modalClose')?.addEventListener('click', closeModal);
     q('modalBackdrop')?.addEventListener('click', (e) => {
       if (e.target.id === 'modalBackdrop') closeModal();
@@ -695,7 +843,13 @@
       renderPreviewSeleccion();
     });
 
-    // buscador
+    // buscador productos por producir (modal carga)
+    q('cargaProductosBuscar')?.addEventListener('input', (e) => {
+      productosSearch = e.target.value || '';
+      renderProductosSelector();
+    });
+
+    // buscador principal
     const searchInput = q('searchInput');
     const searchClear = q('searchClear');
 

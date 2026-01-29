@@ -33,6 +33,8 @@
 
   const detalleBodyTable = document.getElementById("detalleBodyTable");
   const detalleBodyCards = document.getElementById("detalleBodyCards");
+  const confirmados = Number(r.confirmados || 0);
+  const disenos = Number(r.disenos || 0);
 
   const detallePrev = document.getElementById("detallePrev");
   const detalleNext = document.getElementById("detalleNext");
@@ -155,36 +157,46 @@
 
       const row = document.createElement("div");
       row.className = "seg-grid-cols px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition";
+      const confirmados = Number(r.confirmados || 0);
+const disenos = Number(r.disenos || 0);
 
-      row.innerHTML = `
-        <div class="min-w-0">
-          <div class="font-extrabold truncate">${escapeHtml(userName)}</div>
-          <div class="text-[12px] text-slate-500 font-bold">ID: ${escapeHtml(userId)}</div>
-        </div>
+row.innerHTML = `
+  <div class="min-w-0">
+    <div class="font-extrabold truncate">${escapeHtml(userName)}</div>
+    <div class="text-[12px] text-slate-500 font-bold">ID: ${escapeHtml(userId)}</div>
+  </div>
 
-        <div class="min-w-0 truncate text-slate-700 font-bold">${escapeHtml(userEmail)}</div>
+  <div class="min-w-0 truncate text-slate-700 font-bold">${escapeHtml(userEmail)}</div>
 
-        <div class="text-right">
-          <span class="inline-flex items-center px-3 py-1 rounded-2xl bg-slate-100 text-slate-900 border border-slate-200 font-extrabold text-xs">
-            ${escapeHtml(pedidos)}
-          </span>
-        </div>
+  <div class="text-right">
+    <span class="inline-flex items-center px-3 py-1 rounded-2xl bg-slate-100 text-slate-900 border border-slate-200 font-extrabold text-xs">
+      ${escapeHtml(pedidos)}
+    </span>
+  </div>
 
-        <div class="flex items-center justify-between gap-2">
-          <span class="inline-flex items-center px-3 py-1 rounded-2xl bg-slate-900 text-white font-extrabold text-xs">
-            ${escapeHtml(total)}
-          </span>
-          <span class="text-xs font-extrabold text-slate-600 truncate">${escapeHtml(ultimo)}</span>
-        </div>
+  <div class="flex flex-col gap-1">
+    <div class="flex items-center gap-2">
+      <span class="inline-flex items-center px-3 py-1 rounded-2xl bg-slate-900 text-white font-extrabold text-xs">
+        ${escapeHtml(total)}
+      </span>
+      <span class="text-xs font-extrabold text-slate-600 truncate">${escapeHtml(ultimo)}</span>
+    </div>
 
-        <div class="text-right">
-          <button type="button"
-            class="inline-flex items-center justify-center h-9 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs shadow-sm hover:bg-slate-100 transition"
-            data-user="${escapeHtml(userId)}">
-            Ver
-          </button>
-        </div>
-      `;
+    <div class="text-[11px] font-extrabold text-slate-500">
+      Confirmados: <span class="text-slate-900">${escapeHtml(confirmados)}</span>
+      · Diseños: <span class="text-slate-900">${escapeHtml(disenos)}</span>
+    </div>
+  </div>
+
+  <div class="text-right">
+    <button type="button"
+      class="inline-flex items-center justify-center h-9 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-xs shadow-sm hover:bg-slate-100 transition"
+      data-user="${escapeHtml(userId)}">
+      Ver
+    </button>
+  </div>
+`;
+
 
       row.querySelector("button[data-user]")?.addEventListener("click", () => openModalDetalle(userId));
       frag.appendChild(row);

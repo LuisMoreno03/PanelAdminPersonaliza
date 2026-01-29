@@ -35,11 +35,10 @@ class SeguimientoController extends BaseController
             }
 
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnionDetail($db, $from, $to);
-
             $usersTable = $this->detectUsersTable($db);
 
-            // Si no hay historial, devolvemos users con 0
             if (!$unionSQL) {
+                // sin historial -> users con 0
                 if (!$usersTable) {
                     return $this->response->setJSON([
                         'ok' => true,
@@ -62,6 +61,8 @@ class SeguimientoController extends BaseController
                         COALESCE($emailExpr, '-') AS user_email,
                         0 AS total_cambios,
                         0 AS pedidos_tocados,
+                        0 AS confirmados,
+                        0 AS disenos,
                         NULL AS ultimo_cambio
                     FROM `$usersTable` u
                     ORDER BY user_name ASC
@@ -76,7 +77,8 @@ class SeguimientoController extends BaseController
                 ]);
             }
 
-            // ✅ CTE: el UNION solo una vez
+            $normNew = $this->normSql("estado_nuevo");
+
             $cte = "
                 WITH h AS (
                     $unionSQL
@@ -86,11 +88,29 @@ class SeguimientoController extends BaseController
                         user_id,
                         COUNT(*) AS total_cambios,
                         MAX(created_at) AS ultimo_cambio,
+
                         COUNT(DISTINCT CASE
                             WHEN entidad IN ('pedido','order')
                               AND entidad_id IS NOT NULL AND entidad_id <> 0
                             THEN entidad_id END
-                        ) AS pedidos_tocados
+                        ) AS pedidos_tocados,
+
+                        -- ✅ Confirmados = pedidos únicos que el usuario dejó en Confirmado
+                        COUNT(DISTINCT CASE
+                            WHEN entidad IN ('pedido','order')
+                              AND entidad_id IS NOT NULL AND entidad_id <> 0
+                              AND $normNew = 'confirmado'
+                            THEN entidad_id END
+                        ) AS confirmados,
+
+                        -- ✅ Diseños = pedidos únicos que el usuario dejó en Diseñado
+                        COUNT(DISTINCT CASE
+                            WHEN entidad IN ('pedido','order')
+                              AND entidad_id IS NOT NULL AND entidad_id <> 0
+                              AND $normNew = 'disenado'
+                            THEN entidad_id END
+                        ) AS disenos
+
                     FROM h
                     GROUP BY user_id
                 ),
@@ -103,7 +123,6 @@ class SeguimientoController extends BaseController
                 )
             ";
 
-            // Si no existe users -> devolvemos por id
             if (!$usersTable) {
                 $sql = $cte . "
                     SELECT
@@ -113,6 +132,8 @@ class SeguimientoController extends BaseController
                         '-' AS user_email,
                         c.total_cambios,
                         c.pedidos_tocados,
+                        c.confirmados,
+                        c.disenos,
                         c.ultimo_cambio
                     FROM c
                     ORDER BY (c.user_id=0) ASC, c.total_cambios DESC, user_name ASC
@@ -130,7 +151,6 @@ class SeguimientoController extends BaseController
                 ]);
             }
 
-            // users existe
             $meta = $this->detectUsersMeta($db, $usersTable);
             $joinCol = $meta['idCandidates'][0] ?? 'id';
             $nameExpr  = $meta['nameExpr']  ?: "CONCAT('Usuario #', u.`$joinCol`)";
@@ -138,39 +158,42 @@ class SeguimientoController extends BaseController
 
             $sql = $cte . "
                 SELECT * FROM (
-                    -- todos los users (con o sin cambios)
                     SELECT
                         CAST(u.`$joinCol` AS UNSIGNED) AS user_id,
                         COALESCE($nameExpr, CONCAT('Usuario #', u.`$joinCol`)) AS user_name,
                         COALESCE($emailExpr, '-') AS user_email,
                         COALESCE(c.total_cambios, 0) AS total_cambios,
                         COALESCE(c.pedidos_tocados, 0) AS pedidos_tocados,
+                        COALESCE(c.confirmados, 0) AS confirmados,
+                        COALESCE(c.disenos, 0) AS disenos,
                         c.ultimo_cambio
                     FROM `$usersTable` u
                     LEFT JOIN c ON c.user_id = CAST(u.`$joinCol` AS UNSIGNED)
 
                     UNION ALL
 
-                    -- sin usuario (0) siempre
                     SELECT
                         0 AS user_id,
                         'Sin usuario (no registrado)' AS user_name,
                         '-' AS user_email,
                         COALESCE(c0.total_cambios, 0) AS total_cambios,
                         COALESCE(c0.pedidos_tocados, 0) AS pedidos_tocados,
+                        COALESCE(c0.confirmados, 0) AS confirmados,
+                        COALESCE(c0.disenos, 0) AS disenos,
                         c0.ultimo_cambio
                     FROM (SELECT 0 AS user_id) d
                     LEFT JOIN c c0 ON c0.user_id = 0
 
                     UNION ALL
 
-                    -- ids en historial no existentes en users
                     SELECT
                         c2.user_id,
                         CONCAT('Usuario #', c2.user_id) AS user_name,
                         '-' AS user_email,
                         c2.total_cambios,
                         c2.pedidos_tocados,
+                        c2.confirmados,
+                        c2.disenos,
                         c2.ultimo_cambio
                     FROM c c2
                     LEFT JOIN `$usersTable` u2 ON CAST(u2.`$joinCol` AS UNSIGNED) = c2.user_id
@@ -196,13 +219,6 @@ class SeguimientoController extends BaseController
         }
     }
 
-    /**
-     * GET /seguimiento/detalle/{userId}?from=...&to=...&limit=50&offset=0
-     * Devuelve:
-     * - data (cambios con estado_anterior real)
-     * - pedidos (chips)
-     * - kpis (confirmados, disenos)
-     */
     public function detalle($userId)
     {
         try {
@@ -218,13 +234,6 @@ class SeguimientoController extends BaseController
             if ($limit < 1) $limit = 50;
             if ($limit > 200) $limit = 200;
             if ($offset < 0) $offset = 0;
-
-            if ($from && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
-                return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>'from inválido (usa YYYY-MM-DD)']);
-            }
-            if ($to && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
-                return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>'to inválido (usa YYYY-MM-DD)']);
-            }
 
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnionDetail($db, $from, $to);
 
@@ -247,11 +256,11 @@ class SeguimientoController extends BaseController
                 ]);
             }
 
-            // Total SOLO del usuario
+            // total cambios del usuario
             $totalSql = "SELECT COUNT(*) as total FROM ($unionSQL) t WHERE t.user_id = ?";
             $total = (int)($db->query($totalSql, array_merge($binds, [$userId]))->getRowArray()['total'] ?? 0);
 
-            // Página con LAG
+            // pagina con LAG para el "antes" real
             $pageSql = "
                 SELECT
                     x.user_id,
@@ -275,7 +284,7 @@ class SeguimientoController extends BaseController
             ";
             $rows = $db->query($pageSql, array_merge($binds, [$userId, $limit, $offset]))->getResultArray();
 
-            // Pedidos tocados (chips)
+            // chips de pedidos tocados
             $pedidosSql = "
                 SELECT
                     t.entidad,
@@ -293,39 +302,26 @@ class SeguimientoController extends BaseController
             ";
             $pedidos = $db->query($pedidosSql, array_merge($binds, [$userId]))->getResultArray();
 
-            // KPIs por pedidos únicos
-            $prevExpr = "COALESCE(NULLIF(x.estado_anterior,''), x.prev_estado)";
-            $normNew  = $this->normSql("x.estado_nuevo");
-            $normPrev = $this->normSql($prevExpr);
-
+            // ✅ KPIs sin importar estado anterior
+            $normNew = $this->normSql("t.estado_nuevo");
             $kpiSql = "
                 SELECT
                     COUNT(DISTINCT CASE
-                        WHEN x.user_id = ?
-                          AND x.entidad IN ('pedido','order')
-                          AND x.entidad_id IS NOT NULL AND x.entidad_id <> 0
+                        WHEN t.user_id = ?
+                          AND t.entidad IN ('pedido','order')
+                          AND t.entidad_id IS NOT NULL AND t.entidad_id <> 0
                           AND $normNew = 'confirmado'
-                          AND $normPrev IN ('por producir','por producion','por produccion','faltan archivos')
-                        THEN x.entidad_id END
+                        THEN t.entidad_id END
                     ) AS confirmados,
 
                     COUNT(DISTINCT CASE
-                        WHEN x.user_id = ?
-                          AND x.entidad IN ('pedido','order')
-                          AND x.entidad_id IS NOT NULL AND x.entidad_id <> 0
+                        WHEN t.user_id = ?
+                          AND t.entidad IN ('pedido','order')
+                          AND t.entidad_id IS NOT NULL AND t.entidad_id <> 0
                           AND $normNew = 'disenado'
-                          AND ( $normPrev IS NULL OR $normPrev <> 'disenado' )
-                        THEN x.entidad_id END
+                        THEN t.entidad_id END
                     ) AS disenos
-                FROM (
-                    SELECT
-                        t.*,
-                        LAG(t.estado_nuevo) OVER (
-                            PARTITION BY t.entidad, t.entidad_id
-                            ORDER BY t.created_at
-                        ) AS prev_estado
-                    FROM ($unionSQL) t
-                ) x
+                FROM ($unionSQL) t
             ";
             $kpiRow = $db->query($kpiSql, array_merge($binds, [$userId, $userId]))->getRowArray();
 
@@ -350,6 +346,23 @@ class SeguimientoController extends BaseController
             log_message('error', 'Seguimiento/detalle ERROR: ' . $e->getMessage());
             return $this->response->setStatusCode(500)->setJSON(['ok'=>false,'message'=>$e->getMessage()]);
         }
+    }
+
+    // ✅ IMPORTANTE: normalización mejorada (incluye ñ/Ñ)
+    private function normSql(string $expr): string
+    {
+        return "LOWER(TRIM(
+            REPLACE(REPLACE(
+            REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            REPLACE(REPLACE(
+                $expr,
+                'Á','a'),'á','a'),
+                'É','e'),'é','e'),
+                'Í','i'),'í','i'),
+                'Ó','o'),'ó','o'),
+                'Ú','u'),'ú','u'),
+                'Ñ','n'),'ñ','n')
+        ))";
     }
 
     // ---------------- USERS ----------------
@@ -586,17 +599,5 @@ class SeguimientoController extends BaseController
         return $bestField;
     }
 
-    private function normSql(string $expr): string
-    {
-        return "LOWER(TRIM(
-            REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-            REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                $expr,
-                'Á','a'),'á','a'),
-                'É','e'),'é','e'),
-                'Í','i'),'í','i'),
-                'Ó','o'),'ó','o'),
-                'Ú','u'),'ú','u')
-        ))";
-    }
+    
 }
