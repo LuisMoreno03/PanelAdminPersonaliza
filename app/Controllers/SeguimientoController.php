@@ -15,52 +15,51 @@ class SeguimientoController extends BaseController
      * GET /seguimiento/resumen?from=YYYY-MM-DD&to=YYYY-MM-DD
      * Devuelve TODOS los users (incluye 0 cambios) y agrega:
      * - total_cambios
-     * - pedidos_tocados (distinct entidad_id)
-     * - confirmados (distinct pedidos que dejaron en Confirmado)
-     * - disenos (distinct pedidos que dejaron en Diseñado)
+     * - pedidos_tocados (distinct entidad_id por usuario)
+     * - confirmados (pedidos únicos que el usuario dejó en "confirmado")
+     * - disenos (pedidos únicos que el usuario dejó en "diseñado")
      * - ultimo_cambio
-     * - stats.pedidos_modificados (general)
+     * - stats.pedidos_modificados (general en el rango)
+     *
+     * Requiere MySQL 8+ (CTE) por el uso de WITH. (El LAG se usa solo en detalle)
      */
     public function resumen()
     {
         try {
             $db = db_connect();
 
-            // ✅ Acepta YYYY-MM-DD o DD/MM/YYYY
-            [$from, $fromErr] = $this->parseDateParam($this->request->getGet('from'));
-            if ($fromErr) {
-                return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>$fromErr]);
-            }
+            $from = $this->request->getGet('from');
+            $to   = $this->request->getGet('to');
 
-            [$to, $toErr] = $this->parseDateParam($this->request->getGet('to'));
-            if ($toErr) {
-                return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>$toErr]);
+            // Validación
+            if ($from && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+                return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'message' => 'from inválido (usa YYYY-MM-DD)']);
             }
-
-            // ✅ si vienen invertidas, intercambiamos
+            if ($to && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+                return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'message' => 'to inválido (usa YYYY-MM-DD)']);
+            }
             if ($from && $to && $from > $to) {
-                [$from, $to] = [$to, $from];
+                return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'message' => 'Rango inválido: from > to']);
             }
 
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnionDetail($db, $from, $to);
             $usersTable = $this->detectUsersTable($db);
 
-            // ============================================================
-            // ✅ Sin historial: igual devolvemos usuarios con 0
-            // ============================================================
+            // Sin historial => igual devolvemos users con 0
             if (!$unionSQL) {
                 if (!$usersTable) {
                     return $this->response->setJSON([
-                        'ok' => true,
-                        'data' => [],
-                        'stats' => ['pedidos_modificados' => 0],
+                        'ok'      => true,
+                        'data'    => [],
+                        'stats'   => ['pedidos_modificados' => 0],
                         'sources' => [],
-                        'range' => ['from' => $from, 'to' => $to],
+                        'range'   => ['from' => $from, 'to' => $to],
                     ]);
                 }
 
-                $meta = $this->detectUsersMeta($db, $usersTable);
+                $meta  = $this->detectUsersMeta($db, $usersTable);
                 $idCol = $meta['idCandidates'][0] ?? 'id';
+
                 $nameExpr  = $meta['nameExpr']  ?: "CONCAT('Usuario #', u.`$idCol`)";
                 $emailExpr = $meta['emailExpr'] ?: "NULL";
 
@@ -79,25 +78,18 @@ class SeguimientoController extends BaseController
                 ";
 
                 return $this->response->setJSON([
-                    'ok' => true,
-                    'data' => $db->query($sql)->getResultArray(),
-                    'stats' => ['pedidos_modificados' => 0],
+                    'ok'      => true,
+                    'data'    => $db->query($sql)->getResultArray(),
+                    'stats'   => ['pedidos_modificados' => 0],
                     'sources' => [],
-                    'range' => ['from' => $from, 'to' => $to],
+                    'range'   => ['from' => $from, 'to' => $to],
                 ]);
             }
 
-            // ============================================================
-            // ✅ Historial existe: métricas
-            // ============================================================
-
-            // Normalizamos estados y hacemos "LIKE" para cubrir variantes:
-            // confirmado/confirmada, diseñado/diseño/disenado/diseno...
+            // Normalización de estado_nuevo (sin tildes / ñ)
             $normNew = $this->normSql("estado_nuevo");
-            $isPedido = "entidad IN ('pedido','pedidos','order','orders')";
-            $isConfirmado = "($normNew LIKE 'confirmad%')";
-            $isDiseno = "($normNew LIKE 'disen%')";
 
+            // ✅ CTE para no repetir el UNION y no romper binds
             $cte = "
                 WITH h AS (
                     $unionSQL
@@ -109,22 +101,24 @@ class SeguimientoController extends BaseController
                         MAX(created_at) AS ultimo_cambio,
 
                         COUNT(DISTINCT CASE
-                            WHEN $isPedido
+                            WHEN entidad IN ('pedido','order')
                               AND entidad_id IS NOT NULL AND entidad_id <> 0
                             THEN entidad_id END
                         ) AS pedidos_tocados,
 
+                        -- ✅ pedidos únicos que el usuario dejó en Confirmado
                         COUNT(DISTINCT CASE
-                            WHEN $isPedido
+                            WHEN entidad IN ('pedido','order')
                               AND entidad_id IS NOT NULL AND entidad_id <> 0
-                              AND $isConfirmado
+                              AND $normNew = 'confirmado'
                             THEN entidad_id END
                         ) AS confirmados,
 
+                        -- ✅ pedidos únicos que el usuario dejó en Diseñado (diseñado -> disenado)
                         COUNT(DISTINCT CASE
-                            WHEN $isPedido
+                            WHEN entidad IN ('pedido','order')
                               AND entidad_id IS NOT NULL AND entidad_id <> 0
-                              AND $isDiseno
+                              AND $normNew = 'disenado'
                             THEN entidad_id END
                         ) AS disenos
 
@@ -134,15 +128,13 @@ class SeguimientoController extends BaseController
                 p AS (
                     SELECT COUNT(DISTINCT CONCAT(entidad,':',entidad_id)) AS pedidos_modificados
                     FROM h
-                    WHERE $isPedido
+                    WHERE entidad IN ('pedido','order')
                       AND entidad_id IS NOT NULL
                       AND entidad_id <> 0
                 )
             ";
 
-            // ============================================================
-            // ✅ Si no existe tabla users: devolvemos por id
-            // ============================================================
+            // Si no existe tabla users, devolvemos por id
             if (!$usersTable) {
                 $sql = $cte . "
                     SELECT
@@ -156,32 +148,31 @@ class SeguimientoController extends BaseController
                         c.disenos,
                         c.ultimo_cambio
                     FROM c
-                    ORDER BY (c.user_id=0) DESC, c.total_cambios DESC, user_name ASC
+                    ORDER BY (c.user_id=0) DESC, c.total_cambios DESC, c.pedidos_tocados DESC, user_name ASC
                 ";
 
-                $rows = $db->query($sql, $binds)->getResultArray();
+                $rows  = $db->query($sql, $binds)->getResultArray();
                 $stats = $db->query($cte . " SELECT pedidos_modificados FROM p", $binds)->getRowArray();
 
                 return $this->response->setJSON([
-                    'ok' => true,
-                    'data' => $rows,
-                    'stats' => ['pedidos_modificados' => (int)($stats['pedidos_modificados'] ?? 0)],
+                    'ok'      => true,
+                    'data'    => $rows,
+                    'stats'   => ['pedidos_modificados' => (int)($stats['pedidos_modificados'] ?? 0)],
                     'sources' => $sourcesUsed,
-                    'range' => ['from' => $from, 'to' => $to],
+                    'range'   => ['from' => $from, 'to' => $to],
                 ]);
             }
 
-            // ============================================================
-            // ✅ Tabla users existe: devolvemos TODOS (incluye 0 cambios)
-            // ============================================================
-            $meta = $this->detectUsersMeta($db, $usersTable);
+            // Users existe: incluimos todos, tengan o no cambios, e incluimos también user_id=0 y “huérfanos”
+            $meta    = $this->detectUsersMeta($db, $usersTable);
             $joinCol = $meta['idCandidates'][0] ?? 'id';
+
             $nameExpr  = $meta['nameExpr']  ?: "CONCAT('Usuario #', u.`$joinCol`)";
             $emailExpr = $meta['emailExpr'] ?: "NULL";
 
             $sql = $cte . "
                 SELECT * FROM (
-                    -- todos los users con o sin cambios
+                    -- 1) todos los users (con o sin cambios)
                     SELECT
                         CAST(u.`$joinCol` AS UNSIGNED) AS user_id,
                         COALESCE($nameExpr, CONCAT('Usuario #', u.`$joinCol`)) AS user_name,
@@ -196,7 +187,7 @@ class SeguimientoController extends BaseController
 
                     UNION ALL
 
-                    -- sin usuario (id=0) siempre
+                    -- 2) sin usuario (id=0) siempre
                     SELECT
                         0 AS user_id,
                         'Sin usuario (no registrado)' AS user_name,
@@ -211,7 +202,7 @@ class SeguimientoController extends BaseController
 
                     UNION ALL
 
-                    -- ids que aparecen en historial pero no existen en users
+                    -- 3) ids en historial que no existen en users
                     SELECT
                         c2.user_id,
                         CONCAT('Usuario #', c2.user_id) AS user_name,
@@ -225,32 +216,37 @@ class SeguimientoController extends BaseController
                     LEFT JOIN `$usersTable` u2 ON CAST(u2.`$joinCol` AS UNSIGNED) = c2.user_id
                     WHERE c2.user_id > 0 AND u2.`$joinCol` IS NULL
                 ) x
-                ORDER BY (x.user_id=0) DESC, x.total_cambios DESC, x.user_name ASC
+                ORDER BY
+                    (x.user_id=0) DESC,
+                    x.total_cambios DESC,
+                    x.pedidos_tocados DESC,
+                    x.user_name ASC
             ";
 
-            $rows = $db->query($sql, $binds)->getResultArray();
+            $rows  = $db->query($sql, $binds)->getResultArray();
             $stats = $db->query($cte . " SELECT pedidos_modificados FROM p", $binds)->getRowArray();
 
             return $this->response->setJSON([
-                'ok' => true,
-                'data' => $rows,
-                'stats' => ['pedidos_modificados' => (int)($stats['pedidos_modificados'] ?? 0)],
+                'ok'      => true,
+                'data'    => $rows,
+                'stats'   => ['pedidos_modificados' => (int)($stats['pedidos_modificados'] ?? 0)],
                 'sources' => $sourcesUsed,
-                'range' => ['from' => $from, 'to' => $to],
+                'range'   => ['from' => $from, 'to' => $to],
             ]);
-
         } catch (\Throwable $e) {
             log_message('error', 'Seguimiento/resumen ERROR: ' . $e->getMessage());
-            return $this->response->setStatusCode(500)->setJSON(['ok'=>false,'message'=>$e->getMessage()]);
+            return $this->response->setStatusCode(500)->setJSON(['ok' => false, 'message' => $e->getMessage()]);
         }
     }
 
     /**
      * GET /seguimiento/detalle/{userId}?from=...&to=...&limit=50&offset=0
      * Devuelve:
-     * - data (cambios paginados) con estado_anterior real (LAG)
-     * - pedidos (chips) => pedidos tocados y cantidad de cambios por pedido
-     * - kpis => confirmados/disenos por pedidos únicos (sin importar el estado anterior)
+     * - data: cambios paginados (con estado_anterior calculado por LAG)
+     * - pedidos: lista de pedidos tocados (chips) con cantidad de cambios por pedido y último timestamp
+     * - kpis: confirmados y disenos (pedidos únicos donde estado_nuevo llegó a esos valores)
+     *
+     * Requiere MySQL 8+ (LAG / window functions)
      */
     public function detalle($userId)
     {
@@ -258,14 +254,17 @@ class SeguimientoController extends BaseController
             $db = db_connect();
             $userId = (int)$userId;
 
-            [$from, $fromErr] = $this->parseDateParam($this->request->getGet('from'));
-            if ($fromErr) return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>$fromErr]);
+            $from = $this->request->getGet('from');
+            $to   = $this->request->getGet('to');
 
-            [$to, $toErr] = $this->parseDateParam($this->request->getGet('to'));
-            if ($toErr) return $this->response->setStatusCode(400)->setJSON(['ok'=>false,'message'=>$toErr]);
-
+            if ($from && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+                return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'message' => 'from inválido (usa YYYY-MM-DD)']);
+            }
+            if ($to && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+                return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'message' => 'to inválido (usa YYYY-MM-DD)']);
+            }
             if ($from && $to && $from > $to) {
-                [$from, $to] = [$to, $from];
+                return $this->response->setStatusCode(400)->setJSON(['ok' => false, 'message' => 'Rango inválido: from > to']);
             }
 
             $limit  = (int)($this->request->getGet('limit') ?? 50);
@@ -278,34 +277,30 @@ class SeguimientoController extends BaseController
             [$unionSQL, $binds, $sourcesUsed] = $this->buildHistoryUnionDetail($db, $from, $to);
 
             $usersTable = $this->detectUsersTable($db);
-            $userInfo = $this->getUserInfo($db, $usersTable, $userId);
+            $userInfo   = $this->getUserInfo($db, $usersTable, $userId);
 
             if (!$unionSQL) {
                 return $this->response->setJSON([
-                    'ok' => true,
-                    'user_id' => $userId,
-                    'user_name' => $userInfo['name'],
+                    'ok'         => true,
+                    'user_id'    => $userId,
+                    'user_name'  => $userInfo['name'],
                     'user_email' => $userInfo['email'],
-                    'total' => 0,
-                    'limit' => $limit,
-                    'offset' => $offset,
-                    'data' => [],
-                    'pedidos' => [],
-                    'kpis' => ['confirmados'=>0,'disenos'=>0],
-                    'range' => ['from'=>$from,'to'=>$to],
+                    'total'      => 0,
+                    'limit'      => $limit,
+                    'offset'     => $offset,
+                    'data'       => [],
+                    'pedidos'    => [],
+                    'kpis'       => ['confirmados' => 0, 'disenos' => 0],
+                    'sources'    => [],
+                    'range'      => ['from' => $from, 'to' => $to],
                 ]);
             }
 
-            $isPedido = "t.entidad IN ('pedido','pedidos','order','orders')";
-            $normNew = $this->normSql("t.estado_nuevo");
-            $isConfirmado = "($normNew LIKE 'confirmad%')";
-            $isDiseno = "($normNew LIKE 'disen%')";
-
-            // total cambios del usuario
-            $totalSql = "SELECT COUNT(*) as total FROM ($unionSQL) t WHERE t.user_id = ?";
+            // Total de cambios del usuario
+            $totalSql = "SELECT COUNT(*) AS total FROM ($unionSQL) t WHERE t.user_id = ?";
             $total = (int)($db->query($totalSql, array_merge($binds, [$userId]))->getRowArray()['total'] ?? 0);
 
-            // pagina con LAG para el "antes" real
+            // Página con estado_anterior calculado (LAG)
             $pageSql = "
                 SELECT
                     x.user_id,
@@ -329,7 +324,7 @@ class SeguimientoController extends BaseController
             ";
             $rows = $db->query($pageSql, array_merge($binds, [$userId, $limit, $offset]))->getResultArray();
 
-            // chips de pedidos tocados (por el usuario)
+            // Chips: pedidos tocados por el usuario (máx 300)
             $pedidosSql = "
                 SELECT
                     t.entidad,
@@ -338,7 +333,7 @@ class SeguimientoController extends BaseController
                     MAX(t.created_at) AS ultimo
                 FROM ($unionSQL) t
                 WHERE t.user_id = ?
-                  AND t.entidad IN ('pedido','pedidos','order','orders')
+                  AND t.entidad IN ('pedido','order')
                   AND t.entidad_id IS NOT NULL
                   AND t.entidad_id <> 0
                 GROUP BY t.entidad, t.entidad_id
@@ -347,22 +342,23 @@ class SeguimientoController extends BaseController
             ";
             $pedidos = $db->query($pedidosSql, array_merge($binds, [$userId]))->getResultArray();
 
-            // ✅ KPIs (sin importar estado anterior)
+            // KPIs: confirmados y disenos sin importar estado anterior
+            $normNew = $this->normSql("t.estado_nuevo");
             $kpiSql = "
                 SELECT
                     COUNT(DISTINCT CASE
-                        WHEN $isPedido
-                          AND t.user_id = ?
+                        WHEN t.user_id = ?
+                          AND t.entidad IN ('pedido','order')
                           AND t.entidad_id IS NOT NULL AND t.entidad_id <> 0
-                          AND $isConfirmado
+                          AND $normNew = 'confirmado'
                         THEN t.entidad_id END
                     ) AS confirmados,
 
                     COUNT(DISTINCT CASE
-                        WHEN $isPedido
-                          AND t.user_id = ?
+                        WHEN t.user_id = ?
+                          AND t.entidad IN ('pedido','order')
                           AND t.entidad_id IS NOT NULL AND t.entidad_id <> 0
-                          AND $isDiseno
+                          AND $normNew = 'disenado'
                         THEN t.entidad_id END
                     ) AS disenos
                 FROM ($unionSQL) t
@@ -370,59 +366,29 @@ class SeguimientoController extends BaseController
             $kpiRow = $db->query($kpiSql, array_merge($binds, [$userId, $userId]))->getRowArray();
 
             return $this->response->setJSON([
-                'ok' => true,
-                'user_id' => $userId,
-                'user_name' => $userInfo['name'],
+                'ok'         => true,
+                'user_id'    => $userId,
+                'user_name'  => $userInfo['name'],
                 'user_email' => $userInfo['email'],
-                'total' => $total,
-                'limit' => $limit,
-                'offset' => $offset,
-                'data' => $rows,
-                'pedidos' => $pedidos,
-                'kpis' => [
+                'total'      => $total,
+                'limit'      => $limit,
+                'offset'     => $offset,
+                'data'       => $rows,
+                'pedidos'    => $pedidos,
+                'kpis'       => [
                     'confirmados' => (int)($kpiRow['confirmados'] ?? 0),
-                    'disenos' => (int)($kpiRow['disenos'] ?? 0),
+                    'disenos'     => (int)($kpiRow['disenos'] ?? 0),
                 ],
                 'sources' => $sourcesUsed,
-                'range' => ['from'=>$from,'to'=>$to],
+                'range'   => ['from' => $from, 'to' => $to],
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'Seguimiento/detalle ERROR: ' . $e->getMessage());
-            return $this->response->setStatusCode(500)->setJSON(['ok'=>false,'message'=>$e->getMessage()]);
+            return $this->response->setStatusCode(500)->setJSON(['ok' => false, 'message' => $e->getMessage()]);
         }
     }
 
-    // ============================================================
-    // ✅ Helpers
-    // ============================================================
-
-    /**
-     * Acepta:
-     * - YYYY-MM-DD
-     * - DD/MM/YYYY
-     * Devuelve [dateOrNull, errorOrNull]
-     */
-    private function parseDateParam($raw): array
-    {
-        $v = trim((string)($raw ?? ''));
-        if ($v === '') return [null, null];
-
-        // YYYY-MM-DD
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) return [$v, null];
-
-        // DD/MM/YYYY
-        if (preg_match('/^(\d{2})\/(\d{2})\/(\d{4})$/', $v, $m)) {
-            $d = (int)$m[1]; $mo = (int)$m[2]; $y = (int)$m[3];
-            if (!checkdate($mo, $d, $y)) {
-                return [null, 'Fecha inválida: ' . $v];
-            }
-            return [sprintf('%04d-%02d-%02d', $y, $mo, $d), null];
-        }
-
-        return [null, 'Fecha inválida (usa YYYY-MM-DD o DD/MM/YYYY)'];
-    }
-
-    // ✅ normalización de strings (incluye Ñ)
+    // ✅ Normalización robusta (incluye Ñ/ñ y tildes) para comparar estados
     private function normSql(string $expr): string
     {
         return "LOWER(TRIM(
@@ -450,7 +416,7 @@ class SeguimientoController extends BaseController
 
     private function detectUsersMeta($db, string $table): array
     {
-        $idCandidatesAll = ['id','id_usuario','usuario_id','user_id','users_id','id_user'];
+        $idCandidatesAll = ['id', 'id_usuario', 'usuario_id', 'user_id', 'users_id', 'id_user'];
         $idCandidates = [];
         foreach ($idCandidatesAll as $c) {
             if ($db->fieldExists($c, $table)) $idCandidates[] = $c;
@@ -472,8 +438,8 @@ class SeguimientoController extends BaseController
 
         return [
             'idCandidates' => $idCandidates,
-            'nameExpr' => $nameExpr,
-            'emailExpr' => $emailExpr,
+            'nameExpr'     => $nameExpr,
+            'emailExpr'    => $emailExpr,
         ];
     }
 
@@ -481,7 +447,7 @@ class SeguimientoController extends BaseController
     {
         if (!$usersTable) {
             return [
-                'name' => $userId === 0 ? 'Sin usuario (no registrado)' : "Usuario #$userId",
+                'name'  => $userId === 0 ? 'Sin usuario (no registrado)' : "Usuario #$userId",
                 'email' => '-',
             ];
         }
@@ -505,13 +471,20 @@ class SeguimientoController extends BaseController
         }
 
         return [
-            'name' => $userId === 0 ? 'Sin usuario (no registrado)' : "Usuario #$userId",
+            'name'  => $userId === 0 ? 'Sin usuario (no registrado)' : "Usuario #$userId",
             'email' => '-',
         ];
     }
 
     // ---------------- HISTORIAL ----------------
 
+    /**
+     * Arma un UNION ALL compatible para:
+     * - resumen (CTE h)
+     * - detalle (LAG y chips)
+     *
+     * from/to son YYYY-MM-DD y se aplican como 00:00:00 / 23:59:59.
+     */
     private function buildHistoryUnionDetail($db, ?string $from, ?string $to): array
     {
         $tables = [
@@ -522,39 +495,39 @@ class SeguimientoController extends BaseController
         ];
 
         $userCandidates = [
-            'usuario_id','id_usuario','user_id','users_id','id_user',
-            'admin_id','empleado_id','operador_id',
-            'created_by','updated_by','changed_by','responsable_id'
+            'usuario_id', 'id_usuario', 'user_id', 'users_id', 'id_user',
+            'admin_id', 'empleado_id', 'operador_id',
+            'created_by', 'updated_by', 'changed_by', 'responsable_id'
         ];
 
         $dateCandidates = [
-            'created_at','updated_at','changed_at','fecha','fecha_cambio','created',
-            'timestamp','fecha_hora','fechaHora','createdAt','created_on','date_created'
+            'created_at', 'updated_at', 'changed_at', 'fecha', 'fecha_cambio', 'created',
+            'timestamp', 'fecha_hora', 'fechaHora', 'createdAt', 'created_on', 'date_created'
         ];
 
         $entityCandidates = [
-            'pedido_id','id_pedido','pedidos_id',
-            'order_id','id_order','orders_id',
+            'pedido_id', 'id_pedido', 'pedidos_id',
+            'order_id', 'id_order', 'orders_id',
             'entidad_id'
         ];
 
         $oldCandidates = [
-            'estado_anterior','status_anterior',
-            'from_status','status_from',
-            'old_status','previous_status',
-            'old_status_id','from_status_id'
+            'estado_anterior', 'status_anterior',
+            'from_status', 'status_from',
+            'old_status', 'previous_status',
+            'old_status_id', 'from_status_id'
         ];
 
         $newCandidates = [
-            'estado_nuevo','status_nuevo',
-            'to_status','status_to',
-            'new_status','current_status',
-            'new_status_id','to_status_id',
-            'status_id','estado','status'
+            'estado_nuevo', 'status_nuevo',
+            'to_status', 'status_to',
+            'new_status', 'current_status',
+            'new_status_id', 'to_status_id',
+            'status_id', 'estado', 'status'
         ];
 
-        $parts = [];
-        $binds = [];
+        $parts   = [];
+        $binds   = [];
         $sources = [];
 
         foreach ($tables as $table) {
@@ -568,16 +541,16 @@ class SeguimientoController extends BaseController
                 ? "CAST(COALESCE(NULLIF(TRIM($userField), ''), 0) AS UNSIGNED)"
                 : "0";
 
-            // Tabla especial: seguimiento_cambios
+            // Tabla especial: seguimiento_cambios (estructura libre)
             if ($table === 'seguimiento_cambios') {
-                $entField = $this->bestExistingField($db, $table, ['entidad','tabla','table_name','entity','modulo']);
+                $entField = $this->bestExistingField($db, $table, ['entidad', 'tabla', 'table_name', 'entity', 'modulo']);
                 $entExpr  = $entField ? "LOWER(CAST($entField AS CHAR))" : "'cambio'";
 
-                $idField = $this->bestExistingField($db, $table, ['entidad_id','registro_id','record_id','row_id','pedido_id','order_id','id_registro']);
+                $idField = $this->bestExistingField($db, $table, ['entidad_id', 'registro_id', 'record_id', 'row_id', 'pedido_id', 'order_id', 'id_registro']);
                 $idExpr  = $idField ? "CAST($idField AS UNSIGNED)" : "NULL";
 
-                $oldField = $this->bestExistingField($db, $table, ['antes','valor_antes','old_value','old','from_value']);
-                $newField = $this->bestExistingField($db, $table, ['despues','valor_despues','new_value','new','to_value']);
+                $oldField = $this->bestExistingField($db, $table, ['antes', 'valor_antes', 'old_value', 'old', 'from_value']);
+                $newField = $this->bestExistingField($db, $table, ['despues', 'valor_despues', 'new_value', 'new', 'to_value']);
 
                 $oldExpr = $oldField ? "CAST($oldField AS CHAR)" : "NULL";
                 $newExpr = $newField ? "CAST($newField AS CHAR)" : "NULL";
@@ -589,8 +562,7 @@ class SeguimientoController extends BaseController
                         $entExpr AS entidad,
                         $idExpr AS entidad_id,
                         $oldExpr AS estado_anterior,
-                        $newExpr AS estado_nuevo,
-                        '$table' AS source
+                        $newExpr AS estado_nuevo
                     FROM `$table`
                     WHERE 1=1
                 ";
@@ -598,7 +570,7 @@ class SeguimientoController extends BaseController
                 if ($from) { $part .= " AND $dateField >= ?"; $binds[] = $from . " 00:00:00"; }
                 if ($to)   { $part .= " AND $dateField <= ?"; $binds[] = $to . " 23:59:59"; }
 
-                $parts[] = $part;
+                $parts[]   = $part;
                 $sources[] = $userField ? "$table($userField,$dateField)" : "$table(NO_USER,$dateField)";
                 continue;
             }
@@ -624,8 +596,7 @@ class SeguimientoController extends BaseController
                     '$entidad' AS entidad,
                     $entityExpr AS entidad_id,
                     $oldExpr AS estado_anterior,
-                    $newExpr AS estado_nuevo,
-                    '$table' AS source
+                    $newExpr AS estado_nuevo
                 FROM `$table`
                 WHERE 1=1
             ";
@@ -633,7 +604,7 @@ class SeguimientoController extends BaseController
             if ($from) { $part .= " AND $dateField >= ?"; $binds[] = $from . " 00:00:00"; }
             if ($to)   { $part .= " AND $dateField <= ?"; $binds[] = $to . " 23:59:59"; }
 
-            $parts[] = $part;
+            $parts[]   = $part;
             $sources[] = $userField ? "$table($userField,$dateField)" : "$table(NO_USER,$dateField)";
         }
 
@@ -657,7 +628,7 @@ class SeguimientoController extends BaseController
         foreach ($candidates as $f) {
             if (!$db->fieldExists($f, $table)) continue;
 
-            $sql = "SELECT COUNT(*) as c
+            $sql = "SELECT COUNT(*) AS c
                     FROM `$table`
                     WHERE $f IS NOT NULL
                       AND TRIM(CAST($f AS CHAR)) <> ''
