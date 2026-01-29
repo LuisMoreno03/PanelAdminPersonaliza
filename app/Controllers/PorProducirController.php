@@ -79,7 +79,7 @@ class PorProducirController extends Controller
 
             $builder = $db->table($table)
                 ->select(implode(', ', $select), false)
-                ->where($colFulfillment, 'Diseñado');
+                ->where($colFulfillment, 'por producir');
 
             if ($colUpdated) $builder->orderBy($colUpdated, 'ASC');
             else $builder->orderBy('id', 'ASC');
@@ -190,7 +190,7 @@ class PorProducirController extends Controller
 
             $db->table($table)->where('id', $id)->update($update);
 
-            $remove = ($nuevoEstadoFulfillment !== 'Diseñado');
+            $remove = ($nuevoEstadoFulfillment !== 'por producir' && $nuevoEstadoEnvio === 'Enviado');
 
             return $this->response->setJSON([
                 'ok' => true,
