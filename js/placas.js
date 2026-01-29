@@ -1,384 +1,477 @@
-/* =========================================================
-   PLACAS - JS
-   Archivo: public/js/placas.js
-   Requiere: window.PLACAS_CONFIG.API (inyectado desde la vista)
-========================================================= */
+/* public/js/placas.js */
 
-/* =========================
-   1) Helpers
-========================= */
-const q = (id) => document.getElementById(id);
+(function () {
+  const q = (id) => document.getElementById(id);
 
-function csrfPair() {
-  const name = document.querySelector('meta[name="csrf-name"]')?.getAttribute('content');
-  const hash = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-  return { name, hash };
-}
-
-function addCsrf(fd) {
-  const { name, hash } = csrfPair();
-  if (name && hash) fd.append(name, hash);
-  return fd;
-}
-
-function escapeHtml(str) {
-  return (str || '').replace(/[&<>"']/g, s => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[s]));
-}
-
-function formatFecha(fechaISO){
-  if (!fechaISO) return '';
-  const d = new Date(String(fechaISO).replace(' ', 'T'));
-  if (isNaN(d)) return String(fechaISO);
-  return d.toLocaleString('es-ES', {
-    year:'numeric', month:'2-digit', day:'2-digit',
-    hour:'2-digit', minute:'2-digit'
-  });
-}
-
-function normalizeText(s) {
-  return String(s || '')
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .trim();
-}
-
-/* =========================
-   2) Config / Estado
-========================= */
-const API = (window.PLACAS_CONFIG && window.PLACAS_CONFIG.API) ? window.PLACAS_CONFIG.API : {};
-
-let modalItem = null;
-let placasMap = {};   // { id: item }
-let loteIndex = {};   // { lote_id: [items] }
-let allData = null;
-let searchTerm = '';
-let modalSelectedId = null;
-
-/* =========================
-   3) Selección modal
-========================= */
-function getSelectedItem() {
-  if (!modalSelectedId) return modalItem;
-  return placasMap[modalSelectedId] || modalItem;
-}
-
-function setSelectedItem(id) {
-  modalSelectedId = Number(id);
-
-  const it = placasMap[modalSelectedId];
-  if (!it) return;
-
-  const mime = it.mime || '';
-  const isImg = mime.startsWith('image/');
-  const isPdf = mime.includes('pdf');
-
-  q('modalPreview').innerHTML = isImg
-    ? `<img src="${it.url}" style="width:100%;height:100%;object-fit:contain;">`
-    : isPdf
-      ? `<iframe src="${it.url}" style="width:100%;height:100%;border:0;"></iframe>`
-      : `<div style="height:100%;display:flex;align-items:center;justify-content:center;">
-           <div class="muted" style="padding:10px;text-align:center;">${escapeHtml(it.original || 'Archivo')}</div>
-         </div>`;
-
-  q('modalNombre').value = it.nombre || (it.original ? String(it.original).replace(/\.[^.]+$/, '') : '');
-  q('modalFecha').textContent = formatFecha(it.created_at);
-
-  document.querySelectorAll('[data-modal-file]').forEach(el => {
-    const ok = Number(el.dataset.modalFile) === modalSelectedId;
-    el.classList.toggle('ring-2', ok);
-    el.classList.toggle('ring-blue-300', ok);
-  });
-}
-
-/* =========================
-   4) Render cards / modal list
-========================= */
-function itemMatches(it, term) {
-  if (!term) return true;
-  const hay = normalizeText([it.nombre, it.original, it.id, it.mime, it.url].join(' '));
-  return hay.includes(term);
-}
-
-function renderCard(item){
-  const mime = item.mime || '';
-  const isImg = mime.startsWith('image/');
-  const isPdf = mime.includes('pdf');
-
-  const preview = isImg
-    ? `<div class="preview"><img src="${item.url}"></div>`
-    : isPdf
-      ? `<div class="preview"><iframe src="${item.url}"></iframe></div>`
-      : `<div class="preview flex items-center justify-center"><div class="muted" style="padding:8px;text-align:center;">${escapeHtml(item.original || 'Archivo')}</div></div>`;
-
-  const kb = Math.round((item.size || 0) / 1024);
-
-  return `
-    <div class="item" onclick="openModal(${item.id})">
-      ${preview}
-      <div class="item-title">${escapeHtml(item.nombre || 'Sin nombre')}</div>
-      <div class="muted">${escapeHtml(item.original || '')} • ${kb} KB</div>
-      <div class="muted"><b>Subido:</b> ${escapeHtml(formatFecha(item.created_at))}</div>
-    </div>
-  `;
-}
-
-function renderModalArchivos(list, activeId) {
-  const box = q('modalArchivos');
-  if (!box) return;
-
-  if (!Array.isArray(list) || !list.length) {
-    box.innerHTML = `<div class="muted">No hay archivos en este conjunto.</div>`;
-    return;
+  // ===================== CSRF =====================
+  function csrfPair() {
+    const name = document.querySelector('meta[name="csrf-name"]')?.getAttribute('content');
+    const hash = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    return { name, hash };
+  }
+  function addCsrf(fd) {
+    const { name, hash } = csrfPair();
+    if (name && hash) fd.append(name, hash);
+    return fd;
   }
 
-  if (!modalSelectedId) modalSelectedId = Number(activeId);
+  // ===================== API =====================
+  const API = window.PLACAS_API || {};
+  if (!API.listar) console.warn("PLACAS_API no está definido. Revisa placas.php");
 
-  box.innerHTML = list.map(it => {
-    const kb = Math.round((it.size || 0) / 1024);
-    const isActive = Number(it.id) === Number(modalSelectedId);
-    const title = it.nombre || it.original || ('Archivo #' + it.id);
+  // ===================== STATE =====================
+  let placasMap = {};     // id => item
+  let loteIndex = {};     // loteId => items[]
+  let loteMeta = {};      // loteId => { pedidos, productos, lote_nombre }
+  let searchTerm = '';
+  let modalItem = null;
+  let modalSelectedId = null;
+  let refresco = null;
 
-    return `
-      <button type="button"
-        data-modal-file="${it.id}"
-        onclick="setSelectedItem(${it.id})"
-        class="w-full text-left bg-white border rounded-xl p-3 flex items-center justify-between gap-3 hover:bg-gray-50 ${isActive ? 'ring-2 ring-blue-300' : ''}">
-        <div class="min-w-0">
-          <div class="font-extrabold truncate">${escapeHtml(title)}</div>
-          <div class="text-xs text-gray-500 mt-1">
-            ${escapeHtml(it.mime || '')} • ${kb} KB
-          </div>
-        </div>
-        <div class="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600 shrink-0">
-          #${it.id}
-        </div>
-      </button>
-    `;
-  }).join('');
-}
-
-function getLoteItemsFor(item) {
-  const lid = item?.lote_id ?? '';
-  if (!lid) return [item];
-  return loteIndex[lid] || [item];
-}
-
-/* =========================
-   5) Carga / Listado
-========================= */
-async function cargarStats(){
-  try{
-    const res = await fetch(API.stats, { cache:'no-store' });
-    const data = await res.json();
-    if (data.success) q('placasHoy').textContent = data.data?.total ?? 0;
-  }catch(e){}
-}
-
-async function cargarVistaAgrupada() {
-  placasMap = {};
-  loteIndex = {};
-
-  const res = await fetch(API.listar, { cache: "no-store" });
-  const data = await res.json();
-
-  allData = data;
-
-  if (data?.success) q("placasHoy").textContent = data.placas_hoy ?? 0;
-
-  const cont = q("contenedorDias");
-  cont.innerHTML = "";
-
-  if (!data.success || !Array.isArray(data.dias)) {
-    cont.innerHTML = `<div class="muted">No hay datos para mostrar.</div>`;
-    return;
+  // ===================== UTILS =====================
+  function escapeHtml(str) {
+    return (str || '').replace(/[&<>"']/g, s => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[s]));
   }
 
-  const term = normalizeText(searchTerm);
-
-  const diasFiltrados = data.dias
-    .map(dia => {
-      const lotes = (dia.lotes || []).map(lote => {
-        const items = (lote.items || []).filter(it => itemMatches(it, term));
-        const okLote = normalizeText([lote.lote_id, lote.lote_nombre, lote.created_at].join(" ")).includes(term);
-        return okLote ? lote : { ...lote, items };
-      }).filter(l => (l.items || []).length > 0);
-
-      const okDia = normalizeText(dia.fecha).includes(term);
-      return okDia ? dia : { ...dia, lotes, total_archivos: lotes.reduce((a,l)=>a+(l.items?.length||0),0) };
-    })
-    .filter(d => (d.lotes || []).length > 0);
-
-  if (term && !diasFiltrados.length) {
-    cont.innerHTML = `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
-    return;
+  function normalizeText(s) {
+    return String(s || '')
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .trim();
   }
 
-  const dias = term ? diasFiltrados : data.dias;
+  function formatFecha(fechaISO) {
+    if (!fechaISO) return '';
+    const d = new Date(String(fechaISO).replace(' ', 'T'));
+    if (isNaN(d)) return String(fechaISO);
+    return d.toLocaleString('es-ES', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+  }
 
-  for (const dia of dias) {
-    const diaBox = document.createElement("div");
-    diaBox.className = "card";
+  function toArrayList(v) {
+    if (!v) return [];
+    if (Array.isArray(v)) return v.map(x => String(x).trim()).filter(Boolean);
 
-    diaBox.innerHTML = `
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="text-lg font-extrabold">${escapeHtml(dia.fecha)}</div>
-          <div class="text-sm text-gray-500">Total: ${dia.total_archivos}</div>
-        </div>
+    const raw = String(v).trim();
+    if (!raw) return [];
+
+    // JSON?
+    try {
+      const j = JSON.parse(raw);
+      if (Array.isArray(j)) return j.map(x => String(x).trim()).filter(Boolean);
+    } catch (e) {}
+
+    return raw.split(/[\n,]+/g).map(s => s.trim()).filter(Boolean);
+  }
+
+  function renderBadges(containerId, items, emptyText) {
+    const el = q(containerId);
+    if (!el) return;
+
+    if (!items.length) {
+      el.innerHTML = `<span class="text-xs text-gray-400">${escapeHtml(emptyText)}</span>`;
+      return;
+    }
+
+    el.innerHTML = items.map(t => `
+      <span class="px-3 py-1 rounded-full bg-gray-100 border border-gray-200 text-xs font-black text-gray-700">
+        ${escapeHtml(t)}
+      </span>
+    `).join('');
+  }
+
+  function itemMatches(it, term) {
+    if (!term) return true;
+
+    const pedidos = toArrayList(it?.pedidos || loteMeta[it?.lote_id]?.pedidos || []);
+    const productos = toArrayList(it?.productos || loteMeta[it?.lote_id]?.productos || []);
+
+    const hay = normalizeText([
+      it.nombre,
+      it.original,
+      it.id,
+      it.mime,
+      it.url,
+      it.lote_id,
+      it.lote_nombre,
+      pedidos.join(' '),
+      productos.join(' ')
+    ].join(' '));
+
+    return hay.includes(term);
+  }
+
+  function getDownloadUrl(it) {
+    return it.download_url || `${API.descargarBase}/${it.id}`;
+  }
+
+  // ===================== MODAL selection =====================
+  function getSelectedItem() {
+    if (!modalSelectedId) return modalItem;
+    return placasMap[modalSelectedId] || modalItem;
+  }
+
+  function setSelectedItem(id) {
+    modalSelectedId = Number(id);
+    const it = placasMap[modalSelectedId];
+    if (!it) return;
+
+    // preview grande
+    const mime = it.mime || '';
+    const isImg = mime.startsWith('image/');
+    const isPdf = mime.includes('pdf');
+
+    q('modalPreview').innerHTML = isImg
+      ? `<img src="${it.url}" style="width:100%;height:100%;object-fit:contain;">`
+      : isPdf
+        ? `<iframe src="${it.url}" style="width:100%;height:100%;border:0;"></iframe>`
+        : `<div style="height:100%;display:flex;align-items:center;justify-content:center;">
+             <div class="muted" style="padding:10px;text-align:center;">${escapeHtml(it.original || 'Archivo')}</div>
+           </div>`;
+
+    // nombre
+    q('modalNombre').value = it.nombre || (it.original ? String(it.original).replace(/\.[^.]+$/, '') : '');
+    q('modalFecha').textContent = formatFecha(it.created_at);
+
+    // marcar activo
+    document.querySelectorAll('[data-modal-file]').forEach(el => {
+      const active = Number(el.dataset.modalFile) === modalSelectedId;
+      el.classList.toggle('ring-2', active);
+      el.classList.toggle('ring-blue-300', active);
+    });
+
+    // meta lote
+    updateModalMetaByLote(it);
+  }
+
+  function updateModalMetaByLote(item) {
+    const lid = item?.lote_id ? String(item.lote_id) : '';
+    const meta = lid ? (loteMeta[lid] || {}) : {};
+
+    const pedidos = toArrayList(meta.pedidos || item.pedidos);
+    const productos = toArrayList(meta.productos || item.productos);
+
+    renderBadges('modalPedidos', pedidos, 'Sin pedidos vinculados');
+    renderBadges('modalProductos', productos, 'Sin productos');
+
+    if (q('modalPedidosHint')) {
+      q('modalPedidosHint').textContent = pedidos.length
+        ? `Pedidos: ${pedidos.join(', ')}`
+        : 'Puedes vincular pedidos al subir el lote.';
+    }
+    if (q('modalProductosHint')) {
+      q('modalProductosHint').textContent = productos.length
+        ? `Productos: ${productos.length}`
+        : 'Puedes adjuntar productos al subir el lote.';
+    }
+
+    const loteNombre = (item.lote_nombre || meta.lote_nombre || '').trim();
+    if (q('modalLoteInfo')) q('modalLoteInfo').textContent = loteNombre ? `Lote: ${loteNombre}` : `Lote: ${lid}`;
+  }
+
+  function getLoteItemsFor(item) {
+    const lid = item?.lote_id ?? '';
+    if (!lid) return [item];
+    return loteIndex[lid] || [item];
+  }
+
+  // ===================== Render archivos lista (modal) =====================
+  function renderModalArchivos(list, activeId) {
+    const box = q('modalArchivos');
+    if (!box) return;
+
+    if (!Array.isArray(list) || !list.length) {
+      box.innerHTML = `<div class="muted">No hay archivos en este conjunto.</div>`;
+      return;
+    }
+
+    if (!modalSelectedId) modalSelectedId = Number(activeId);
+
+    box.innerHTML = `
+      <div class="mt-2 max-h-[260px] overflow-auto grid gap-2">
+        ${list.map(it => {
+          const kb = Math.round((it.size || 0) / 1024);
+          const isActive = Number(it.id) === Number(modalSelectedId);
+          const mime = it.mime || '';
+          const isImg = mime.startsWith('image/');
+          const originalUrl = getDownloadUrl(it);
+          const pngUrl = `${API.descargarPng}/${it.id}`;
+          const jpgUrl = `${API.descargarJpg}/${it.id}`;
+
+          return `
+            <button type="button"
+              data-modal-file="${it.id}"
+              onclick="window.__PLACAS_setSelected(${it.id})"
+              class="w-full text-left bg-white border border-gray-200 rounded-xl p-3 flex items-center justify-between gap-3 hover:bg-gray-50 ${isActive ? 'ring-2 ring-blue-300' : ''}">
+              
+              <div class="min-w-0">
+                <div class="font-extrabold truncate">${escapeHtml(it.nombre || it.original || ('Archivo #' + it.id))}</div>
+                <div class="text-xs text-gray-500 mt-1">${escapeHtml(mime)} • ${kb} KB</div>
+              </div>
+
+              <div class="flex items-center gap-2 shrink-0">
+                <a href="${originalUrl}" target="_blank" download
+                   onclick="event.stopPropagation()"
+                   class="px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-black hover:opacity-90">
+                  ⬇ Descargar
+                </a>
+
+                ${isImg ? `
+                  <a href="${pngUrl}" target="_blank"
+                     onclick="event.stopPropagation()"
+                     class="px-2 py-2 rounded-xl bg-emerald-500 text-white text-xs font-black hover:opacity-90">PNG</a>
+                  <a href="${jpgUrl}" target="_blank"
+                     onclick="event.stopPropagation()"
+                     class="px-2 py-2 rounded-xl bg-sky-500 text-white text-xs font-black hover:opacity-90">JPG</a>
+                ` : ''}
+              </div>
+            </button>
+          `;
+        }).join('')}
       </div>
-      <div class="mt-3 lotes-grid"></div>
     `;
+  }
 
-    const lotesCont = diaBox.querySelector(".lotes-grid");
-    cont.appendChild(diaBox);
+  // ===================== MODAL OPEN/CLOSE =====================
+  function openModal(id) {
+    const item = placasMap[id];
+    if (!item) return;
 
-    for (const lote of (dia.lotes || [])) {
-      const lid = String(lote.lote_id ?? "");
-      const lnombre = (lote.lote_nombre || '').trim() || 'Sin nombre';
-      const total = (lote.items || []).length;
+    modalItem = item;
+    modalSelectedId = Number(item.id);
 
-      loteIndex[lid] = lote.items || [];
-      (lote.items || []).forEach(it => {
-        it.lote_id = it.lote_id ?? lid;
-        it.lote_nombre = it.lote_nombre ?? lnombre;
-        placasMap[it.id] = it;
-      });
+    const list = getLoteItemsFor(item);
+    renderModalArchivos(list, item.id);
+    setSelectedItem(item.id);
 
-      const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
-      const thumb = principal?.thumb_url || (principal?.url && (principal.mime || "").startsWith("image/") ? principal.url : null);
+    q('modalBackdrop').style.display = 'block';
+  }
 
-      const loteBox = document.createElement("div");
-      loteBox.className = "lote-card";
+  function closeModal() {
+    q('modalBackdrop').style.display = 'none';
+    modalItem = null;
+    modalSelectedId = null;
+  }
 
-      loteBox.innerHTML = `
-        <div class="lote-left cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
-          <div class="lote-thumb">
-            ${thumb ? `<img src="${thumb}">` : `<div class="text-gray-400 text-xs">Carpeta</div>`}
-          </div>
+  // Exponer algunas funciones al HTML dinámico
+  window.__PLACAS_openModal = openModal;
+  window.__PLACAS_setSelected = setSelectedItem;
 
-          <div class="min-w-0">
-            <div class="lote-title">📦 ${escapeHtml(lnombre)}</div>
-            <div class="lote-meta">${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}</div>
+  window.openLote = function (loteId) {
+    const list = loteIndex[String(loteId)] || [];
+    if (!list.length) return;
+    const principal = list.find(x => Number(x.is_primary) === 1) || list[0];
+    openModal(principal.id);
+  };
+
+  // ===================== Render lotes por día =====================
+  async function cargarVistaAgrupada() {
+    placasMap = {};
+    loteIndex = {};
+    loteMeta = {};
+
+    const res = await fetch(API.listar, { cache: 'no-store' });
+    const data = await res.json();
+
+    if (data?.success) q('placasHoy').textContent = data.placas_hoy ?? 0;
+
+    const cont = q('contenedorDias');
+    cont.innerHTML = '';
+
+    if (!data.success || !Array.isArray(data.dias)) {
+      cont.innerHTML = `<div class="muted">No hay datos para mostrar.</div>`;
+      return;
+    }
+
+    const term = normalizeText(searchTerm);
+
+    let dias = data.dias;
+
+    if (term) {
+      dias = data.dias
+        .map(dia => {
+          const lotes = (dia.lotes || [])
+            .map(lote => {
+              const lid = String(lote.lote_id || '');
+              const lnombre = (lote.lote_nombre || '').trim();
+
+              const pedidos = toArrayList(lote.pedidos);
+              const productos = toArrayList(lote.productos);
+
+              // filtrar items por term
+              const items = (lote.items || []).filter(it => itemMatches({
+                ...it,
+                lote_id: lid,
+                lote_nombre: lnombre,
+                pedidos,
+                productos
+              }, term));
+
+              // match por lote/pedidos/productos
+              const loteHay = normalizeText([
+                lid, lnombre, lote.created_at,
+                pedidos.join(' '),
+                productos.join(' ')
+              ].join(' ')).includes(term);
+
+              return loteHay ? lote : { ...lote, items };
+            })
+            .filter(l => (l.items || []).length > 0);
+
+          const okDia = normalizeText(dia.fecha).includes(term);
+          return okDia ? dia : { ...dia, lotes };
+        })
+        .filter(d => (d.lotes || []).length > 0);
+    }
+
+    if (term && !dias.length) {
+      cont.innerHTML = `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
+      return;
+    }
+
+    for (const dia of dias) {
+      const diaBox = document.createElement('div');
+      diaBox.className = 'card';
+
+      diaBox.innerHTML = `
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-lg font-extrabold">${escapeHtml(dia.fecha)}</div>
+            <div class="text-sm text-gray-500">Total: ${dia.total_archivos ?? 0}</div>
           </div>
         </div>
-
-        <div class="lote-actions">
-          <button class="btn-blue" style="background:#111827; padding:8px 12px;"
-                  onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
-            Ver
-          </button>
-
-          <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
-            href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
-            onclick="event.stopPropagation()">
-            Descargar PNG
-          </a>
-
-          <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
-            href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
-            onclick="event.stopPropagation()">
-            Descargar JPG
-          </a>
-        </div>
+        <div class="mt-3 lotes-grid"></div>
       `;
 
-      loteBox.onclick = () => openLote(lid);
-      lotesCont.appendChild(loteBox);
+      const lotesCont = diaBox.querySelector('.lotes-grid');
+      cont.appendChild(diaBox);
+
+      for (const lote of (dia.lotes || [])) {
+        const lid = String(lote.lote_id ?? '');
+        const lnombre = (lote.lote_nombre || '').trim() || 'Sin nombre';
+
+        // index + meta
+        loteIndex[lid] = lote.items || [];
+        loteMeta[lid] = {
+          lote_nombre: lnombre,
+          pedidos: Array.isArray(lote.pedidos) ? lote.pedidos : (lote.pedidos || ''),
+          productos: Array.isArray(lote.productos) ? lote.productos : (lote.productos || ''),
+        };
+
+        (lote.items || []).forEach(it => {
+          it.lote_id = it.lote_id ?? lid;
+          it.lote_nombre = it.lote_nombre ?? lnombre;
+          placasMap[it.id] = it;
+        });
+
+        const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
+        const thumb = principal?.thumb_url || (principal?.url && (principal.mime || '').startsWith('image/') ? principal.url : null);
+
+        const pedidos = toArrayList(loteMeta[lid].pedidos);
+        const productos = toArrayList(loteMeta[lid].productos);
+
+        const chipPedidos = pedidos.length
+          ? `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-700">🧾 ${pedidos.length} pedido(s)</span>`
+          : `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-400">🧾 sin pedidos</span>`;
+
+        const chipProductos = productos.length
+          ? `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-700">🧩 ${productos.length} producto(s)</span>`
+          : `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-400">🧩 sin productos</span>`;
+
+        const loteBox = document.createElement('div');
+        loteBox.className = 'lote-card';
+
+        loteBox.innerHTML = `
+          <div class="lote-left cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
+            <div class="lote-thumb">
+              ${thumb ? `<img src="${thumb}">` : `<div class="text-gray-400 text-xs">Carpeta</div>`}
+            </div>
+
+            <div class="min-w-0">
+              <div class="lote-title">📦 ${escapeHtml(lnombre)}</div>
+              <div class="lote-meta">${(lote.items || []).length} archivo(s) • ${escapeHtml(lote.created_at ?? '')}</div>
+
+              <div class="mt-2 flex flex-wrap gap-2">
+                ${chipPedidos}
+                ${chipProductos}
+              </div>
+            </div>
+          </div>
+
+          <div class="lote-actions">
+            <button class="btn-blue" style="background:#111827; padding:8px 12px;"
+                    onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
+              Ver archivos
+            </button>
+
+            <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
+               href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
+               onclick="event.stopPropagation()">
+              Descargar PNG (ZIP)
+            </a>
+
+            <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
+               href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
+               onclick="event.stopPropagation()">
+              Descargar JPG (ZIP)
+            </a>
+          </div>
+        `;
+
+        loteBox.onclick = () => openLote(lid);
+        lotesCont.appendChild(loteBox);
+      }
     }
   }
-}
 
-/* =========================
-   6) Modal editar
-========================= */
-window.openLote = function(loteId){
-  const list = loteIndex[String(loteId)] || [];
-  if (!list.length) return;
-  const principal = list.find(x => Number(x.is_primary) === 1) || list[0];
-  openModal(principal.id);
-};
-
-window.openModal = function(id){
-  const item = placasMap[id];
-  if (!item) return;
-
-  modalItem = item;
-
-  q('modalNombre').value = item.nombre || '';
-  q('modalFecha').textContent = formatFecha(item.created_at);
-  q('modalMsg').textContent = '';
-
-  const list = getLoteItemsFor(item);
-  modalSelectedId = Number(item.id);
-  renderModalArchivos(list, item.id);
-  setSelectedItem(item.id);
-
-  const loteNombre = (item.lote_nombre || '').trim();
-  if (q('modalLoteInfo')) q('modalLoteInfo').textContent = loteNombre ? `Lote: ${loteNombre}` : '';
-
-  q('modalBackdrop').style.display = 'block';
-};
-
-function closeModal(){
-  q('modalBackdrop').style.display = 'none';
-  modalItem = null;
-  modalSelectedId = null;
-}
-
-async function renombrarLoteDesdeModal() {
-  const sel = getSelectedItem();
-  if (!sel) return;
-
-  const loteId = sel.lote_id;
-  if (!loteId) {
-    q('modalMsg').textContent = 'Este archivo no tiene lote.';
-    return;
+  // ===================== Stats =====================
+  async function cargarStats() {
+    try {
+      const res = await fetch(API.stats, { cache: 'no-store' });
+      const data = await res.json();
+      if (data.success) q('placasHoy').textContent = data.data?.total ?? 0;
+    } catch (e) {}
   }
 
-  const actual = (sel.lote_nombre || '').trim();
-  const nuevo = prompt('Nuevo nombre del lote:', actual);
-  if (nuevo === null) return;
+  // ===================== Renombrar lote =====================
+  async function renombrarLoteDesdeModal() {
+    const sel = getSelectedItem();
+    if (!sel) return;
 
-  const nombre = nuevo.trim();
-  if (!nombre) {
-    q('modalMsg').textContent = 'El nombre del lote no puede estar vacío.';
-    return;
+    const loteId = sel.lote_id;
+    if (!loteId) { q('modalMsg').textContent = 'Este archivo no tiene lote.'; return; }
+
+    const actual = (sel.lote_nombre || loteMeta[loteId]?.lote_nombre || '').trim();
+    const nuevo = prompt('Nuevo nombre del lote:', actual);
+
+    if (nuevo === null) return;
+    const nombre = nuevo.trim();
+    if (!nombre) { q('modalMsg').textContent = 'El nombre no puede estar vacío.'; return; }
+
+    const fd = addCsrf(new FormData());
+    fd.append('lote_id', String(loteId));
+    fd.append('lote_nombre', nombre);
+
+    const res = await fetch(API.renombrarLote, { method: 'POST', body: fd, credentials: 'same-origin' });
+    const data = await res.json().catch(() => null);
+
+    if (!data?.success) {
+      q('modalMsg').textContent = data?.message || 'Error renombrando el lote';
+      return;
+    }
+
+    q('modalMsg').textContent = '✅ Lote renombrado';
+    const keepId = sel.id;
+    await cargarVistaAgrupada();
+    openModal(keepId);
   }
 
-  const fd = addCsrf(new FormData());
-  fd.append('lote_id', String(loteId));
-  fd.append('lote_nombre', nombre);
-
-  const res = await fetch(API.renombrarLote, { method: 'POST', body: fd, credentials: 'same-origin' });
-  const data = await res.json().catch(() => null);
-
-  if (!data?.success) {
-    q('modalMsg').textContent = data?.message || 'Error renombrando el lote';
-    return;
-  }
-
-  q('modalMsg').textContent = '✅ Lote renombrado';
-
-  const keepId = sel.id;
-  await cargarVistaAgrupada();
-  openModal(keepId);
-}
-
-/* =========================
-   7) Modal acciones (guardar / borrar / descargas)
-========================= */
-function wireModalEvents(){
-  q('modalClose').addEventListener('click', closeModal);
-
-  q('modalBackdrop').addEventListener('click', (e) => {
-    if (e.target.id === 'modalBackdrop') closeModal();
-  });
-
-  q('btnRenombrarLote').addEventListener('click', renombrarLoteDesdeModal);
-
-  q('btnGuardarNombre').addEventListener('click', async () => {
+  // ===================== Guardar nombre archivo =====================
+  async function guardarNombreArchivo() {
     const sel = getSelectedItem();
     if (!sel) return;
 
@@ -390,25 +483,21 @@ function wireModalEvents(){
     fd.append('nombre', nuevo);
 
     const res = await fetch(API.renombrar, { method: 'POST', body: fd, credentials: 'same-origin' });
-    const text = await res.text();
+    const data = await res.json().catch(() => null);
 
-    let data = null;
-    try { data = JSON.parse(text); } catch (e) {}
-
-    if (!res.ok) {
-      q('modalMsg').textContent = `Error (${res.status}): ${text.slice(0, 140)}`;
+    if (!data?.success) {
+      q('modalMsg').textContent = data?.message || 'Error renombrando';
       return;
     }
 
-    q('modalMsg').textContent = data?.message || (data?.success ? 'Guardado' : 'Error');
-    if (data?.success) {
-      const keepId = sel.id;
-      await cargarVistaAgrupada();
-      openModal(keepId);
-    }
-  });
+    q('modalMsg').textContent = '✅ Nombre actualizado';
+    const keepId = sel.id;
+    await cargarVistaAgrupada();
+    openModal(keepId);
+  }
 
-  q('btnEliminarArchivo').addEventListener('click', async () => {
+  // ===================== Eliminar archivo =====================
+  async function eliminarArchivo() {
     const sel = getSelectedItem();
     if (!sel) return;
 
@@ -417,56 +506,53 @@ function wireModalEvents(){
     const fd = addCsrf(new FormData());
     fd.append('id', sel.id);
 
-    const res = await fetch(API.eliminar, { method:'POST', body: fd, credentials:'same-origin' });
-    const data = await res.json().catch(()=>null);
+    const res = await fetch(API.eliminar, { method: 'POST', body: fd, credentials: 'same-origin' });
+    const data = await res.json().catch(() => null);
 
-    if (data?.success){
-      closeModal();
-      await cargarVistaAgrupada();
-      await cargarStats();
-    } else {
-      q('modalMsg').textContent = data?.message || 'Error';
+    if (!data?.success) {
+      q('modalMsg').textContent = data?.message || 'Error eliminando';
+      return;
     }
-  });
 
-  q('btnDescargarPngSel').addEventListener('click', () => {
+    q('modalMsg').textContent = '✅ Eliminado';
+    closeModal();
+    await cargarVistaAgrupada();
+    await cargarStats();
+  }
+
+  // ===================== Descargas modal (seleccionado) =====================
+  function descargarSelPng() {
     const sel = getSelectedItem();
     if (!sel?.id) return;
     window.open(`${API.descargarPng}/${sel.id}`, '_blank');
-  });
-
-  q('btnDescargarJpgSel').addEventListener('click', () => {
+  }
+  function descargarSelJpg() {
     const sel = getSelectedItem();
     if (!sel?.id) return;
     window.open(`${API.descargarJpg}/${sel.id}`, '_blank');
-  });
-}
+  }
 
-/* =========================
-   8) Modal carga (multi)
-========================= */
-function wireUploadModal(){
+  // ===================== MODAL CARGA =====================
   const modalCarga = q('modalCargaBackdrop');
   let filesSeleccionados = [];
 
-  q('btnAbrirModalCarga').addEventListener('click', () => {
+  function abrirModalCarga() {
     modalCarga.classList.remove('hidden');
     q('cargaMsg').textContent = '';
-  });
-
-  q('btnCerrarCarga').addEventListener('click', () => {
+  }
+  function cerrarModalCarga() {
     modalCarga.classList.add('hidden');
     q('cargaArchivo').value = '';
     filesSeleccionados = [];
     q('cargaPreview').innerHTML = 'Vista previa';
     q('cargaMsg').textContent = '';
     q('uploadProgressWrap').classList.add('hidden');
-  });
+    q('uploadProgressBar').style.width = '0%';
+    q('uploadProgressText').textContent = '0%';
+  }
 
-  q('cargaArchivo').addEventListener('change', (e) => {
-    filesSeleccionados = Array.from(e.target.files || []);
+  function renderPreviewSeleccion() {
     const box = q('cargaPreview');
-
     if (!filesSeleccionados.length) {
       box.innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
       return;
@@ -481,11 +567,14 @@ function wireUploadModal(){
 
           return `
             <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; background:#f9fafb; height:72px; display:flex; align-items:center; justify-content:center; position:relative;">
-              ${isImg ? `<img src="${url}" style="width:100%; height:100%; object-fit:cover;">`
-                : isPdf ? `<div style="font-size:12px;color:#6b7280;padding:6px;text-align:center;">PDF</div>`
-                : `<div style="font-size:11px;color:#6b7280;padding:6px;text-align:center;word-break:break-word;">${escapeHtml(f.name)}</div>`}
+              ${isImg
+                ? `<img src="${url}" style="width:100%; height:100%; object-fit:cover;">`
+                : isPdf
+                  ? `<div style="font-size:12px;color:#6b7280;padding:6px;text-align:center;">PDF</div>`
+                  : `<div style="font-size:11px;color:#6b7280;padding:6px;text-align:center;word-break:break-word;">${escapeHtml(f.name)}</div>`
+              }
               <button type="button"
-                onclick="window.quitarArchivoSeleccionado(${i})"
+                onclick="window.__PLACAS_quitarArchivo(${i})"
                 style="position:absolute; top:6px; right:6px; background:rgba(0,0,0,.6); color:#fff; border:0; width:22px; height:22px; border-radius:999px; cursor:pointer;">
                 ×
               </button>
@@ -497,21 +586,23 @@ function wireUploadModal(){
         ${filesSeleccionados.length} archivo(s) seleccionado(s)
       </div>
     `;
-  });
+  }
 
-  window.quitarArchivoSeleccionado = (idx) => {
+  window.__PLACAS_quitarArchivo = (idx) => {
     filesSeleccionados.splice(idx, 1);
     const dt = new DataTransfer();
     filesSeleccionados.forEach(f => dt.items.add(f));
     q('cargaArchivo').files = dt.files;
-    q('cargaArchivo').dispatchEvent(new Event('change'));
+    renderPreviewSeleccion();
   };
 
-  q('btnGuardarCarga').addEventListener('click', () => {
-    const numero = q('cargaNumero').value.trim();
-    const loteNombreManual = q('cargaLoteNombre')?.value.trim();
+  function subirLote() {
+    const loteNombre = (q('cargaLoteNombre')?.value || '').trim();
+    const numeroPlaca = (q('cargaNumero')?.value || '').trim();
+    const pedidosRaw = (q('cargaPedidos')?.value || '').trim();
+    const productosRaw = (q('cargaProductos')?.value || '').trim();
 
-    if (!loteNombreManual) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
+    if (!loteNombre) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
     if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
 
     const wrap = q('uploadProgressWrap');
@@ -526,8 +617,11 @@ function wireUploadModal(){
     q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
 
     const fd = addCsrf(new FormData());
-    fd.append('numero_placa', numero);
-    fd.append('lote_nombre', loteNombreManual);
+    fd.append('lote_nombre', loteNombre);
+    fd.append('numero_placa', numeroPlaca);
+    fd.append('pedidos', pedidosRaw);
+    fd.append('productos', productosRaw);
+
     filesSeleccionados.forEach(file => fd.append('archivos[]', file));
 
     const xhr = new XMLHttpRequest();
@@ -540,7 +634,7 @@ function wireUploadModal(){
       txt.textContent = percent + '%';
     };
 
-    xhr.onload = () => {
+    xhr.onload = async () => {
       q('btnGuardarCarga').disabled = false;
 
       let data = null;
@@ -556,16 +650,10 @@ function wireUploadModal(){
       q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
 
       setTimeout(async () => {
-        modalCarga.classList.add('hidden');
-        wrap.classList.add('hidden');
-
-        q('cargaArchivo').value = '';
-        filesSeleccionados = [];
-        q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
-
+        cerrarModalCarga();
         await cargarStats();
         await cargarVistaAgrupada();
-      }, 600);
+      }, 500);
     };
 
     xhr.onerror = () => {
@@ -574,58 +662,74 @@ function wireUploadModal(){
     };
 
     xhr.send(fd);
-  });
-}
+  }
 
-/* =========================
-   9) Buscador
-========================= */
-function wireSearch(){
-  const searchInput = q('searchInput');
-  const searchClear = q('searchClear');
-
-  let searchT = null;
-
+  // ===================== BUSCADOR =====================
   function applySearch(v) {
     searchTerm = v || '';
-    if (searchClear) searchClear.classList.toggle('hidden', !searchTerm.trim());
+    if (q('searchClear')) q('searchClear').classList.toggle('hidden', !searchTerm.trim());
     cargarVistaAgrupada();
   }
 
-  if (searchInput) {
-    searchInput.addEventListener('input', (e) => {
-      const v = e.target.value;
-      clearTimeout(searchT);
-      searchT = setTimeout(() => applySearch(v), 120);
+  // ===================== INIT EVENTS =====================
+  function bindEvents() {
+    // modal
+    q('modalClose')?.addEventListener('click', closeModal);
+    q('modalBackdrop')?.addEventListener('click', (e) => {
+      if (e.target.id === 'modalBackdrop') closeModal();
     });
-  }
 
-  if (searchClear) {
-    searchClear.addEventListener('click', () => {
+    q('btnRenombrarLote')?.addEventListener('click', renombrarLoteDesdeModal);
+    q('btnGuardarNombre')?.addEventListener('click', guardarNombreArchivo);
+    q('btnEliminarArchivo')?.addEventListener('click', eliminarArchivo);
+    q('btnDescargarPngSel')?.addEventListener('click', descargarSelPng);
+    q('btnDescargarJpgSel')?.addEventListener('click', descargarSelJpg);
+
+    // modal carga
+    q('btnAbrirModalCarga')?.addEventListener('click', abrirModalCarga);
+    q('btnCerrarCarga')?.addEventListener('click', cerrarModalCarga);
+    q('btnGuardarCarga')?.addEventListener('click', subirLote);
+
+    q('cargaArchivo')?.addEventListener('change', (e) => {
+      filesSeleccionados = Array.from(e.target.files || []);
+      renderPreviewSeleccion();
+    });
+
+    // buscador
+    const searchInput = q('searchInput');
+    const searchClear = q('searchClear');
+
+    let t = null;
+    searchInput?.addEventListener('input', (e) => {
+      clearTimeout(t);
+      t = setTimeout(() => applySearch(e.target.value), 120);
+    });
+
+    searchClear?.addEventListener('click', () => {
+      if (!searchInput) return;
       searchInput.value = '';
       applySearch('');
       searchInput.focus();
     });
   }
-}
 
-/* =========================
-   10) Inicialización + refresco
-========================= */
-async function refrescarTodo() {
-  try {
-    await cargarStats();
-    await cargarVistaAgrupada();
-  } catch (e) {
-    console.log("Refresco detenido por error", e);
+  // ===================== REFRESH =====================
+  async function refrescarTodo() {
+    try {
+      await cargarStats();
+      await cargarVistaAgrupada();
+    } catch (e) {
+      console.log("Refresco detenido por error", e);
+      if (refresco) clearInterval(refresco);
+      refresco = null;
+    }
   }
-}
 
-document.addEventListener('DOMContentLoaded', async () => {
-  wireModalEvents();
-  wireUploadModal();
-  wireSearch();
+  // ===================== START =====================
+  document.addEventListener('DOMContentLoaded', async () => {
+    bindEvents();
+    await refrescarTodo();
+    refresco = setInterval(refrescarTodo, 600000); // 10 min
+  });
 
-  await refrescarTodo();
-  setInterval(refrescarTodo, 600000);
-});
+})();
