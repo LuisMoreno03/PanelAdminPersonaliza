@@ -300,7 +300,7 @@
       <!-- ✅ Por Producir (DESHABILITADO: sin href) -->
       <?php
         $item(
-          base_url('por-producir'),   // 👈 si tu ruta es otra, cámbiala aquí
+          base_url('porproducir'),   // 👈 si tu ruta es otra, cámbiala aquí
           $isPorProducirActive,
           'Por Producir',
           '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -309,7 +309,7 @@
           </svg>'
         );
       ?>
-      
+
 
 
       <?php $item(base_url('repetir'), $isActive('repetir'), 'Repetir Pedidos',
