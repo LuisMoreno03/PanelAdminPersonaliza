@@ -11,35 +11,49 @@ class CreatePlacasArchivos extends Migration
         $this->forge->addField([
             'id' => [
                 'type'           => 'INT',
+                'constraint'     => 11,
                 'unsigned'       => true,
                 'auto_increment' => true,
             ],
 
-            // ✅ Identificador del lote
+            // ✅ lote/conjunto
             'lote_id' => [
                 'type'       => 'VARCHAR',
                 'constraint' => 80,
                 'null'       => false,
             ],
-
-            // ✅ Nombre visible del lote
             'lote_nombre' => [
                 'type'       => 'VARCHAR',
-                'constraint' => 200,
+                'constraint' => 190,
                 'null'       => true,
             ],
 
-            // ✅ Meta (guardado JSON)
-            'pedidos_json' => [
-                'type' => 'TEXT',
-                'null' => true,
-            ],
-            'productos_json' => [
-                'type' => 'TEXT',
-                'null' => true,
+            // opcional: número de placa / nota
+            'numero_placa' => [
+                'type'       => 'VARCHAR',
+                'constraint' => 80,
+                'null'       => true,
             ],
 
-            // ✅ Archivo
+            // archivo
+            'ruta' => [
+                'type'       => 'VARCHAR',
+                'constraint' => 255,
+                'null'       => false,
+            ],
+            'mime' => [
+                'type'       => 'VARCHAR',
+                'constraint' => 120,
+                'null'       => true,
+            ],
+            'size' => [
+                'type'       => 'INT',
+                'constraint' => 11,
+                'null'       => true,
+                'default'    => 0,
+            ],
+
+            // nombres
             'original' => [
                 'type'       => 'VARCHAR',
                 'constraint' => 255,
@@ -50,30 +64,25 @@ class CreatePlacasArchivos extends Migration
                 'constraint' => 255,
                 'null'       => true,
             ],
-            'mime' => [
-                'type'       => 'VARCHAR',
-                'constraint' => 120,
-                'null'       => true,
-            ],
-            'size' => [
-                'type'     => 'INT',
-                'unsigned' => true,
-                'null'     => true,
-            ],
-            'ruta' => [
-                'type'       => 'VARCHAR',
-                'constraint' => 500,
-                'null'       => false,
-            ],
 
-            // ✅ para marcar principal (thumb)
+            // ✅ marca principal (para thumbnail del lote)
             'is_primary' => [
-                'type'     => 'TINYINT',
-                'unsigned' => true,
-                'default'  => 0,
+                'type'       => 'TINYINT',
+                'constraint' => 1,
+                'null'       => false,
+                'default'    => 0,
             ],
 
-            // timestamps
+            // ✅ meta guardada por lote/placa (se repite por fila, pero sirve para listar rápido)
+            'productos_json' => [
+                'type' => 'TEXT',
+                'null' => true,
+            ],
+            'pedidos_json' => [
+                'type' => 'TEXT',
+                'null' => true,
+            ],
+
             'created_at' => [
                 'type' => 'DATETIME',
                 'null' => true,
@@ -85,6 +94,8 @@ class CreatePlacasArchivos extends Migration
         ]);
 
         $this->forge->addKey('id', true);
+
+        // índices útiles
         $this->forge->addKey('lote_id');
         $this->forge->addKey('created_at');
 
