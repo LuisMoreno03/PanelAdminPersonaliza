@@ -299,6 +299,21 @@ $routes->post('montaje/cargado', 'MontajeController::cargado');
 
 
 // ✅ Vista Por producir
+// ===============================
+// POR PRODUCIR
+// ===============================
+$routes->group('porproducir', function($routes) {
+
+    // Vista principal
+    $routes->get('/', 'PorProducir::index');
+
+    // Pull (traer 5 o 10 pedidos en estado "Diseñado")
+    $routes->get('pull', 'PorProducir::pull');
+
+    // Update método de entrega (si cambia a Enviado => estado Enviado y sale de la lista)
+    $routes->post('update-metodo', 'PorProducir::updateMetodo');
+
+});
 
 
 $routes->get('seguimiento', 'SeguimientoController::index');
