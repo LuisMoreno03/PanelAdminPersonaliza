@@ -7,13 +7,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Placas - Panel</title>
 
-
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/alpinejs" defer></script>
 
   <style>
     body { background: #f3f4f6; }
-
 
     .btn-blue{
       background:#2563eb;
@@ -63,1169 +61,234 @@
     }
     .preview img{ width:100%; height:100%; object-fit:cover; }
     .preview iframe{ width:100%; height:100%; border:0; }
-  
-  /* ✅ GRID DE LOTES (CARPETAS) */
-.lotes-grid{
-  display:grid;
-  gap:14px;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  margin-top:12px;
-}
 
-.lote-card{
-  background:#fff;
-  border:1px solid #e5e7eb;
-  border-radius:16px;
-  padding:14px;
-  transition:.15s;
-}
+    /* ✅ GRID DE LOTES (CARPETAS) */
+    .lotes-grid{
+      display:grid;
+      gap:14px;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      margin-top:12px;
+    }
 
-.lote-card:hover{
-  box-shadow:0 10px 30px rgba(0,0,0,.06);
-  transform: translateY(-1px);
-}
+    .lote-card{
+      background:#fff;
+      border:1px solid #e5e7eb;
+      border-radius:16px;
+      padding:14px;
+      transition:.15s;
+    }
 
-.lote-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-}
+    .lote-card:hover{
+      box-shadow:0 10px 30px rgba(0,0,0,.06);
+      transform: translateY(-1px);
+    }
 
-.lote-left{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  min-width:0;
-}
+    .lote-left{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      min-width:0;
+    }
 
-.lote-thumb{
-  width:64px;
-  height:64px;
-  border-radius:14px;
-  border:1px solid #eee;
-  background:#f9fafb;
-  overflow:hidden;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  flex:0 0 auto;
-}
+    .lote-thumb{
+      width:64px;
+      height:64px;
+      border-radius:14px;
+      border:1px solid #eee;
+      background:#f9fafb;
+      overflow:hidden;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex:0 0 auto;
+    }
 
-.lote-thumb img{
-  width:100%;
-  height:100%;
-  object-fit:cover;
-}
+    .lote-thumb img{
+      width:100%;
+      height:100%;
+      object-fit:cover;
+    }
 
-.lote-title{
-  font-weight:900;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  max-width: 220px;
-}
+    .lote-title{
+      font-weight:900;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width: 220px;
+    }
 
-.lote-meta{
-  color:#6b7280;
-  font-size:12px;
-  margin-top:2px;
-}
+    .lote-meta{
+      color:#6b7280;
+      font-size:12px;
+      margin-top:2px;
+    }
 
-/* ✅ Botonera debajo */
-.lote-actions{
-  margin-top:12px;
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-}
-.lote-actions .btn-blue,
-.lote-actions a.btn-blue{
-  width:100%;
-  justify-content:center;
-}
-
-
+    /* ✅ Botonera debajo */
+    .lote-actions{
+      margin-top:12px;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .lote-actions .btn-blue,
+    .lote-actions a.btn-blue{
+      width:100%;
+      justify-content:center;
+    }
   </style>
 
+  <!-- ✅ Config que antes estaba dentro del JS -->
+  <script>
+    window.PLACAS_CONFIG = {
+      API: {
+        listar: <?= json_encode(site_url('placas/archivos/listar-por-dia')) ?>,
+        stats:  <?= json_encode(site_url('placas/archivos/stats')) ?>,
+        subir:  <?= json_encode(site_url('placas/archivos/subir-lote')) ?>,
+        renombrar: <?= json_encode(site_url('placas/archivos/renombrar')) ?>,
+        eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
+        descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
+        descargarPngLote: <?= json_encode(site_url('placas/archivos/descargar-png-lote')) ?>,
+        descargarJpg: <?= json_encode(site_url('placas/archivos/descargar-jpg')) ?>,
+        descargarPng: <?= json_encode(site_url('placas/archivos/descargar-png')) ?>,
+        descargarJpgLote: <?= json_encode(site_url('placas/archivos/descargar-jpg-lote')) ?>,
+        renombrarLote: <?= json_encode(site_url('placas/archivos/lote/renombrar')) ?>,
+      }
+    };
+  </script>
 </head>
 
 <body class="flex">
-
-
-<?= view('layouts/menu') ?>
-
-
-<div class="flex-1 md:ml-64 p-8">
-  <div class="card">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-black">PLACAS</h1>
-        <div class="muted mt-1">
-          Placas hoy: <span id="placasHoy" class="font-black">0</span>
-        </div>
-      </div>
-
-    <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
-  
-    <!-- ✅ Buscador -->
-  <div class="relative w-full md:w-[340px]">
-    <input id="searchInput" type="text" placeholder="Buscar lote o archivo..."
-      class="w-full border border-gray-200 rounded-xl px-4 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-200">
-    <button id="searchClear" type="button"
-      class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 hidden">
-      ✕
-    </button>
-  </div>
-
-  <button id="btnAbrirModalCarga" class="btn-blue whitespace-nowrap">Cargar placa</button>
-</div>
-
-
-    </div>
-
-    <div id="msg" class="muted mt-2"></div>
-
-    <div id="contenedorDias" class="space-y-6"></div>
-<div id="grid" class="grid hidden"></div>
-
-  </div>
-</div>
-
-<!-- MODAL EDITAR ARCHIVO -->
-<div id="modalBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999;">
-  <div style="max-width:720px; margin:6vh auto; background:#fff; border-radius:16px; overflow:hidden;">
-    <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee;">
-      <div style="font-weight:900;">Editar placa</div>
-      <button id="modalClose" class="btn-blue">Cerrar</button>
-    </div>
-
-    <div style="padding:16px;">
-      <div id="modalPreview" style="width:100%; height:260px; border:1px solid #eee; border-radius:14px; overflow:hidden; background:#f9fafb;"></div>
-
-      <!-- ✅ Archivos del conjunto -->
-<div style="margin-top:14px; border:1px solid #e5e7eb; border-radius:14px; padding:12px; background:#f9fafb;">
-  <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-  <div style="font-weight:900;">Archivos del conjunto</div>
-
-  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-    <div class="muted" id="modalLoteInfo"></div>
-
-    <button id="btnRenombrarLote" type="button"
-      class="btn-blue"
-      style="background:#f59e0b;">
-      Cambiar nombre del lote
-    </button>
-  </div>
-</div>
-
-
-  <div id="modalArchivos" style="margin-top:10px; max-height:220px; overflow:auto; display:grid; gap:10px;"></div>
-</div>
-
-
-      <div style="margin-top:12px;">
-        <div class="text-sm text-gray-600">Nombre</div>
-        <input id="modalNombre" style="width:100%; border:1px solid #e5e7eb; border-radius:12px; padding:10px;" />
-      </div>
-
-      <div style="margin-top:10px;" class="text-sm text-gray-600">
-        Fecha de subida: <span id="modalFecha"></span>
-      </div>
-
-      <div style="display:flex; gap:10px; margin-top:14px; justify-content:flex-end;">
-      <button id="btnGuardarNombre" type="button" class="btn-blue">Guardar</button>
-      <button id="btnDescargarPngSel" type="button" class="btn-blue" style="background:#10b981;">PNG</button>
-      <button id="btnDescargarJpgSel" type="button" class="btn-blue" style="background:#0ea5e9;">JPG</button>
-
-      <button id="btnEliminarArchivo" type="button" class="btn-blue" style="background:#ef4444;">Eliminar</button>
-
-      </div>
-      
-
-      <div id="modalMsg" class="text-sm text-gray-500 mt-2"></div>
-    </div>
-  </div>
-</div>
-
-<!-- MODAL CARGA (MULTI) -->
-<div id="modalCargaBackdrop"
-     class="fixed inset-0 bg-black/50 hidden z-[10000] flex items-center justify-center p-4">
-
-  <!-- Caja modal -->
-  <div class="bg-white rounded-2xl w-full max-w-[520px] shadow-xl overflow-hidden flex flex-col">
-
-    <!-- Header -->
-    <div class="px-6 py-4 border-b">
-      <h2 class="text-xl font-black">Cargar placa</h2>
-      <div class="text-xs text-gray-500 mt-1">Completa los datos y sube uno o más archivos.</div>
-    </div>
-
-    <!-- Body -->
-    <div class="p-6 space-y-3">
-      <!-- ✅ Nombre del lote (visible) -->
-      <input id="cargaLoteNombre" type="text" placeholder="Nombre del lote (ej: Pedido #9095 - Lámparas)"
-             class="w-full border rounded-xl px-3 py-2">
-
-      <!-- ✅ Número de placa (si lo quieres mantener opcional) -->
-      <input id="cargaNumero" type="text" placeholder="Productos (opcional)"
-             class="w-full border rounded-xl px-3 py-2">
-
-      <!-- Archivos -->
-      <input id="cargaArchivo" type="file" multiple class="w-full" accept="*/*">
-
-      <!-- Preview -->
-      <div id="cargaPreview"
-           class="h-44 border rounded-xl flex items-center justify-center text-gray-400">
-        Vista previa
-      </div>
-
-      <!-- ✅ Barra de progreso (DENTRO del modal) -->
-      <div id="uploadProgressWrap" class="hidden">
-        <div class="w-full bg-gray-100 border border-gray-200 rounded-full h-3 overflow-hidden">
-          <div id="uploadProgressBar"
-               class="bg-blue-600 h-3 rounded-full transition-[width] duration-150"
-               style="width:0%">
-          </div>
-        </div>
-        <div class="text-xs text-gray-500 mt-2 flex items-center justify-between">
-          <span id="uploadProgressLabel">Subiendo…</span>
-          <span id="uploadProgressText" class="font-black">0%</span>
-        </div>
-      </div>
-
-      <div id="cargaMsg" class="text-sm text-gray-500"></div>
-    </div>
-
-    <!-- Footer (botones dentro del cuadro) -->
-    <div class="px-6 py-4 border-t flex justify-end gap-2">
-      <button id="btnCerrarCarga" class="btn-blue" style="background:#9ca3af;">Cancelar</button>
-      <button id="btnGuardarCarga" class="btn-blue">Guardar</button>
-    </div>
-
-  </div>
-</div>
-
-
-
-
-<script>
-  const q = (id) => document.getElementById(id);
-
-function csrfPair() {
-  const name = document.querySelector('meta[name="csrf-name"]')?.getAttribute('content');
-  const hash = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-  return { name, hash };
-}
-
-function addCsrf(fd) {
-  const { name, hash } = csrfPair();
-  if (name && hash) fd.append(name, hash);
-  return fd;
-}
-
-  const API = {
-  listar: <?= json_encode(site_url('placas/archivos/listar-por-dia')) ?>,
-  stats:  <?= json_encode(site_url('placas/archivos/stats')) ?>,
-  subir:  <?= json_encode(site_url('placas/archivos/subir-lote')) ?>,
-  renombrar: <?= json_encode(site_url('placas/archivos/renombrar')) ?>,
-  eliminar:   <?= json_encode(site_url('placas/archivos/eliminar')) ?>,
-  descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
-  descargarPngLote: <?= json_encode(site_url('placas/archivos/descargar-png-lote')) ?>,
-  descargarJpg: <?= json_encode(site_url('placas/archivos/descargar-jpg')) ?>,
-  descargarPng: <?= json_encode(site_url('placas/archivos/descargar-png')) ?>,
-  descargarJpgLote: <?= json_encode(site_url('placas/archivos/descargar-jpg-lote')) ?>,
- renombrarLote: <?= json_encode(site_url('placas/archivos/lote/renombrar')) ?>,
-
-
-
-
-};
-
-
-
-
-  let modalItem = null;
-
-  // ✅ mapa global para que openModal funcione aunque sea listado por grupos
-  let placasMap = {}; // { id: item }
-let allData = null;
-let searchTerm = '';
-let loteIndex = {};
-
-
-// ✅ estado del archivo seleccionado en el modal
-let modalSelectedId = null;
-
-function getSelectedItem() {
-  if (!modalSelectedId) return modalItem;
-  return placasMap[modalSelectedId] || modalItem;
-}
-
-function setSelectedItem(id) {
-  modalSelectedId = Number(id);
-
-  const it = placasMap[modalSelectedId];
-  if (!it) return;
-
-  // preview grande
-  const mime = it.mime || '';
-  const isImg = mime.startsWith('image/');
-  const isPdf = mime.includes('pdf');
-
-  q('modalPreview').innerHTML = isImg
-    ? `<img src="${it.url}" style="width:100%;height:100%;object-fit:contain;">`
-    : isPdf
-      ? `<iframe src="${it.url}" style="width:100%;height:100%;border:0;"></iframe>`
-      : `<div style="height:100%;display:flex;align-items:center;justify-content:center;">
-           <div class="muted" style="padding:10px;text-align:center;">${escapeHtml(it.original || 'Archivo')}</div>
-         </div>`;
-
-  // input nombre principal (uno solo)
-  q('modalNombre').value = it.nombre || (it.original ? String(it.original).replace(/\.[^.]+$/, '') : '');
-
-  // fecha
-  q('modalFecha').textContent = formatFecha(it.created_at);
-
-  // marcar activo en lista
-  document.querySelectorAll('[data-modal-file]').forEach(el => {
-    el.classList.toggle('ring-2', Number(el.dataset.modalFile) === modalSelectedId);
-    el.classList.toggle('ring-blue-300', Number(el.dataset.modalFile) === modalSelectedId);
-  });
-}
-
-  function escapeHtml(str) {
-    return (str || '').replace(/[&<>"']/g, s => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[s]));
-  }
-
-  function formatFecha(fechaISO){
-    if (!fechaISO) return '';
-    const d = new Date(String(fechaISO).replace(' ', 'T'));
-    if (isNaN(d)) return String(fechaISO);
-    return d.toLocaleString('es-ES', {
-      year:'numeric', month:'2-digit', day:'2-digit',
-      hour:'2-digit', minute:'2-digit'
-    });
-  }
-
-  function renderCard(item){
-    const mime = item.mime || '';
-    const isImg = mime.startsWith('image/');
-    const isPdf = mime.includes('pdf');
-
-    const preview = isImg
-      ? `<div class="preview"><img src="${item.url}"></div>`
-      : isPdf
-        ? `<div class="preview"><iframe src="${item.url}"></iframe></div>`
-        : `<div class="preview flex items-center justify-center"><div class="muted" style="padding:8px;text-align:center;">${escapeHtml(item.original || 'Archivo')}</div></div>`;
-
-    const kb = Math.round((item.size || 0) / 1024);
-
-    return `
-      <div class="item" onclick="openModal(${item.id})">
-        ${preview}
-        <div class="item-title">${escapeHtml(item.nombre || 'Sin nombre')}</div>
-        <div class="muted">${escapeHtml(item.original || '')} • ${kb} KB</div>
-        <div class="muted"><b>Subido:</b> ${escapeHtml(formatFecha(item.created_at))}</div>
-      </div>
-    `;
-  }
-
-  async function cargarStats(){
-    try{
-      const res = await fetch(API.stats, { cache:'no-store' });
-      const data = await res.json();
-      if (data.success) q('placasHoy').textContent = data.data?.total ?? 0;
-    }catch(e){}
-  }
-
-function normalizeText(s) {
-  return String(s || '')
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
-    .trim();
-}
-
-function itemMatches(it, term) {
-  if (!term) return true;
-  const hay = normalizeText([
-    it.nombre,
-    it.original,
-    it.id,
-    it.mime,
-    it.url
-  ].join(' '));
-  return hay.includes(term);
-}
-
-function loteTieneMatch(lote, term){
-  if (!term) return true;
-  if (normalizeText([lote.lote_id, lote.lote_nombre, lote.created_at].join(" ")).includes(term)) return true;
-  return (lote.items || []).some(it => itemMatches(it, term));
-}
-
-function marcarMatch(text, term){
-  if(!term) return escapeHtml(text);
-  const t = normalizeText(text);
-  const qn = normalizeText(term);
-  if(!qn || !t.includes(qn)) return escapeHtml(text);
-  return `<span style="background:#FEF08A;border-radius:6px;padding:0 4px;">${escapeHtml(text)}</span>`;
-}
-
-
-function groupMatches(g, term) {
-  if (!term) return true;
-  const hay = normalizeText([
-    g.lote_nombre,
-    g.lote_id,
-    g.created_at
-  ].join(' '));
-  return hay.includes(term);
-}
-
-function renderFromData(data) {
-  placasMap = {};
-  loteIndex = {};
-
-  if (!data || !data.success) {
-    q('grid').innerHTML = '<div class="muted">Error cargando archivos</div>';
-    return;
-  }
-
-  const term = normalizeText(searchTerm);
-
-  // ====== AGRUPADO ======
-  if (Array.isArray(data.grupos)) {
-    let grupos = data.grupos || [];
-
-    // llenar mapa por ID y el índice por lote
-    grupos.forEach(g => {
-      const lid = (g.lote_id ?? g.lote_nombre ?? g.id ?? '').toString();
-      const items = (g.items || []);
-
-      loteIndex[lid] = items;
-
-      items.forEach(it => {
-        if (it.lote_id == null) it.lote_id = lid; // asegurar lote_id en cada item
-        placasMap[it.id] = it;                    // mapa global por id
-      });
-    });
-
-    // filtro
-    if (term) {
-      grupos = grupos
-        .map(g => {
-         const items = (g.items || []).filter(it => itemMatches(it, term));
-         const gm = groupMatches(g, term);
-         return gm ? g : { ...g, items };
-        })
-        .filter(g => groupMatches(g, term) || (g.items || []).length > 0);
-    }
-
-    if (!grupos.length) {
-      q('grid').innerHTML = `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
-      return;
-    }
-
-    q('grid').innerHTML = grupos.map(g => {
-      const titulo = (g.lote_nombre || '').trim() || 'Sin nombre';
-      const fecha = g.created_at ? formatFecha(g.created_at) : '';
-      const cards = (g.items || []).map(renderCard).join('');
-    
-
-
-      return `
-        <div style="grid-column: 1 / -1; background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:12px;">
-          <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-            <div style="font-weight:900;">📦 ${escapeHtml(titulo)}</div>
-            <div class="muted">${escapeHtml(fecha)}</div>
-          </div>
-          <div style="margin-top:10px; display:grid; gap:12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
-            ${cards || '<div class="muted">Sin archivos en este lote.</div>'}
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    return;
-  }
-
-  // ====== SIN AGRUPAR (compat) ======
-const flat = Array.isArray(data.items)
-  ? data.items
-  : Array.isArray(data.data)   // ✅ tu backend actual
-    ? data.data
-    : null;
-
-if (Array.isArray(flat)) {
-  let items = flat;
-  items.forEach(it => { placasMap[it.id] = it; });
-
-  if (term) items = items.filter(it => itemMatches(it, term));
-
-  q('grid').innerHTML = items.length
-    ? items.map(renderCard).join('')
-    : `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
-  return;
-}
-
-q('grid').innerHTML = '<div class="muted">No hay datos para mostrar.</div>';
-
-
-}
-
-
-
-  // ✅ LISTA soporta: data.grupos o data.items
-async function cargarLista(){
-  try{
-    const res = await fetch(API.listar, { cache:'no-store' });
-    const data = await res.json();
-
-    allData = data;
-    renderFromData(data);
-
-    // si tu backend devuelve total (lo podemos agregar)
-    if (data.success && data.total != null) {
-      q('placasHoy').textContent = data.total;
-    }
-    await cargarVistaAgrupada();
-  } catch(e){
-    q('contenedorDias').innerHTML = '<div class="muted">Error cargando archivos</div>';
-  }
-
-}
-
-
-async function cargarVistaAgrupada() {
-  placasMap = {};
-  loteIndex = {};
-
-  const res = await fetch(API.listar, { cache: "no-store" });
-  const data = await res.json();
-
-  // contador hoy (usa el valor del endpoint)
-  if (data?.success) q("placasHoy").textContent = data.placas_hoy ?? 0;
-
-  const cont = q("contenedorDias");
-  cont.innerHTML = "";
-
-  if (!data.success || !Array.isArray(data.dias)) {
-    cont.innerHTML = `<div class="muted">No hay datos para mostrar.</div>`;
-    return;
-  }
-
-  const term = normalizeText(searchTerm);
-
-
-  // filtra por buscador (fecha / lote / archivos)
-  const diasFiltrados = data.dias
-    .map(dia => {
-      const lotes = (dia.lotes || []).map(lote => {
-        const items = (lote.items || []).filter(it => itemMatches(it, term));
-        const okLote = normalizeText([lote.lote_id, lote.lote_nombre, lote.created_at].join(" ")).includes(term);
-        return okLote ? lote : { ...lote, items };
-      }).filter(l => (l.items || []).length > 0);
-
-      const okDia = normalizeText(dia.fecha).includes(term);
-      return okDia ? dia : { ...dia, lotes, total_archivos: lotes.reduce((a,l)=>a+(l.items?.length||0),0) };
-    })
-    .filter(d => (d.lotes || []).length > 0);
-
-  if (term && !diasFiltrados.length) {
-    cont.innerHTML = `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
-    return;
-  }
-
-  const dias = term ? diasFiltrados : data.dias;
-
-  for (const dia of dias) {
-    const diaBox = document.createElement("div");
-    diaBox.className = "card";
-
-    diaBox.innerHTML = `
-  <div class="flex items-center justify-between">
-    <div>
-      <div class="text-lg font-extrabold">${escapeHtml(dia.fecha)}</div>
-      <div class="text-sm text-gray-500">Total: ${dia.total_archivos}</div>
-    </div>
-  </div>
-  <div class="mt-3 lotes-grid"></div>
-`;
-
-const lotesCont = diaBox.querySelector(".lotes-grid");
-
-
-    cont.appendChild(diaBox);
-
-   for (const lote of (dia.lotes || [])) {
-  const lid = String(lote.lote_id ?? "");
-  const lnombre = (lote.lote_nombre || '').trim() || 'Sin nombre';
-  const total = (lote.items || []).length;
-
-  // ✅ mantener índices para el modal
-  loteIndex[lid] = lote.items || [];
-  (lote.items || []).forEach(it => {
-    it.lote_id = it.lote_id ?? lid;
-    it.lote_nombre = it.lote_nombre ?? lnombre; // ✅ por si no viene en items
-    placasMap[it.id] = it;
-  });
-
-  const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
-  const thumb = principal?.thumb_url || (principal?.url && (principal.mime || "").startsWith("image/") ? principal.url : null);
-
-  const loteBox = document.createElement("div");
-  loteBox.className = "lote-card";
-
-  loteBox.innerHTML = `
-    <div class="lote-left cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
-      <div class="lote-thumb">
-        ${thumb
-          ? `<img src="${thumb}">`
-          : `<div class="text-gray-400 text-xs">Carpeta</div>`
-        }
-      </div>
-
-      <div class="min-w-0">
-        <div class="lote-title">📦 ${escapeHtml(lnombre)}</div>
-        <div class="lote-meta">${total} archivo(s) • ${escapeHtml(lote.created_at ?? "")}</div>
-      </div>
-    </div>
-
-    <div class="lote-actions">
-  <button class="btn-blue" style="background:#111827; padding:8px 12px;"
-          onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
-    Ver
-  </button>
-
-  <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
-     href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
-     onclick="event.stopPropagation()">
-    Descargar PNG
-  </a>
-
-  <a class="btn-blue" style="background:#2563eb; padding:8px 12px;"
-     href="${API.descargarJpgLote}/${encodeURIComponent(lid)}"
-     onclick="event.stopPropagation()">
-    Descargar JPG
-  </a>
- </div>
-
-  `;
-
-  loteBox.onclick = () => openLote(lid);
-  lotesCont.appendChild(loteBox);
-    }
-  }
-}
-
-
-
-
-
-
-function renderModalArchivos(list, activeId) {
-  const box = q('modalArchivos');
-  if (!box) return;
-
-  if (!Array.isArray(list) || !list.length) {
-    box.innerHTML = `<div class="muted">No hay archivos en este conjunto.</div>`;
-    return;
-  }
-
-  // si no hay seleccionado aún, usa el activeId
-  if (!modalSelectedId) modalSelectedId = Number(activeId);
-
-  box.innerHTML = list.map(it => {
-
-    const kb = Math.round((it.size || 0) / 1024);
-    const isActive = Number(it.id) === Number(modalSelectedId);
-
-    const title = it.nombre || it.original || ('Archivo #' + it.id);
-
-    return `
-      <button type="button"
-        data-modal-file="${it.id}"
-        onclick="setSelectedItem(${it.id})"
-        class="w-full text-left bg-white border rounded-xl p-3 flex items-center justify-between gap-3 hover:bg-gray-50 ${isActive ? 'ring-2 ring-blue-300' : ''}">
-        
-        <div class="min-w-0">
-          <div class="font-extrabold truncate">${escapeHtml(title)}</div>
-          <div class="text-xs text-gray-500 mt-1">
-            ${escapeHtml(it.mime || '')} • ${kb} KB
+  <?= view('layouts/menu') ?>
+
+  <div class="flex-1 md:ml-64 p-8">
+    <div class="card">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-black">PLACAS</h1>
+          <div class="muted mt-1">
+            Placas hoy: <span id="placasHoy" class="font-black">0</span>
           </div>
         </div>
 
-        <div class="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600 shrink-0">
-          #${it.id}
+        <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <!-- ✅ Buscador -->
+          <div class="relative w-full md:w-[340px]">
+            <input id="searchInput" type="text" placeholder="Buscar lote o archivo..."
+              class="w-full border border-gray-200 rounded-xl px-4 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-200">
+            <button id="searchClear" type="button"
+              class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 hidden">
+              ✕
+            </button>
+          </div>
+
+          <button id="btnAbrirModalCarga" class="btn-blue whitespace-nowrap">Cargar placa</button>
         </div>
-      </button>
-    `;
-  }).join('');
-}
-
-
-function getLoteItemsFor(item) {
-  const lid = item?.lote_id ?? '';
-  if (!lid) return [item];
-  return loteIndex[lid] || [item];
-}
-
-// ✅ FUERA de la función (GLOBAL)
-window.openLote = function(loteId){
-  const list = loteIndex[String(loteId)] || [];
-  if (!list.length) return;
-
-  const principal = list.find(x => Number(x.is_primary) === 1) || list[0];
-  openModal(principal.id);
-};
-
-
-window.renombrarLoteUI = async function(loteId, nombreActual = '') {
-  const nuevo = prompt("Nuevo nombre del lote:", nombreActual || "");
-  if (nuevo === null) return; // canceló
-  const nombre = nuevo.trim();
-  if (!nombre) { alert("El nombre no puede estar vacío."); return; }
-
-  const fd = addCsrf(new FormData());
-  fd.append('lote_id', String(loteId));
-  fd.append('lote_nombre', nombre);
-
-  const res = await fetch(API.renombrarLote, {
-    method: 'POST',
-    body: fd,
-    credentials: 'same-origin'
-  });
-
-  const data = await res.json().catch(() => null);
-
-  if (!data?.success) {
-    alert(data?.message || "Error renombrando el lote");
-    return;
-  }
-
-  // ✅ refresca vista
-  await cargarLista();
-  await cargarStats();
-};
-
-
-window.guardarNombreArchivo = async function(fileId){
-  const input = document.querySelector(`[data-file-name="${fileId}"]`);
-  const nuevo = (input?.value || '').trim();
-  if (!nuevo) { q('modalMsg').textContent = 'El nombre no puede estar vacío.'; return; }
-
-  const fd = addCsrf(new FormData());
-  fd.append('id', fileId);
-  fd.append('nombre', nuevo);
-
-  const res = await fetch(API.renombrar, { method:'POST', body: fd, credentials:'same-origin' });
-  const data = await res.json().catch(()=>null);
-
-  if (!data?.success){
-    q('modalMsg').textContent = data?.message || 'Error renombrando';
-    return;
-  }
-
-  q('modalMsg').textContent = '✅ Nombre actualizado';
-  await cargarLista();         // refresca mapa e índices
-  if (modalItem) openModal(modalItem.id); // reabre el modal manteniendo el contexto
-};
-
-
-window.eliminarArchivo = async function(fileId){
-  if (!confirm('¿Eliminar este archivo?')) return;
-
-  const fd = addCsrf(new FormData());
-  fd.append('id', fileId);
-
-  const res = await fetch(API.eliminar, { method:'POST', body: fd, credentials:'same-origin' });
-  const data = await res.json().catch(()=>null);
-
-  if (!data?.success){
-    q('modalMsg').textContent = data?.message || 'Error eliminando';
-    return;
-  }
-
-  q('modalMsg').textContent = '✅ Eliminado';
-  await cargarLista();
-
-  // Si borraste el actual, intenta abrir otro del lote:
-  if (modalItem && Number(modalItem.id) === Number(fileId)) {
-    const list = getLoteItemsFor(modalItem).filter(x => Number(x.id) !== Number(fileId));
-    if (list.length) openModal(list[0].id);
-    else closeModal();
-  } else {
-    if (modalItem) openModal(modalItem.id);
-  }
-};
-
-
-
-      
-
-  // --- MODAL EDITAR
-  window.openModal = function(id){
-  const item = placasMap[id];
-  if (!item) return;
-
-  modalItem = item;
-
-  // ✅ render preview actual
-  const mime = item.mime || '';
-  const isImg = mime.startsWith('image/');
-  const isPdf = mime.includes('pdf');
-
-  q('modalPreview').innerHTML = isImg
-    ? `<img src="${item.url}" style="width:100%;height:100%;object-fit:contain;">`
-    : isPdf
-      ? `<iframe src="${item.url}" style="width:100%;height:100%;border:0;"></iframe>`
-      : `<div style="height:100%;display:flex;align-items:center;justify-content:center;">
-           <div class="muted" style="padding:10px;text-align:center;">${escapeHtml(item.original || 'Archivo')}</div>
-         </div>`;
-
-  q('modalNombre').value = item.nombre || '';
-  q('modalFecha').textContent = formatFecha(item.created_at);
-  q('modalMsg').textContent = '';
-
-  // ✅ Archivos del conjunto (mismo lote)
-  const list = getLoteItemsFor(item);
-  modalSelectedId = Number(item.id); // ✅ el actual queda seleccionado
-                    renderModalArchivos(list, item.id);
-                    setSelectedItem(item.id); // ✅ fuerza preview grande + input nombre
-
-  const loteNombre = (item.lote_nombre || '').trim();
-if (q('modalLoteInfo')) q('modalLoteInfo').textContent = loteNombre ? `Lote: ${loteNombre}` : '';
-
-
-  q('modalBackdrop').style.display = 'block';
-}
-
-async function renombrarLoteDesdeModal() {
-  const sel = getSelectedItem();
-  if (!sel) return;
-
-  const loteId = sel.lote_id;
-  if (!loteId) {
-    q('modalMsg').textContent = 'Este archivo no tiene lote.';
-    return;
-  }
-
-  const actual = (sel.lote_nombre || '').trim();
-  const nuevo = prompt('Nuevo nombre del lote:', actual);
-
-  if (nuevo === null) return; // canceló
-  const nombre = nuevo.trim();
-  if (!nombre) {
-    q('modalMsg').textContent = 'El nombre del lote no puede estar vacío.';
-    return;
-  }
-
-  const fd = addCsrf(new FormData());
-  fd.append('lote_id', String(loteId));
-  fd.append('lote_nombre', nombre);
-
-  const res = await fetch(API.renombrarLote, {
-    method: 'POST',
-    body: fd,
-    credentials: 'same-origin'
-  });
-
-  const data = await res.json().catch(() => null);
-
-  if (!data?.success) {
-    q('modalMsg').textContent = data?.message || 'Error renombrando el lote';
-    return;
-  }
-
-  q('modalMsg').textContent = '✅ Lote renombrado';
-
-  // refrescar y reabrir modal
-  const keepId = sel.id;
-  await cargarLista();
-  openModal(keepId);
-}
-
-
-  function closeModal(){
-    q('modalBackdrop').style.display = 'none';
-    modalItem = null;
-  }
-
-  q('modalClose').addEventListener('click', closeModal);
-  q('modalBackdrop').addEventListener('click', (e) => {
-    if (e.target.id === 'modalBackdrop') closeModal();
-
-
-    q('btnRenombrarLote').addEventListener('click', renombrarLoteDesdeModal);
-  });
-
-  
-  q('btnGuardarNombre').addEventListener('click', async () => {
-  if (!modalItem) return;
-
-  const nuevo = q('modalNombre').value.trim();
-  if (!nuevo) {
-    q('modalMsg').textContent = 'El nombre no puede estar vacío.';
-    return;
-  }
-
-
-
-  const fd = addCsrf(new FormData());
- const sel = getSelectedItem();
-  fd.append('id', sel.id);
-
-  fd.append('nombre', nuevo);
-
-  const res = await fetch(API.renombrar, {
-    method: 'POST',
-    body: fd,
-    credentials: 'same-origin',
-  });
-
-  const text = await res.text();
-  let data = null;
-  try { data = JSON.parse(text); } catch (e) {}
-
-  if (!res.ok) {
-    q('modalMsg').textContent = `Error (${res.status}): ${text.slice(0, 140)}`;
-    return;
-  }
-
-  q('modalMsg').textContent = data?.message || (data?.success ? 'Guardado' : 'Error');
-  if (data?.success) await cargarLista();
-});
-
-  q('btnEliminarArchivo').addEventListener('click', async () => {
-    if (!modalItem) return;
-    if (!confirm('¿Eliminar esta placa?')) return;
-    
-    
-
-    const fd = addCsrf(new FormData());
-    const sel = getSelectedItem();
-    fd.append('id', sel.id);
-
-    
-    if (!confirm(`¿Eliminar el archivo #${sel.id}?`)) return;
-
-
-    const res = await fetch(API.eliminar, { method:'POST', body: fd, credentials:'same-origin' });
-
-    const data = await res.json();
-
-    if (data.success){
-      closeModal();
-      await cargarLista();
-      await cargarStats();
-    } else {
-      q('modalMsg').textContent = data.message || 'Error';
-    }
-  });
-
-
-q('btnDescargarPngSel').addEventListener('click', () => {
-  const sel = getSelectedItem();
-  if (!sel?.id) return;
-  window.open(`${API.descargarPng}/${sel.id}`, '_blank');
-});
-
-q('btnDescargarJpgSel').addEventListener('click', () => {
-  const sel = getSelectedItem();
-  if (!sel?.id) return;
-  window.open(`${API.descargarJpg}/${sel.id}`, '_blank');
-});
-
-  // ===== MODAL CARGA MULTI (UNA SOLA REQUEST => QUEDAN AGRUPADOS) =====
-  const modalCarga = q('modalCargaBackdrop');
-  let filesSeleccionados = [];
-
-  q('btnAbrirModalCarga').addEventListener('click', () => {
-    modalCarga.classList.remove('hidden');
-    q('cargaMsg').textContent = '';
-  });
-
-  q('btnCerrarCarga').addEventListener('click', () => {
-    modalCarga.classList.add('hidden');
-    q('cargaArchivo').value = '';
-    filesSeleccionados = [];
-    q('cargaPreview').innerHTML = 'Vista previa';
-    q('cargaMsg').textContent = '';
-  });
-
-  q('cargaArchivo').addEventListener('change', (e) => {
-    filesSeleccionados = Array.from(e.target.files || []);
-    const box = q('cargaPreview');
-
-    if (!filesSeleccionados.length) {
-      box.innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
-      return;
-    }
-
-    box.innerHTML = `
-      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; padding:8px;">
-        ${filesSeleccionados.map((f, i) => {
-          const isImg = f.type.startsWith('image/');
-          const isPdf = (f.type || '').includes('pdf');
-          const url = (isImg || isPdf) ? URL.createObjectURL(f) : '';
-
-          return `
-            <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; background:#f9fafb; height:72px; display:flex; align-items:center; justify-content:center; position:relative;">
-              ${
-                isImg ? `<img src="${url}" style="width:100%; height:100%; object-fit:cover;">`
-                : isPdf ? `<div style="font-size:12px;color:#6b7280;padding:6px;text-align:center;">PDF</div>`
-                : `<div style="font-size:11px;color:#6b7280;padding:6px;text-align:center;word-break:break-word;">${escapeHtml(f.name)}</div>`
-              }
-              <button type="button"
-                onclick="window.quitarArchivoSeleccionado(${i})"
-                style="position:absolute; top:6px; right:6px; background:rgba(0,0,0,.6); color:#fff; border:0; width:22px; height:22px; border-radius:999px; cursor:pointer;">
-                ×
+      </div>
+
+      <div id="msg" class="muted mt-2"></div>
+
+      <div id="contenedorDias" class="space-y-6"></div>
+      <div id="grid" class="grid hidden"></div>
+    </div>
+  </div>
+
+  <!-- MODAL EDITAR ARCHIVO -->
+  <div id="modalBackdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999;">
+    <div style="max-width:720px; margin:6vh auto; background:#fff; border-radius:16px; overflow:hidden;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid #eee;">
+        <div style="font-weight:900;">Editar placa</div>
+        <button id="modalClose" class="btn-blue">Cerrar</button>
+      </div>
+
+      <div style="padding:16px;">
+        <div id="modalPreview" style="width:100%; height:260px; border:1px solid #eee; border-radius:14px; overflow:hidden; background:#f9fafb;"></div>
+
+        <!-- ✅ Archivos del conjunto -->
+        <div style="margin-top:14px; border:1px solid #e5e7eb; border-radius:14px; padding:12px; background:#f9fafb;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+            <div style="font-weight:900;">Archivos del conjunto</div>
+
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <div class="muted" id="modalLoteInfo"></div>
+
+              <button id="btnRenombrarLote" type="button" class="btn-blue" style="background:#f59e0b;">
+                Cambiar nombre del lote
               </button>
             </div>
-          `;
-        }).join('')}
+          </div>
+
+          <div id="modalArchivos" style="margin-top:10px; max-height:220px; overflow:auto; display:grid; gap:10px;"></div>
+        </div>
+
+        <div style="margin-top:12px;">
+          <div class="text-sm text-gray-600">Nombre</div>
+          <input id="modalNombre" style="width:100%; border:1px solid #e5e7eb; border-radius:12px; padding:10px;" />
+        </div>
+
+        <div style="margin-top:10px;" class="text-sm text-gray-600">
+          Fecha de subida: <span id="modalFecha"></span>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-top:14px; justify-content:flex-end;">
+          <button id="btnGuardarNombre" type="button" class="btn-blue">Guardar</button>
+          <button id="btnDescargarPngSel" type="button" class="btn-blue" style="background:#10b981;">PNG</button>
+          <button id="btnDescargarJpgSel" type="button" class="btn-blue" style="background:#0ea5e9;">JPG</button>
+          <button id="btnEliminarArchivo" type="button" class="btn-blue" style="background:#ef4444;">Eliminar</button>
+        </div>
+
+        <div id="modalMsg" class="text-sm text-gray-500 mt-2"></div>
       </div>
-      <div class="muted" style="padding:0 8px 8px;">
-        ${filesSeleccionados.length} archivo(s) seleccionado(s)
+    </div>
+  </div>
+
+  <!-- MODAL CARGA (MULTI) -->
+  <div id="modalCargaBackdrop"
+       class="fixed inset-0 bg-black/50 hidden z-[10000] flex items-center justify-center p-4">
+
+    <div class="bg-white rounded-2xl w-full max-w-[520px] shadow-xl overflow-hidden flex flex-col">
+      <div class="px-6 py-4 border-b">
+        <h2 class="text-xl font-black">Cargar placa</h2>
+        <div class="text-xs text-gray-500 mt-1">Completa los datos y sube uno o más archivos.</div>
       </div>
-    `;
-  });
 
-  window.quitarArchivoSeleccionado = (idx) => {
-    filesSeleccionados.splice(idx, 1);
-    const dt = new DataTransfer();
-    filesSeleccionados.forEach(f => dt.items.add(f));
-    q('cargaArchivo').files = dt.files;
-    q('cargaArchivo').dispatchEvent(new Event('change'));
-  };
+      <div class="p-6 space-y-3">
+        <input id="cargaLoteNombre" type="text" placeholder="Nombre del lote (ej: Pedido #9095 - Lámparas)"
+               class="w-full border rounded-xl px-3 py-2">
 
- q('btnGuardarCarga').addEventListener('click', () => {
-  const producto = q('cargaProducto').value.trim();
-  const numero   = q('cargaNumero').value.trim();
-  const loteNombreManual = q('cargaLoteNombre')?.value.trim();
+        <input id="cargaNumero" type="text" placeholder="Productos (opcional)"
+               class="w-full border rounded-xl px-3 py-2">
 
-  if (!loteNombreManual) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
-  if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
+        <input id="cargaArchivo" type="file" multiple class="w-full" accept="*/*">
 
-  const wrap = q('uploadProgressWrap');
-  const bar  = q('uploadProgressBar');
-  const txt  = q('uploadProgressText');
+        <div id="cargaPreview"
+             class="h-44 border rounded-xl flex items-center justify-center text-gray-400">
+          Vista previa
+        </div>
 
-  wrap.classList.remove('hidden');
-  bar.style.width = '0%';
-  txt.textContent = '0%';
+        <div id="uploadProgressWrap" class="hidden">
+          <div class="w-full bg-gray-100 border border-gray-200 rounded-full h-3 overflow-hidden">
+            <div id="uploadProgressBar"
+                 class="bg-blue-600 h-3 rounded-full transition-[width] duration-150"
+                 style="width:0%">
+            </div>
+          </div>
+          <div class="text-xs text-gray-500 mt-2 flex items-center justify-between">
+            <span id="uploadProgressLabel">Subiendo…</span>
+            <span id="uploadProgressText" class="font-black">0%</span>
+          </div>
+        </div>
 
-  q('btnGuardarCarga').disabled = true;
-  q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
+        <div id="cargaMsg" class="text-sm text-gray-500"></div>
+      </div>
 
-  const fd = addCsrf(new FormData());
-  fd.append('producto', producto);
-  fd.append('numero_placa', numero);
-  fd.append('lote_nombre', loteNombreManual); // ✅ SOLO UNA VEZ
-  filesSeleccionados.forEach(file => fd.append('archivos[]', file));
+      <div class="px-6 py-4 border-t flex justify-end gap-2">
+        <button id="btnCerrarCarga" class="btn-blue" style="background:#9ca3af;">Cancelar</button>
+        <button id="btnGuardarCarga" class="btn-blue">Guardar</button>
+      </div>
+    </div>
+  </div>
 
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', API.subir, true);
-
-  xhr.upload.onprogress = (e) => {
-    if (!e.lengthComputable) return;
-    const percent = Math.round((e.loaded / e.total) * 100);
-    bar.style.width = percent + '%';
-    txt.textContent = percent + '%';
-  };
-
-  xhr.onload = () => {
-    q('btnGuardarCarga').disabled = false;
-
-    let data = null;
-    try { data = JSON.parse(xhr.responseText); } catch (e) {}
-
-    if (xhr.status !== 200 || !data || !data.success) {
-      q('cargaMsg').textContent = (data && data.message) ? data.message : 'Error al subir';
-      return;
-    }
-
-    bar.style.width = '100%';
-    txt.textContent = '100%';
-   q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
-
-    setTimeout(() => {
-      modalCarga.classList.add('hidden');
-      wrap.classList.add('hidden');
-
-      q('cargaArchivo').value = '';
-      filesSeleccionados = [];
-      q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
-
-      cargarStats();
-      cargarLista();
-    }, 600);
-  };
-
-  xhr.onerror = () => {
-    q('btnGuardarCarga').disabled = false;
-    q('cargaMsg').textContent = 'Error de red al subir.';
-  };
-
-  xhr.send(fd);
-});
-
-
-// ✅ Buscador (filtra sin pedirle nada al backend)
-const searchInput = q('searchInput');
-const searchClear = q('searchClear');
-
-let searchT = null;
-function applySearch(v) {
-  searchTerm = v || '';
-  if (searchClear) searchClear.classList.toggle('hidden', !searchTerm.trim());
-  cargarVistaAgrupada();
-  
-}
-
-if (searchInput) {
-  searchInput.addEventListener('input', (e) => {
-    const v = e.target.value;
-    clearTimeout(searchT);
-    searchT = setTimeout(() => applySearch(v), 120);
-  });
-}
-
-if (searchClear) {
-  searchClear.addEventListener('click', () => {
-    searchInput.value = '';
-    applySearch('');
-    searchInput.focus();
-  });
-}
-
-let refresco = null;
-
-async function refrescarTodo() {
-  // Si hay errores de BD, NO sigas spameando
-  try {
-    await cargarStats();
-    await cargarLista();
-  } catch (e) {
-    console.log("Refresco detenido por error", e);
-    if (refresco) clearInterval(refresco);
-    refresco = null;
-  }
-}
-
-// Inicial (1 sola vez)
-refrescarTodo();
-
-// Refresca cada 10 minutos (menos agresivo)
-refresco = setInterval(refrescarTodo, 600000);
-
-
-</script>
-
+  <!-- ✅ JS externo -->
+  <script src="<?= base_url('js/placas.js') ?>"></script>
 </body>
 </html>
-
-
