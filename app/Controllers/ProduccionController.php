@@ -145,6 +145,24 @@ class ProduccionController extends BaseController
         return false;
     }
 
+    /**
+     * ✅ SQL para priorizar pedidos con envío express
+     * Detecta por forma_envio o etiquetas (incluye "express/expres/exprés").
+     */
+    private function expressPrioritySql(string $alias = 'p'): string
+    {
+        $a = $alias;
+
+        return "CASE WHEN (
+            LOWER(COALESCE({$a}.forma_envio,'')) LIKE '%express%'
+            OR LOWER(COALESCE({$a}.forma_envio,'')) LIKE '%expres%'
+            OR LOWER(COALESCE({$a}.forma_envio,'')) LIKE '%exprés%'
+            OR LOWER(COALESCE({$a}.etiquetas,''))  LIKE '%express%'
+            OR LOWER(COALESCE({$a}.etiquetas,''))  LIKE '%expres%'
+            OR LOWER(COALESCE({$a}.etiquetas,''))  LIKE '%exprés%'
+        ) THEN 1 ELSE 0 END";
+    }
+
     // =========================
     // GET /produccion/my-queue
     // =========================
@@ -186,6 +204,8 @@ class ProduccionController extends BaseController
             $coll = 'utf8mb4_unicode_ci';
             $estadoEntradaLower = mb_strtolower(trim($this->estadoEntrada));
 
+            $expressSql = $this->expressPrioritySql('p');
+
             $rows = $db->query("
                 SELECT
                     p.id,
@@ -194,6 +214,7 @@ class ProduccionController extends BaseController
                     p.total,
                     p.estado_envio,
                     p.forma_envio,
+                    {$expressSql} AS is_express,
                     p.etiquetas,
                     p.articulos,
                     p.created_at,
@@ -247,7 +268,7 @@ class ProduccionController extends BaseController
                 )) = (? COLLATE {$coll})
                 {$condNoEnviados}
 
-                ORDER BY COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
+                ORDER BY is_express DESC, COALESCE(h.created_at, pe.estado_updated_at, p.created_at) ASC
             ", [$userId, $estadoEntradaLower])->getResultArray();
 
             return $this->response->setJSON(['ok' => true, 'data' => $rows ?: []]);
@@ -309,11 +330,13 @@ class ProduccionController extends BaseController
 
             $coll = 'utf8mb4_unicode_ci';
             $estadoEntradaLower = mb_strtolower(trim($this->estadoEntrada));
+            $expressSql = $this->expressPrioritySql('p');
 
             $candidatos = $db->query("
                 SELECT
                     p.id,
-                    p.shopify_order_id
+                    p.shopify_order_id,
+                    {$expressSql} AS is_express
                 FROM pedidos p
 
                 INNER JOIN (
@@ -338,7 +361,7 @@ class ProduccionController extends BaseController
                 {$condNoEnviados}
                 AND (p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)
 
-                ORDER BY h.created_at ASC, p.id ASC
+                ORDER BY is_express DESC, h.created_at ASC, p.id ASC
                 LIMIT {$count}
             ", [$estadoEntradaLower])->getResultArray();
 
@@ -480,12 +503,30 @@ class ProduccionController extends BaseController
         $dir = WRITEPATH . "uploads/produccion/" . $folderKey;
         if (!is_dir($dir)) mkdir($dir, 0777, true);
 
+        // ✅ Detectar si subieron Illustrator
+        $hasIllustrator = false;
+
         foreach ($uploaded as $f) {
             if (!$f || !$f->isValid()) continue;
 
             $newName  = $f->getRandomName();
             $original = $f->getClientName();
             $mime     = $f->getClientMimeType();
+
+            // Detecta .ai por extensión o mimes típicos
+            $ext = strtolower(pathinfo($original, PATHINFO_EXTENSION));
+            $mimeLow = strtolower((string)$mime);
+
+            if ($ext === 'ai') $hasIllustrator = true;
+
+            if (in_array($mimeLow, [
+                'application/illustrator',
+                'application/postscript',
+                'application/x-illustrator',
+                'application/ai',
+            ], true)) {
+                $hasIllustrator = true;
+            }
 
             $f->move($dir, $newName);
 
@@ -507,6 +548,7 @@ class ProduccionController extends BaseController
             ]);
         }
 
+        // ✅ Solo cuando se sube Illustrator: desasignar + pasar a Diseñado
         $estadoNuevo = $this->estadoProduccion;
         $didUnassign = false;
         $didEstado = false;
@@ -516,49 +558,73 @@ class ProduccionController extends BaseController
             $userId   = (int)(session('user_id') ?? 0);
             $userName = (string)(session('nombre') ?? session('user_name') ?? 'Sistema');
 
-            $db->transBegin();
+            if ($hasIllustrator) {
+                $db->transBegin();
 
-            if ($pedidoId) {
-                $db->table('pedidos')
-                    ->where('id', (int)$pedidoId)
-                    ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
-                $didUnassign = true;
+                // ✅ Desasignar robusto aunque no resuelva $pedidoId (por id / shopify_order_id / numero)
+                $builder = $db->table('pedidos');
+                $builder->groupStart();
+
+                $added = false;
+
+                if (!empty($pedidoId)) {
+                    $builder->where('id', (int)$pedidoId);
+                    $added = true;
+                }
+                if (!empty($shopifyOrderId)) {
+                    $added ? $builder->orWhere('shopify_order_id', $shopifyOrderId)
+                           : $builder->where('shopify_order_id', $shopifyOrderId);
+                    $added = true;
+                }
+                if (!$this->isBadOrderId($orderIdRaw)) {
+                    $added ? $builder->orWhere('numero', $orderIdRaw)
+                           : $builder->where('numero', $orderIdRaw);
+                    $added = true;
+                }
+
+                $builder->groupEnd();
+
+                if ($added) {
+                    $builder->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
+                    $didUnassign = ($db->affectedRows() > 0);
+                }
+
+                // ✅ Estado -> Diseñado + historial
+                if ($shopifyOrderId !== '') {
+                    $estadoModel = new PedidosEstadoModel();
+                    $didEstado = (bool)$estadoModel->setEstadoPedido(
+                        (string)$shopifyOrderId,
+                        $estadoNuevo,
+                        $userId ?: null,
+                        $userName
+                    );
+
+                    $okHist = $db->table('pedidos_estado_historial')->insert([
+                        'order_id'   => (string)$shopifyOrderId,
+                        'estado'     => $estadoNuevo,
+                        'user_id'    => $userId ?: null,
+                        'user_name'  => $userName,
+                        'created_at' => $now,
+                        'pedido_json'=> null,
+                    ]);
+                    $didHist = (bool)$okHist;
+                }
+
+                if ($db->transStatus() === false || ($shopifyOrderId !== '' && (!$didEstado || !$didHist))) {
+                    $db->transRollback();
+                    return $this->response->setJSON([
+                        'success' => true,
+                        'saved' => $saved,
+                        'files' => $out,
+                        'warning' => 'Archivos subidos, pero falló la transacción de estado/desasignación',
+                        'order_id_received' => $orderIdRaw,
+                        'pedido_id' => $pedidoId,
+                        'shopify_order_id' => $shopifyOrderId,
+                    ]);
+                }
+
+                $db->transCommit();
             }
-
-            if ($shopifyOrderId !== '') {
-                $estadoModel = new PedidosEstadoModel();
-                $didEstado = (bool)$estadoModel->setEstadoPedido(
-                    (string)$shopifyOrderId,
-                    $estadoNuevo,
-                    $userId ?: null,
-                    $userName
-                );
-
-                $okHist = $db->table('pedidos_estado_historial')->insert([
-                    'order_id'   => (string)$shopifyOrderId,
-                    'estado'     => $estadoNuevo,
-                    'user_id'    => $userId ?: null,
-                    'user_name'  => $userName,
-                    'created_at' => $now,
-                    'pedido_json'=> null,
-                ]);
-                $didHist = (bool)$okHist;
-            }
-
-            if ($db->transStatus() === false) {
-                $db->transRollback();
-                return $this->response->setJSON([
-                    'success' => true,
-                    'saved' => $saved,
-                    'files' => $out,
-                    'warning' => 'Archivos subidos, pero falló la transacción de estado/desasignación',
-                    'order_id_received' => $orderIdRaw,
-                    'pedido_id' => $pedidoId,
-                    'shopify_order_id' => $shopifyOrderId,
-                ]);
-            }
-
-            $db->transCommit();
 
         } catch (\Throwable $e) {
             log_message('error', 'uploadGeneral post-actions ERROR: ' . $e->getMessage());
@@ -582,10 +648,15 @@ class ProduccionController extends BaseController
             'folder_key' => $folderKey,
             'pedido_id' => $pedidoId,
             'shopify_order_id' => $shopifyOrderId,
+
+            // ✅ flags de automatización (solo cuando suben .ai)
+            'uploaded_ai' => $hasIllustrator,
+            'should_remove_from_queue' => $hasIllustrator,
+
             'estado_set' => $didEstado,
             'historial_inserted' => $didHist,
             'unassigned' => $didUnassign,
-            'new_estado' => $estadoNuevo,
+            'new_estado' => $hasIllustrator ? $estadoNuevo : null,
         ]);
     }
 
