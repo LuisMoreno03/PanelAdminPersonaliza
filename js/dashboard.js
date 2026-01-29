@@ -1739,7 +1739,7 @@ window.renderUsersStatus = function (payload) {
   if (!onlineEl || !offlineEl) return;
 
   const users = payload?.users || [];
-
+                                                                                                                                                                  
   const normalized = users.map((u) => {
     const secs =
       u.seconds_since_seen != null

@@ -206,278 +206,132 @@ class PlacasArchivosController extends BaseController
      * Devuelve items:
      * { id, pedido_numero, producto, cantidad, label }
      */
-    public function productosPorProducir(): ResponseInterface
+    public function productosPorProducir(): \CodeIgniter\HTTP\ResponseInterface
     {
         try {
-            $tables = $this->db->listTables();
+            $db = \Config\Database::connect();
+            $tables = $db->listTables();
 
-            // ----------------------------
-            // Helpers locales
-            // ----------------------------
-            $nameLike = function(string $t, array $needles): bool {
-                $tt = strtolower($t);
-                foreach ($needles as $n) {
-                    if (strpos($tt, strtolower($n)) !== false) return true;
-                }
-                return false;
-            };
+            // Preferimos SIEMPRE tu tabla interna, NO Shopify
+            $preferred = ['pedidos', 'pedidos_internos', 'pedidos_cache', 'panel_pedidos'];
+            $orderTable = null;
 
-            $getCols = function(string $t): array {
-                return $this->db->getFieldNames($t) ?: [];
-            };
+            foreach ($preferred as $t) {
+                if (in_array($t, $tables, true)) { $orderTable = $t; break; }
+            }
 
-            $pickCol = function(array $cols, array $names): ?string {
-                foreach ($names as $n) {
-                    if (in_array($n, $cols, true)) return $n;
-                }
-                return null;
-            };
-
-            $formatPedidoDisplay = function(string $raw): string {
-                $p = trim($raw);
-                if ($p === '') return '';
-
-                // ya viene como #pedido0001 o pedido0001
-                if (preg_match('/^#?pedido\d+$/i', $p)) {
-                    return (stripos($p, '#') === 0) ? $p : ('#' . $p);
-                }
-
-                // si es numérico: #pedido + pad 4
-                if (preg_match('/^\d+$/', $p)) {
-                    return '#pedido' . str_pad($p, 4, '0', STR_PAD_LEFT);
-                }
-
-                // fallback: si viene con # algo
-                if (strpos($p, '#') === 0) return $p;
-
-                return '#'.$p;
-            };
-
-            // ----------------------------
-            // 1) Detectar tabla de PEDIDOS
-            // ----------------------------
-            $orderTables = [];
-            foreach ($tables as $t) {
-                if ($nameLike($t, ['pedido','order','orden'])) {
-                    $orderTables[] = $t;
+            // Fallback: detectar por nombre
+            if (!$orderTable) {
+                foreach ($tables as $t) {
+                    $lt = strtolower($t);
+                    if (strpos($lt, 'pedido') !== false) { $orderTable = $t; break; }
                 }
             }
 
-            // Columnas comunes
-            $estadoCols = ['estado', 'estado_actual', 'status', 'estado_pedido', 'estadoPedido', 'estado_id'];
-            $numeroCols = ['numero_pedido', 'pedido_numero', 'order_number', 'numero', 'n_pedido', 'num_pedido', 'pedido'];
-            $codigoCols = ['codigo_pedido','codigo','folio','referencia','pedido_codigo','codigoPedido','pedido_code','order_code'];
-
-            $idCols     = ['id', 'pedido_id', 'order_id'];
-
-            $bestOrderTable = null;
-            $bestOrderScore = -1;
-            $bestOrderMeta  = [];
-
-            foreach ($orderTables as $t) {
-                $cols = $getCols($t);
-                $estadoCol = $pickCol($cols, $estadoCols);
-                $numeroCol = $pickCol($cols, $numeroCols);
-                $codigoCol = $pickCol($cols, $codigoCols);
-                $idCol     = $pickCol($cols, $idCols);
-
-                if (!$numeroCol && !$codigoCol && !$idCol) continue;
-
-                $score = 0;
-                if ($estadoCol) $score += 2;
-                if ($codigoCol) $score += 3; // preferimos código real
-                if ($numeroCol) $score += 2;
-                if ($idCol)     $score += 1;
-
-                // bonus si detecta "produc"
-                if ($estadoCol) {
-                    try {
-                        $cnt = $this->db->table($t)->like($estadoCol, 'produc')->countAllResults();
-                        $score += min(10, $cnt);
-                    } catch (\Throwable $e) {}
-                }
-
-                if ($score > $bestOrderScore) {
-                    $bestOrderScore = $score;
-                    $bestOrderTable = $t;
-                    $bestOrderMeta  = compact('estadoCol','numeroCol','codigoCol','idCol');
-                }
-            }
-
-            if (!$bestOrderTable) {
-                return $this->jsonOk([
+            if (!$orderTable) {
+                return $this->response->setJSON([
                     'success' => true,
-                    'items' => [],
-                    'message' => 'No se detectó tabla de pedidos (pedido/order/orden).',
+                    'items'   => [],
+                    'message' => 'No se encontró tabla interna de pedidos.',
                 ]);
             }
 
-            $orderCols = $getCols($bestOrderTable);
-            $estadoCol = $bestOrderMeta['estadoCol'] ?? $pickCol($orderCols, $estadoCols);
-            $numeroCol = $bestOrderMeta['numeroCol'] ?? $pickCol($orderCols, $numeroCols);
-            $codigoCol = $bestOrderMeta['codigoCol'] ?? $pickCol($orderCols, $codigoCols);
-            $idCol     = $bestOrderMeta['idCol'] ?? $pickCol($orderCols, $idCols) ?? 'id';
+            $cols = $db->getFieldNames($orderTable) ?: [];
 
-            // ----------------------------
-            // 2) Detectar tabla de ITEMS/PRODUCTOS
-            // ----------------------------
-            $itemTables = [];
-            foreach ($tables as $t) {
-                if ($nameLike($t, ['item','items','producto','detalle'])) {
-                    $itemTables[] = $t;
-                }
-            }
-
-            $joinColsToPedidoId = ['pedido_id','order_id','id_pedido','pedidoId','orderId'];
-            $joinColsToNumero   = ['numero_pedido','pedido_numero','order_number','num_pedido','n_pedido'];
-
-            $prodCols = ['producto','nombre_producto','titulo','nombre','name','descripcion','sku'];
-            $qtyCols  = ['cantidad','qty','cantidad_producto','quantity'];
-
-            $bestItemTable = null;
-            $bestItemMeta  = [];
-
-            foreach ($itemTables as $t) {
-                $cols = $getCols($t);
-                $prodCol = $pickCol($cols, $prodCols);
-                if (!$prodCol) continue;
-
-                $joinPedidoIdCol = $pickCol($cols, $joinColsToPedidoId);
-                $joinNumeroCol   = $pickCol($cols, $joinColsToNumero);
-
-                if ($joinPedidoIdCol || $joinNumeroCol) {
-                    $bestItemTable = $t;
-                    $bestItemMeta  = compact('prodCol','joinPedidoIdCol','joinNumeroCol');
-                    break;
-                }
-            }
-
-            // filtro: "por producir"
-            $applyEstadoFilter = function($builder) use ($estadoCol) {
-                if ($estadoCol) {
-                    $builder->groupStart()
-                        ->like($estadoCol, 'produc')
-                        ->orLike($estadoCol, 'producir')
-                        ->groupEnd();
-                }
-                return $builder;
+            $pick = function(array $names) use ($cols) {
+                foreach ($names as $n) if (in_array($n, $cols, true)) return $n;
+                return null;
             };
 
-            $items = [];
+            // ✅ Columnas típicas del panel interno
+            $idCol     = $pick(['id', 'pedido_id', 'order_id']);
+            $numeroCol = $pick(['numero', 'number', 'pedido_numero', 'numero_pedido', 'order_number', 'folio', 'codigo']);
+            $estadoCol = $pick(['estado', 'estado_interno', 'estado_actual', 'status']);
+            $clienteCol= $pick(['cliente', 'cliente_nombre', 'nombre_cliente', 'customer', 'customer_name']);
+            $fechaCol  = $pick(['fecha', 'created_at', 'created', 'fecha_creacion']);
+            $artCol    = $pick(['articulos', 'items', 'items_count', 'total_items']);
 
-            // ----------------------------
-            // 3) Si hay items => devolvemos producto+pedido
-            // ----------------------------
-            if ($bestItemTable) {
-                $itCols  = $getCols($bestItemTable);
-                $prodCol = $bestItemMeta['prodCol'];
-                $qtyCol  = $pickCol($itCols, $qtyCols);
+            if (!$idCol) $idCol = 'id';
 
-                $joinPedidoIdCol = $bestItemMeta['joinPedidoIdCol'] ?? null;
-                $joinNumeroCol   = $bestItemMeta['joinNumeroCol'] ?? null;
+            // ✅ Estado deseado (por defecto: Por preparar)
+            $estadoWanted = trim((string)($this->request->getGet('estado') ?? 'Por preparar'));
+            $estadoWantedLike = strtolower($estadoWanted);
 
-                $b = $this->db->table($bestOrderTable . ' p');
+            $b = $db->table($orderTable);
 
-                $select = [];
-                $select[] = "i.id as id_item";
-                $select[] = "p.$idCol as pedido_id";
-                if ($codigoCol) $select[] = "p.$codigoCol as pedido_codigo";
-                if ($numeroCol) $select[] = "p.$numeroCol as pedido_numero";
-                $select[] = "i.$prodCol as producto";
-                if ($qtyCol) $select[] = "i.$qtyCol as cantidad";
+            // SELECT mínimo
+            $select = ["$idCol as id"];
+            if ($numeroCol)  $select[] = "$numeroCol as numero";
+            if ($estadoCol)  $select[] = "$estadoCol as estado";
+            if ($clienteCol) $select[] = "$clienteCol as cliente";
+            if ($fechaCol)   $select[] = "$fechaCol as fecha";
+            if ($artCol)     $select[] = "$artCol as articulos";
 
-                $b->select(implode(',', $select));
+            $b->select(implode(',', $select));
 
-                if ($joinPedidoIdCol) {
-                    $b->join($bestItemTable . ' i', "i.$joinPedidoIdCol = p.$idCol", 'inner');
-                } elseif ($joinNumeroCol && $numeroCol) {
-                    $b->join($bestItemTable . ' i', "i.$joinNumeroCol = p.$numeroCol", 'inner');
-                } else {
-                    $bestItemTable = null;
-                }
-
-                if ($bestItemTable) {
-                    $applyEstadoFilter($b);
-                    $b->orderBy("p.$idCol", 'DESC');
-                    $b->limit(500);
-
-                    $rows = $b->get()->getResultArray();
-
-                    $items = array_map(function($r) use ($formatPedidoDisplay) {
-                        $rawCode = (string)($r['pedido_codigo'] ?? '');
-                        $rawNum  = (string)($r['pedido_numero'] ?? $r['pedido_id'] ?? '');
-                        $pedidoRaw = $rawCode !== '' ? $rawCode : $rawNum;
-
-                        $pedidoDisplay = $formatPedidoDisplay($pedidoRaw);
-
-                        $prod = (string)($r['producto'] ?? '');
-                        $cant = (string)($r['cantidad'] ?? '');
-
-                        $label = "{$pedidoDisplay} — {$prod}";
-                        if ($cant !== '' && $cant !== '0') $label .= " x{$cant}";
-
-                        return [
-                            'id' => (string)($r['id_item'] ?? ''),
-                            'pedido_numero'  => $rawNum,
-                            'pedido_codigo'  => $rawCode,
-                            'pedido_display' => $pedidoDisplay,
-                            'producto' => $prod,
-                            'cantidad' => $cant,
-                            'label' => $label,
-                        ];
-                    }, $rows);
-                }
+            // ✅ Filtro por estado interno = Por preparar (robusto)
+            if ($estadoCol) {
+                // Si tu campo es texto: "Por preparar"
+                $b->groupStart()
+                ->like($estadoCol, $estadoWantedLike) // captura "Por preparar", "por preparar", etc.
+                ->orLike($estadoCol, 'prepar')        // extra robustez por si cambia
+                ->groupEnd();
             }
 
-            // ----------------------------
-            // 4) Fallback => devolvemos pedidos (para seleccionar)
-            // ----------------------------
-            if (!$bestItemTable || !count($items)) {
-                $b = $this->db->table($bestOrderTable);
+            // Orden
+            if ($fechaCol) $b->orderBy($fechaCol, 'DESC');
+            else $b->orderBy($idCol, 'DESC');
 
-                $select = [];
-                $select[] = "$idCol as id";
-                if ($codigoCol) $select[] = "$codigoCol as pedido_codigo";
-                if ($numeroCol) $select[] = "$numeroCol as pedido_numero";
-                if ($estadoCol) $select[] = "$estadoCol as estado";
+            $b->limit(300);
 
-                $b->select(implode(',', $select));
-                $applyEstadoFilter($b);
-                $b->orderBy($idCol, 'DESC');
-                $b->limit(300);
+            $rows = $b->get()->getResultArray();
 
-                $rows = $b->get()->getResultArray();
+            // ✅ Formateo: usar el numero REAL (#PEDIDO0000...) si existe
+            $items = array_map(function($r) {
+                $numero = (string)($r['numero'] ?? '');
+                $estado = (string)($r['estado'] ?? '');
+                $cliente = (string)($r['cliente'] ?? '');
+                $fecha = (string)($r['fecha'] ?? '');
+                $articulos = $r['articulos'] ?? null;
 
-                $items = array_map(function($r) use ($formatPedidoDisplay, $estadoCol) {
-                    $rawCode = (string)($r['pedido_codigo'] ?? '');
-                    $rawNum  = (string)($r['pedido_numero'] ?? $r['id'] ?? '');
-                    $pedidoRaw = $rawCode !== '' ? $rawCode : $rawNum;
+                // Si viene solo un número, lo convertimos a #PEDIDO0000 (por si acaso)
+                if ($numero !== '' && strpos($numero, '#') !== 0 && preg_match('/^\d+$/', $numero)) {
+                    $numero = '#PEDIDO' . str_pad($numero, 4, '0', STR_PAD_LEFT);
+                }
 
-                    $pedidoDisplay = $formatPedidoDisplay($pedidoRaw);
-                    $estado = $estadoCol ? (string)($r['estado'] ?? '') : 'Por producir';
+                // Si viene "pedido0001" sin #, se lo ponemos
+                if ($numero !== '' && stripos($numero, 'pedido') === 0 && strpos($numero, '#') !== 0) {
+                    $numero = '#'.strtoupper($numero);
+                }
 
-                    return [
-                        'id' => (string)($r['id'] ?? ''),
-                        'pedido_numero'  => $rawNum,
-                        'pedido_codigo'  => $rawCode,
-                        'pedido_display' => $pedidoDisplay,
-                        'producto' => '',
-                        'cantidad' => '',
-                        'label' => "{$pedidoDisplay} — {$estado}",
-                    ];
-                }, $rows);
-            }
+                $label = $numero !== '' ? $numero : ('Pedido #' . (string)($r['id'] ?? ''));
+                if ($cliente !== '') $label .= ' — ' . $cliente;
+                if ($estado !== '')  $label .= ' — ' . $estado;
 
-            return $this->jsonOk([
+                return [
+                    'id'      => (string)($r['id'] ?? ''),
+                    'numero'  => $numero,
+                    'estado'  => $estado,
+                    'cliente' => $cliente,
+                    'fecha'   => $fecha,
+                    'articulos' => $articulos,
+                    'label'   => $label,
+                ];
+            }, $rows);
+
+            return $this->response->setJSON([
                 'success' => true,
-                'items' => $items,
+                'items'   => $items,
             ]);
 
         } catch (\Throwable $e) {
-            return $this->jsonFail($e->getMessage(), 500);
+            log_message('error', 'productosPorProducir() ERROR: {msg}', ['msg' => $e->getMessage()]);
+            return $this->response->setStatusCode(500)->setJSON([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ]);
         }
     }
-
 
     /**
      * POST /placas/archivos/subir-lote
