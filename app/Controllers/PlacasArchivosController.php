@@ -83,6 +83,9 @@ class PlacasArchivosController extends BaseController
         return 'application/octet-stream';
     }
 
+
+
+    
     // ===================== ENDPOINTS =====================
 
     /**
@@ -211,8 +214,12 @@ class PlacasArchivosController extends BaseController
             // ----------------------------
             // Helpers locales
             // ----------------------------
-            $tableExists = function(string $t) use ($tables): bool {
-                return in_array($t, $tables, true);
+            $nameLike = function(string $t, array $needles): bool {
+                $tt = strtolower($t);
+                foreach ($needles as $n) {
+                    if (strpos($tt, strtolower($n)) !== false) return true;
+                }
+                return false;
             };
 
             $getCols = function(string $t): array {
@@ -226,24 +233,32 @@ class PlacasArchivosController extends BaseController
                 return null;
             };
 
-            $nameLike = function(string $t, array $needles): bool {
-                $tt = strtolower($t);
-                foreach ($needles as $n) {
-                    if (strpos($tt, strtolower($n)) !== false) return true;
+            $formatPedidoDisplay = function(string $raw): string {
+                $p = trim($raw);
+                if ($p === '') return '';
+
+                // ya viene como #pedido0001 o pedido0001
+                if (preg_match('/^#?pedido\d+$/i', $p)) {
+                    return (stripos($p, '#') === 0) ? $p : ('#' . $p);
                 }
-                return false;
+
+                // si es numérico: #pedido + pad 4
+                if (preg_match('/^\d+$/', $p)) {
+                    return '#pedido' . str_pad($p, 4, '0', STR_PAD_LEFT);
+                }
+
+                // fallback: si viene con # algo
+                if (strpos($p, '#') === 0) return $p;
+
+                return '#'.$p;
             };
 
             // ----------------------------
             // 1) Detectar tabla de PEDIDOS
             // ----------------------------
-            $orderTableCandidatesExact = [
-                'pedidos', 'orders', 'ordenes', 'order', 'pedido'
-            ];
-
             $orderTables = [];
             foreach ($tables as $t) {
-                if (in_array($t, $orderTableCandidatesExact, true) || $nameLike($t, ['pedido','order','orden'])) {
+                if ($nameLike($t, ['pedido','order','orden'])) {
                     $orderTables[] = $t;
                 }
             }
@@ -251,6 +266,8 @@ class PlacasArchivosController extends BaseController
             // Columnas comunes
             $estadoCols = ['estado', 'estado_actual', 'status', 'estado_pedido', 'estadoPedido', 'estado_id'];
             $numeroCols = ['numero_pedido', 'pedido_numero', 'order_number', 'numero', 'n_pedido', 'num_pedido', 'pedido'];
+            $codigoCols = ['codigo_pedido','codigo','folio','referencia','pedido_codigo','codigoPedido','pedido_code','order_code'];
+
             $idCols     = ['id', 'pedido_id', 'order_id'];
 
             $bestOrderTable = null;
@@ -261,62 +278,52 @@ class PlacasArchivosController extends BaseController
                 $cols = $getCols($t);
                 $estadoCol = $pickCol($cols, $estadoCols);
                 $numeroCol = $pickCol($cols, $numeroCols);
+                $codigoCol = $pickCol($cols, $codigoCols);
                 $idCol     = $pickCol($cols, $idCols);
 
-                // si no parece tabla de pedidos, saltar
-                if (!$numeroCol && !$idCol) continue;
+                if (!$numeroCol && !$codigoCol && !$idCol) continue;
 
-                // score base
                 $score = 0;
                 if ($estadoCol) $score += 2;
+                if ($codigoCol) $score += 3; // preferimos código real
                 if ($numeroCol) $score += 2;
                 if ($idCol)     $score += 1;
 
-                // bonus si tiene datos "produc"
+                // bonus si detecta "produc"
                 if ($estadoCol) {
                     try {
-                        $cnt = $this->db->table($t)
-                            ->like($estadoCol, 'produc') // agarra "Por producir", "Por Producir", etc.
-                            ->countAllResults();
-                        $score += min(10, $cnt); // bonus
-                    } catch (\Throwable $e) {
-                        // no pasa nada
-                    }
+                        $cnt = $this->db->table($t)->like($estadoCol, 'produc')->countAllResults();
+                        $score += min(10, $cnt);
+                    } catch (\Throwable $e) {}
                 }
 
                 if ($score > $bestOrderScore) {
                     $bestOrderScore = $score;
                     $bestOrderTable = $t;
-                    $bestOrderMeta  = compact('estadoCol','numeroCol','idCol');
+                    $bestOrderMeta  = compact('estadoCol','numeroCol','codigoCol','idCol');
                 }
             }
 
-            // Si no se detectó tabla de pedidos, devuelve vacío sin 500
             if (!$bestOrderTable) {
                 return $this->jsonOk([
                     'success' => true,
                     'items' => [],
-                    'message' => 'No se detectó tabla de pedidos. Ajusta los nombres/columnas en productosPorProducir().',
-                    'debug' => ['tables' => $tables],
+                    'message' => 'No se detectó tabla de pedidos (pedido/order/orden).',
                 ]);
             }
 
             $orderCols = $getCols($bestOrderTable);
             $estadoCol = $bestOrderMeta['estadoCol'] ?? $pickCol($orderCols, $estadoCols);
             $numeroCol = $bestOrderMeta['numeroCol'] ?? $pickCol($orderCols, $numeroCols);
+            $codigoCol = $bestOrderMeta['codigoCol'] ?? $pickCol($orderCols, $codigoCols);
             $idCol     = $bestOrderMeta['idCol'] ?? $pickCol($orderCols, $idCols) ?? 'id';
 
             // ----------------------------
             // 2) Detectar tabla de ITEMS/PRODUCTOS
             // ----------------------------
-            $itemTableCandidatesExact = [
-                'pedido_items','pedidos_items','pedido_productos','pedidos_productos',
-                'order_items','orders_items','detalle_pedido','detalle_pedidos','items_pedido'
-            ];
-
             $itemTables = [];
             foreach ($tables as $t) {
-                if (in_array($t, $itemTableCandidatesExact, true) || $nameLike($t, ['item','items','producto','detalle'])) {
+                if ($nameLike($t, ['item','items','producto','detalle'])) {
                     $itemTables[] = $t;
                 }
             }
@@ -325,47 +332,44 @@ class PlacasArchivosController extends BaseController
             $joinColsToNumero   = ['numero_pedido','pedido_numero','order_number','num_pedido','n_pedido'];
 
             $prodCols = ['producto','nombre_producto','titulo','nombre','name','descripcion','sku'];
-            $qtyCols  = ['cantidad','qty','cantidad_producto','cantidad_total','cantidadItem','quantity'];
+            $qtyCols  = ['cantidad','qty','cantidad_producto','quantity'];
 
             $bestItemTable = null;
             $bestItemMeta  = [];
 
             foreach ($itemTables as $t) {
                 $cols = $getCols($t);
-
                 $prodCol = $pickCol($cols, $prodCols);
                 if (!$prodCol) continue;
 
                 $joinPedidoIdCol = $pickCol($cols, $joinColsToPedidoId);
                 $joinNumeroCol   = $pickCol($cols, $joinColsToNumero);
 
-                // nos sirve si puede vincularse a pedidos
                 if ($joinPedidoIdCol || $joinNumeroCol) {
                     $bestItemTable = $t;
                     $bestItemMeta  = compact('prodCol','joinPedidoIdCol','joinNumeroCol');
-                    break; // primera buena
+                    break;
                 }
             }
-
-            // ----------------------------
-            // 3) Si hay tabla de items => devolver productos por pedido
-            //    Si NO hay => devolver pedidos (para que el modal no quede vacío)
-            // ----------------------------
-            $items = [];
 
             // filtro: "por producir"
             $applyEstadoFilter = function($builder) use ($estadoCol) {
                 if ($estadoCol) {
                     $builder->groupStart()
-                        ->like($estadoCol, 'produc')   // "Por producir"
+                        ->like($estadoCol, 'produc')
                         ->orLike($estadoCol, 'producir')
                         ->groupEnd();
                 }
                 return $builder;
             };
 
+            $items = [];
+
+            // ----------------------------
+            // 3) Si hay items => devolvemos producto+pedido
+            // ----------------------------
             if ($bestItemTable) {
-                $itCols = $getCols($bestItemTable);
+                $itCols  = $getCols($bestItemTable);
                 $prodCol = $bestItemMeta['prodCol'];
                 $qtyCol  = $pickCol($itCols, $qtyCols);
 
@@ -374,23 +378,21 @@ class PlacasArchivosController extends BaseController
 
                 $b = $this->db->table($bestOrderTable . ' p');
 
-                // select
                 $select = [];
+                $select[] = "i.id as id_item";
                 $select[] = "p.$idCol as pedido_id";
+                if ($codigoCol) $select[] = "p.$codigoCol as pedido_codigo";
                 if ($numeroCol) $select[] = "p.$numeroCol as pedido_numero";
                 $select[] = "i.$prodCol as producto";
                 if ($qtyCol) $select[] = "i.$qtyCol as cantidad";
-                $select[] = "i.id as id";
 
                 $b->select(implode(',', $select));
 
-                // join
                 if ($joinPedidoIdCol) {
                     $b->join($bestItemTable . ' i', "i.$joinPedidoIdCol = p.$idCol", 'inner');
                 } elseif ($joinNumeroCol && $numeroCol) {
                     $b->join($bestItemTable . ' i', "i.$joinNumeroCol = p.$numeroCol", 'inner');
                 } else {
-                    // no se puede unir bien => fallback a pedidos
                     $bestItemTable = null;
                 }
 
@@ -401,17 +403,24 @@ class PlacasArchivosController extends BaseController
 
                     $rows = $b->get()->getResultArray();
 
-                    $items = array_map(function($r){
-                        $pedido = (string)($r['pedido_numero'] ?? $r['pedido_id'] ?? '');
-                        $prod   = (string)($r['producto'] ?? '');
-                        $cant   = (string)($r['cantidad'] ?? '');
+                    $items = array_map(function($r) use ($formatPedidoDisplay) {
+                        $rawCode = (string)($r['pedido_codigo'] ?? '');
+                        $rawNum  = (string)($r['pedido_numero'] ?? $r['pedido_id'] ?? '');
+                        $pedidoRaw = $rawCode !== '' ? $rawCode : $rawNum;
 
-                        $label = "Pedido #{$pedido} — {$prod}";
+                        $pedidoDisplay = $formatPedidoDisplay($pedidoRaw);
+
+                        $prod = (string)($r['producto'] ?? '');
+                        $cant = (string)($r['cantidad'] ?? '');
+
+                        $label = "{$pedidoDisplay} — {$prod}";
                         if ($cant !== '' && $cant !== '0') $label .= " x{$cant}";
 
                         return [
-                            'id' => (string)($r['id'] ?? ''),
-                            'pedido_numero' => $pedido,
+                            'id' => (string)($r['id_item'] ?? ''),
+                            'pedido_numero'  => $rawNum,
+                            'pedido_codigo'  => $rawCode,
+                            'pedido_display' => $pedidoDisplay,
                             'producto' => $prod,
                             'cantidad' => $cant,
                             'label' => $label,
@@ -420,33 +429,41 @@ class PlacasArchivosController extends BaseController
                 }
             }
 
-            // Fallback => devolver pedidos (para que puedas vincularlos igual)
+            // ----------------------------
+            // 4) Fallback => devolvemos pedidos (para seleccionar)
+            // ----------------------------
             if (!$bestItemTable || !count($items)) {
                 $b = $this->db->table($bestOrderTable);
+
                 $select = [];
                 $select[] = "$idCol as id";
+                if ($codigoCol) $select[] = "$codigoCol as pedido_codigo";
                 if ($numeroCol) $select[] = "$numeroCol as pedido_numero";
                 if ($estadoCol) $select[] = "$estadoCol as estado";
-                $b->select(implode(',', $select));
 
+                $b->select(implode(',', $select));
                 $applyEstadoFilter($b);
                 $b->orderBy($idCol, 'DESC');
                 $b->limit(300);
 
                 $rows = $b->get()->getResultArray();
 
-                $items = array_map(function($r) use ($numeroCol, $estadoCol){
-                    $pedido = (string)($r['pedido_numero'] ?? $r['id'] ?? '');
-                    $estado = $estadoCol ? (string)($r['estado'] ?? '') : '';
-                    $label  = "Pedido #{$pedido}";
-                    if ($estado !== '') $label .= " — {$estado}";
+                $items = array_map(function($r) use ($formatPedidoDisplay, $estadoCol) {
+                    $rawCode = (string)($r['pedido_codigo'] ?? '');
+                    $rawNum  = (string)($r['pedido_numero'] ?? $r['id'] ?? '');
+                    $pedidoRaw = $rawCode !== '' ? $rawCode : $rawNum;
+
+                    $pedidoDisplay = $formatPedidoDisplay($pedidoRaw);
+                    $estado = $estadoCol ? (string)($r['estado'] ?? '') : 'Por producir';
 
                     return [
                         'id' => (string)($r['id'] ?? ''),
-                        'pedido_numero' => $pedido,
+                        'pedido_numero'  => $rawNum,
+                        'pedido_codigo'  => $rawCode,
+                        'pedido_display' => $pedidoDisplay,
                         'producto' => '',
                         'cantidad' => '',
-                        'label' => $label,
+                        'label' => "{$pedidoDisplay} — {$estado}",
                     ];
                 }, $rows);
             }
@@ -454,18 +471,12 @@ class PlacasArchivosController extends BaseController
             return $this->jsonOk([
                 'success' => true,
                 'items' => $items,
-                'debug' => [
-                    'order_table' => $bestOrderTable,
-                    'order_cols'  => ['id'=>$idCol, 'numero'=>$numeroCol, 'estado'=>$estadoCol],
-                    'items_table' => $bestItemTable ?: null,
-                ],
             ]);
 
         } catch (\Throwable $e) {
             return $this->jsonFail($e->getMessage(), 500);
         }
     }
-
 
 
     /**

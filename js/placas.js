@@ -529,6 +529,97 @@
     if (!sel?.id) return;
     window.open(`${API.descargarJpg}/${sel.id}`, '_blank');
   }
+  function formatPedidoDisplay(raw) {
+    const v = String(raw || '').trim();
+    if (!v) return '';
+
+    // ya viene pedido0001 / #pedido0001
+    if (/^#?pedido\d+$/i.test(v)) return v.startsWith('#') ? v : `#${v}`;
+
+    // numérico => #pedido + 4 dígitos
+    if (/^\d+$/.test(v)) return `#pedido${v.padStart(4, '0')}`;
+
+    if (v.startsWith('#')) return v;
+    return `#${v}`;
+    }
+
+    function renderProductosLista(items, selectedSet, filterTerm = '') {
+    const box = q('ppList'); // ✅ tu contenedor de lista
+    if (!box) return;
+
+    const term = normalizeText(filterTerm);
+
+    const filtered = (items || []).filter(it => {
+        if (!term) return true;
+        const hay = normalizeText([
+        it.pedido_display, it.pedido_codigo, it.pedido_numero,
+        it.producto, it.label
+        ].join(' '));
+        return hay.includes(term);
+    });
+
+    if (!filtered.length) {
+        box.innerHTML = `<div class="muted" style="padding:10px;">No hay resultados.</div>`;
+        return;
+    }
+
+    box.innerHTML = filtered.map(it => {
+        const pedidoDisplay = it.pedido_display ? String(it.pedido_display) : formatPedidoDisplay(it.pedido_codigo || it.pedido_numero || it.id);
+        const producto = (it.producto || '').trim();
+        const cantidad = (it.cantidad || '').toString().trim();
+
+        const isChecked = selectedSet.has(String(it.id));
+
+        return `
+        <label class="pp-card" style="
+            display:flex; gap:10px; align-items:flex-start;
+            border:1px solid #e5e7eb; border-radius:12px; padding:10px;
+            background:#fff; cursor:pointer;
+        ">
+            <input type="checkbox" data-pp-id="${escapeHtml(it.id)}" ${isChecked ? 'checked' : ''}
+            style="margin-top:4px; width:16px; height:16px;">
+
+            <div style="flex:1; min-width:0;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                <div style="font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                ${escapeHtml(pedidoDisplay)}
+                </div>
+                <span style="
+                font-size:12px; padding:3px 8px; border-radius:999px;
+                background:#EEF2FF; color:#3730A3; font-weight:800;
+                flex:0 0 auto;
+                ">Por producir</span>
+            </div>
+
+            ${producto ? `
+                <div style="margin-top:6px; font-weight:800; color:#111827;">
+                ${escapeHtml(producto)} ${cantidad ? `<span class="muted" style="font-weight:900;">x${escapeHtml(cantidad)}</span>` : ''}
+                </div>
+            ` : `
+                <div class="muted" style="margin-top:6px;">Selecciona para vincular este pedido.</div>
+            `}
+
+            <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
+                ${it.pedido_numero ? `<span style="font-size:11px; background:#F3F4F6; padding:2px 8px; border-radius:999px;">ID: ${escapeHtml(it.pedido_numero)}</span>` : ''}
+                ${it.id ? `<span style="font-size:11px; background:#F3F4F6; padding:2px 8px; border-radius:999px;">Ref: ${escapeHtml(it.id)}</span>` : ''}
+            </div>
+            </div>
+        </label>
+        `;
+    }).join('');
+
+    // Hook change
+    box.querySelectorAll('input[type="checkbox"][data-pp-id]').forEach(chk => {
+        chk.addEventListener('change', () => {
+        const id = String(chk.dataset.ppId);
+        if (chk.checked) selectedSet.add(id);
+        else selectedSet.delete(id);
+
+        // ✅ después de seleccionar, refresca paneles
+        renderSeleccionadosYVinculados();
+        });
+    });
+    }
 
   // ============================================================
   // ✅ PRODUCTOS "POR PRODUCIR" (Modal carga)
