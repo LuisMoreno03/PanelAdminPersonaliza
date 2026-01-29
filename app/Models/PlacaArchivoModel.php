@@ -4,66 +4,39 @@ namespace App\Models;
 
 use CodeIgniter\Model;
 
-
-
 class PlacaArchivoModel extends Model
 {
-    protected $table      = 'placas_archivos';
-    protected $primaryKey = 'id';
+    protected $table            = 'placas_archivos';
+    protected $primaryKey       = 'id';
+    protected $returnType       = 'array';
+    protected $useSoftDeletes   = false;
 
-    protected $returnType = 'array';
+    protected $useTimestamps    = true;
+    protected $createdField     = 'created_at';
+    protected $updatedField     = 'updated_at';
 
     protected $allowedFields = [
-        // archivo
-        'nombre',
-        'original',
-        'ruta',
-        'mime',
-        'size_kb', 
-
-        // agrupación
-        'fecha',
-        'lote_nombre',
         'lote_id',
+        'lote_nombre',
 
+        // ✅ meta del lote (guardado como JSON string)
+        'pedidos_json',
+        'productos_json',
 
-        // usuario
-        'uploaded_by',
-        'uploaded_by_name',
+        // ✅ archivo
+        'original',
+        'nombre',
+        'mime',
+        'size',
+        'ruta',
 
-        // sistema
-        'created_at',
+        // ✅ para mostrar miniatura / principal
+        'is_primary',
     ];
 
-    protected $useTimestamps = false;
-
-    // ===============================
-    // Obtener todos (fallback)
-    // ===============================
-    public function obtenerTodos(): array
-    {
-        return $this->orderBy('id', 'DESC')->findAll();
-    }
-
-    // ===============================
-    // Obtener por día (Drive-like)
-    // ===============================
-    public function obtenerPorFecha(): array
-    {
-        return $this->orderBy('fecha', 'DESC')
-                    ->orderBy('lote_id', 'DESC')
-                    ->orderBy('id', 'DESC')
-                    ->findAll();
-    }
-
-    // ===============================
-    // Obtener por lote
-    // ===============================
-    public function obtenerPorLote(int $loteId): array
-    {
-        return $this->where('lote_id', $loteId)
-                    ->orderBy('id', 'ASC')
-                    ->findAll();
-    }
+    protected $casts = [
+        'id'         => 'integer',
+        'size'       => 'integer',
+        'is_primary' => 'integer',
+    ];
 }
-

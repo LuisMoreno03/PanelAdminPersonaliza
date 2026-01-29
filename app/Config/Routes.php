@@ -174,35 +174,31 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 | PLACAS (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->group('placas', ['filter' => 'auth'], static function (RouteCollection $routes) {
+// ... tus rutas anteriores
 
-    $routes->get('/', 'PlacasController::index');
-    $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
+$routes->get('placas', 'PlacasController::index');
 
-    $routes->group('archivos', static function (RouteCollection $routes) {
+// API placas/archivos
+$routes->get('placas/archivos/listar-por-dia', 'PlacasArchivosController::listarPorDia');
+$routes->get('placas/archivos/stats', 'PlacasArchivosController::stats');
 
-        $routes->get('listar', 'PlacasArchivosController::listar');
-        $routes->get('stats',  'PlacasArchivosController::stats');
-        $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
-        $routes->get('(:segment)/archivos', 'PlacasController::archivos/$1');
-        $routes->post('subir', 'PlacasArchivosController::subir');
-        $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
-        $routes->get('descargar/(:segment)/(:segment)', 'PlacasController::descargar/$1/$2');
-        $routes->post('renombrar', 'PlacasArchivosController::renombrar');
-        $routes->post('eliminar',  'PlacasArchivosController::eliminar');
+$routes->post('placas/archivos/subir-lote', 'PlacasArchivosController::subirLote');
 
-        $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
+$routes->post('placas/archivos/renombrar', 'PlacasArchivosController::renombrarArchivo');
+$routes->post('placas/archivos/eliminar', 'PlacasArchivosController::eliminarArchivo');
 
-        $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
+$routes->post('placas/archivos/lote/renombrar', 'PlacasArchivosController::renombrarLote');
 
-        // DESCARGAR JPG/PNG
-        $routes->get('descargar-png/(:num)', 'PlacasArchivosController::descargarPng/$1');
-        $routes->get('descargar-jpg/(:num)', 'PlacasArchivosController::descargarJpg/$1');
+$routes->get('placas/archivos/descargar/(:num)', 'PlacasArchivosController::descargar/$1');
+$routes->get('placas/archivos/descargar-png/(:num)', 'PlacasArchivosController::descargarPng/$1');
+$routes->get('placas/archivos/descargar-jpg/(:num)', 'PlacasArchivosController::descargarJpg/$1');
 
-        $routes->get('descargar-png-lote/(:any)', 'PlacasArchivosController::descargarPngLote/$1');
-        $routes->get('descargar-jpg-lote/(:any)', 'PlacasArchivosController::descargarJpgLote/$1');
-    });
-});
+$routes->get('placas/archivos/descargar-png-lote/(:segment)', 'PlacasArchivosController::descargarPngLote/$1');
+$routes->get('placas/archivos/descargar-jpg-lote/(:segment)', 'PlacasArchivosController::descargarJpgLote/$1');
+
+// (Opcional) traer productos por pedidos desde tu sistema
+$routes->get('placas/archivos/pedidos/productos', 'PlacasArchivosController::productosDePedidos');
+
 
 /*
 |--------------------------------------------------------------------------
