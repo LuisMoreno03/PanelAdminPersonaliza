@@ -7,642 +7,671 @@ use CodeIgniter\HTTP\ResponseInterface;
 
 class PlacasArchivosController extends BaseController
 {
-    private PlacaArchivoModel $m;
+    protected $db;
+    protected PlacaArchivoModel $m;
 
     public function __construct()
     {
-        $this->m = new PlacaArchivoModel();
-        helper(['url']);
+        $this->db = \Config\Database::connect();
+        $this->m  = new PlacaArchivoModel();
+        helper(['url', 'filesystem']);
     }
 
-    /* ===========================
-       GET /placas/archivos/stats
-    =========================== */
+    // ===================== HELPERS =====================
+
+    private function jsonOk($payload, int $code = 200): ResponseInterface
+    {
+        return $this->response->setStatusCode($code)->setJSON($payload);
+    }
+
+    private function jsonFail(string $message, int $code = 500, array $extra = []): ResponseInterface
+    {
+        return $this->jsonOk(array_merge([
+            'success' => false,
+            'message' => $message,
+        ], $extra), $code);
+    }
+
+    private function normalizePathForWriteUploads(string $ruta): string
+    {
+        // ruta debe ser RELATIVA a WRITEPATH/uploads
+        $ruta = ltrim($ruta, '/\\');
+        $ruta = str_replace(['..', '\\'], ['', '/'], $ruta);
+        return $ruta;
+    }
+
+    private function fileFullPathFromRuta(string $ruta): string
+    {
+        $ruta = $this->normalizePathForWriteUploads($ruta);
+        return rtrim(WRITEPATH, '/\\') . '/uploads/' . $ruta;
+    }
+
+    private function decodeJsonList($val): array
+    {
+        if ($val === null) return [];
+        if (is_array($val)) return array_values(array_filter(array_map('strval', $val)));
+
+        $s = trim((string)$val);
+        if ($s === '') return [];
+
+        $j = json_decode($s, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($j)) {
+            return array_values(array_filter(array_map('strval', $j)));
+        }
+
+        // fallback csv
+        $arr = preg_split('/[\n,]+/', $s);
+        $arr = array_values(array_filter(array_map('trim', $arr)));
+        return $arr;
+    }
+
+    private function makePublicUrlFromRuta(?string $ruta): ?string
+    {
+        if (!$ruta) return null;
+        return base_url('writable/uploads/' . ltrim($ruta, '/'));
+        // Si tu servidor sirve writable/uploads como /uploads, cambia a:
+        // return base_url($ruta);
+    }
+
+    private function guessMime(string $path, ?string $fallback = null): string
+    {
+        if ($fallback) return $fallback;
+        if (is_file($path)) {
+            $m = @mime_content_type($path);
+            if ($m) return $m;
+        }
+        return 'application/octet-stream';
+    }
+
+    // ===================== ENDPOINTS =====================
+
+    /**
+     * GET /placas/archivos/stats
+     */
     public function stats(): ResponseInterface
     {
         try {
-            $hoy = date('Y-m-d');
-            $count = $this->m
-                ->where('created_at >=', $hoy . ' 00:00:00')
-                ->where('created_at <=', $hoy . ' 23:59:59')
-                ->countAllResults();
+            $today = date('Y-m-d');
+            $total = $this->m->where("DATE(created_at) =", $today)->countAllResults();
 
-            return $this->response->setJSON([
+            return $this->jsonOk([
                 'success' => true,
-                'data' => ['total' => $count]
+                'data' => ['total' => $total],
             ]);
         } catch (\Throwable $e) {
-            log_message('error', 'stats ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ]);
+            return $this->jsonFail($e->getMessage(), 500);
         }
     }
 
-    /* ==========================================
-       GET /placas/archivos/listar-por-dia
-       - dias[] con lotes[] y items[]
-    ========================================== */
+    /**
+     * GET /placas/archivos/listar-por-dia
+     * Devuelve: dias[] => lotes[] => items[]
+     */
     public function listarPorDia(): ResponseInterface
     {
         try {
             $rows = $this->m->orderBy('created_at', 'DESC')->findAll();
 
+            // preparar items con url y download
+            foreach ($rows as &$r) {
+                $r['url']          = $this->makePublicUrlFromRuta($r['ruta'] ?? null);
+                $r['download_url'] = site_url('placas/archivos/descargar/' . $r['id']);
+                $r['thumb_url']    = $r['url']; // puedes reemplazar por thumbnail real
+
+                // meta
+                $r['productos'] = $this->decodeJsonList($r['productos_json'] ?? null);
+                $r['pedidos']   = $this->decodeJsonList($r['pedidos_json'] ?? null);
+            }
+            unset($r);
+
+            // agrupar por día y por lote
+            $diasMap = []; // 'YYYY-MM-DD' => ['fecha'=>..., 'lotes'=>..., 'total_archivos'=>...]
             $placasHoy = 0;
-            $hoy = date('Y-m-d');
 
-            $dias = []; // fecha => data
-            foreach ($rows as $r) {
-                $created = $r['created_at'] ?? null;
-                $fecha = $created ? substr($created, 0, 10) : 'sin_fecha';
+            foreach ($rows as $it) {
+                $created = (string)($it['created_at'] ?? '');
+                $dayKey  = $created ? substr($created, 0, 10) : date('Y-m-d');
 
-                if ($fecha === $hoy) $placasHoy++;
+                if ($dayKey === date('Y-m-d')) $placasHoy++;
 
-                $loteId = (string)($r['lote_id'] ?? '');
-                if ($loteId === '') continue;
-
-                if (!isset($dias[$fecha])) $dias[$fecha] = ['fecha' => $fecha, 'lotes' => []];
-
-                if (!isset($dias[$fecha]['lotes'][$loteId])) {
-                    $dias[$fecha]['lotes'][$loteId] = [
-                        'lote_id' => $loteId,
-                        'lote_nombre' => $r['lote_nombre'] ?? '',
-                        'created_at' => $created,
-                        'pedidos' => $this->jsonToArray($r['pedidos_json'] ?? null),
-                        'productos' => $this->jsonToArray($r['productos_json'] ?? null),
-                        'items' => []
+                if (!isset($diasMap[$dayKey])) {
+                    $diasMap[$dayKey] = [
+                        'fecha' => $dayKey,
+                        'total_archivos' => 0,
+                        'lotes' => [],
                     ];
                 }
 
-                $item = $this->rowToItem($r);
-                $item['is_primary'] = ((int)($r['is_primary'] ?? 0) === 1) ? 1 : 0;
+                $diasMap[$dayKey]['total_archivos']++;
 
-                $dias[$fecha]['lotes'][$loteId]['items'][] = $item;
-            }
-
-            // normalizar
-            $diasArr = [];
-            foreach ($dias as $d) {
-                $lotesArr = array_values($d['lotes']);
-
-                foreach ($lotesArr as &$lote) {
-                    $hasPrimary = false;
-                    foreach ($lote['items'] as $it) {
-                        if (!empty($it['is_primary'])) { $hasPrimary = true; break; }
-                    }
-                    if (!$hasPrimary && !empty($lote['items'][0])) {
-                        $lote['items'][0]['is_primary'] = 1;
-                    }
-                    $lote['total'] = count($lote['items']);
+                $loteId = (string)($it['lote_id'] ?? 'SIN_LOTE');
+                if (!isset($diasMap[$dayKey]['lotes'][$loteId])) {
+                    $diasMap[$dayKey]['lotes'][$loteId] = [
+                        'lote_id'     => $loteId,
+                        'lote_nombre' => (string)($it['lote_nombre'] ?? ''),
+                        'created_at'  => (string)($it['created_at'] ?? ''),
+                        'productos'   => $it['productos'] ?? [],
+                        'pedidos'     => $it['pedidos'] ?? [],
+                        'items'       => [],
+                    ];
                 }
-                unset($lote);
 
-                usort($lotesArr, function($a,$b){
-                    return strcmp((string)($b['created_at'] ?? ''), (string)($a['created_at'] ?? ''));
-                });
-
-                $totalArchivos = 0;
-                foreach ($lotesArr as $l) $totalArchivos += count($l['items']);
-
-                $diasArr[] = [
-                    'fecha' => $d['fecha'],
-                    'total_archivos' => $totalArchivos,
-                    'lotes' => $lotesArr,
+                $diasMap[$dayKey]['lotes'][$loteId]['items'][] = [
+                    'id'         => (int)$it['id'],
+                    'lote_id'    => $loteId,
+                    'lote_nombre'=> (string)($it['lote_nombre'] ?? ''),
+                    'original'   => (string)($it['original'] ?? ''),
+                    'nombre'     => (string)($it['nombre'] ?? ''),
+                    'mime'       => (string)($it['mime'] ?? ''),
+                    'size'       => (int)($it['size'] ?? 0),
+                    'created_at' => (string)($it['created_at'] ?? ''),
+                    'is_primary' => (int)($it['is_primary'] ?? 0),
+                    'ruta'       => (string)($it['ruta'] ?? ''),
+                    'url'        => (string)($it['url'] ?? ''),
+                    'thumb_url'  => (string)($it['thumb_url'] ?? ''),
+                    'download_url' => (string)($it['download_url'] ?? ''),
                 ];
             }
 
-            usort($diasArr, fn($a,$b) => strcmp($b['fecha'], $a['fecha']));
+            // convertir lotes map -> array y ordenar
+            $dias = array_values(array_map(function ($d) {
+                $d['lotes'] = array_values($d['lotes']);
+                // ordenar lotes por fecha desc (si quieres)
+                usort($d['lotes'], fn($a,$b) => strcmp($b['created_at'] ?? '', $a['created_at'] ?? ''));
+                return $d;
+            }, $diasMap));
 
-            return $this->response->setJSON([
+            // ordenar días desc
+            usort($dias, fn($a,$b) => strcmp($b['fecha'], $a['fecha']));
+
+            return $this->jsonOk([
                 'success' => true,
                 'placas_hoy' => $placasHoy,
-                'dias' => $diasArr
+                'dias' => $dias,
             ]);
         } catch (\Throwable $e) {
-            log_message('error', 'listarPorDia ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ]);
+            return $this->jsonFail($e->getMessage(), 500);
         }
     }
 
-    /* =========================================================
-       ✅ NUEVO
-       GET /placas/archivos/productos-por-producir
-       Devuelve productos que estén en estado "Por producir"
-       Formato:
-       {success:true, items:[{id,label,pedido_id?,pedido_numero?,producto?,cantidad?}]}
-    ========================================================= */
+    /**
+     * ✅ GET /placas/archivos/productos-por-producir
+     *
+     * Tu error: "Unknown column 'estado' in WHERE"
+     * => aquí detectamos columnas/tablas sin asumir "estado".
+     *
+     * Devuelve items:
+     * { id, pedido_numero, producto, cantidad, label }
+     */
     public function productosPorProducir(): ResponseInterface
     {
         try {
-            // =====================================================
-            // OPCIÓN REAL (RECOMENDADA):
-            // Aquí debes traer tus pedidos/productos desde tu BD.
-            //
-            // Ejemplo (si existe tu modelo):
-            // $pm = new \App\Models\PedidoModel();
-            // $rows = $pm->where('estado', 'Por producir')->orderBy('id', 'DESC')->findAll();
-            //
-            // Y mapear a items con label.
-            // =====================================================
+            // ✅ cambia/ajusta estos candidatos a tu BD si hace falta
+            $candidates = [
+                [
+                    'table' => 'por_producir',
+                    'id'    => ['id'],
+                    'estado'=> ['estado', 'estado_actual', 'status'],
+                    'pedido'=> ['pedido_numero', 'numero_pedido', 'pedido', 'order_number', 'pedido_id'],
+                    'producto'=>['producto', 'nombre_producto', 'titulo', 'nombre'],
+                    'cantidad'=>['cantidad', 'qty', 'cantidad_producto'],
+                ],
+                [
+                    'table' => 'pedido_items',
+                    'id'    => ['id'],
+                    'estado'=> ['estado', 'estado_actual', 'status'],
+                    'pedido'=> ['pedido_numero', 'numero_pedido', 'pedido_id', 'order_number'],
+                    'producto'=>['producto', 'nombre_producto', 'titulo', 'nombre'],
+                    'cantidad'=>['cantidad', 'qty'],
+                ],
+                [
+                    'table' => 'pedido_productos',
+                    'id'    => ['id'],
+                    'estado'=> ['estado', 'estado_actual', 'status'],
+                    'pedido'=> ['pedido_numero', 'numero_pedido', 'pedido_id', 'order_number'],
+                    'producto'=>['producto', 'nombre_producto', 'titulo', 'nombre'],
+                    'cantidad'=>['cantidad', 'qty'],
+                ],
+                [
+                    'table' => 'productos_por_producir',
+                    'id'    => ['id'],
+                    'estado'=> ['estado', 'estado_actual', 'status'],
+                    'pedido'=> ['pedido_numero', 'numero_pedido', 'pedido_id', 'order_number'],
+                    'producto'=>['producto', 'nombre_producto', 'titulo', 'nombre'],
+                    'cantidad'=>['cantidad', 'qty'],
+                ],
+            ];
 
-            // Intento “no romper” si aún no existe el modelo real:
-            $items = [];
-
-            $pedidoModelClass = '\\App\\Models\\PedidoModel';
-            if (class_exists($pedidoModelClass)) {
-                /** @var \CodeIgniter\Model $pm */
-                $pm = new $pedidoModelClass();
-
-                // Ajusta campos reales: estado/estatus, numero, etc.
-                $rows = $pm->where('estado', 'Por producir')->orderBy('id', 'DESC')->findAll();
-
-                foreach ($rows as $r) {
-                    // Ajusta a tu estructura: ejemplo genérico
-                    $pedidoId = $r['id'] ?? null;
-                    $pedidoNumero = $r['numero'] ?? ($r['pedido'] ?? $pedidoId);
-
-                    // Si en tu tabla el producto está en una columna:
-                    $producto = $r['producto'] ?? ($r['titulo'] ?? 'Producto');
-
-                    $cantidad = $r['cantidad'] ?? 1;
-
-                    $label = "Pedido #{$pedidoNumero} — {$producto} x{$cantidad}";
-
-                    $items[] = [
-                        'id' => (string)($pedidoId ?? uniqid()),
-                        'pedido_id' => $pedidoId,
-                        'pedido_numero' => (string)$pedidoNumero,
-                        'producto' => (string)$producto,
-                        'cantidad' => (int)$cantidad,
-                        'label' => $label
-                    ];
+            $source = null;
+            foreach ($candidates as $cand) {
+                if ($this->db->tableExists($cand['table'])) {
+                    $source = $cand;
+                    break;
                 }
+            }
 
-                return $this->response->setJSON([
+            if (!$source) {
+                // No existe ninguna tabla candidata -> no 500
+                return $this->jsonOk([
                     'success' => true,
-                    'items' => $items
+                    'items' => [],
+                    'message' => 'No se encontró tabla fuente para "Por producir". Ajusta $candidates en productosPorProducir().'
                 ]);
             }
 
-            // Fallback (mock) para que la UI no reviente
-            $items = [
-                ['id' => 'mock1', 'pedido_numero' => '9095', 'producto' => 'Cuadro 20x30', 'cantidad' => 1, 'label' => 'Pedido #9095 — Cuadro 20x30 x1'],
-                ['id' => 'mock2', 'pedido_numero' => '9102', 'producto' => 'Marco Negro', 'cantidad' => 2, 'label' => 'Pedido #9102 — Marco Negro x2'],
-            ];
+            $table = $source['table'];
+            $cols  = $this->db->getFieldNames($table);
 
-            return $this->response->setJSON([
+            $pickCol = function(array $names) use ($cols) {
+                foreach ($names as $n) {
+                    if (in_array($n, $cols, true)) return $n;
+                }
+                return null;
+            };
+
+            $idCol      = $pickCol($source['id']) ?? 'id';
+            $estadoCol  = $pickCol($source['estado']);   // puede ser null (y NO rompe)
+            $pedidoCol  = $pickCol($source['pedido']);   // puede ser null
+            $prodCol    = $pickCol($source['producto']); // puede ser null
+            $qtyCol     = $pickCol($source['cantidad']); // puede ser null
+
+            $b = $this->db->table($table);
+
+            // selección mínima
+            $select = [];
+            if ($idCol)     $select[] = $idCol . ' as id';
+            if ($pedidoCol) $select[] = $pedidoCol . ' as pedido_numero';
+            if ($prodCol)   $select[] = $prodCol . ' as producto';
+            if ($qtyCol)    $select[] = $qtyCol . ' as cantidad';
+
+            // si no hay columnas esperadas, responde vacío sin 500
+            if (!$select) {
+                return $this->jsonOk([
+                    'success' => true,
+                    'items' => [],
+                    'message' => "Tabla '$table' encontrada, pero no se detectaron columnas de producto/pedido. Revisa candidatos.",
+                ]);
+            }
+
+            $b->select(implode(',', $select));
+
+            // ✅ filtro "por producir" SOLO si existe columna estado
+            if ($estadoCol) {
+                // Evitar case issues => LIKE
+                $b->groupStart()
+                  ->like($estadoCol, 'por producir')
+                  ->orLike($estadoCol, 'por_producir')
+                  ->groupEnd();
+            }
+
+            $b->orderBy($idCol, 'DESC');
+            $b->limit(300); // ajusta si quieres
+
+            $rows = $b->get()->getResultArray();
+
+            $items = array_map(function($r){
+                $pedido = $r['pedido_numero'] ?? '';
+                $producto = $r['producto'] ?? '';
+                $cant = $r['cantidad'] ?? '';
+
+                $labelParts = [];
+                if ($pedido !== '' && $pedido !== null) $labelParts[] = 'Pedido #' . $pedido;
+                if ($producto !== '' && $producto !== null) $labelParts[] = $producto;
+                if ($cant !== '' && $cant !== null) $labelParts[] = 'x' . $cant;
+
+                $label = trim(implode(' — ', array_filter([$labelParts[0] ?? null, $labelParts[1] ?? null])));
+                if (count($labelParts) === 3) $label = trim(($labelParts[0] ?? '') . ' — ' . ($labelParts[1] ?? '') . ' ' . ($labelParts[2] ?? ''));
+
+                return [
+                    'id' => (string)($r['id'] ?? ''),
+                    'pedido_numero' => $pedido !== null ? (string)$pedido : '',
+                    'producto' => $producto !== null ? (string)$producto : '',
+                    'cantidad' => $cant !== null ? (string)$cant : '',
+                    'label' => $label ?: trim(($producto ?? '') . ' ' . ($cant ? ('x'.$cant) : '')),
+                ];
+            }, $rows);
+
+            return $this->jsonOk([
                 'success' => true,
                 'items' => $items,
-                'note' => '⚠️ Esto es un mock. Conecta tu modelo real (PedidoModel) para datos reales.'
+                'source_table' => $table,
+                'note' => $estadoCol ? "Filtrando por estado usando '$estadoCol'." : "⚠️ No se detectó columna de estado. Se devolvieron registros sin filtrar.",
             ]);
 
         } catch (\Throwable $e) {
-            log_message('error', 'productosPorProducir ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ]);
+            return $this->jsonFail($e->getMessage(), 500);
         }
     }
 
-    /* =========================================================
-       POST /placas/archivos/subir-lote
-       FormData:
-         - lote_nombre (obligatorio)
-         - numero_placa (opcional)
-         - pedidos (opcional: "1,2,3" o JSON)
-         - productos (opcional: texto o JSON)
-         - productos_ids[] (opcional: si seleccionas del listado)
-         - archivos[] (obligatorio, multi)
-    ========================================================= */
+    /**
+     * POST /placas/archivos/subir-lote
+     * fields:
+     * - lote_nombre (req)
+     * - numero_placa (opt)
+     * - productos (json array string) (opt)
+     * - pedidos   (json array string) (opt)
+     * - archivos[] (req)
+     */
     public function subirLote(): ResponseInterface
     {
         try {
-            $loteNombre = trim((string)$this->request->getPost('lote_nombre'));
+            $loteNombre  = trim((string)$this->request->getPost('lote_nombre'));
             $numeroPlaca = trim((string)$this->request->getPost('numero_placa'));
 
-            $pedidosRaw = $this->request->getPost('pedidos');
-            $productosRaw = $this->request->getPost('productos');
-
-            // ✅ selección desde UI (multi-select / chips)
-            $productosIds = $this->request->getPost('productos_ids');
-            if (!is_array($productosIds)) {
-                // también puede venir como "productos_ids[]"
-                $productosIds = $this->request->getPost('productos_ids[]');
-            }
-
             if ($loteNombre === '') {
-                return $this->response->setStatusCode(400)->setJSON([
-                    'success' => false,
-                    'message' => 'El nombre del lote es obligatorio.'
-                ]);
+                return $this->jsonFail('El nombre del lote es obligatorio.', 400);
             }
-
-            $pedidos = $this->parseList($pedidosRaw);
-
-            // productos por texto
-            $productosTexto = $this->parseList($productosRaw);
-
-            // productos seleccionados (IDs/labels)
-            $productosSeleccionados = [];
-            if (is_array($productosIds)) {
-                foreach ($productosIds as $p) {
-                    $p = trim((string)$p);
-                    if ($p !== '') $productosSeleccionados[] = $p;
-                }
-            }
-
-            // decide productos_final
-            // prioridad: seleccionados; si no, texto; si no, numeroPlaca
-            $productosFinal = [];
-            if (!empty($productosSeleccionados)) $productosFinal = $productosSeleccionados;
-            else if (!empty($productosTexto)) $productosFinal = $productosTexto;
-            else if ($numeroPlaca !== '') $productosFinal = [$numeroPlaca];
-
-            $loteId = 'L' . date('Ymd_His') . '_' . substr(sha1($loteNombre . microtime(true)), 0, 8);
-
-            $fecha = date('Y-m-d');
-            $destDir = WRITEPATH . 'uploads/placas/' . $fecha . '/' . $loteId;
-            if (!is_dir($destDir)) mkdir($destDir, 0775, true);
 
             $files = $this->request->getFiles();
-            $incoming = $files['archivos'] ?? null;
+            $archivos = $files['archivos'] ?? null;
 
-            if (!$incoming) {
-                return $this->response->setStatusCode(400)->setJSON([
-                    'success' => false,
-                    'message' => 'No llegaron archivos (archivos[]).'
-                ]);
+            if (!$archivos) {
+                return $this->jsonFail('No se recibieron archivos.', 400);
             }
 
-            if (!is_array($incoming)) $incoming = [$incoming];
+            // Normalizar a array
+            if (!is_array($archivos)) $archivos = [$archivos];
+            $archivos = array_values(array_filter($archivos, fn($f) => $f && $f->isValid()));
 
+            if (!count($archivos)) {
+                return $this->jsonFail('Selecciona uno o más archivos válidos.', 400);
+            }
+
+            $loteId = 'L' . date('Ymd_His') . '_' . bin2hex(random_bytes(3));
+
+            // meta
+            $productos = $this->request->getPost('productos'); // JSON string
+            $pedidos   = $this->request->getPost('pedidos');   // JSON string
+
+            $baseDir = 'placas/' . $loteId;
+            $targetDir = rtrim(WRITEPATH, '/\\') . '/uploads/' . $baseDir;
+            if (!is_dir($targetDir)) {
+                mkdir($targetDir, 0775, true);
+            }
+
+            $first = true;
             $saved = 0;
-            $isFirst = true;
 
-            foreach ($incoming as $f) {
-                if (!$f || !$f->isValid()) continue;
+            foreach ($archivos as $f) {
+                /** @var \CodeIgniter\HTTP\Files\UploadedFile $f */
+                $origName = $f->getClientName();
+                $mime     = $f->getClientMimeType();
+                $size     = $f->getSize();
 
-                $original = $f->getClientName();
-                $mime = (string)$f->getClientMimeType();
-                $size = (int)$f->getSize();
+                $newName = $f->getRandomName();
+                $f->move($targetDir, $newName);
 
-                $safeName = preg_replace('/[^a-zA-Z0-9._-]/', '_', $original);
-                if ($safeName === '') $safeName = 'archivo_' . time();
+                $rutaRel = $baseDir . '/' . $newName;
 
-                $finalName = $safeName;
-                $i = 1;
-                while (is_file($destDir . '/' . $finalName)) {
-                    $finalName = pathinfo($safeName, PATHINFO_FILENAME) . "_{$i}." . pathinfo($safeName, PATHINFO_EXTENSION);
-                    $i++;
-                }
-
-                $f->move($destDir, $finalName);
-
-                $rel = 'uploads/placas/' . $fecha . '/' . $loteId . '/' . $finalName;
-                $nombre = pathinfo($original, PATHINFO_FILENAME);
+                $nombreSinExt = pathinfo($origName, PATHINFO_FILENAME);
 
                 $this->m->insert([
-                    'lote_id' => $loteId,
-                    'lote_nombre' => $loteNombre,
-                    'pedidos_json' => $pedidos ? json_encode($pedidos, JSON_UNESCAPED_UNICODE) : null,
-                    'productos_json' => $productosFinal ? json_encode($productosFinal, JSON_UNESCAPED_UNICODE) : null,
+                    'lote_id'      => $loteId,
+                    'lote_nombre'  => $loteNombre,
+                    'numero_placa' => $numeroPlaca,
 
-                    'original' => $original,
-                    'nombre' => $nombre,
-                    'mime' => $mime,
-                    'size' => $size,
-                    'ruta' => $rel,
-                    'is_primary' => $isFirst ? 1 : 0,
+                    'ruta'     => $rutaRel,
+                    'mime'     => $mime,
+                    'size'     => (int)$size,
+                    'original' => $origName,
+                    'nombre'   => $nombreSinExt,
+
+                    'is_primary' => $first ? 1 : 0,
+
+                    // ✅ el Model convierte a productos_json/pedidos_json
+                    'productos' => $productos,
+                    'pedidos'   => $pedidos,
                 ]);
 
-                $isFirst = false;
+                $first = false;
                 $saved++;
             }
 
-            if ($saved === 0) {
-                return $this->response->setStatusCode(400)->setJSON([
-                    'success' => false,
-                    'message' => 'No se pudo guardar ningún archivo.'
-                ]);
-            }
-
-            return $this->response->setJSON([
+            return $this->jsonOk([
                 'success' => true,
-                'message' => "✅ Subidos correctamente ({$saved})",
+                'message' => "✅ Lote creado ($loteId) con $saved archivo(s).",
                 'lote_id' => $loteId,
             ]);
-
         } catch (\Throwable $e) {
-            log_message('error', 'subirLote ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ]);
+            return $this->jsonFail($e->getMessage(), 500);
         }
     }
 
-    /* =========================================================
-       POST /placas/archivos/renombrar
-    ========================================================= */
-    public function renombrarArchivo(): ResponseInterface
+    /**
+     * POST /placas/archivos/renombrar
+     * fields: id, nombre
+     */
+    public function renombrar(): ResponseInterface
     {
         try {
             $id = (int)$this->request->getPost('id');
             $nombre = trim((string)$this->request->getPost('nombre'));
 
-            if (!$id || $nombre === '') {
-                return $this->response->setStatusCode(400)->setJSON([
-                    'success' => false,
-                    'message' => 'Faltan datos.'
-                ]);
-            }
+            if (!$id) return $this->jsonFail('ID inválido.', 400);
+            if ($nombre === '') return $this->jsonFail('El nombre no puede estar vacío.', 400);
 
             $row = $this->m->find($id);
-            if (!$row) {
-                return $this->response->setStatusCode(404)->setJSON([
-                    'success' => false,
-                    'message' => 'Archivo no encontrado.'
-                ]);
-            }
+            if (!$row) return $this->jsonFail('No existe.', 404);
 
             $this->m->update($id, ['nombre' => $nombre]);
 
-            return $this->response->setJSON([
-                'success' => true,
-                'message' => '✅ Nombre actualizado'
-            ]);
+            return $this->jsonOk(['success' => true, 'message' => '✅ Renombrado']);
         } catch (\Throwable $e) {
-            log_message('error', 'renombrarArchivo ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ]);
+            return $this->jsonFail($e->getMessage(), 500);
         }
     }
 
-    /* =========================================================
-       POST /placas/archivos/eliminar
-    ========================================================= */
-    public function eliminarArchivo(): ResponseInterface
+    /**
+     * POST /placas/archivos/eliminar
+     * fields: id
+     */
+    public function eliminar(): ResponseInterface
     {
         try {
             $id = (int)$this->request->getPost('id');
-            if (!$id) {
-                return $this->response->setStatusCode(400)->setJSON([
-                    'success' => false,
-                    'message' => 'Falta id.'
-                ]);
-            }
+            if (!$id) return $this->jsonFail('ID inválido.', 400);
 
             $row = $this->m->find($id);
-            if (!$row) {
-                return $this->response->setStatusCode(404)->setJSON([
-                    'success' => false,
-                    'message' => 'Archivo no encontrado.'
-                ]);
-            }
+            if (!$row) return $this->jsonFail('No existe.', 404);
 
-            $abs = WRITEPATH . ltrim((string)$row['ruta'], '/\\');
-            if (is_file($abs)) @unlink($abs);
+            $path = $this->fileFullPathFromRuta((string)($row['ruta'] ?? ''));
+            if (is_file($path)) @unlink($path);
 
             $this->m->delete($id);
 
-            return $this->response->setJSON([
-                'success' => true,
-                'message' => '✅ Eliminado'
-            ]);
+            return $this->jsonOk(['success' => true, 'message' => '✅ Eliminado']);
         } catch (\Throwable $e) {
-            log_message('error', 'eliminarArchivo ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ]);
+            return $this->jsonFail($e->getMessage(), 500);
         }
     }
 
-    /* =========================================================
-       POST /placas/archivos/lote/renombrar
-    ========================================================= */
+    /**
+     * POST /placas/archivos/lote/renombrar
+     * fields: lote_id, lote_nombre
+     */
     public function renombrarLote(): ResponseInterface
     {
         try {
             $loteId = trim((string)$this->request->getPost('lote_id'));
-            $nombre = trim((string)$this->request->getPost('lote_nombre'));
+            $loteNombre = trim((string)$this->request->getPost('lote_nombre'));
 
-            if ($loteId === '' || $nombre === '') {
-                return $this->response->setStatusCode(400)->setJSON([
-                    'success' => false,
-                    'message' => 'Faltan datos.'
-                ]);
-            }
+            if ($loteId === '') return $this->jsonFail('lote_id requerido', 400);
+            if ($loteNombre === '') return $this->jsonFail('El nombre no puede estar vacío', 400);
 
-            $this->m->where('lote_id', $loteId)->set(['lote_nombre' => $nombre])->update();
+            $this->m->where('lote_id', $loteId)->set(['lote_nombre' => $loteNombre])->update();
 
-            return $this->response->setJSON([
-                'success' => true,
-                'message' => '✅ Lote renombrado'
-            ]);
+            return $this->jsonOk(['success' => true, 'message' => '✅ Lote renombrado']);
         } catch (\Throwable $e) {
-            log_message('error', 'renombrarLote ERROR: {msg}', ['msg' => $e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ]);
+            return $this->jsonFail($e->getMessage(), 500);
         }
     }
 
-    /* =========================================================
-       GET /placas/archivos/descargar/{id}
-    ========================================================= */
-    public function descargar(int $id)
+    /**
+     * GET /placas/archivos/descargar/{id}
+     * Incluye WEBP->PNG
+     */
+    public function descargar($id)
     {
-        $row = $this->m->find($id);
+        $row = $this->m->find((int)$id);
         if (!$row) return $this->response->setStatusCode(404);
 
-        $abs = WRITEPATH . ltrim((string)$row['ruta'], '/\\');
-        if (!is_file($abs)) return $this->response->setStatusCode(404);
+        $ruta = (string)($row['ruta'] ?? '');
+        $path = $this->fileFullPathFromRuta($ruta);
+        if (!is_file($path)) return $this->response->setStatusCode(404);
 
-        $mime = $row['mime'] ?: mime_content_type($abs);
-        $originalName = $row['original'] ?: ('archivo_'.$id);
+        $mime = $row['mime'] ?: $this->guessMime($path);
+        $originalName = $row['original'] ?: ('archivo_' . $id);
+
+        // WEBP -> PNG
+        if ($mime === 'image/webp') {
+            if (!function_exists('imagecreatefromwebp')) {
+                return $this->response->setStatusCode(500)->setBody('PHP sin soporte WEBP (GD).');
+            }
+            $im = imagecreatefromwebp($path);
+            if (!$im) return $this->response->setStatusCode(500)->setBody('No se pudo leer WEBP.');
+
+            ob_start();
+            imagepng($im, null, 9);
+            imagedestroy($im);
+            $pngData = ob_get_clean();
+
+            $downloadName = preg_replace('/\.(webp)$/i', '.png', $originalName);
+            if ($downloadName === $originalName) $downloadName .= '.png';
+
+            return $this->response
+                ->setHeader('Content-Type', 'image/png')
+                ->setHeader('Content-Disposition', 'attachment; filename="' . $downloadName . '"')
+                ->setBody($pngData);
+        }
 
         return $this->response
             ->setHeader('Content-Type', $mime)
-            ->setHeader('Content-Disposition', 'attachment; filename="'.$originalName.'"')
-            ->setBody(file_get_contents($abs));
+            ->setHeader('Content-Disposition', 'attachment; filename="' . $originalName . '"')
+            ->setBody(file_get_contents($path));
     }
 
-    public function descargarPng(int $id) { return $this->convertImageDownload($id, 'png'); }
-    public function descargarJpg(int $id) { return $this->convertImageDownload($id, 'jpg'); }
-    public function descargarPngLote(string $loteId) { return $this->zipLoteConverted($loteId, 'png'); }
-    public function descargarJpgLote(string $loteId) { return $this->zipLoteConverted($loteId, 'jpg'); }
-
-    /* =======================
-       Opcional: pedidos->productos
-    ======================= */
-    public function productosDePedidos(): ResponseInterface
+    /**
+     * GET /placas/archivos/descargar-png/{id}
+     */
+    public function descargarPng($id)
     {
-        $ids = (string)$this->request->getGet('ids');
-        $idsArr = $this->parseList($ids);
-
-        $productos = [];
-        foreach ($idsArr as $id) {
-            $productos[] = "Producto del pedido #{$id}";
-        }
-
-        return $this->response->setJSON([
-            'success' => true,
-            'pedidos' => $idsArr,
-            'productos' => $productos
-        ]);
+        return $this->convertImageDownload((int)$id, 'png');
     }
 
-    /* =======================
-       Helpers internos
-    ======================= */
-    private function rowToItem(array $r): array
+    /**
+     * GET /placas/archivos/descargar-jpg/{id}
+     */
+    public function descargarJpg($id)
     {
-        $ruta = (string)($r['ruta'] ?? '');
-        $url  = $ruta !== '' ? base_url($ruta) : null;
-
-        return [
-            'id' => (int)$r['id'],
-            'lote_id' => (string)($r['lote_id'] ?? ''),
-            'lote_nombre' => (string)($r['lote_nombre'] ?? ''),
-            'original' => (string)($r['original'] ?? ''),
-            'nombre' => (string)($r['nombre'] ?? ''),
-            'mime' => (string)($r['mime'] ?? ''),
-            'size' => (int)($r['size'] ?? 0),
-            'ruta' => $ruta,
-            'url' => $url,
-            'created_at' => (string)($r['created_at'] ?? ''),
-            'thumb_url' => $url,
-            'download_url' => site_url('placas/archivos/descargar/' . $r['id']),
-        ];
+        return $this->convertImageDownload((int)$id, 'jpg');
     }
 
-    private function jsonToArray(?string $json): array
-    {
-        if (!$json) return [];
-        $arr = json_decode($json, true);
-        return is_array($arr) ? array_values(array_filter(array_map('strval', $arr))) : [];
-    }
-
-    private function parseList($raw): array
-    {
-        if ($raw === null) return [];
-        if (is_array($raw)) {
-            return array_values(array_filter(array_map(fn($x) => trim((string)$x), $raw)));
-        }
-
-        $raw = trim((string)$raw);
-        if ($raw === '') return [];
-
-        $tryJson = json_decode($raw, true);
-        if (is_array($tryJson)) {
-            return array_values(array_filter(array_map(fn($x) => trim((string)$x), $tryJson)));
-        }
-
-        return array_values(array_filter(array_map('trim', preg_split('/[\n,]+/', $raw))));
-    }
-
-    private function convertImageDownload(int $id, string $fmt)
+    private function convertImageDownload(int $id, string $format)
     {
         $row = $this->m->find($id);
         if (!$row) return $this->response->setStatusCode(404);
 
-        $abs = WRITEPATH . ltrim((string)$row['ruta'], '/\\');
-        if (!is_file($abs)) return $this->response->setStatusCode(404);
+        $path = $this->fileFullPathFromRuta((string)($row['ruta'] ?? ''));
+        if (!is_file($path)) return $this->response->setStatusCode(404);
 
-        $mime = $row['mime'] ?: mime_content_type($abs);
+        $mime = $row['mime'] ?: $this->guessMime($path);
         if (strpos($mime, 'image/') !== 0) {
             return $this->response->setStatusCode(400)->setBody('No es una imagen.');
         }
 
-        $im = $this->createImageFromAny($abs, $mime);
+        // cargar imagen según mime
+        $im = null;
+        if ($mime === 'image/webp' && function_exists('imagecreatefromwebp')) $im = @imagecreatefromwebp($path);
+        if ($mime === 'image/png')  $im = @imagecreatefrompng($path);
+        if ($mime === 'image/jpeg') $im = @imagecreatefromjpeg($path);
+
         if (!$im) return $this->response->setStatusCode(500)->setBody('No se pudo convertir la imagen.');
 
-        ob_start();
-        if ($fmt === 'png') { imagepng($im, null, 9); $outMime = 'image/png'; $ext = 'png'; }
-        else { imagejpeg($im, null, 92); $outMime = 'image/jpeg'; $ext = 'jpg'; }
-        imagedestroy($im);
-        $data = ob_get_clean();
+        $base = $row['original'] ?: ('archivo_' . $id);
+        $base = preg_replace('/\.[^.]+$/', '', $base);
+        $downloadName = $base . '.' . ($format === 'jpg' ? 'jpg' : 'png');
 
-        $baseName = $row['original'] ?: ('archivo_'.$id);
-        $baseName = preg_replace('/\.[^.]+$/', '', $baseName);
-        $downloadName = $baseName . '.' . $ext;
+        ob_start();
+        if ($format === 'jpg') {
+            imagejpeg($im, null, 92);
+            $outMime = 'image/jpeg';
+        } else {
+            imagepng($im, null, 9);
+            $outMime = 'image/png';
+        }
+        imagedestroy($im);
+        $bin = ob_get_clean();
 
         return $this->response
             ->setHeader('Content-Type', $outMime)
-            ->setHeader('Content-Disposition', 'attachment; filename="'.$downloadName.'"')
-            ->setBody($data);
+            ->setHeader('Content-Disposition', 'attachment; filename="' . $downloadName . '"')
+            ->setBody($bin);
     }
 
-    private function zipLoteConverted(string $loteId, string $fmt)
+    /**
+     * GET /placas/archivos/descargar-png-lote/{loteId}
+     * ZIP de PNGs
+     */
+    public function descargarPngLote($loteId)
     {
-        if (!class_exists(\ZipArchive::class)) {
-            return $this->response->setStatusCode(500)->setBody('ZipArchive no está disponible en PHP.');
-        }
+        return $this->zipLoteImages((string)$loteId, 'png');
+    }
 
+    /**
+     * GET /placas/archivos/descargar-jpg-lote/{loteId}
+     * ZIP de JPGs
+     */
+    public function descargarJpgLote($loteId)
+    {
+        return $this->zipLoteImages((string)$loteId, 'jpg');
+    }
+
+    private function zipLoteImages(string $loteId, string $format)
+    {
         $rows = $this->m->where('lote_id', $loteId)->orderBy('id', 'ASC')->findAll();
-        if (!$rows) return $this->response->setStatusCode(404)->setBody('Lote no encontrado.');
+        if (!$rows) return $this->response->setStatusCode(404)->setBody('Lote vacío.');
 
-        $zipPath = WRITEPATH . 'uploads/tmp_' . $loteId . '_' . time() . '.zip';
+        $zipPath = WRITEPATH . 'cache/' . 'lote_' . preg_replace('/[^a-zA-Z0-9_\-]/', '_', $loteId) . '_' . $format . '.zip';
+
         $zip = new \ZipArchive();
-        if ($zip->open($zipPath, \ZipArchive::CREATE) !== true) {
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
             return $this->response->setStatusCode(500)->setBody('No se pudo crear ZIP.');
         }
 
         foreach ($rows as $r) {
-            $abs = WRITEPATH . ltrim((string)$r['ruta'], '/\\');
-            if (!is_file($abs)) continue;
+            $path = $this->fileFullPathFromRuta((string)($r['ruta'] ?? ''));
+            if (!is_file($path)) continue;
 
-            $mime = $r['mime'] ?: mime_content_type($abs);
+            $mime = $r['mime'] ?: $this->guessMime($path);
             if (strpos($mime, 'image/') !== 0) continue;
 
-            $im = $this->createImageFromAny($abs, $mime);
+            // cargar imagen
+            $im = null;
+            if ($mime === 'image/webp' && function_exists('imagecreatefromwebp')) $im = @imagecreatefromwebp($path);
+            if ($mime === 'image/png')  $im = @imagecreatefrompng($path);
+            if ($mime === 'image/jpeg') $im = @imagecreatefromjpeg($path);
             if (!$im) continue;
 
-            ob_start();
-            if ($fmt === 'png') imagepng($im, null, 9);
-            else imagejpeg($im, null, 92);
-            imagedestroy($im);
-            $bin = ob_get_clean();
-
-            $base = $r['original'] ?: ('archivo_'.$r['id']);
+            $base = $r['original'] ?: ('archivo_' . $r['id']);
             $base = preg_replace('/\.[^.]+$/', '', $base);
-            $filename = $base . '.' . ($fmt === 'png' ? 'png' : 'jpg');
+            $nameInZip = $base . '_' . $r['id'] . '.' . ($format === 'jpg' ? 'jpg' : 'png');
 
-            $zip->addFromString($filename, $bin);
+            ob_start();
+            if ($format === 'jpg') imagejpeg($im, null, 92);
+            else imagepng($im, null, 9);
+            $bin = ob_get_clean();
+            imagedestroy($im);
+
+            $zip->addFromString($nameInZip, $bin);
         }
 
         $zip->close();
 
-        $downloadName = "lote_{$loteId}_" . ($fmt === 'png' ? 'PNG' : 'JPG') . ".zip";
-        $data = file_get_contents($zipPath);
-        @unlink($zipPath);
+        $downloadName = 'lote_' . $loteId . '_' . strtoupper($format) . '.zip';
 
         return $this->response
             ->setHeader('Content-Type', 'application/zip')
-            ->setHeader('Content-Disposition', 'attachment; filename="'.$downloadName.'"')
-            ->setBody($data);
-    }
-
-    private function createImageFromAny(string $path, string $mime)
-    {
-        if ($mime === 'image/webp' && function_exists('imagecreatefromwebp')) return @imagecreatefromwebp($path);
-        if ($mime === 'image/png' && function_exists('imagecreatefrompng')) return @imagecreatefrompng($path);
-        if (($mime === 'image/jpeg' || $mime === 'image/jpg') && function_exists('imagecreatefromjpeg')) return @imagecreatefromjpeg($path);
-        if ($mime === 'image/gif' && function_exists('imagecreatefromgif')) return @imagecreatefromgif($path);
-
-        if (function_exists('imagecreatefromstring')) {
-            $raw = @file_get_contents($path);
-            if ($raw) return @imagecreatefromstring($raw);
-        }
-        return null;
+            ->setHeader('Content-Disposition', 'attachment; filename="' . $downloadName . '"')
+            ->setBody(file_get_contents($zipPath));
     }
 }
