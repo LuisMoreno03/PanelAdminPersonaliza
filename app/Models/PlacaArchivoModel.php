@@ -22,12 +22,14 @@ class PlacaArchivoModel extends Model
         'lote_nombre',
         'numero_placa',
         'pedidos_json',
-        'pedidos_text',
 
         'ruta',
         'original',
         'mime',
         'size',
         'nombre',
+
+        // opcional (solo si existe en tu tabla)
+        // 'is_primary',
     ];
 }

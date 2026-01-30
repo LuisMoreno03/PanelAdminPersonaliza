@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Controllers\BaseController;
 use App\Models\PlacaArchivoModel;
 use CodeIgniter\HTTP\ResponseInterface;
 
@@ -42,14 +43,11 @@ class PlacasArchivosController extends BaseController
         $diasMap = [];
 
         foreach ($rows as $r) {
-            $created = (string)($r['created_at'] ?? '');
+            $created = (string) ($r['created_at'] ?? '');
             $fecha = $created ? substr($created, 0, 10) : 'Sin fecha';
 
-            $loteId = (string)($r['lote_id'] ?? 'SIN_LOTE');
-            if ($loteId === '') $loteId = 'SIN_LOTE';
-
-            $loteNombre = (string)($r['lote_nombre'] ?? 'Sin nombre');
-            if (trim($loteNombre) === '') $loteNombre = 'Sin nombre';
+            $loteId     = (string) ($r['lote_id'] ?? 'SIN_LOTE');
+            $loteNombre = (string) ($r['lote_nombre'] ?? 'Sin nombre');
 
             if (!isset($diasMap[$fecha])) {
                 $diasMap[$fecha] = [
@@ -68,39 +66,33 @@ class PlacasArchivosController extends BaseController
                 ];
             }
 
-            $id = (int)($r['id'] ?? 0);
+            $id = (int) ($r['id'] ?? 0);
             if (!$id) continue;
 
-            // ✅ URL que usará el frontend para mostrar preview
-            $url = site_url('placas/archivos/ver/' . $id);
-
-            $mime = (string)($r['mime'] ?? '');
-            $thumbUrl = null;
-
-            // Si tu frontend usa thumb_url, por ahora devolvemos el mismo URL para imágenes.
-            if (strpos($mime, 'image/') === 0) {
-                $thumbUrl = $url;
-            }
+            $mime = (string) ($r['mime'] ?? '');
+            $isImg = str_starts_with($mime, 'image/');
 
             $item = [
                 'id' => $id,
                 'lote_id' => $loteId,
                 'lote_nombre' => $loteNombre,
 
-                'numero_placa' => (string)($r['numero_placa'] ?? ''),
-                'nombre'       => (string)($r['nombre'] ?? ''),
-                'original'     => (string)($r['original'] ?? ''),
-                'mime'         => $mime,
-                'size'         => (int)($r['size'] ?? 0),
-                'created_at'   => $created,
+                'numero_placa' => (string) ($r['numero_placa'] ?? ''),
+                'nombre' => (string) ($r['nombre'] ?? ''),
+                'original' => (string) ($r['original'] ?? ''),
+                'mime' => $mime,
+                'size' => (int) ($r['size'] ?? 0),
+                'created_at' => $created,
 
                 // ✅ claves que tu JS espera
-                'url'       => $url,
-                'thumb_url' => $thumbUrl,
+                'url' => site_url('placas/archivos/ver/' . $id),
+                'thumb_url' => $isImg ? site_url('placas/archivos/ver/' . $id) : null,
 
-                // (opcionales)
-                'view_url'     => $url,
+                // por si lo usas en otro lado
                 'download_url' => site_url('placas/archivos/descargar/' . $id),
+
+                // opcional si existe en tu tabla
+                'is_primary' => (int) ($r['is_primary'] ?? 0),
             ];
 
             $diasMap[$fecha]['lotes'][$loteId]['items'][] = $item;
@@ -115,7 +107,7 @@ class PlacasArchivosController extends BaseController
 
         // placas hoy:
         $hoy = date('Y-m-d');
-        $placasHoy = isset($diasMap[$hoy]) ? (int)$diasMap[$hoy]['total_archivos'] : 0;
+        $placasHoy = isset($diasMap[$hoy]) ? (int) $diasMap[$hoy]['total_archivos'] : 0;
 
         return $this->response->setJSON([
             'success' => true,
@@ -128,8 +120,9 @@ class PlacasArchivosController extends BaseController
     public function subirLote(): ResponseInterface
     {
         try {
-            $loteNombre  = trim((string)$this->request->getPost('lote_nombre'));
-            $numeroPlaca = trim((string)$this->request->getPost('numero_placa'));
+            $loteNombre  = trim((string) $this->request->getPost('lote_nombre'));
+            $numeroPlaca = trim((string) $this->request->getPost('numero_placa'));
+            $pedidosJson = (string) $this->request->getPost('pedidos_json');
 
             if ($loteNombre === '') {
                 return $this->response->setStatusCode(400)->setJSON([
@@ -138,10 +131,16 @@ class PlacasArchivosController extends BaseController
                 ]);
             }
 
-            // ✅ forma correcta para múltiples archivos: archivos[]
+            // ✅ CI4: múltiple
             $archivos = $this->request->getFileMultiple('archivos');
 
+            // fallback si llega como 1 solo
             if (!$archivos || !is_array($archivos) || !count($archivos)) {
+                $one = $this->request->getFile('archivos');
+                if ($one && $one->isValid()) $archivos = [$one];
+            }
+
+            if (!$archivos || !count($archivos)) {
                 return $this->response->setStatusCode(400)->setJSON([
                     'success' => false,
                     'message' => 'No se recibieron archivos.',
@@ -151,8 +150,8 @@ class PlacasArchivosController extends BaseController
             // ✅ lote_id único
             $loteId = 'L' . date('Ymd_His') . '_' . bin2hex(random_bytes(3));
 
-            // ✅ Guardar en writable (no público)
-            $baseDir = rtrim(WRITEPATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'uploads/placas/' . $loteId . '/';
+            // ✅ Guardar en writable
+            $baseDir = rtrim(WRITEPATH, '/\\') . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'placas' . DIRECTORY_SEPARATOR . $loteId . DIRECTORY_SEPARATOR;
             if (!is_dir($baseDir)) {
                 mkdir($baseDir, 0775, true);
             }
@@ -164,40 +163,41 @@ class PlacasArchivosController extends BaseController
 
                 $originalName = $file->getClientName() ?: ('archivo_' . $idx);
                 $mime         = $file->getClientMimeType() ?: 'application/octet-stream';
-                $size         = (int)($file->getSize() ?? 0);
+                $size         = (int) ($file->getSize() ?? 0);
 
                 $ext = $file->getClientExtension();
                 $safeBase = preg_replace('/[^a-zA-Z0-9_\-]/', '_', pathinfo($originalName, PATHINFO_FILENAME));
-                if (!$safeBase) $safeBase = 'archivo_' . $idx;
+                if ($safeBase === '') $safeBase = 'archivo_' . $idx;
 
                 $finalName = $safeBase . '_' . time() . '_' . bin2hex(random_bytes(2));
                 if ($ext) $finalName .= '.' . $ext;
 
-                // move acepta destino absoluto
+                // mueve a writable/uploads/placas/{loteId}/
                 $file->move($baseDir, $finalName);
 
-                // ruta relativa a WRITEPATH
                 $rutaRel = 'uploads/placas/' . $loteId . '/' . $finalName;
 
-                // ✅ OJO: NO insertamos pedidos_text ni pedidos_json para evitar el error de columna
-                $rowId = $this->m->insert([
+                // ✅ IMPORTANTE: QUITAMOS pedidos_text (no existe en tu BD)
+                $insertData = [
                     'lote_id'      => $loteId,
                     'lote_nombre'  => $loteNombre,
                     'numero_placa' => $numeroPlaca,
+
+                    // si tu tabla tiene pedidos_json, perfecto. Si no, asegúrate de sacarlo del allowedFields.
+                    'pedidos_json' => $pedidosJson !== '' ? $pedidosJson : null,
 
                     'ruta'     => $rutaRel,
                     'original' => $originalName,
                     'mime'     => $mime,
                     'size'     => $size,
                     'nombre'   => $safeBase,
-                ]);
+                ];
 
-                $rowId = (int)$rowId;
+                $rowId = $this->m->insert($insertData, true);
 
                 $guardados[] = [
-                    'id' => $rowId,
+                    'id' => (int) $rowId,
                     'original' => $originalName,
-                    'url' => site_url('placas/archivos/ver/' . $rowId),
                 ];
             }
 
@@ -225,11 +225,11 @@ class PlacasArchivosController extends BaseController
     }
 
     // ✅ POST /placas/archivos/renombrar
-    public function renombrar(): ResponseInterface
+    public function renombrarArchivo(): ResponseInterface
     {
         try {
-            $id = (int)$this->request->getPost('id');
-            $nombre = trim((string)$this->request->getPost('nombre'));
+            $id = (int) $this->request->getPost('id');
+            $nombre = trim((string) $this->request->getPost('nombre'));
 
             if (!$id || $nombre === '') {
                 return $this->response->setStatusCode(400)->setJSON([
@@ -264,8 +264,8 @@ class PlacasArchivosController extends BaseController
     public function renombrarLote(): ResponseInterface
     {
         try {
-            $loteId = trim((string)$this->request->getPost('lote_id'));
-            $loteNombre = trim((string)$this->request->getPost('lote_nombre'));
+            $loteId = trim((string) $this->request->getPost('lote_id'));
+            $loteNombre = trim((string) $this->request->getPost('lote_nombre'));
 
             if ($loteId === '' || $loteNombre === '') {
                 return $this->response->setStatusCode(400)->setJSON([
@@ -289,10 +289,10 @@ class PlacasArchivosController extends BaseController
     }
 
     // ✅ POST /placas/archivos/eliminar
-    public function eliminar(): ResponseInterface
+    public function eliminarArchivo(): ResponseInterface
     {
         try {
-            $id = (int)$this->request->getPost('id');
+            $id = (int) $this->request->getPost('id');
             if (!$id) {
                 return $this->response->setStatusCode(400)->setJSON([
                     'success' => false,
@@ -308,10 +308,10 @@ class PlacasArchivosController extends BaseController
                 ]);
             }
 
-            $ruta = (string)($row['ruta'] ?? '');
-            $abs = $ruta ? (WRITEPATH . $ruta) : '';
+            $ruta = (string) ($row['ruta'] ?? '');
+            $abs = rtrim(WRITEPATH, '/\\') . DIRECTORY_SEPARATOR . $ruta;
 
-            if ($abs && is_file($abs)) {
+            if ($ruta && is_file($abs)) {
                 @unlink($abs);
             }
 
@@ -329,23 +329,19 @@ class PlacasArchivosController extends BaseController
         }
     }
 
-    // ✅ GET /placas/archivos/ver/{id} (inline para preview)
-    public function ver(int $id): ResponseInterface
+    // ✅ GET /placas/archivos/ver/{id}  (inline para preview)
+    public function ver(int $id)
     {
         $row = $this->m->find($id);
         if (!$row) return $this->response->setStatusCode(404);
 
-        $ruta = (string)($row['ruta'] ?? '');
-        $path = $ruta ? (WRITEPATH . $ruta) : '';
+        $ruta = (string) ($row['ruta'] ?? '');
+        $path = rtrim(WRITEPATH, '/\\') . DIRECTORY_SEPARATOR . $ruta;
 
-        if (!$path || !is_file($path)) return $this->response->setStatusCode(404);
+        if (!$ruta || !is_file($path)) return $this->response->setStatusCode(404);
 
-        $mime = (string)($row['mime'] ?? '');
-        if ($mime === '') {
-            $mime = @mime_content_type($path) ?: 'application/octet-stream';
-        }
-
-        $filename = (string)($row['original'] ?? ('archivo_' . $id));
+        $mime = $row['mime'] ?: (function_exists('mime_content_type') ? mime_content_type($path) : 'application/octet-stream');
+        $filename = $row['original'] ?? ('archivo_' . $id);
 
         return $this->response
             ->setHeader('Content-Type', $mime)
@@ -353,23 +349,42 @@ class PlacasArchivosController extends BaseController
             ->setBody(file_get_contents($path));
     }
 
-    // ✅ GET /placas/archivos/descargar/{id} (attachment)
-    public function descargar(int $id): ResponseInterface
+    // ✅ GET /placas/archivos/descargar/{id}  (attachment)
+    public function descargar(int $id)
     {
         $row = $this->m->find($id);
         if (!$row) return $this->response->setStatusCode(404);
 
-        $ruta = (string)($row['ruta'] ?? '');
-        $path = $ruta ? (WRITEPATH . $ruta) : '';
+        $ruta = (string) ($row['ruta'] ?? '');
+        $path = rtrim(WRITEPATH, '/\\') . DIRECTORY_SEPARATOR . $ruta;
 
-        if (!$path || !is_file($path)) return $this->response->setStatusCode(404);
+        if (!$ruta || !is_file($path)) return $this->response->setStatusCode(404);
 
-        $mime = (string)($row['mime'] ?? '');
-        if ($mime === '') {
-            $mime = @mime_content_type($path) ?: 'application/octet-stream';
+        $mime = $row['mime'] ?: (function_exists('mime_content_type') ? mime_content_type($path) : 'application/octet-stream');
+        $originalName = $row['original'] ?: ('archivo_' . $id);
+
+        // ✅ Si quieres convertir WEBP a PNG al descargar:
+        if ($mime === 'image/webp') {
+            if (!function_exists('imagecreatefromwebp')) {
+                return $this->response->setStatusCode(500)->setBody('PHP sin soporte WEBP (GD).');
+            }
+
+            $im = imagecreatefromwebp($path);
+            if (!$im) return $this->response->setStatusCode(500)->setBody('No se pudo leer WEBP.');
+
+            ob_start();
+            imagepng($im, null, 9);
+            imagedestroy($im);
+            $pngData = ob_get_clean();
+
+            $downloadName = preg_replace('/\.(webp)$/i', '.png', $originalName);
+            if ($downloadName === $originalName) $downloadName .= '.png';
+
+            return $this->response
+                ->setHeader('Content-Type', 'image/png')
+                ->setHeader('Content-Disposition', 'attachment; filename="' . $downloadName . '"')
+                ->setBody($pngData);
         }
-
-        $originalName = (string)($row['original'] ?? ('archivo_' . $id));
 
         return $this->response
             ->setHeader('Content-Type', $mime)
