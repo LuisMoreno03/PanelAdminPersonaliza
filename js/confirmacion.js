@@ -27,6 +27,14 @@ const ENDPOINT_GUARDAR_NOTA    = (API.guardarNota   || "/confirmacion/guardar-no
 let DET_ORDER_NOTE = "";
 let DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
 
+// ✅ NUEVO: orderKey real (devuelto por backend) para que TODO sea consistente
+let DET_ORDER_KEY = "";
+
+// ✅ NUEVO: autosave
+let ORDER_NOTE_LAST_SAVED = "";
+let __orderNoteDebounce = null;
+let __orderNoteSaving = false;
+
 let pedidosCache = [];
 let loading = false;
 
@@ -350,11 +358,14 @@ function cerrarModalDetalles() {
 window.cerrarModalDetalles = cerrarModalDetalles;
 
 /* =====================================================
-   NOTA GLOBAL — GUARDAR
+   NOTA GLOBAL — GUARDAR (✅ soporta respuesta objeto / estabilidad)
 ===================================================== */
 async function guardarNotaPedido(orderId, note) {
   const modified_by = getCurrentUserLabel();
   const modified_at = new Date().toISOString();
+
+  // ✅ usa DET_ORDER_KEY si existe (es el ID consistente que usa el backend)
+  const finalOrderId = normalizeOrderId(DET_ORDER_KEY || orderId);
 
   const endpoints = [
     ENDPOINT_GUARDAR_NOTA,
@@ -370,7 +381,7 @@ async function guardarNotaPedido(orderId, note) {
         headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
         credentials: "same-origin",
         body: JSON.stringify({
-          order_id: normalizeOrderId(orderId),
+          order_id: finalOrderId,
           note: String(note ?? ""),
           modified_by,
           modified_at,
@@ -382,13 +393,16 @@ async function guardarNotaPedido(orderId, note) {
       const d = await r.json().catch(() => null);
       if (!r.ok || !(d?.success || d?.ok)) throw new Error(d?.message || `HTTP ${r.status}`);
 
-      const finalNote = String(d?.note ?? note ?? "").trim();
-
+      // ✅ el backend responde: { note, modified_by, modified_at }
+      const finalNote = String(d?.note ?? note ?? "");
       DET_ORDER_NOTE = finalNote;
+
       DET_ORDER_NOTE_AUDIT = {
         modified_by: String(d?.modified_by || modified_by || ""),
         modified_at: String(d?.modified_at || modified_at || ""),
       };
+
+      ORDER_NOTE_LAST_SAVED = DET_ORDER_NOTE;
 
       return { ok: true, note: DET_ORDER_NOTE, ...DET_ORDER_NOTE_AUDIT };
     } catch (e) {
@@ -401,6 +415,7 @@ async function guardarNotaPedido(orderId, note) {
 }
 
 function setupOrderNoteDelegation() {
+  // CLICK: Guardar / Limpiar
   document.addEventListener("click", async (e) => {
     const btnSave  = e.target?.closest?.("#btnOrderNoteSave");
     const btnClear = e.target?.closest?.("#btnOrderNoteClear");
@@ -409,7 +424,7 @@ function setupOrderNoteDelegation() {
 
     e.preventDefault();
 
-    const oid = normalizeOrderId(pedidoActualId);
+    const oid = normalizeOrderId(DET_ORDER_KEY || pedidoActualId);
     const ta = document.getElementById("orderNoteText");
     const status = document.getElementById("orderNoteStatus");
     const audit = document.getElementById("orderNoteAudit");
@@ -417,7 +432,7 @@ function setupOrderNoteDelegation() {
 
     if (btnClear) {
       ta.value = "";
-      if (status) status.textContent = "Nota vaciada (no guardada).";
+      if (status) status.textContent = "Nota vaciada (sin guardar).";
       return;
     }
 
@@ -441,6 +456,49 @@ function setupOrderNoteDelegation() {
 
     btnSave.disabled = false;
   });
+
+  // ✅ INPUT: Autosave (debounce)
+  document.addEventListener("input", (e) => {
+    const ta = e.target;
+    if (!(ta instanceof HTMLTextAreaElement)) return;
+    if (ta.id !== "orderNoteText") return;
+
+    const status = document.getElementById("orderNoteStatus");
+    if (status) status.textContent = "⏳ Cambios sin guardar…";
+
+    const current = String(ta.value ?? "");
+    if (current === String(ORDER_NOTE_LAST_SAVED ?? "")) return;
+
+    clearTimeout(__orderNoteDebounce);
+    __orderNoteDebounce = setTimeout(async () => {
+      const oid = normalizeOrderId(DET_ORDER_KEY || pedidoActualId);
+      if (!oid) return;
+
+      if (__orderNoteSaving) return;
+      __orderNoteSaving = true;
+
+      try {
+        if (status) status.textContent = "Guardando…";
+        const res = await guardarNotaPedido(oid, current);
+
+        if (!res.ok) {
+          if (status) status.textContent = "Error guardando: " + (res.error || "Error");
+          return;
+        }
+
+        const audit = document.getElementById("orderNoteAudit");
+        if (audit) {
+          audit.innerHTML = `Última nota: <b class="text-slate-900">${escapeHtml(res.modified_by || "—")}</b>${
+            res.modified_at ? ` · ${escapeHtml(formatFechaLocal(res.modified_at))}` : ""
+          }`;
+        }
+
+        if (status) status.textContent = "✅ Guardado automáticamente";
+      } finally {
+        __orderNoteSaving = false;
+      }
+    }, 900);
+  });
 }
 
 /* =====================================================
@@ -462,8 +520,10 @@ window.verDetalles = async function (orderId) {
   DET_ORDER = null;
 
   // reset nota
+  DET_ORDER_KEY = "";
   DET_ORDER_NOTE = "";
   DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
+  ORDER_NOTE_LAST_SAVED = "";
 
   PENDING_FILES = {};
   EDITED_BLOBS = {};
@@ -483,15 +543,29 @@ window.verDetalles = async function (orderId) {
     DET_IMAGENES_LOCALES = d.imagenes_locales || {};
     DET_PRODUCT_IMAGES = d.product_images || {};
 
-    // nota (soporta varios nombres)
-    DET_ORDER_NOTE =
-      String(d.order_note ?? d.nota_pedido ?? d.order?.note ?? d.order?.order_note ?? "").trim();
+    // ✅ order_key consistente (backend)
+    DET_ORDER_KEY = normalizeOrderId(d.order_key || d.order?.id || pedidoActualId || "");
 
-    const aud = d.order_note_audit || d.nota_pedido_audit || {};
-    DET_ORDER_NOTE_AUDIT = {
-      modified_by: String(aud.modified_by || aud.user || ""),
-      modified_at: String(aud.modified_at || aud.date || ""),
-    };
+    // ✅ nota: ahora viene como OBJETO {note, modified_by, modified_at}
+    let noteObj =
+      d.order_note ??
+      d.nota_pedido ??
+      d.order?.note ??
+      d.order?.order_note ??
+      "";
+
+    if (noteObj && typeof noteObj === "object") {
+      DET_ORDER_NOTE = String(noteObj.note ?? "").trim();
+      DET_ORDER_NOTE_AUDIT = {
+        modified_by: String(noteObj.modified_by || noteObj.user || ""),
+        modified_at: String(noteObj.modified_at || noteObj.date || ""),
+      };
+    } else {
+      DET_ORDER_NOTE = String(noteObj ?? "").trim();
+      DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
+    }
+
+    ORDER_NOTE_LAST_SAVED = DET_ORDER_NOTE;
 
     if (d?.order?.id) pedidoActualId = normalizeOrderId(d.order.id);
 
@@ -507,6 +581,11 @@ window.verDetalles = async function (orderId) {
       DET_ORDER = pedido;
       if (pedido?.shopify_order_id) pedidoActualId = normalizeOrderId(pedido.shopify_order_id);
       else if (pedido?.id) pedidoActualId = normalizeOrderId(pedido.id);
+
+      DET_ORDER_KEY = pedidoActualId;
+      DET_ORDER_NOTE = "";
+      DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
+      ORDER_NOTE_LAST_SAVED = "";
 
       renderDetalles(pedido, {}, {}, "", {});
     } else {
@@ -581,7 +660,8 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
     return { imgs, txt };
   }
 
-  const orderKey = String(normalizeOrderId(order?.id || pedidoActualId || "order") || "").trim();
+  // ✅ usa DET_ORDER_KEY cuando exista
+  const orderKey = String(normalizeOrderId(DET_ORDER_KEY || order?.id || pedidoActualId || "order") || "").trim();
 
   // ===== Nota global =====
   const noteAuditText = orderNoteAudit?.modified_by
@@ -1423,7 +1503,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btnDevolver")?.addEventListener("click", devolverPedidos);
 
   setupDropzoneDelegation();
-  setupOrderNoteDelegation(); // ✅ Nota global
+  setupOrderNoteDelegation(); // ✅ Nota global (incluye autosave)
 
   cargarMiCola();
 });

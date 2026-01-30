@@ -136,6 +136,26 @@ class ConfirmacionController extends BaseController
         ];
     }
 
+    /**
+     * ✅ orderKey SQL: usa shopify_order_id si existe y no es '' ni '0', si no usa p.id
+     * (lo usamos en myQueue y pull para joins consistentes)
+     */
+    private function buildOrderKeySql($db, bool $hasShopifyId): string
+    {
+        $driver = strtolower((string)($db->DBDriver ?? ''));
+
+        if ($hasShopifyId) {
+            if (str_contains($driver, 'mysql')) {
+                return "COALESCE(NULLIF(NULLIF(TRIM(p.shopify_order_id),''),'0'), CONCAT(p.id,''))";
+            }
+            return "COALESCE(NULLIF(NULLIF(TRIM(CAST(p.shopify_order_id AS TEXT)),''),'0'), CAST(p.id AS TEXT))";
+        }
+
+        return str_contains($driver, 'mysql')
+            ? "CONCAT(p.id,'')"
+            : "CAST(p.id AS TEXT)";
+    }
+
     /* =====================================================
       GET /confirmacion/my-queue
       ✅ Express primero
@@ -171,18 +191,7 @@ class ConfirmacionController extends BaseController
 
             $driver = strtolower((string)($db->DBDriver ?? ''));
 
-            // orderKey SQL: usa shopify_order_id si existe y no es '' ni '0', si no usa p.id
-            if ($hasShopifyId) {
-                if (str_contains($driver, 'mysql')) {
-                    $orderKeySql = "COALESCE(NULLIF(NULLIF(TRIM(p.shopify_order_id),''),'0'), CONCAT(p.id,''))";
-                } else {
-                    $orderKeySql = "COALESCE(NULLIF(NULLIF(TRIM(CAST(p.shopify_order_id AS TEXT)),''),'0'), CAST(p.id AS TEXT))";
-                }
-            } else {
-                $orderKeySql = str_contains($driver, 'mysql')
-                    ? "CONCAT(p.id,'')"
-                    : "CAST(p.id AS TEXT)";
-            }
+            $orderKeySql = $this->buildOrderKeySql($db, $hasShopifyId);
 
             if (!$hasAssignedAt) {
                 $assignedAtSelect = "NULL as assigned_at";
@@ -272,6 +281,7 @@ class ConfirmacionController extends BaseController
       POST /confirmacion/pull
       ✅ Express primero
       ✅ Si hay pocos express: completa con normales más antiguos
+      ✅ FIX: join pedidos_estado con COLLATE en MySQL + orderKeySql consistente
     ===================================================== */
     public function pull()
     {
@@ -295,10 +305,14 @@ class ConfirmacionController extends BaseController
             $pFields = $db->getFieldNames('pedidos') ?? [];
             $hasShopifyId  = in_array('shopify_order_id', $pFields, true);
             $hasPedidoJson = in_array('pedido_json', $pFields, true);
+            $hasAssignedAt = in_array('assigned_at', $pFields, true);
 
             if (!$hasShopifyId) {
                 return $this->json(['ok' => false, 'message' => 'La tabla pedidos no tiene shopify_order_id'], 500);
             }
+
+            $driver = strtolower((string)($db->DBDriver ?? ''));
+            $orderKeySql = $this->buildOrderKeySql($db, $hasShopifyId);
 
             $db->transStart();
 
@@ -306,8 +320,26 @@ class ConfirmacionController extends BaseController
             $select = 'p.id, p.shopify_order_id, p.etiquetas' . ($hasPedidoJson ? ', p.pedido_json' : '');
 
             $candQuery = $db->table('pedidos p')
-                ->select($select, false)
-                ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+                ->select($select, false);
+
+            // JOIN pedidos_estado: MySQL con COLLATE, otros sin COLLATE (igual que myQueue)
+            if (str_contains($driver, 'mysql')) {
+                $candQuery->join(
+                    'pedidos_estado pe',
+                    "pe.order_id COLLATE utf8mb4_unicode_ci = ($orderKeySql) COLLATE utf8mb4_unicode_ci",
+                    'left',
+                    false
+                );
+            } else {
+                $candQuery->join(
+                    'pedidos_estado pe',
+                    "pe.order_id = ($orderKeySql)",
+                    'left',
+                    false
+                );
+            }
+
+            $candQuery
                 ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar')))", 'por preparar')
                 ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)')
                 ->groupStart()
@@ -350,13 +382,24 @@ class ConfirmacionController extends BaseController
 
             $ids = array_column($candidatos, 'id');
 
+            // ✅ asignar (concurrencia: sólo si sigue libre)
+            $update = [
+                'assigned_to_user_id' => $userId,
+                ($hasAssignedAt ? 'assigned_at' : null) => ($hasAssignedAt ? $now : null),
+            ];
+            if (!$hasAssignedAt) unset($update[null]);
+
             $db->table('pedidos')
                 ->whereIn('id', $ids)
-                ->update(['assigned_to_user_id' => $userId, 'assigned_at' => $now]);
+                ->groupStart()
+                    ->where('assigned_to_user_id IS NULL', null, false)
+                    ->orWhere('assigned_to_user_id', 0)
+                ->groupEnd()
+                ->update($update);
 
             foreach ($candidatos as $c) {
                 $orderKey = trim((string)($c['shopify_order_id'] ?? ''));
-                if ($orderKey === '') $orderKey = (string)($c['id'] ?? '');
+                if ($orderKey === '' || $orderKey === '0') $orderKey = (string)($c['id'] ?? '');
                 if ($orderKey === '') continue;
 
                 $db->table('pedidos_estado_historial')->insert([
@@ -410,12 +453,10 @@ class ConfirmacionController extends BaseController
     /* =====================================================
        POST /confirmacion/guardar-nota
        ✅ Guarda nota con orderKey consistente
-       ✅ Devuelve lo guardado
-       ✅ Incluye alias guardarNotaPedido() por compatibilidad con JS
-       ✅ Para "tiempo real": detalles() devuelve order_note
+       ✅ Devuelve lo guardado (para JS: {note, modified_by, modified_at})
+       ✅ Alias guardarNotaPedido() por compatibilidad
     ===================================================== */
 
-    // ✅ alias por si tu JS llama a /confirmacion/guardar-nota-pedido o método guardarNotaPedido()
     public function guardarNotaPedido()
     {
         return $this->guardarNota();
@@ -461,7 +502,6 @@ class ConfirmacionController extends BaseController
             // Resolver pedido y usar orderKey consistente (shopify_order_id si existe y no es 0)
             $pedido = $this->findPedidoByAny($idNorm) ?: $this->findPedidoByAny($orderIdRaw);
             if (!$pedido) {
-                // Si no existe pedido, guardamos con el id normalizado como fallback
                 $orderKey = $idNorm !== '' ? $idNorm : $orderIdRaw;
             } else {
                 $orderKey = $this->orderKeyFromPedido($pedido);
@@ -514,7 +554,7 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       GET /confirmacion/detalles/{id}
-      ✅ Ahora también devuelve order_note (para "tiempo real")
+      ✅ Devuelve order_key + order_note (objeto) para el JS nuevo
     ===================================================== */
     public function detalles($id = null)
     {
@@ -563,7 +603,7 @@ class ConfirmacionController extends BaseController
             $productImages = $hasProdImages ? json_decode($pedido['product_images'] ?? '{}', true) : [];
             if (!is_array($productImages)) $productImages = [];
 
-            // ✅ nota en "tiempo real"
+            // ✅ nota "tiempo real"
             $orderKey = $this->orderKeyFromPedido($pedido);
             if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $idNorm);
 
@@ -575,7 +615,7 @@ class ConfirmacionController extends BaseController
                 'imagenes_locales' => $imagenesLocales,
                 'product_images' => $productImages,
                 'order_key' => $orderKey,
-                'order_note' => $orderNote, // ✅ IMPORTANTE para que se mantenga al recargar
+                'order_note' => $orderNote,
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'ConfirmacionController detalles() error: ' . $e->getMessage());
@@ -614,7 +654,7 @@ class ConfirmacionController extends BaseController
     /* =====================================================
       POST /confirmacion/subir-imagen
       ✅ guarda archivo público + persiste en DB + borra anterior del mismo index
-      ✅ FIX: ext_in + try/catch + control mkdir/move
+      ✅ devuelve {url, modified_by, modified_at, estado}
     ===================================================== */
     public function subirImagen()
     {
@@ -822,7 +862,7 @@ class ConfirmacionController extends BaseController
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
             }
 
-            // mantener_asignado: por ahora no afecta, lo dejamos por si lo usas luego.
+            // mantener_asignado: lo dejamos por compatibilidad (si lo usas luego)
 
             return $this->json(['success' => true, 'ok' => true]);
         } catch (\Throwable $e) {
