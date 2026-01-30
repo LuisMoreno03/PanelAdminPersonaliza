@@ -1,4 +1,4 @@
-Quiero que cuando guarde los archivos se vean los archivos se visualicen los archivos como vista previa base al código que ya tengo.                                                                            <!doctype html>
+<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
