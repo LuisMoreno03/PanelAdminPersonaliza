@@ -4,9 +4,10 @@
  * - Fallback REAL para endpoints (con y sin /index.php) en: my-queue, pull, return-all, upload-general, list-general
  * - Normalización de order_id (evita enviar "", "undefined", "null", "0")
  * - Upload GENERAL: garantiza order_id válido y muestra debug si el backend responde HTML/no-JSON
- * - TABLE mode: ahora renderiza <tr> dentro de <tbody> (antes metía <div> y rompía la tabla)
- * - ✅ DETALLES: muestra la descripción COMPLETA de cada artículo + no trunca el título
- * - ✅ PROPS: respeta saltos de línea en properties (whitespace-pre-wrap)
+ * - TABLE mode: renderiza <tr> dentro de <tbody>
+ * - ✅ DETALLES: muestra descripción COMPLETA de cada artículo + no trunca el título
+ * - ✅ PERSONALIZACIÓN: muestra TODAS las VARIANTES del pedido (variant_title / option1/2/3 / selected_options) + properties
+ * - ✅ PROPS: respeta saltos de línea (whitespace-pre-wrap)
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -67,7 +68,6 @@ function normalizeOrderId(v) {
   if (!s) return "";
   const low = s.toLowerCase();
   if (low === "0" || low === "null" || low === "undefined" || low === "nan") return "";
-  // por si en algún punto llega "#1234"
   if (s.startsWith("#")) s = s.slice(1).trim();
   return s;
 }
@@ -77,6 +77,62 @@ function stripTags(html) {
   const div = document.createElement("div");
   div.innerHTML = String(html ?? "");
   return (div.textContent || div.innerText || "").trim();
+}
+
+/**
+ * ✅ Extrae variantes del line item (Shopify) desde múltiples formatos comunes:
+ * - selected_options / selectedOptions / variant_options / options (array)
+ * - option1/option2/option3
+ * - variant_title (ej "Rojo / XL")
+ * - sku
+ */
+function extractVariantPairs(item) {
+  const pairs = [];
+
+  // 1) Arrays: [{name,value}] o strings
+  const arr =
+    item?.variant_options ??
+    item?.variantOptions ??
+    item?.selected_options ??
+    item?.selectedOptions ??
+    item?.options ??
+    null;
+
+  if (Array.isArray(arr)) {
+    for (const o of arr) {
+      if (o && typeof o === "object") {
+        const name = String(o.name ?? o.option_name ?? o.option ?? o.label ?? "").trim();
+        const value = String(o.value ?? o.option_value ?? o.valor ?? o.val ?? "").trim();
+        if (name || value) pairs.push({ name: name || "Variante", value: value || "—" });
+      } else if (typeof o === "string") {
+        const v = o.trim();
+        if (v) pairs.push({ name: `Opción ${pairs.length + 1}`, value: v });
+      }
+    }
+  }
+
+  // 2) option1/option2/option3
+  const optVals = [item?.option1, item?.option2, item?.option3]
+    .map(v => String(v ?? "").trim())
+    .filter(v => v && v.toLowerCase() !== "default title");
+
+  if (optVals.length && pairs.length === 0) {
+    optVals.forEach((v, i) => pairs.push({ name: `Opción ${i + 1}`, value: v }));
+  }
+
+  // 3) variant_title (ej: "Rojo / L")
+  const vt = String(item?.variant_title ?? item?.variantTitle ?? item?.variant ?? "").trim();
+  if (vt && vt.toLowerCase() !== "default title" && pairs.length === 0) {
+    vt.split("/").map(s => s.trim()).filter(Boolean).forEach((v, i) => {
+      pairs.push({ name: `Opción ${i + 1}`, value: v });
+    });
+  }
+
+  // 4) SKU (útil)
+  const sku = String(item?.sku ?? item?.variant_sku ?? "").trim();
+  if (sku) pairs.push({ name: "SKU", value: sku });
+
+  return pairs;
 }
 
 // ✅ Detalles como link/botón
@@ -120,7 +176,7 @@ function configurarInputGeneralFiles() {
   const input = $("generalFiles");
   if (!input) return;
   input.multiple = true;
-  input.removeAttribute("accept"); // permite TODO tipo
+  input.removeAttribute("accept");
 }
 
 // =========================
@@ -393,7 +449,7 @@ async function apiPostJsonPath(path, payload) {
 async function apiPostFormPath(path, formData) {
   return fetchFirstAvailable(path, {
     method: "POST",
-    headers: { ...getCsrfHeaders() }, // NO pongas Content-Type en FormData
+    headers: { ...getCsrfHeaders() },
     body: formData,
     credentials: "same-origin",
   });
@@ -1073,12 +1129,18 @@ async function abrirDetallesPedido(orderId) {
          </a>`
       : `<div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">🧾</div>`;
 
-    // ✅ PROPS TEXTO: ahora respeta saltos de línea y no “corta” visualmente
-    const propsTxtHtml = propsTxt.length ? `
+    // ✅ VARIANTES + PROPS
+    const variantPairs = extractVariantPairs(item);
+    const personalRows = [
+      ...variantPairs.map(v => ({ name: v.name, value: v.value })),
+      ...propsTxt.map(p => ({ name: p.name, value: p.value })),
+    ];
+
+    const propsTxtHtml = personalRows.length ? `
       <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
         <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
         <div class="space-y-1 text-sm">
-          ${propsTxt.map(({ name, value }) => `
+          ${personalRows.map(({ name, value }) => `
             <div class="flex gap-2">
               <div class="min-w-[130px] text-slate-500 font-bold">${escapeHtml(name)}:</div>
               <div class="flex-1 font-semibold text-slate-900 whitespace-pre-wrap break-words">${escapeHtml(value || "—")}</div>
@@ -1142,7 +1204,6 @@ async function abrirDetallesPedido(orderId) {
       "";
 
     const desc = stripTags(rawDesc);
-
     const descHtml = desc ? `
       <div class="mt-2 text-sm text-slate-700 whitespace-pre-wrap break-words">
         ${escapeHtml(desc)}
@@ -1154,7 +1215,6 @@ async function abrirDetallesPedido(orderId) {
         <div class="flex items-start gap-4">
           ${productImgHtml}
           <div class="min-w-0 flex-1">
-            <!-- ✅ SIN truncate: se ve completo -->
             <div class="font-extrabold text-slate-900 whitespace-normal break-words">
               ${escapeHtml(title)}
             </div>
@@ -1280,10 +1340,10 @@ async function subirArchivosGenerales(orderId, fileList) {
   }
 
   const fd = new FormData();
-  fd.append("order_id", oid); // ✅ CORRECTO
+  fd.append("order_id", oid);
 
   for (const f of Array.from(fileList || [])) {
-    fd.append("files[]", f); // ✅ CORRECTO PARA CI4
+    fd.append("files[]", f);
   }
 
   let res, data, raw, url;
