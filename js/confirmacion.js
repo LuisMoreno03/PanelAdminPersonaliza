@@ -20,6 +20,11 @@ const ENDPOINT_DETALLES   = (API.detalles     || "/confirmacion/detalles").repla
 
 const ENDPOINT_SUBIR_IMAGEN   = (API.subirImagen   || "/confirmacion/subir-imagen").replace(/\/$/, "");
 const ENDPOINT_GUARDAR_ESTADO = (API.guardarEstado || "/confirmacion/guardar-estado").replace(/\/$/, "");
+const ENDPOINT_GUARDAR_NOTA = (API.guardarNota || "/confirmacion/guardar-nota").replace(/\/$/, "");
+
+// Nota del pedido (global)
+let DET_ORDER_NOTE = "";
+let DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
 
 let pedidosCache = [];
 let loading = false;

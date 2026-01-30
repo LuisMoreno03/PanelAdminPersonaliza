@@ -1,13 +1,14 @@
 /**
- * produccion.js (CI4) — FIXED + FULL
+ * produccion.js (CI4) — FIXED + FULL + DEVOLVER INDIVIDUAL
  * ✅ Incluye:
  * - Fallback REAL para endpoints (con y sin /index.php) en: my-queue, pull, return-all, upload-general, list-general
  * - Normalización de order_id (evita enviar "", "undefined", "null", "0")
  * - Upload GENERAL: garantiza order_id válido y muestra debug si el backend responde HTML/no-JSON
  * - TABLE mode: renderiza <tr> dentro de <tbody>
  * - ✅ DETALLES: muestra descripción COMPLETA de cada artículo + no trunca el título
- * - ✅ PERSONALIZACIÓN: muestra TODAS las VARIANTES del pedido (variant_title / option1/2/3 / selected_options) + properties
+ * - ✅ PERSONALIZACIÓN: muestra TODAS las VARIANTES (variant_title / option1/2/3 / selected_options) + properties
  * - ✅ PROPS: respeta saltos de línea (whitespace-pre-wrap)
+ * - ✅ LISTA: botón para DEVOLVER pedido INDIVIDUAL
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -72,7 +73,7 @@ function normalizeOrderId(v) {
   return s;
 }
 
-// ✅ HTML -> texto (para descripciones que vengan con HTML)
+// ✅ HTML -> texto (para descripciones con HTML)
 function stripTags(html) {
   const div = document.createElement("div");
   div.innerHTML = String(html ?? "");
@@ -89,7 +90,6 @@ function stripTags(html) {
 function extractVariantPairs(item) {
   const pairs = [];
 
-  // 1) Arrays: [{name,value}] o strings
   const arr =
     item?.variant_options ??
     item?.variantOptions ??
@@ -111,7 +111,6 @@ function extractVariantPairs(item) {
     }
   }
 
-  // 2) option1/option2/option3
   const optVals = [item?.option1, item?.option2, item?.option3]
     .map(v => String(v ?? "").trim())
     .filter(v => v && v.toLowerCase() !== "default title");
@@ -120,7 +119,6 @@ function extractVariantPairs(item) {
     optVals.forEach((v, i) => pairs.push({ name: `Opción ${i + 1}`, value: v }));
   }
 
-  // 3) variant_title (ej: "Rojo / L")
   const vt = String(item?.variant_title ?? item?.variantTitle ?? item?.variant ?? "").trim();
   if (vt && vt.toLowerCase() !== "default title" && pairs.length === 0) {
     vt.split("/").map(s => s.trim()).filter(Boolean).forEach((v, i) => {
@@ -128,7 +126,6 @@ function extractVariantPairs(item) {
     });
   }
 
-  // 4) SKU (útil)
   const sku = String(item?.sku ?? item?.variant_sku ?? "").trim();
   if (sku) pairs.push({ name: "SKU", value: sku });
 
@@ -496,6 +493,21 @@ function getMode() {
   return "cards";
 }
 
+// =========================
+// ✅ Botón devolver individual (HTML reutilizable)
+// =========================
+function devolverBtnHtml(internalId, shopifyId, extraClass = "") {
+  return `
+    <button type="button"
+      onclick="devolverPedidoIndividual('${escapeJsString(internalId)}','${escapeJsString(shopifyId)}')"
+      class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200
+             text-slate-900 font-extrabold text-xs hover:bg-rose-50 hover:border-rose-300 transition ${extraClass}"
+      title="Devolver este pedido">
+      ↩️ Devolver
+    </button>
+  `;
+}
+
 function actualizarListado(pedidos) {
   const mode = getMode();
 
@@ -571,7 +583,9 @@ function actualizarListado(pedidos) {
 
           <div class="min-w-0 gap-x-4 text-xs text-slate-700 truncate">${escapeHtml(String(formaEnvio || "—"))}</div>
 
-          <div class="flex justify-end"></div>
+          <div class="flex justify-end">
+            ${devolverBtnHtml(internalId, shopifyId)}
+          </div>
         </div>
       `;
     }).join("");
@@ -622,7 +636,9 @@ function actualizarListado(pedidos) {
           <td class="px-5 py-4 text-center font-extrabold">${escapeHtml(String(articulos ?? "-"))}</td>
           <td class="px-5 py-4 whitespace-nowrap">${renderEntregaPill(estadoEnvio)}</td>
           <td class="px-5 py-4 text-xs text-slate-700">${escapeHtml(String(formaEnvio || "—"))}</td>
-          <td class="px-5 py-4 text-right"></td>
+          <td class="px-5 py-4 text-right whitespace-nowrap">
+            ${devolverBtnHtml(internalId, shopifyId)}
+          </td>
         </tr>
       `;
     }).join("");
@@ -680,7 +696,7 @@ function actualizarListado(pedidos) {
 
           <div class="mt-3 flex items-center justify-between gap-3">
             ${estadoBtn}
-            <div></div>
+            ${devolverBtnHtml(internalId, shopifyId, "py-1.5 px-3")}
           </div>
 
           <div class="mt-3">${renderEntregaPill(estadoEnvio)}</div>
@@ -856,6 +872,79 @@ async function devolverPedidosRestantes() {
 }
 
 // =========================
+// ✅ Devolver pedido INDIVIDUAL
+// =========================
+async function devolverPedidoIndividual(internalId, shopifyId = "") {
+  const iid = normalizeOrderId(internalId);
+  const sid = normalizeOrderId(shopifyId);
+
+  if (!iid && !sid) {
+    alert("No se pudo devolver: faltan IDs.");
+    return;
+  }
+
+  const ok = confirm("¿Seguro que quieres devolver ESTE pedido? (se desasigna de tu cola)");
+  if (!ok) return;
+
+  setLoader(true);
+  try {
+    const payload = {
+      id: iid,
+      order_id: iid,
+      shopify_order_id: sid,
+      shopifyId: sid,
+    };
+
+    // ✅ fallback por si tu backend usa otra ruta
+    const paths = [
+      "/produccion/return-one",
+      "/produccion/return",
+      "/produccion/devolver",
+      "/produccion/return-single",
+    ];
+
+    let last = null;
+    let success = false;
+
+    for (const path of paths) {
+      try {
+        const { res, data, raw, url } = await apiPostJsonPath(path, payload);
+
+        if (!res.ok || !data) {
+          last = { path, res, data, raw, url };
+          continue;
+        }
+
+        const ok2 = (data.ok === true || data.success === true);
+        if (!ok2) {
+          last = { path, res, data, raw, url };
+          continue;
+        }
+
+        success = true;
+        break;
+      } catch (e) {
+        last = { path, error: e };
+      }
+    }
+
+    if (!success) {
+      console.error("DEVOLVER INDIVIDUAL FAIL:", last);
+      alert("No se pudo devolver el pedido. Revisa el endpoint del backend.");
+      return;
+    }
+
+    await cargarMiCola();
+  } finally {
+    setLoader(false);
+  }
+}
+
+window.devolverPedidoIndividual = function (internalId, shopifyId) {
+  devolverPedidoIndividual(String(internalId || ""), String(shopifyId || ""));
+};
+
+// =========================
 // DETALLES FULL (modalDetallesFull)
 // =========================
 function setText(id, v) { const el = $(id); if (el) el.textContent = v ?? ""; }
@@ -944,11 +1033,9 @@ async function abrirDetallesPedido(orderId) {
   abrirDetallesFull();
   currentDetallesOrderId = id;
 
-  // ✅ SIEMPRE setear hidden para upload desde el inicio
   const hid = $("generalOrderId");
   if (hid) hid.value = id;
 
-  // placeholders
   setText("detTitle", "Cargando...");
   setText("detSubtitle", "—");
   setText("detItemsCount", "0");
@@ -959,7 +1046,6 @@ async function abrirDetallesPedido(orderId) {
   setHtml("detTotales", `<div class="text-slate-500">Cargando…</div>`);
   setHtml("detJson", "");
 
-  // fetch detalle robusto
   let payload = null;
   let lastErr = null;
 
@@ -993,7 +1079,6 @@ async function abrirDetallesPedido(orderId) {
   const o = payload.order || {};
   const lineItems = Array.isArray(o.line_items) ? o.line_items : (Array.isArray(o.lineItems) ? o.lineItems : []);
 
-  // ids reales
   currentDetallesShopifyId = normalizeOrderId(o.id || o.shopify_order_id || o.order_id || "");
   currentDetallesPedidoId = normalizeOrderId(payload.pedido_id || payload.id || o.pedido_id || "");
 
@@ -1193,7 +1278,7 @@ async function abrirDetallesPedido(orderId) {
       </div>
     ` : "";
 
-    // ✅ DESCRIPCIÓN COMPLETA del artículo (varios fallbacks)
+    // ✅ DESCRIPCIÓN COMPLETA del artículo (fall-backs)
     const rawDesc =
       item.description ??
       item.product_description ??
@@ -1374,7 +1459,6 @@ async function subirArchivosGenerales(orderId, fileList) {
 
   return true;
 }
-
 
 // =========================
 // Eventos
