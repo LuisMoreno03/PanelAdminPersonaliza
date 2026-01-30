@@ -1,10 +1,11 @@
 /**
- * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (STABLE)
+ * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (STABLE) + NOTA GLOBAL PEDIDO
  * - Lista: /confirmacion/my-queue
  * - Pull:  /confirmacion/pull
  * - Detalles: /confirmacion/detalles/{id}
  * - Subir: /confirmacion/subir-imagen (o window.API.subirImagen)
  * - Guardar estado: /confirmacion/guardar-estado (o window.API.guardarEstado)
+ * - Guardar nota: /confirmacion/guardar-nota (o window.API.guardarNota)
  *
  * Editor (Cropper.js) opcional:
  * <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
@@ -18,9 +19,9 @@ const ENDPOINT_PULL       = (API.pull         || "/confirmacion/pull").replace(/
 const ENDPOINT_RETURN_ALL = (API.returnAll    || "/confirmacion/return-all").replace(/\/$/, "");
 const ENDPOINT_DETALLES   = (API.detalles     || "/confirmacion/detalles").replace(/\/$/, "");
 
-const ENDPOINT_SUBIR_IMAGEN   = (API.subirImagen   || "/confirmacion/subir-imagen").replace(/\/$/, "");
-const ENDPOINT_GUARDAR_ESTADO = (API.guardarEstado || "/confirmacion/guardar-estado").replace(/\/$/, "");
-const ENDPOINT_GUARDAR_NOTA = (API.guardarNota || "/confirmacion/guardar-nota").replace(/\/$/, "");
+const ENDPOINT_SUBIR_IMAGEN    = (API.subirImagen   || "/confirmacion/subir-imagen").replace(/\/$/, "");
+const ENDPOINT_GUARDAR_ESTADO  = (API.guardarEstado || "/confirmacion/guardar-estado").replace(/\/$/, "");
+const ENDPOINT_GUARDAR_NOTA    = (API.guardarNota   || "/confirmacion/guardar-nota").replace(/\/$/, "");
 
 // Nota del pedido (global)
 let DET_ORDER_NOTE = "";
@@ -349,6 +350,100 @@ function cerrarModalDetalles() {
 window.cerrarModalDetalles = cerrarModalDetalles;
 
 /* =====================================================
+   NOTA GLOBAL — GUARDAR
+===================================================== */
+async function guardarNotaPedido(orderId, note) {
+  const modified_by = getCurrentUserLabel();
+  const modified_at = new Date().toISOString();
+
+  const endpoints = [
+    ENDPOINT_GUARDAR_NOTA,
+    "/index.php" + ENDPOINT_GUARDAR_NOTA,
+  ].filter(Boolean);
+
+  let lastErr = null;
+
+  for (const url of endpoints) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getCsrfHeaders() },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          order_id: normalizeOrderId(orderId),
+          note: String(note ?? ""),
+          modified_by,
+          modified_at,
+        }),
+      });
+
+      if (r.status === 404) continue;
+
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !(d?.success || d?.ok)) throw new Error(d?.message || `HTTP ${r.status}`);
+
+      const finalNote = String(d?.note ?? note ?? "").trim();
+
+      DET_ORDER_NOTE = finalNote;
+      DET_ORDER_NOTE_AUDIT = {
+        modified_by: String(d?.modified_by || modified_by || ""),
+        modified_at: String(d?.modified_at || modified_at || ""),
+      };
+
+      return { ok: true, note: DET_ORDER_NOTE, ...DET_ORDER_NOTE_AUDIT };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  console.error("guardarNotaPedido failed:", lastErr);
+  return { ok: false, error: lastErr?.message || String(lastErr) };
+}
+
+function setupOrderNoteDelegation() {
+  document.addEventListener("click", async (e) => {
+    const btnSave  = e.target?.closest?.("#btnOrderNoteSave");
+    const btnClear = e.target?.closest?.("#btnOrderNoteClear");
+
+    if (!btnSave && !btnClear) return;
+
+    e.preventDefault();
+
+    const oid = normalizeOrderId(pedidoActualId);
+    const ta = document.getElementById("orderNoteText");
+    const status = document.getElementById("orderNoteStatus");
+    const audit = document.getElementById("orderNoteAudit");
+    if (!oid || !ta) return;
+
+    if (btnClear) {
+      ta.value = "";
+      if (status) status.textContent = "Nota vaciada (no guardada).";
+      return;
+    }
+
+    btnSave.disabled = true;
+    if (status) status.textContent = "Guardando…";
+
+    const res = await guardarNotaPedido(oid, ta.value);
+
+    if (!res.ok) {
+      if (status) status.textContent = "Error guardando: " + (res.error || "Error");
+      btnSave.disabled = false;
+      return;
+    }
+
+    if (status) status.textContent = "✅ Nota guardada";
+    if (audit) {
+      audit.innerHTML = `Última nota: <b class="text-slate-900">${escapeHtml(res.modified_by || "—")}</b>${
+        res.modified_at ? ` · ${escapeHtml(formatFechaLocal(res.modified_at))}` : ""
+      }`;
+    }
+
+    btnSave.disabled = false;
+  });
+}
+
+/* =====================================================
    DETALLES
 ===================================================== */
 window.verDetalles = async function (orderId) {
@@ -365,6 +460,10 @@ window.verDetalles = async function (orderId) {
   DET_IMAGENES_LOCALES = {};
   DET_PRODUCT_IMAGES = {};
   DET_ORDER = null;
+
+  // reset nota
+  DET_ORDER_NOTE = "";
+  DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
 
   PENDING_FILES = {};
   EDITED_BLOBS = {};
@@ -384,9 +483,19 @@ window.verDetalles = async function (orderId) {
     DET_IMAGENES_LOCALES = d.imagenes_locales || {};
     DET_PRODUCT_IMAGES = d.product_images || {};
 
+    // nota (soporta varios nombres)
+    DET_ORDER_NOTE =
+      String(d.order_note ?? d.nota_pedido ?? d.order?.note ?? d.order?.order_note ?? "").trim();
+
+    const aud = d.order_note_audit || d.nota_pedido_audit || {};
+    DET_ORDER_NOTE_AUDIT = {
+      modified_by: String(aud.modified_by || aud.user || ""),
+      modified_at: String(aud.modified_at || aud.date || ""),
+    };
+
     if (d?.order?.id) pedidoActualId = normalizeOrderId(d.order.id);
 
-    renderDetalles(DET_ORDER, DET_IMAGENES_LOCALES, DET_PRODUCT_IMAGES);
+    renderDetalles(DET_ORDER, DET_IMAGENES_LOCALES, DET_PRODUCT_IMAGES, DET_ORDER_NOTE, DET_ORDER_NOTE_AUDIT);
   } catch (e) {
     console.warn("Detalles fallback:", e);
 
@@ -399,7 +508,7 @@ window.verDetalles = async function (orderId) {
       if (pedido?.shopify_order_id) pedidoActualId = normalizeOrderId(pedido.shopify_order_id);
       else if (pedido?.id) pedidoActualId = normalizeOrderId(pedido.id);
 
-      renderDetalles(pedido, {}, {});
+      renderDetalles(pedido, {}, {}, "", {});
     } else {
       setHtmlSafe("detProductos", `<div class="p-6 text-rose-600 font-extrabold">No se pudo cargar el pedido.</div>`);
       setHtmlSafe("detResumen", "");
@@ -407,7 +516,7 @@ window.verDetalles = async function (orderId) {
   }
 };
 
-function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
+function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNote = "", orderNoteAudit = {}) {
   const items = extraerLineItems(order);
 
   DET_IMAGENES_LOCALES = imagenesLocales || {};
@@ -473,6 +582,44 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
   }
 
   const orderKey = String(normalizeOrderId(order?.id || pedidoActualId || "order") || "").trim();
+
+  // ===== Nota global =====
+  const noteAuditText = orderNoteAudit?.modified_by
+    ? `Última nota: <b class="text-slate-900">${escapeHtml(orderNoteAudit.modified_by || "—")}</b>${
+        orderNoteAudit.modified_at ? ` · ${escapeHtml(formatFechaLocal(orderNoteAudit.modified_at))}` : ""
+      }`
+    : "";
+
+  const noteHtml = `
+    <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="font-extrabold text-slate-900">Nota del pedido</div>
+          <div class="text-xs text-slate-500">Información general que pidió el cliente (aplica a todo el pedido)</div>
+        </div>
+        <div id="orderNoteAudit" class="text-xs text-slate-500 text-right">${noteAuditText}</div>
+      </div>
+
+      <textarea id="orderNoteText"
+        class="mt-3 w-full min-h-[110px] rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:bg-white"
+        placeholder="Ej: Cambiar texto, color, enviar con X, preferencia de diseño, etc.">${escapeHtml(orderNote || "")}</textarea>
+
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="button" id="btnOrderNoteSave"
+          class="px-4 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-black transition">
+          Guardar nota
+        </button>
+
+        <button type="button" id="btnOrderNoteClear"
+          class="px-4 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-300 transition">
+          Limpiar
+        </button>
+
+        <div class="flex-1"></div>
+        <div id="orderNoteStatus" class="text-xs text-slate-500 self-center"></div>
+      </div>
+    </div>
+  `;
 
   const cardsHtml = items
     .map((item, i) => {
@@ -563,7 +710,6 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
         </div>
       `;
 
-      // ✅ IMPORTANTE: aunque ya haya imagen, mantenemos el dropzone para re-subir
       const uploadHtml = requiere
         ? `
           <div class="mt-4">
@@ -655,10 +801,13 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}) {
     "detProductos",
     `
       <div class="space-y-4">
+        ${noteHtml}
+
         <div class="flex items-center justify-between">
           <h3 class="font-extrabold text-slate-900">Productos</h3>
           <span class="px-3 py-1 rounded-full text-xs bg-slate-100 font-extrabold">${items.length}</span>
         </div>
+
         ${cardsHtml}
       </div>
     `
@@ -771,7 +920,6 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
       const urlFinal = String(d.url);
       const bust = withBust(urlFinal, d.modified_at || modified_at || Date.now());
 
-      // preview zona
       const prev = document.getElementById(`preview_${orderId}_${index}`);
       if (prev) {
         prev.innerHTML = `
@@ -785,7 +933,6 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         `;
       }
 
-      // auditoría
       const audit = document.getElementById(`audit_${orderId}_${index}`);
       if (audit) {
         audit.innerHTML = `Última modificación: <b class="text-slate-900">${escapeHtml(modified_by)}</b> · ${escapeHtml(
@@ -793,7 +940,6 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         )}`;
       }
 
-      // imagen modificada del card
       const wrap = document.getElementById(`imgModWrap_${orderId}_${index}`);
       if (wrap) {
         wrap.innerHTML = `
@@ -807,12 +953,10 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
         `;
       }
 
-      // estado local
       imagenesCargadas[index] = true;
       if (!DET_IMAGENES_LOCALES || typeof DET_IMAGENES_LOCALES !== "object") DET_IMAGENES_LOCALES = {};
       DET_IMAGENES_LOCALES[String(index)] = { url: urlFinal, modified_by, modified_at };
 
-      // badge
       const badge = document.getElementById(`badge_item_${orderId}_${index}`);
       if (badge) {
         badge.innerHTML = `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`;
@@ -1131,13 +1275,11 @@ function onPickInZone(zone, file) {
   if (!oid || !Number.isFinite(index)) return;
   if (!file) return;
 
-  // ✅ siempre reset edited si eligen archivo nuevo
   const k = keyFile(oid, index);
   PENDING_FILES[k] = file;
   delete EDITED_BLOBS[k];
   delete EDITED_NAMES[k];
 
-  // para permitir elegir el mismo archivo otra vez
   try { if (input) input.value = ""; } catch {}
 
   renderLocalPreview(orderId, index, file);
@@ -1167,7 +1309,6 @@ async function uploadFromZone(zone) {
   const ok = await subirImagenProductoFile(orderId, index, payloadFile, { edited: !!editedBlob });
   if (!ok) return;
 
-  // limpiar selección local para permitir re-subir cuando quieran
   delete PENDING_FILES[k];
   delete EDITED_BLOBS[k];
   delete EDITED_NAMES[k];
@@ -1192,7 +1333,6 @@ function clearZone(zone) {
 }
 
 function setupDropzoneDelegation() {
-  // click / buttons
   document.addEventListener("click", async (e) => {
     const btn = e.target?.closest?.("[data-action]");
     if (btn) {
@@ -1217,7 +1357,6 @@ function setupDropzoneDelegation() {
         try {
           await uploadFromZone(zone);
         } finally {
-          // si siguen teniendo file seleccionado, se re-habilita; si no, queda off
           const { oid, index } = zoneInfoFromEl(zone);
           const k = keyFile(oid, index);
           btn.disabled = !(PENDING_FILES[k] || EDITED_BLOBS[k]);
@@ -1226,22 +1365,18 @@ function setupDropzoneDelegation() {
       }
     }
 
-    // click en zona abre input
     const zone = e.target?.closest?.('[data-dropzone="1"]');
     if (!zone) return;
 
-    // si hizo click sobre un link de imagen, no interrumpimos
     if (e.target?.closest?.("a")) return;
 
     const { input } = zoneInfoFromEl(zone);
     if (!input) return;
 
-    // ✅ IMPORTANTÍSIMO: reset para permitir seleccionar el mismo archivo
     try { input.value = ""; } catch {}
     input.click();
   });
 
-  // change del input
   document.addEventListener("change", (e) => {
     const input = e.target;
     if (!(input instanceof HTMLInputElement)) return;
@@ -1254,7 +1389,6 @@ function setupDropzoneDelegation() {
     onPickInZone(zone, file);
   });
 
-  // drag & drop
   document.addEventListener("dragover", (e) => {
     const zone = e.target?.closest?.('[data-dropzone="1"]');
     if (!zone) return;
@@ -1288,8 +1422,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btnTraer10")?.addEventListener("click", () => traerPedidos(10));
   $("btnDevolver")?.addEventListener("click", devolverPedidos);
 
-  // ✅ FIX PERMANENTE
   setupDropzoneDelegation();
+  setupOrderNoteDelegation(); // ✅ Nota global
 
   cargarMiCola();
 });
