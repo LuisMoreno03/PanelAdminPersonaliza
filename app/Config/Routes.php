@@ -194,17 +194,7 @@ $routes->group('placas/archivos', static function($routes) {
     $routes->get('ver/(:num)', 'PlacasArchivosController::ver/$1');
     $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
 
-    $routes->get('placas/archivos/ver/(:num)', 'PlacasArchivosController::ver/$1');
-    $routes->get('placas/archivos/descargar/(:num)', 'PlacasArchivosController::descargar/$1');
-
-    $routes->post('placas/archivos/subir-lote', 'PlacasArchivosController::subirLote');
-    $routes->post('placas/archivos/renombrar', 'PlacasArchivosController::renombrarArchivo');
-    $routes->post('placas/archivos/eliminar', 'PlacasArchivosController::eliminarArchivo');
-    $routes->post('placas/archivos/lote/renombrar', 'PlacasArchivosController::renombrarLote');
-
-    $routes->get('placas/archivos/listar-por-dia', 'PlacasArchivosController::listarPorDia');
-    $routes->get('placas/archivos/stats', 'PlacasArchivosController::stats');
-
+    
 });
 
 // ✅ Pedidos por producir (BD interna)
