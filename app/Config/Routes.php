@@ -154,6 +154,7 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
     $routes->get('my-queue', 'ProduccionController::myQueue');
     $routes->post('pull', 'ProduccionController::pull');
     $routes->post('return-all', 'ProduccionController::returnAll');
+    $routes->post('return-one', 'ProduccionController::returnOne');
 
     // uploads/listado general
     $routes->post('upload-general', 'ProduccionController::uploadGeneral');

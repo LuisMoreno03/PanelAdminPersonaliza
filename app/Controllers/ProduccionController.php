@@ -452,6 +452,118 @@ class ProduccionController extends BaseController
             return $this->response->setJSON(['ok' => false, 'error' => 'Error interno devolviendo pedidos']);
         }
     }
+    public function returnOne()
+{
+    // Lee JSON o POST
+    $payload = $this->request->getJSON(true);
+    if (!is_array($payload)) {
+        $payload = $this->request->getPost() ?? [];
+    }
+
+    $internalId = trim((string)($payload['id'] ?? $payload['order_id'] ?? ''));
+    $shopifyId  = trim((string)($payload['shopify_order_id'] ?? $payload['shopifyId'] ?? ''));
+
+    if ($internalId === '' && $shopifyId === '') {
+        return $this->response->setStatusCode(400)->setJSON([
+            'success' => false,
+            'message' => 'id/order_id requerido',
+        ]);
+    }
+
+    $db = \Config\Database::connect();
+
+    // ✅ Cambia si tu tabla tiene otro nombre
+    $tableName = 'pedidos';
+
+    // Si tu tabla no existe, responde claro
+    if (!$db->tableExists($tableName)) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => "La tabla '{$tableName}' no existe. Ajusta \$tableName en ProduccionController::returnOne()",
+        ]);
+    }
+
+    // Detecta campo de asignación (ajusta si tienes otro)
+    $assignCandidates = [
+        'produccion_user_id',
+        'assigned_to',
+        'asignado_a',
+        'usuario_id',
+        'user_id',
+    ];
+
+    $assignField = null;
+    foreach ($assignCandidates as $f) {
+        if ($db->fieldExists($f, $tableName)) { $assignField = $f; break; }
+    }
+
+    if (!$assignField) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => "No encontré un campo de asignación en '{$tableName}'. Agrega tu campo a \$assignCandidates.",
+        ]);
+    }
+
+    // Usuario actual (según tu auth)
+    $session = session();
+    $userId =
+        $session->get('user_id') ??
+        $session->get('id') ??
+        $session->get('usuario_id') ??
+        null;
+
+    $builder = $db->table($tableName);
+
+    // Buscar pedido por Shopify ID o por ID interno (varios nombres por compatibilidad)
+    $builder->groupStart();
+        if ($shopifyId !== '') {
+            // intenta por shopify_order_id si existe, si no, igual hace where y no explota
+            $builder->orWhere('shopify_order_id', $shopifyId);
+            $builder->orWhere('order_id', $shopifyId);
+        }
+        if ($internalId !== '') {
+            $builder->orWhere('id', $internalId);
+            $builder->orWhere('pedido_id', $internalId);
+            $builder->orWhere('order_id', $internalId);
+        }
+    $builder->groupEnd();
+
+    // Asegura que SOLO devuelva pedidos asignados a este usuario (si hay userId)
+    if ($userId !== null) {
+        $builder->where($assignField, $userId);
+    }
+
+    $update = [
+        $assignField => null, // desasignar
+    ];
+
+    // si tienes updated_at
+    if ($db->fieldExists('updated_at', $tableName)) {
+        $update['updated_at'] = date('Y-m-d H:i:s');
+    }
+
+    $ok = $builder->update($update);
+
+    if (!$ok) {
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => 'No se pudo actualizar el pedido (update failed).',
+        ]);
+    }
+
+    if ($db->affectedRows() <= 0) {
+        return $this->response->setStatusCode(404)->setJSON([
+            'success' => false,
+            'message' => 'No se encontró el pedido o no estaba asignado a tu usuario.',
+        ]);
+    }
+
+    return $this->response->setJSON([
+        'success' => true,
+        'ok' => true,
+        'message' => 'Pedido devuelto correctamente.',
+    ]);
+}
 
     // =========================
     // POST /produccion/upload-general
