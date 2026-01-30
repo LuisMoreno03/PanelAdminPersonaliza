@@ -375,7 +375,8 @@ async function guardarNotaPedido(orderId, note) {
   const modified_at = new Date().toISOString();
 
   // ✅ usa DET_ORDER_KEY si existe (ID consistente backend)
-  const finalOrderId = normalizeOrderId(DET_ORDER_KEY || orderId);
+  const finalOrderId = String(DET_ORDER_KEY || orderId || "").trim();
+
 
   const endpoints = [
     ENDPOINT_GUARDAR_NOTA,
@@ -541,9 +542,11 @@ window.verDetalles = async function (orderId) {
   PREVIEW_URLS = {};
 
   try {
-    const r = await fetch(`${ENDPOINT_DETALLES}/${encodeURIComponent(pedidoActualId)}`, {
+    const urlDet = `${ENDPOINT_DETALLES}/${encodeURIComponent(pedidoActualId)}?_ts=${Date.now()}`;
+    const r = await fetch(urlDet, {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
+      cache: "no-store",
     });
 
     const d = await r.json().catch(() => null);

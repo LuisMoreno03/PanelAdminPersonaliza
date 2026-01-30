@@ -15,6 +15,18 @@ class ConfirmacionController extends BaseController
     /* =====================================================
        Helpers base
     ===================================================== */
+    private function canonicalOrderKey(array $pedido): string
+    {
+        $sid = trim((string)($pedido['shopify_order_id'] ?? ''));
+
+        // Si existe shopify_order_id, lo normalizamos (por si viene como gid://shopify/Order/123)
+        if ($sid !== '' && $sid !== '0') {
+            return $this->normalizeShopifyOrderId($sid);
+        }
+
+        // Si no, usamos el id interno
+        return (string)($pedido['id'] ?? '');
+    }
 
     private function json(array $data, int $status = 200)
     {
@@ -504,8 +516,9 @@ class ConfirmacionController extends BaseController
             if (!$pedido) {
                 $orderKey = $idNorm !== '' ? $idNorm : $orderIdRaw;
             } else {
-                $orderKey = $this->orderKeyFromPedido($pedido);
+                $orderKey = $this->canonicalOrderKey($pedido);
                 if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? ($idNorm ?: $orderIdRaw));
+
             }
 
             $table = $db->table('confirmacion_order_notes');
@@ -604,10 +617,11 @@ class ConfirmacionController extends BaseController
             if (!is_array($productImages)) $productImages = [];
 
             // ✅ nota "tiempo real"
-            $orderKey = $this->orderKeyFromPedido($pedido);
+            $orderKey = $this->canonicalOrderKey($pedido);
             if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $idNorm);
 
             $orderNote = $this->getOrderNoteByKey($orderKey);
+
 
                 return $this->json([
                     'success'         => true,
@@ -638,7 +652,7 @@ class ConfirmacionController extends BaseController
     {
         return $this->subirImagen();
     }
-
+    
     public function listFiles()
     {
         if (!session()->get('logged_in')) {
