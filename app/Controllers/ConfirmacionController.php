@@ -609,14 +609,24 @@ class ConfirmacionController extends BaseController
 
             $orderNote = $this->getOrderNoteByKey($orderKey);
 
-            return $this->json([
-                'success' => true,
-                'order' => $orderJson,
-                'imagenes_locales' => $imagenesLocales,
-                'product_images' => $productImages,
-                'order_key' => $orderKey,
-                'order_note' => $orderNote,
-            ]);
+                return $this->json([
+                    'success'         => true,
+                    'order'           => $orderJson,
+                    'imagenes_locales'=> $imagenesLocales,
+                    'product_images'  => $productImages,
+                    'order_key'       => $orderKey,
+
+                    // ✅ lo que tu JS base espera
+                    'order_note'      => (string)($orderNote['note'] ?? ''),
+                    'order_note_audit'=> [
+                        'modified_by' => (string)($orderNote['modified_by'] ?? ''),
+                        'modified_at' => (string)($orderNote['modified_at'] ?? ''),
+                    ],
+
+                    // (opcional) mantener también el objeto completo por si lo quieres usar luego
+                    'order_note_obj'  => $orderNote,
+                ]);
+
         } catch (\Throwable $e) {
             log_message('error', 'ConfirmacionController detalles() error: ' . $e->getMessage());
             return $this->json(['success' => false, 'message' => $e->getMessage()], 500);

@@ -1,11 +1,18 @@
 /**
- * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (STABLE) + NOTA GLOBAL PEDIDO
+ * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (STABLE) + NOTA GLOBAL PEDIDO + ORDER_KEY CONSISTENTE
  * - Lista: /confirmacion/my-queue
  * - Pull:  /confirmacion/pull
  * - Detalles: /confirmacion/detalles/{id}
- * - Subir: /confirmacion/subir-imagen (o window.API.subirImagen)
- * - Guardar estado: /confirmacion/guardar-estado (o window.API.guardarEstado)
- * - Guardar nota: /confirmacion/guardar-nota (o window.API.guardarNota)
+ * - Subir: /confirmacion/subir-imagen
+ * - Guardar estado: /confirmacion/guardar-estado
+ * - Guardar nota: /confirmacion/guardar-nota
+ *
+ * ✅ Compatible con tu controller actual:
+ *   - detalles() devuelve:
+ *       order_key (string)
+ *       order_note (objeto: {note, modified_by, modified_at})
+ *   - guardarNota() devuelve:
+ *       note, modified_by, modified_at (y order_id)
  *
  * Editor (Cropper.js) opcional:
  * <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
@@ -27,10 +34,10 @@ const ENDPOINT_GUARDAR_NOTA    = (API.guardarNota   || "/confirmacion/guardar-no
 let DET_ORDER_NOTE = "";
 let DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
 
-// ✅ NUEVO: orderKey real (devuelto por backend) para que TODO sea consistente
+// ✅ orderKey real (devuelto por backend) para que TODO sea consistente
 let DET_ORDER_KEY = "";
 
-// ✅ NUEVO: autosave
+// ✅ autosave
 let ORDER_NOTE_LAST_SAVED = "";
 let __orderNoteDebounce = null;
 let __orderNoteSaving = false;
@@ -82,6 +89,9 @@ const setLoader   = (v) => $("globalLoader")?.classList.toggle("hidden", !v);
 const setTextSafe = (id, v) => $(id) && ($(id).textContent = v ?? "");
 const setHtmlSafe = (id, h) => $(id) && ($(id).innerHTML = h ?? "");
 
+/* =====================================================
+   USER / FECHA
+===================================================== */
 function getCurrentUserLabel() {
   const metaUser = document.querySelector('meta[name="current-user"]')?.content?.trim();
   if (metaUser) return metaUser;
@@ -358,13 +368,13 @@ function cerrarModalDetalles() {
 window.cerrarModalDetalles = cerrarModalDetalles;
 
 /* =====================================================
-   NOTA GLOBAL — GUARDAR (✅ soporta respuesta objeto / estabilidad)
+   NOTA GLOBAL — GUARDAR (✅ soporta controller actual)
 ===================================================== */
 async function guardarNotaPedido(orderId, note) {
   const modified_by = getCurrentUserLabel();
   const modified_at = new Date().toISOString();
 
-  // ✅ usa DET_ORDER_KEY si existe (es el ID consistente que usa el backend)
+  // ✅ usa DET_ORDER_KEY si existe (ID consistente backend)
   const finalOrderId = normalizeOrderId(DET_ORDER_KEY || orderId);
 
   const endpoints = [
@@ -393,7 +403,7 @@ async function guardarNotaPedido(orderId, note) {
       const d = await r.json().catch(() => null);
       if (!r.ok || !(d?.success || d?.ok)) throw new Error(d?.message || `HTTP ${r.status}`);
 
-      // ✅ el backend responde: { note, modified_by, modified_at }
+      // controller responde: note, modified_by, modified_at
       const finalNote = String(d?.note ?? note ?? "");
       DET_ORDER_NOTE = finalNote;
 
@@ -457,7 +467,7 @@ function setupOrderNoteDelegation() {
     btnSave.disabled = false;
   });
 
-  // ✅ INPUT: Autosave (debounce)
+  // INPUT: Autosave (debounce)
   document.addEventListener("input", (e) => {
     const ta = e.target;
     if (!(ta instanceof HTMLTextAreaElement)) return;
@@ -543,16 +553,11 @@ window.verDetalles = async function (orderId) {
     DET_IMAGENES_LOCALES = d.imagenes_locales || {};
     DET_PRODUCT_IMAGES = d.product_images || {};
 
-    // ✅ order_key consistente (backend)
-    DET_ORDER_KEY = normalizeOrderId(d.order_key || d.order?.id || pedidoActualId || "");
+    // ✅ order_key consistente (backend) — NO lo normalizamos a número, puede ser id interno/externo
+    DET_ORDER_KEY = String(d.order_key || d.order?.id || pedidoActualId || "").trim();
 
-    // ✅ nota: ahora viene como OBJETO {note, modified_by, modified_at}
-    let noteObj =
-      d.order_note ??
-      d.nota_pedido ??
-      d.order?.note ??
-      d.order?.order_note ??
-      "";
+    // ✅ nota viene como OBJETO {note, modified_by, modified_at}
+    const noteObj = d.order_note ?? d.nota_pedido ?? null;
 
     if (noteObj && typeof noteObj === "object") {
       DET_ORDER_NOTE = String(noteObj.note ?? "").trim();
@@ -567,6 +572,7 @@ window.verDetalles = async function (orderId) {
 
     ORDER_NOTE_LAST_SAVED = DET_ORDER_NOTE;
 
+    // pedidoActualId: si viene id en order, lo actualizamos (solo para UI)
     if (d?.order?.id) pedidoActualId = normalizeOrderId(d.order.id);
 
     renderDetalles(DET_ORDER, DET_IMAGENES_LOCALES, DET_PRODUCT_IMAGES, DET_ORDER_NOTE, DET_ORDER_NOTE_AUDIT);
@@ -582,7 +588,8 @@ window.verDetalles = async function (orderId) {
       if (pedido?.shopify_order_id) pedidoActualId = normalizeOrderId(pedido.shopify_order_id);
       else if (pedido?.id) pedidoActualId = normalizeOrderId(pedido.id);
 
-      DET_ORDER_KEY = pedidoActualId;
+      DET_ORDER_KEY = String(pedido?.shopify_order_id || pedido?.id || pedidoActualId || "").trim();
+
       DET_ORDER_NOTE = "";
       DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
       ORDER_NOTE_LAST_SAVED = "";
@@ -660,8 +667,10 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
     return { imgs, txt };
   }
 
-  // ✅ usa DET_ORDER_KEY cuando exista
-  const orderKey = String(normalizeOrderId(DET_ORDER_KEY || order?.id || pedidoActualId || "order") || "").trim();
+  // ✅ el orderKey de UI debe coincidir con las keys de imagenes_locales
+  // el backend guarda imagenes_locales con $orderKey = shopify_order_id si existe, si no p.id
+  // d.order_key viene de orderKeyFromPedido, que coincide con esa misma regla.
+  const orderKey = String(DET_ORDER_KEY || order?.id || pedidoActualId || "order").trim();
 
   // ===== Nota global =====
   const noteAuditText = orderNoteAudit?.modified_by
@@ -976,7 +985,7 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
   for (const url of endpoints) {
     try {
       const fd = new FormData();
-      fd.append("order_id", String(normalizeOrderId(orderId)));
+      fd.append("order_id", String(orderId)); // 👈 mantener tal cual, controller normaliza
       fd.append("line_index", String(index));
       fd.append("file", file, file.name || `img_${index}.png`);
       fd.append("modified_by", modified_by);
