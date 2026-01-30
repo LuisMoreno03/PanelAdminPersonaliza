@@ -4,66 +4,30 @@ namespace App\Models;
 
 use CodeIgniter\Model;
 
-
-
 class PlacaArchivoModel extends Model
 {
-    protected $table      = 'placas_archivos';
-    protected $primaryKey = 'id';
+    protected $table            = 'placas_archivos';
+    protected $primaryKey       = 'id';
+    protected $returnType       = 'array';
+    protected $useSoftDeletes   = false;
 
-    protected $returnType = 'array';
+    // ✅ Si tu tabla tiene created_at/updated_at déjalo true.
+    // Si NO los tiene, pon false para evitar errores.
+    protected $useTimestamps = true;
+    protected $createdField  = 'created_at';
+    protected $updatedField  = 'updated_at';
 
     protected $allowedFields = [
-        // archivo
-        'nombre',
-        'original',
-        'ruta',
-        'mime',
-        'size_kb', 
-
-        // agrupación
-        'fecha',
-        'lote_nombre',
         'lote_id',
+        'lote_nombre',
+        'numero_placa',
+        'pedidos_json',
+        'pedidos_text',
 
-
-        // usuario
-        'uploaded_by',
-        'uploaded_by_name',
-
-        // sistema
-        'created_at',
+        'ruta',
+        'original',
+        'mime',
+        'size',
+        'nombre',
     ];
-
-    protected $useTimestamps = false;
-
-    // ===============================
-    // Obtener todos (fallback)
-    // ===============================
-    public function obtenerTodos(): array
-    {
-        return $this->orderBy('id', 'DESC')->findAll();
-    }
-
-    // ===============================
-    // Obtener por día (Drive-like)
-    // ===============================
-    public function obtenerPorFecha(): array
-    {
-        return $this->orderBy('fecha', 'DESC')
-                    ->orderBy('lote_id', 'DESC')
-                    ->orderBy('id', 'DESC')
-                    ->findAll();
-    }
-
-    // ===============================
-    // Obtener por lote
-    // ===============================
-    public function obtenerPorLote(int $loteId): array
-    {
-        return $this->where('lote_id', $loteId)
-                    ->orderBy('id', 'ASC')
-                    ->findAll();
-    }
 }
-

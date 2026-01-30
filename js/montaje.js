@@ -1,14 +1,43 @@
 // public/js/montaje.js
-const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
+// ✅ Versión robusta: normaliza API_BASE (evita "undefined/montaje/..."), fallback a rutas relativas,
+// y mejora el manejo de errores (para que no quede como "Failed to fetch" sin pista).
 
-const ENDPOINT_QUEUE = `${API_BASE}/montaje/my-queue`;
-const ENDPOINT_PULL  = `${API_BASE}/montaje/pull`;
-const ENDPOINT_RETURN_ALL = `${API_BASE}/montaje/return-all`;
+// =====================================================
+// API_BASE (robusto)
+// =====================================================
+let API_BASE = (window.API_BASE ?? "").toString().trim();
 
-const ENDPOINT_REALIZADO = `${API_BASE}/montaje/realizado`;
-const ENDPOINT_CARGADO_FALLBACK = `${API_BASE}/montaje/cargado`;
-const ENDPOINT_ENVIAR = `${API_BASE}/montaje/enviar`;
-const ENDPOINT_DETAILS = `${API_BASE}/montaje/details`; // ✅ nuevo
+// si viene "null" o "undefined" como string, lo anulamos
+if (API_BASE === "null" || API_BASE === "undefined") API_BASE = "";
+
+// quita slash final
+API_BASE = API_BASE.replace(/\/$/, "");
+
+// si viene sin protocolo (ej: panel...com), fuerza https
+if (API_BASE && !/^https?:\/\//i.test(API_BASE) && API_BASE[0] !== "/") {
+  API_BASE = "https://" + API_BASE;
+}
+
+// helper para armar endpoint sin dobles slashes raros
+function joinUrl(base, path) {
+  const p = String(path || "");
+  if (!base) return p.startsWith("/") ? p : "/" + p;
+  return base.replace(/\/$/, "") + (p.startsWith("/") ? p : "/" + p);
+}
+
+const ENDPOINT_QUEUE = joinUrl(API_BASE, "/montaje/my-queue");
+const ENDPOINT_PULL  = joinUrl(API_BASE, "/montaje/pull");
+const ENDPOINT_RETURN_ALL = joinUrl(API_BASE, "/montaje/return-all");
+
+const ENDPOINT_REALIZADO = joinUrl(API_BASE, "/montaje/realizado");
+const ENDPOINT_CARGADO_FALLBACK = joinUrl(API_BASE, "/montaje/cargado");
+const ENDPOINT_ENVIAR = joinUrl(API_BASE, "/montaje/enviar");
+const ENDPOINT_DETAILS = joinUrl(API_BASE, "/montaje/details"); // ✅ nuevo
+
+// Debug opcional (déjalo activo 1 día y luego lo quitas)
+console.log("[MONTAJE] API_BASE =", API_BASE);
+console.log("[MONTAJE] ENDPOINT_PULL =", ENDPOINT_PULL);
+console.log("[MONTAJE] ENDPOINT_QUEUE =", ENDPOINT_QUEUE);
 
 let pedidosCache = [];
 let pedidosFiltrados = [];
@@ -27,6 +56,9 @@ function showLoader(on) {
   el.classList.toggle("hidden", !on);
 }
 
+// =====================================================
+// CSRF
+// =====================================================
 function getCsrfHeaders() {
   const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
   const header = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content");
@@ -34,34 +66,69 @@ function getCsrfHeaders() {
   return { [header]: token };
 }
 
+// =====================================================
+// Fetch helpers
+// =====================================================
+function isAbsoluteUrl(u) {
+  return /^https?:\/\//i.test(String(u || ""));
+}
+
+function getFetchCredentials(url) {
+  // Si es absoluto y cambia de dominio => include (para que mande cookies)
+  // Si es relativo o mismo origen => same-origin
+  try {
+    if (!isAbsoluteUrl(url)) return "same-origin";
+    const u = new URL(url);
+    return (u.origin === window.location.origin) ? "same-origin" : "include";
+  } catch {
+    return "same-origin";
+  }
+}
+
 async function apiGet(url) {
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    credentials: "same-origin",
-  });
+  const credentials = getFetchCredentials(url);
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      credentials,
+    });
+  } catch (e) {
+    // Error de red real (CORS, DNS, offline, URL inválida...)
+    return { res: null, data: null, raw: "", networkError: e };
+  }
+
   const text = await res.text();
   let data = null;
   try { data = JSON.parse(text); } catch {}
-  return { res, data, raw: text };
+  return { res, data, raw: text, networkError: null };
 }
 
 async function apiPost(url, payload) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...getCsrfHeaders(),
-    },
-    credentials: "same-origin",
-    body: JSON.stringify(payload ?? {}),
-  });
+  const credentials = getFetchCredentials(url);
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...getCsrfHeaders(),
+      },
+      credentials,
+      body: JSON.stringify(payload ?? {}),
+    });
+  } catch (e) {
+    return { res: null, data: null, raw: "", networkError: e };
+  }
 
   const text = await res.text();
   let data = null;
   try { data = JSON.parse(text); } catch {}
-  return { res, data, raw: text };
+  return { res, data, raw: text, networkError: null };
 }
 
 function extractOrdersPayload(payload) {
@@ -125,7 +192,6 @@ function extractUrlsDeep(any) {
     if (x == null) return;
 
     if (typeof x === "string") {
-      // si es json string, intenta parsear primero
       const asJson = safeJsonParse(x);
       if (asJson && typeof asJson === "object") {
         walk(asJson);
@@ -173,7 +239,6 @@ function classifyFiles(files) {
 
   for (const f of (files || [])) {
     const l = f.toLowerCase();
-    // ✅ tu caso real: /uploads/confirmacion/...
     if (l.includes("/confirmacion/") || l.includes("confirm") || l.includes("aprob")) confirm.push(f);
     else if (l.includes("/diseno/") || l.includes("/disenio/") || l.includes("diseno") || l.includes("diseño") || l.includes("design")) diseno.push(f);
     else otherFiles.push(f);
@@ -182,15 +247,9 @@ function classifyFiles(files) {
   return { diseno, confirm, otherFiles };
 }
 
-/**
- * ✅ Extrae assets desde:
- * - pedido (incluye imagenes_locales)
- * - historial completo (pedido_json de cada etapa)
- */
 function getPedidoAssetsFrom(pedido, historial = []) {
   const urls = [];
 
-  // 1) campos directos del pedido (incluye imagenes_locales ✅)
   const directFields = [
     pedido?.imagenes, pedido?.imagenes_json,
     pedido?.archivos, pedido?.archivos_json,
@@ -198,20 +257,16 @@ function getPedidoAssetsFrom(pedido, historial = []) {
     pedido?.archivo_diseno, pedido?.archivos_diseno, pedido?.diseno_url, pedido?.diseno_urls,
     pedido?.archivo_confirmacion, pedido?.archivos_confirmacion, pedido?.confirmacion_url, pedido?.confirmacion_urls,
 
-    // ✅ tu campo real
     pedido?.imagenes_locales,
 
-    // opcional (si lo usas)
     pedido?.product_images,
     pedido?.product_image,
   ];
 
   directFields.forEach(v => urls.push(...extractUrlsDeep(v)));
 
-  // 2) pedido_json del pedido
   urls.push(...extractUrlsDeep(pedido?.pedido_json));
 
-  // 3) pedido_json de TODO el historial
   for (const h of (historial || [])) {
     urls.push(...extractUrlsDeep(h?.pedido_json));
   }
@@ -485,7 +540,6 @@ function buildDetailsHtml(pedido, historial, produccionFiles = []) {
         <div class="mt-3">${listLinks(files)}</div>
       </div>
 
-      <!-- ✅ NUEVO: archivos físicos subidos en Producción -->
       <div class="rounded-2xl border border-slate-200 bg-white p-4">
         <div class="text-xs text-slate-500 font-extrabold uppercase">Archivos de Producción</div>
         <div class="mt-3">${buildProduccionFilesHtml(produccionFiles)}</div>
@@ -504,7 +558,6 @@ function buildDetailsHtml(pedido, historial, produccionFiles = []) {
   `;
 }
 
-// ✅ ahora el modal SIEMPRE trae detalle real del backend
 async function openPedidoDetails(orderKey) {
   ensureDetailsModal();
 
@@ -521,10 +574,18 @@ async function openPedidoDetails(orderKey) {
 
   showLoader(true);
   try {
-    const { res, data, raw } = await apiGet(`${ENDPOINT_DETAILS}/${encodeURIComponent(String(orderKey))}`);
+    const { res, data, raw, networkError } =
+      await apiGet(`${ENDPOINT_DETAILS}/${encodeURIComponent(String(orderKey))}`);
 
-    if (!res.ok || !data || data.ok !== true) {
-      console.error("DETAILS FAIL:", res.status, raw);
+    if (networkError) {
+      console.error("DETAILS network error:", networkError);
+      if (sub) sub.textContent = `Error de red cargando detalles`;
+      if (body) body.innerHTML = `<div class="text-sm text-rose-700 font-extrabold">Error de red</div>`;
+      return;
+    }
+
+    if (!res || !res.ok || !data || data.ok !== true) {
+      console.error("DETAILS FAIL:", res?.status, raw);
       if (sub) sub.textContent = `No se pudieron cargar los detalles`;
       if (body) body.innerHTML = `<div class="text-sm text-rose-700 font-extrabold">Error cargando detalles</div>`;
       return;
@@ -726,7 +787,7 @@ function aplicarFiltro() {
         p.estado_bd,
         p.forma_envio,
         p.articulos,
-        p.imagenes_locales, // ✅
+        p.imagenes_locales,
       ].join(" "));
       return blob.includes(q);
     });
@@ -745,10 +806,19 @@ async function cargarMiCola() {
   showLoader(true);
 
   try {
-    const { res, data, raw } = await apiGet(ENDPOINT_QUEUE);
+    const { res, data, raw, networkError } = await apiGet(ENDPOINT_QUEUE);
 
-    if (!res.ok || !data) {
-      console.error("Queue FAIL:", res.status, raw);
+    if (networkError) {
+      console.error("Queue network error:", networkError);
+      pedidosCache = [];
+      pedidosFiltrados = [];
+      renderListado([]);
+      setTotalPedidos(0);
+      return;
+    }
+
+    if (!res || !res.ok || !data) {
+      console.error("Queue FAIL:", res?.status, raw);
       pedidosCache = [];
       pedidosFiltrados = [];
       renderListado([]);
@@ -770,7 +840,7 @@ async function cargarMiCola() {
     aplicarFiltro();
 
   } catch (e) {
-    console.error("cargarMiCola error:", e);
+    console.error("cargarMiCola exception:", e);
     pedidosCache = [];
     pedidosFiltrados = [];
     renderListado([]);
@@ -787,11 +857,17 @@ async function cargarMiCola() {
 async function traerPedidos(count) {
   showLoader(true);
   try {
-    const { res, data, raw } = await apiPost(ENDPOINT_PULL, { count });
+    const { res, data, raw, networkError } = await apiPost(ENDPOINT_PULL, { count });
 
-    if (!res.ok || !data) {
-      console.error("PULL FAIL:", res.status, raw);
-      alert("No se pudo traer pedidos (error de red o sesión).");
+    if (networkError) {
+      console.error("PULL network error:", networkError);
+      alert("No se pudo traer pedidos (error de red / CORS / URL inválida).");
+      return;
+    }
+
+    if (!res || !res.ok || !data) {
+      console.error("PULL FAIL:", res?.status, raw);
+      alert("No se pudo traer pedidos (error de sesión o servidor).");
       return;
     }
 
@@ -806,14 +882,12 @@ async function traerPedidos(count) {
   }
 }
 
-// Util: sacar de UI y cache (optimista)
 function removePedidoFromUI(orderKey) {
   pedidosCache = pedidosCache.filter(p => String(pedidoKey(p)) !== String(orderKey));
   aplicarFiltro();
   document.querySelectorAll(`[data-order-id="${CSS.escape(String(orderKey))}"]`).forEach(n => n.remove());
 }
 
-// ✅ Enviar => Por preparar + desasigna + sale de la lista
 async function enviarPedido(orderKey) {
   const before = [...pedidosCache];
 
@@ -822,7 +896,15 @@ async function enviarPedido(orderKey) {
   const payload = { order_id: String(orderKey) };
   const resp = await apiPost(ENDPOINT_ENVIAR, payload);
 
-  if (!resp.res.ok || !resp.data || (resp.data.ok !== true && resp.data.success !== true)) {
+  if (resp.networkError) {
+    console.error("ENVIAR network error:", resp.networkError);
+    pedidosCache = before;
+    aplicarFiltro();
+    alert("Error de red enviando el pedido.");
+    return;
+  }
+
+  if (!resp.res || !resp.res.ok || !resp.data || (resp.data.ok !== true && resp.data.success !== true)) {
     pedidosCache = before;
     aplicarFiltro();
     alert(resp.data?.error || resp.data?.message || "No se pudo enviar el pedido");
@@ -830,7 +912,6 @@ async function enviarPedido(orderKey) {
   }
 }
 
-// ✅ Realizado => Por producir + desasigna + sale de la lista
 async function marcarRealizado(orderKey) {
   const before = [...pedidosCache];
 
@@ -839,11 +920,28 @@ async function marcarRealizado(orderKey) {
   const payload = { order_id: String(orderKey) };
 
   let resp = await apiPost(ENDPOINT_REALIZADO, payload);
-  if (resp.res.status === 404) {
+
+  if (resp.networkError) {
+    console.error("REALIZADO network error:", resp.networkError);
+    pedidosCache = before;
+    aplicarFiltro();
+    alert("Error de red marcando como realizado.");
+    return;
+  }
+
+  if (resp.res && resp.res.status === 404) {
     resp = await apiPost(ENDPOINT_CARGADO_FALLBACK, payload);
   }
 
-  if (!resp.res.ok || !resp.data || (resp.data.ok !== true && resp.data.success !== true)) {
+  if (resp.networkError) {
+    console.error("CARGADO fallback network error:", resp.networkError);
+    pedidosCache = before;
+    aplicarFiltro();
+    alert("Error de red en fallback (cargado).");
+    return;
+  }
+
+  if (!resp.res || !resp.res.ok || !resp.data || (resp.data.ok !== true && resp.data.success !== true)) {
     pedidosCache = before;
     aplicarFiltro();
     alert(resp.data?.error || resp.data?.message || "No se pudo marcar como realizado");

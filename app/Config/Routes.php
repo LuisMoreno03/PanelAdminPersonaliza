@@ -52,6 +52,7 @@ $routes->group('dashboard', ['filter' => 'auth'], static function (RouteCollecti
 
     // detalles pedido (mejor aceptar IDs como string/segment)
     $routes->get('detalles/(:segment)', 'DashboardController::detalles/$1');
+    $routes->post('subir-imagen-modificada', 'DashboardController::subirImagenModificada');
 
     // presencia / usuarios
     $routes->get('ping', 'DashboardController::ping');
@@ -117,6 +118,7 @@ $routes->group('confirmacion', ['filter' => 'auth'], static function (RouteColle
     $routes->get('my-queue', 'ConfirmacionController::myQueue');
     $routes->post('pull', 'ConfirmacionController::pull');
     $routes->post('return-all', 'ConfirmacionController::returnAll');
+    $routes->post('guardar-nota', 'ConfirmacionController::guardarNota');
 
     // ✅ endpoint real que usa confirmacion.js
     $routes->post('subir-imagen', 'ConfirmacionController::subirImagen');
@@ -153,48 +155,47 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
     $routes->get('my-queue', 'ProduccionController::myQueue');
     $routes->post('pull', 'ProduccionController::pull');
     $routes->post('return-all', 'ProduccionController::returnAll');
+    $routes->post('return-one', 'ProduccionController::returnOne');
 
     // uploads/listado general
     $routes->post('upload-general', 'ProduccionController::uploadGeneral');
     $routes->get('list-general', 'ProduccionController::listGeneral');
     $routes->post('upload-modificada', 'ProduccionController::uploadModificada');
 
+    // ✅ NUEVO (tu JS lo intenta como fallback)
+    $routes->post('set-estado', 'ProduccionController::setEstado');
+    
+    // ✅ NUEVO (para abrir urls devueltas por list-general)
+    $routes->get('file/(:segment)/(:segment)', 'ProduccionController::file/$1/$2');
 });
+
+
 
 /*
 |--------------------------------------------------------------------------
 | PLACAS (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->group('placas', ['filter' => 'auth'], static function (RouteCollection $routes) {
+// ... tus rutas anteriores
+// ✅ Vista principal /placas
+$routes->get('placas', 'PlacasController::index');
 
-    $routes->get('/', 'PlacasController::index');
-    $routes->get('(:num)/archivos', 'PlacasController::archivos/$1');
+// ✅ PLACAS API
+$routes->group('placas/archivos', static function($routes) {
+    $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
+    $routes->get('stats', 'PlacasArchivosController::stats');
 
-    $routes->group('archivos', static function (RouteCollection $routes) {
+    $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
+    $routes->post('renombrar', 'PlacasArchivosController::renombrarArchivo');
+    $routes->post('eliminar', 'PlacasArchivosController::eliminarArchivo');
+    $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
 
-        $routes->get('listar', 'PlacasArchivosController::listar');
-        $routes->get('stats',  'PlacasArchivosController::stats');
-        $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
-
-        $routes->post('subir', 'PlacasArchivosController::subir');
-        $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
-
-        $routes->post('renombrar', 'PlacasArchivosController::renombrar');
-        $routes->post('eliminar',  'PlacasArchivosController::eliminar');
-
-        $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
-
-        $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
-
-        // DESCARGAR JPG/PNG
-        $routes->get('descargar-png/(:num)', 'PlacasArchivosController::descargarPng/$1');
-        $routes->get('descargar-jpg/(:num)', 'PlacasArchivosController::descargarJpg/$1');
-
-        $routes->get('descargar-png-lote/(:any)', 'PlacasArchivosController::descargarPngLote/$1');
-        $routes->get('descargar-jpg-lote/(:any)', 'PlacasArchivosController::descargarJpgLote/$1');
-    });
+    $routes->get('ver/(:num)', 'PlacasArchivosController::ver/$1');
+    $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
 });
+
+// ✅ Pedidos por producir (BD interna)
+$routes->get('placas/pedidos/por-producir', 'PedidosController::porProducir');
 
 /*
 |--------------------------------------------------------------------------
@@ -289,17 +290,28 @@ $routes->post('montaje/return-all', 'MontajeController::returnAll');
 // compatibilidad
 $routes->post('montaje/cargado', 'MontajeController::cargado');
 
-$routes->post('montaje/return-all', 'MontajeController::returnAll');
 
 // ✅ Vista Por producir
-$routes->get('por-producir', 'PorProducir::index');
+// ===============================
+// POR PRODUCIR
+// ===============================
+// ===============================
+// POR PRODUCIR
+// ===============================
+$routes->group('porproducir', function($routes) {
 
-// ✅ API Por producir
-$routes->group('api/por-producir', static function ($routes) {
-    $routes->get('mine', 'Api\PorProducir::mine');
-    $routes->post('claim', 'Api\PorProducir::claim');     // 50/100
-    $routes->post('return', 'Api\PorProducir::returnAll');
-    $routes->post('check', 'Api\PorProducir::check');     // auto remover enviados
+    // Vista principal
+    $routes->get('/', 'PorProducirController::index');
+
+    // Pull (traer 5 o 10 pedidos en estado "Diseñado")
+    $routes->get('pull', 'PorProducirController::pull');
+
+    // Update método de entrega (si cambia a Enviado => estado Enviado y sale de la lista)
+    $routes->post('update-metodo', 'PorProducirController::updateMetodo');
+
 });
 
 
+$routes->get('seguimiento', 'SeguimientoController::index');
+$routes->get('seguimiento/resumen', 'SeguimientoController::resumen');
+$routes->get('seguimiento/detalle/(:num)', 'SeguimientoController::detalle/$1');

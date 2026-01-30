@@ -191,6 +191,8 @@
                     <option value="Por producir">Por producir</option>
                     <option value="Enviado">Enviado</option>
                     <option value="Repetir">Repetir</option>
+                    <option value="Cancelado">Cancelado</option>
+
                   </select>
                 </div>
 

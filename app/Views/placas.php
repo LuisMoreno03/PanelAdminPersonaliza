@@ -7,149 +7,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Placas - Panel</title>
 
-
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/alpinejs" defer></script>
-
-  <style>
-    body { background: #f3f4f6; }
-
-
-    .btn-blue{
-      background:#2563eb;
-      color:#fff;
-      padding:10px 16px;
-      border-radius:12px;
-      font-weight:700;
-      border:none;
-      cursor:pointer;
-      transition:.15s;
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-    }
-    .btn-blue:hover{ filter:brightness(1.06); }
-    .btn-blue:disabled{ opacity:.55; cursor:not-allowed; }
-
-    .card{
-      background:#fff;
-      border:1px solid #e5e7eb;
-      border-radius:16px;
-      padding:16px;
-    }
-    .muted{ color:#6b7280; font-size:13px; }
-
-    .grid{
-      display:grid;
-      gap:12px;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      margin-top:14px;
-    }
-    .item{
-      border:1px solid #e5e7eb;
-      border-radius:14px;
-      padding:12px;
-      background:#fff;
-      cursor:pointer;
-    }
-    .item-title{ font-weight:800; margin-top:10px; }
-    .preview{
-      width:100%;
-      height:160px;
-      border-radius:12px;
-      border:1px solid #eee;
-      overflow:hidden;
-      background:#f9fafb;
-    }
-    .preview img{ width:100%; height:100%; object-fit:cover; }
-    .preview iframe{ width:100%; height:100%; border:0; }
-  
-  /* ✅ GRID DE LOTES (CARPETAS) */
-.lotes-grid{
-  display:grid;
-  gap:14px;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  margin-top:12px;
-}
-
-.lote-card{
-  background:#fff;
-  border:1px solid #e5e7eb;
-  border-radius:16px;
-  padding:14px;
-  transition:.15s;
-}
-
-.lote-card:hover{
-  box-shadow:0 10px 30px rgba(0,0,0,.06);
-  transform: translateY(-1px);
-}
-
-.lote-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:10px;
-}
-
-.lote-left{
-  display:flex;
-  align-items:center;
-  gap:12px;
-  min-width:0;
-}
-
-.lote-thumb{
-  width:64px;
-  height:64px;
-  border-radius:14px;
-  border:1px solid #eee;
-  background:#f9fafb;
-  overflow:hidden;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  flex:0 0 auto;
-}
-
-.lote-thumb img{
-  width:100%;
-  height:100%;
-  object-fit:cover;
-}
-
-.lote-title{
-  font-weight:900;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  max-width: 220px;
-}
-
-.lote-meta{
-  color:#6b7280;
-  font-size:12px;
-  margin-top:2px;
-}
-
-/* ✅ Botonera debajo */
-.lote-actions{
-  margin-top:12px;
-  display:flex;
-  gap:10px;
-  flex-wrap:wrap;
-}
-.lote-actions .btn-blue,
-.lote-actions a.btn-blue{
-  width:100%;
-  justify-content:center;
-}
-
-
-  </style>
-
 </head>
 
+<<<<<<< HEAD
 <body class="flex">
 
 
@@ -780,12 +642,37 @@ function renderModalArchivos(list, activeId) {
           <div class="font-extrabold truncate">${escapeHtml(title)}</div>
           <div class="text-xs text-gray-500 mt-1">
             ${escapeHtml(it.mime || '')} • ${kb} KB
+=======
+<body class="bg-gray-100 flex">
+  <?= view('layouts/menu') ?>
+
+  <div class="flex-1 md:ml-64 p-6">
+    <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-black text-gray-900">PLACAS</h1>
+          <div class="mt-1 text-sm text-gray-500">
+            Placas hoy: <span id="placasHoy" class="font-black text-gray-900">0</span>
+>>>>>>> 0ad5572a9672f029e86d929b58d9339b92c1daee
           </div>
         </div>
 
-        <div class="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600 shrink-0">
-          #${it.id}
+        <div class="flex w-full flex-wrap items-center gap-2 md:w-auto">
+          <div class="relative w-full md:w-[360px]">
+            <input id="searchInput" type="text" placeholder="Buscar por lote, archivo o pedido..."
+              class="w-full rounded-xl border border-gray-200 px-4 py-2 pr-10 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
+            <button id="searchClear" type="button"
+              class="absolute right-2 top-1/2 -translate-y-1/2 hidden rounded-lg px-2 py-1 text-gray-400 hover:text-gray-700">
+              ✕
+            </button>
+          </div>
+
+          <button id="btnAbrirModalCarga"
+            class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-blue-700">
+            Cargar placa
+          </button>
         </div>
+<<<<<<< HEAD
       </button>
     `;
   }).join('');
@@ -1119,29 +1006,27 @@ q('btnDescargarJpgSel').addEventListener('click', () => {
             </div>
           `;
         }).join('')}
+=======
+>>>>>>> 0ad5572a9672f029e86d929b58d9339b92c1daee
       </div>
-      <div class="muted" style="padding:0 8px 8px;">
-        ${filesSeleccionados.length} archivo(s) seleccionado(s)
-      </div>
-    `;
-  });
 
-  window.quitarArchivoSeleccionado = (idx) => {
-    filesSeleccionados.splice(idx, 1);
-    const dt = new DataTransfer();
-    filesSeleccionados.forEach(f => dt.items.add(f));
-    q('cargaArchivo').files = dt.files;
-    q('cargaArchivo').dispatchEvent(new Event('change'));
-  };
+      <div id="msg" class="mt-2 text-sm text-gray-500"></div>
 
+<<<<<<< HEAD
  q('btnGuardarCarga').addEventListener('click', () => {
   const producto = q('cargaProducto')?.value?.trim() || '';
   const numero   = q('cargaNumero').value.trim();
   const loteNombreManual = q('cargaLoteNombre')?.value.trim();
+=======
+      <div id="contenedorDias" class="mt-4 space-y-6"></div>
+    </div>
+  </div>
+>>>>>>> 0ad5572a9672f029e86d929b58d9339b92c1daee
 
-  if (!loteNombreManual) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
-  if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
+  <!-- ✅ MODAL CARGA FULL -->
+  <?= view('placas_modal_carga') ?>
 
+<<<<<<< HEAD
   const wrap = q('uploadProgressWrap');
   const bar  = q('uploadProgressBar');
   const txt  = q('uploadProgressText');
@@ -1273,8 +1158,17 @@ refresco = setInterval(refrescarTodo, 600000);
 
 
 </script>
+=======
+  <script>
+    window.PLACAS_API = {
+      listarPorDia: <?= json_encode(site_url('placas/archivos/listar-por-dia')) ?>,
+      stats: <?= json_encode(site_url('placas/archivos/stats')) ?>,
+      subirLote: <?= json_encode(site_url('placas/archivos/subir-lote')) ?>,
+      pedidosPorProducir: <?= json_encode(site_url('placas/pedidos/por-producir')) ?>,
+    };
+  </script>
+>>>>>>> 0ad5572a9672f029e86d929b58d9339b92c1daee
 
+  <script src="<?= base_url('js/placas.js?v=' . time()) ?>" defer></script>
 </body>
 </html>
-
-

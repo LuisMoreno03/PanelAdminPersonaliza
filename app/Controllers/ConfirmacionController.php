@@ -3,12 +3,34 @@
 namespace App\Controllers;
 
 use App\Controllers\BaseController;
+use Config\Database;
 
 class ConfirmacionController extends BaseController
 {
     public function index()
     {
         return view('confirmacion');
+    }
+
+    /* =====================================================
+       Helpers base
+    ===================================================== */
+    private function canonicalOrderKey(array $pedido): string
+    {
+        $sid = trim((string)($pedido['shopify_order_id'] ?? ''));
+
+        // Si existe shopify_order_id, lo normalizamos (por si viene como gid://shopify/Order/123)
+        if ($sid !== '' && $sid !== '0') {
+            return $this->normalizeShopifyOrderId($sid);
+        }
+
+        // Si no, usamos el id interno
+        return (string)($pedido['id'] ?? '');
+    }
+
+    private function json(array $data, int $status = 200)
+    {
+        return $this->response->setStatusCode($status)->setJSON($data);
     }
 
     private function normalizeShopifyOrderId($id): string
@@ -26,29 +48,150 @@ class ConfirmacionController extends BaseController
         return (string)($pedido['id'] ?? '');
     }
 
+    private function getCurrentUserName(): string
+    {
+        $u = (string)(session('nombre') ?? session('user_name') ?? 'Sistema');
+        $u = trim($u);
+        return $u !== '' ? $u : 'Sistema';
+    }
+
+    private function toDbDateTime(?string $value): ?string
+    {
+        $value = trim((string)$value);
+        if ($value === '') return null;
+
+        // Si ya viene como "Y-m-d H:i:s"
+        if (preg_match('/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$/', $value)) {
+            return $value;
+        }
+
+        try {
+            $dt = new \DateTimeImmutable($value);
+            return $dt->format('Y-m-d H:i:s');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function dbToIso(?string $dbDateTime): string
+    {
+        $dbDateTime = trim((string)$dbDateTime);
+        if ($dbDateTime === '') return '';
+
+        try {
+            $dt = new \DateTimeImmutable($dbDateTime);
+            return $dt->format(DATE_ATOM);
+        } catch (\Throwable $e) {
+            return $dbDateTime;
+        }
+    }
+
+    private function findPedidoByAny(string $idNorm): ?array
+    {
+        $db = Database::connect();
+
+        $pedido = $db->table('pedidos')
+            ->groupStart()
+                ->where('id', $idNorm)
+                ->orWhere('shopify_order_id', $idNorm)
+                ->orWhere('numero', $idNorm)
+            ->groupEnd()
+            ->get()
+            ->getRowArray();
+
+        return $pedido ?: null;
+    }
+
+    /**
+     * ✅ Expresión SQL para ordenar:
+     *  - Express primero (0)
+     *  - Normal después (1)
+     * Detecta "express" dentro de p.forma_envio (case-insensitive)
+     */
+    private function expressOrderExpr(): string
+    {
+        return "CASE
+            WHEN LOWER(TRIM(COALESCE(p.forma_envio,''))) LIKE '%express%' THEN 0
+            ELSE 1
+        END";
+    }
+
+    /**
+     * ✅ Lee la nota guardada en confirmacion_order_notes por orderKey
+     */
+    private function getOrderNoteByKey(string $orderKey): array
+    {
+        $orderKey = trim($orderKey);
+        if ($orderKey === '') {
+            return ['note' => '', 'modified_by' => '', 'modified_at' => ''];
+        }
+
+        $db = Database::connect();
+
+        if (!$db->tableExists('confirmacion_order_notes')) {
+            return ['note' => '', 'modified_by' => '', 'modified_at' => ''];
+        }
+
+        $row = $db->table('confirmacion_order_notes')
+            ->where('order_id', $orderKey)
+            ->get()
+            ->getRowArray();
+
+        if (!$row) {
+            return ['note' => '', 'modified_by' => '', 'modified_at' => ''];
+        }
+
+        return [
+            'note'        => (string)($row['note'] ?? ''),
+            'modified_by' => (string)($row['modified_by'] ?? ''),
+            'modified_at' => $this->dbToIso((string)($row['modified_at'] ?? '')),
+        ];
+    }
+
+    /**
+     * ✅ orderKey SQL: usa shopify_order_id si existe y no es '' ni '0', si no usa p.id
+     * (lo usamos en myQueue y pull para joins consistentes)
+     */
+    private function buildOrderKeySql($db, bool $hasShopifyId): string
+    {
+        $driver = strtolower((string)($db->DBDriver ?? ''));
+
+        if ($hasShopifyId) {
+            if (str_contains($driver, 'mysql')) {
+                return "COALESCE(NULLIF(NULLIF(TRIM(p.shopify_order_id),''),'0'), CONCAT(p.id,''))";
+            }
+            return "COALESCE(NULLIF(NULLIF(TRIM(CAST(p.shopify_order_id AS TEXT)),''),'0'), CAST(p.id AS TEXT))";
+        }
+
+        return str_contains($driver, 'mysql')
+            ? "CONCAT(p.id,'')"
+            : "CAST(p.id AS TEXT)";
+    }
+
     /* =====================================================
       GET /confirmacion/my-queue
-      ✅ Ordena por pedidos más antiguos primero
+      ✅ Express primero
+      ✅ Dentro de cada grupo: más antiguos primero
       ✅ over_24h = 1 si assigned_at tiene +24h
     ===================================================== */
     public function myQueue()
     {
         try {
             if (!session()->get('logged_in')) {
-                return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'message' => 'No auth']);
+                return $this->json(['ok' => false, 'success' => false, 'message' => 'No auth'], 401);
             }
 
-            $userId = (int) session('user_id');
+            $userId = (int)session('user_id');
             if ($userId <= 0) {
-                return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'message' => 'User inválido']);
+                return $this->json(['ok' => false, 'success' => false, 'message' => 'User inválido'], 401);
             }
 
-            $db = \Config\Database::connect();
+            $db = Database::connect();
 
             $pFields = $db->getFieldNames('pedidos') ?? [];
             $hasShopifyId  = in_array('shopify_order_id', $pFields, true);
             $hasPedidoJson = in_array('pedido_json', $pFields, true);
-            $hasAssignedAt = in_array('assigned_at', $pFields, true); // ✅
+            $hasAssignedAt = in_array('assigned_at', $pFields, true);
 
             $peFields = $db->getFieldNames('pedidos_estado') ?? [];
             $hasPeUpdatedBy = in_array('estado_updated_by_name', $peFields, true);
@@ -60,19 +203,8 @@ class ConfirmacionController extends BaseController
 
             $driver = strtolower((string)($db->DBDriver ?? ''));
 
-            if ($hasShopifyId) {
-                if (str_contains($driver, 'mysql')) {
-                    $orderKeySql = "COALESCE(NULLIF(TRIM(p.shopify_order_id),''), CONCAT(p.id,''))";
-                } else {
-                    $orderKeySql = "COALESCE(NULLIF(TRIM(CAST(p.shopify_order_id AS TEXT)),''), CAST(p.id AS TEXT))";
-                }
-            } else {
-                $orderKeySql = str_contains($driver, 'mysql')
-                    ? "CONCAT(p.id,'')"
-                    : "CAST(p.id AS TEXT)";
-            }
+            $orderKeySql = $this->buildOrderKeySql($db, $hasShopifyId);
 
-            // ✅ over_24h basado en assigned_at (si no existe la columna, siempre 0)
             if (!$hasAssignedAt) {
                 $assignedAtSelect = "NULL as assigned_at";
                 $over24Expr = "0";
@@ -98,18 +230,30 @@ class ConfirmacionController extends BaseController
                     ($hasShopifyId ? "p.shopify_order_id, " : "NULL as shopify_order_id, ") .
                     ($hasPedidoJson ? "p.pedido_json, " : "NULL as pedido_json, ") .
                     "p.numero, p.cliente, p.total, p.estado_envio, p.forma_envio, p.etiquetas, p.articulos, p.created_at, " .
-                    "$assignedAtSelect, " .           // ✅ lo devolvemos al front
-                    "($over24Expr) as over_24h, " .   // ✅ flag 0/1 para pintar rojo
+                    "$assignedAtSelect, " .
+                    "($over24Expr) as over_24h, " .
                     "COALESCE(pe.estado,'Por preparar') as estado, $estadoPorSelect",
                     false
-                )
-                ->join(
+                );
+
+            // JOIN pedidos_estado: MySQL con COLLATE, otros sin COLLATE
+            if (str_contains($driver, 'mysql')) {
+                $q->join(
                     'pedidos_estado pe',
                     "pe.order_id COLLATE utf8mb4_unicode_ci = ($orderKeySql) COLLATE utf8mb4_unicode_ci",
                     'left',
                     false
-                )
-                ->where('p.assigned_to_user_id', $userId)
+                );
+            } else {
+                $q->join(
+                    'pedidos_estado pe',
+                    "pe.order_id = ($orderKeySql)",
+                    'left',
+                    false
+                );
+            }
+
+            $q->where('p.assigned_to_user_id', $userId)
                 ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por preparar','faltan archivos')", null, false)
                 ->groupStart()
                     ->where('p.estado_envio IS NULL', null, false)
@@ -120,58 +264,67 @@ class ConfirmacionController extends BaseController
             $this->applyEtiquetaExclusions($q, $db);
             $this->applyPedidoJsonExclusions($q, $db, $hasPedidoJson);
 
-            // ✅ más antiguos primero + desempate por id
-            $rows = $q->orderBy('p.created_at', 'ASC')
-                      ->orderBy('p.id', 'ASC')
-                      ->get()
-                      ->getResultArray();
+            $rows = $q
+                ->orderBy($this->expressOrderExpr(), 'ASC', false)
+                ->orderBy('p.created_at', 'ASC')
+                ->orderBy('p.id', 'ASC')
+                ->get()
+                ->getResultArray();
 
+            // filtro final de cancelación por JSON (doble seguridad)
             if ($hasPedidoJson && $rows) {
                 $rows = array_values(array_filter($rows, function ($r) {
                     return !$this->isCancelledFromPedidoJson($r['pedido_json'] ?? null);
                 }));
-                foreach ($rows as &$r) { unset($r['pedido_json']); }
+                foreach ($rows as &$r) {
+                    unset($r['pedido_json']);
+                }
                 unset($r);
             }
 
-            return $this->response->setJSON(['ok' => true, 'data' => $rows]);
+            return $this->json(['ok' => true, 'success' => true, 'data' => $rows ?: []]);
         } catch (\Throwable $e) {
-            log_message('error', 'myQueue() error: '.$e->getMessage());
-            return $this->response->setStatusCode(500)->setJSON(['ok' => false, 'message' => $e->getMessage()]);
+            log_message('error', 'ConfirmacionController myQueue() error: ' . $e->getMessage());
+            return $this->json(['ok' => false, 'success' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
     /* =====================================================
       POST /confirmacion/pull
-      ✅ Ya está: pedidos más antiguos primero + desempate por id
+      ✅ Express primero
+      ✅ Si hay pocos express: completa con normales más antiguos
+      ✅ FIX: join pedidos_estado con COLLATE en MySQL + orderKeySql consistente
     ===================================================== */
     public function pull()
     {
         try {
             if (!session()->get('logged_in')) {
-                return $this->response->setStatusCode(401)->setJSON(['ok' => false, 'message' => 'No auth']);
+                return $this->json(['ok' => false, 'message' => 'No auth'], 401);
             }
 
-            $userId = (int) session('user_id');
-            $user   = session('nombre') ?? 'Sistema';
+            $userId = (int)session('user_id');
+            $user   = $this->getCurrentUserName();
 
-            $payload = $this->request->getJSON(true) ?? [];
+            $payload = $this->request->getJSON(true);
+            if (!is_array($payload)) $payload = [];
+
             $count = (int)($payload['count'] ?? 5);
             $count = in_array($count, [5, 10], true) ? $count : 5;
 
-            $db  = \Config\Database::connect();
+            $db  = Database::connect();
             $now = date('Y-m-d H:i:s');
 
             $pFields = $db->getFieldNames('pedidos') ?? [];
             $hasShopifyId  = in_array('shopify_order_id', $pFields, true);
             $hasPedidoJson = in_array('pedido_json', $pFields, true);
+            $hasAssignedAt = in_array('assigned_at', $pFields, true);
 
             if (!$hasShopifyId) {
-                return $this->response->setStatusCode(500)->setJSON([
-                    'ok' => false,
-                    'message' => 'La tabla pedidos no tiene la columna shopify_order_id.'
-                ]);
+                return $this->json(['ok' => false, 'message' => 'La tabla pedidos no tiene shopify_order_id'], 500);
             }
+
+            $driver = strtolower((string)($db->DBDriver ?? ''));
+            $orderKeySql = $this->buildOrderKeySql($db, $hasShopifyId);
 
             $db->transStart();
 
@@ -179,8 +332,26 @@ class ConfirmacionController extends BaseController
             $select = 'p.id, p.shopify_order_id, p.etiquetas' . ($hasPedidoJson ? ', p.pedido_json' : '');
 
             $candQuery = $db->table('pedidos p')
-                ->select($select, false)
-                ->join('pedidos_estado pe', 'pe.order_id = p.shopify_order_id', 'left')
+                ->select($select, false);
+
+            // JOIN pedidos_estado: MySQL con COLLATE, otros sin COLLATE (igual que myQueue)
+            if (str_contains($driver, 'mysql')) {
+                $candQuery->join(
+                    'pedidos_estado pe',
+                    "pe.order_id COLLATE utf8mb4_unicode_ci = ($orderKeySql) COLLATE utf8mb4_unicode_ci",
+                    'left',
+                    false
+                );
+            } else {
+                $candQuery->join(
+                    'pedidos_estado pe',
+                    "pe.order_id = ($orderKeySql)",
+                    'left',
+                    false
+                );
+            }
+
+            $candQuery
                 ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar')))", 'por preparar')
                 ->where('(p.assigned_to_user_id IS NULL OR p.assigned_to_user_id = 0)')
                 ->groupStart()
@@ -193,15 +364,16 @@ class ConfirmacionController extends BaseController
             $this->applyPedidoJsonExclusions($candQuery, $db, $hasPedidoJson);
 
             $candidatosRaw = $candQuery
+                ->orderBy($this->expressOrderExpr(), 'ASC', false)
                 ->orderBy('p.created_at', 'ASC')
-                ->orderBy('p.id', 'ASC') // ✅ desempate
+                ->orderBy('p.id', 'ASC')
                 ->limit($limitFetch)
                 ->get()
                 ->getResultArray();
 
             if (!$candidatosRaw) {
                 $db->transComplete();
-                return $this->response->setJSON(['ok' => true, 'assigned' => 0, 'message' => 'Sin candidatos']);
+                return $this->json(['ok' => true, 'assigned' => 0, 'message' => 'Sin candidatos']);
             }
 
             $candidatos = $candidatosRaw;
@@ -212,26 +384,34 @@ class ConfirmacionController extends BaseController
                 }));
             }
 
+            // ✅ ya vienen ordenados por (express primero + antiguos)
             $candidatos = array_slice($candidatos, 0, $count);
 
             if (!$candidatos) {
                 $db->transComplete();
-                return $this->response->setJSON([
-                    'ok' => true,
-                    'assigned' => 0,
-                    'message' => 'Sin candidatos (filtrados por cancelación/etiquetas)'
-                ]);
+                return $this->json(['ok' => true, 'assigned' => 0, 'message' => 'Sin candidatos (filtrados)']);
             }
 
             $ids = array_column($candidatos, 'id');
 
+            // ✅ asignar (concurrencia: sólo si sigue libre)
+            $update = [
+                'assigned_to_user_id' => $userId,
+                ($hasAssignedAt ? 'assigned_at' : null) => ($hasAssignedAt ? $now : null),
+            ];
+            if (!$hasAssignedAt) unset($update[null]);
+
             $db->table('pedidos')
                 ->whereIn('id', $ids)
-                ->update(['assigned_to_user_id' => $userId, 'assigned_at' => $now]);
+                ->groupStart()
+                    ->where('assigned_to_user_id IS NULL', null, false)
+                    ->orWhere('assigned_to_user_id', 0)
+                ->groupEnd()
+                ->update($update);
 
             foreach ($candidatos as $c) {
                 $orderKey = trim((string)($c['shopify_order_id'] ?? ''));
-                if ($orderKey === '') $orderKey = (string)($c['id'] ?? '');
+                if ($orderKey === '' || $orderKey === '0') $orderKey = (string)($c['id'] ?? '');
                 if ($orderKey === '') continue;
 
                 $db->table('pedidos_estado_historial')->insert([
@@ -244,9 +424,9 @@ class ConfirmacionController extends BaseController
                 $existe = $db->table('pedidos_estado')->where('order_id', $orderKey)->countAllResults();
                 if (!$existe) {
                     $db->table('pedidos_estado')->insert([
-                        'order_id' => $orderKey,
-                        'estado' => 'Por preparar',
-                        'estado_updated_at' => $now,
+                        'order_id'               => $orderKey,
+                        'estado'                 => 'Por preparar',
+                        'estado_updated_at'      => $now,
                         'estado_updated_by_name' => $user
                     ]);
                 }
@@ -255,62 +435,162 @@ class ConfirmacionController extends BaseController
             $db->transComplete();
 
             if ($db->transStatus() === false) {
-                return $this->response->setStatusCode(500)->setJSON(['ok' => false, 'message' => 'Transacción falló']);
+                return $this->json(['ok' => false, 'message' => 'Transacción falló'], 500);
             }
 
-            return $this->response->setJSON(['ok' => true, 'assigned' => count($ids)]);
+            return $this->json(['ok' => true, 'assigned' => count($ids)]);
         } catch (\Throwable $e) {
-            log_message('error', 'pull() error: '.$e->getMessage());
-            return $this->response->setStatusCode(500)->setJSON(['ok' => false, 'message' => $e->getMessage()]);
+            log_message('error', 'ConfirmacionController pull() error: ' . $e->getMessage());
+            return $this->json(['ok' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
     public function returnAll()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['ok' => false]);
+            return $this->json(['ok' => false], 401);
         }
 
-        $userId = (int) session('user_id');
-        if ($userId <= 0) return $this->response->setJSON(['ok' => false]);
+        $userId = (int)session('user_id');
+        if ($userId <= 0) return $this->json(['ok' => false], 400);
 
-        \Config\Database::connect()
+        Database::connect()
             ->table('pedidos')
             ->where('assigned_to_user_id', $userId)
             ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
 
-        return $this->response->setJSON(['ok' => true]);
+        return $this->json(['ok' => true]);
     }
 
+    /* =====================================================
+       POST /confirmacion/guardar-nota
+       ✅ Guarda nota con orderKey consistente
+       ✅ Devuelve lo guardado (para JS: {note, modified_by, modified_at})
+       ✅ Alias guardarNotaPedido() por compatibilidad
+    ===================================================== */
+
+    public function guardarNotaPedido()
+    {
+        return $this->guardarNota();
+    }
+
+    public function guardarNota()
+    {
+        try {
+            if (!session()->get('logged_in')) {
+                return $this->json(['success' => false, 'ok' => false, 'message' => 'No auth'], 401);
+            }
+
+            $db = Database::connect();
+
+            if (!$db->tableExists('confirmacion_order_notes')) {
+                return $this->json([
+                    'success' => false,
+                    'ok'      => false,
+                    'message' => 'Falta la tabla confirmacion_order_notes en la BD.'
+                ], 500);
+            }
+
+            // 1) Leer JSON o fallback a POST
+            $payload = $this->request->getJSON(true);
+            if (!is_array($payload)) {
+                $payload = $this->request->getPost() ?? [];
+            }
+
+            $orderIdRaw = trim((string)($payload['order_id'] ?? $payload['id'] ?? ''));
+            if ($orderIdRaw === '') {
+                return $this->json(['success' => false, 'ok' => false, 'message' => 'order_id requerido'], 422);
+            }
+
+            $idNorm = $this->normalizeShopifyOrderId($orderIdRaw);
+
+            $note       = (string)($payload['note'] ?? '');
+            $modifiedBy = trim((string)($payload['modified_by'] ?? $payload['user'] ?? ''));
+            if ($modifiedBy === '') $modifiedBy = $this->getCurrentUserName();
+
+            $modifiedAt = $this->toDbDateTime((string)($payload['modified_at'] ?? '')) ?? date('Y-m-d H:i:s');
+            $now        = date('Y-m-d H:i:s');
+
+            // Resolver pedido y usar orderKey consistente (shopify_order_id si existe y no es 0)
+            $pedido = $this->findPedidoByAny($idNorm) ?: $this->findPedidoByAny($orderIdRaw);
+            if (!$pedido) {
+                $orderKey = $idNorm !== '' ? $idNorm : $orderIdRaw;
+            } else {
+                $orderKey = $this->canonicalOrderKey($pedido);
+                if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? ($idNorm ?: $orderIdRaw));
+
+            }
+
+            $table = $db->table('confirmacion_order_notes');
+
+            // 2) Upsert manual por order_id
+            $existing = $table->select('id')
+                ->where('order_id', $orderKey)
+                ->get()
+                ->getRowArray();
+
+            $data = [
+                'order_id'    => $orderKey,
+                'note'        => $note,
+                'modified_by' => $modifiedBy !== '' ? $modifiedBy : null,
+                'modified_at' => $modifiedAt,
+                'updated_at'  => $now,
+            ];
+
+            if ($existing && isset($existing['id'])) {
+                $table->where('order_id', $orderKey)->update($data);
+            } else {
+                $data['created_at'] = $now;
+                $table->insert($data);
+            }
+
+            // 3) Leer lo guardado y responder consistente
+            $saved = $table->where('order_id', $orderKey)->get()->getRowArray();
+
+            return $this->json([
+                'success'     => true,
+                'ok'          => true,
+                'order_id'    => $orderKey,
+                'note'        => (string)($saved['note'] ?? ''),
+                'modified_by' => (string)($saved['modified_by'] ?? ''),
+                'modified_at' => $this->dbToIso((string)($saved['modified_at'] ?? '')),
+            ]);
+        } catch (\Throwable $e) {
+            log_message('error', 'ConfirmacionController guardarNota() error: ' . $e->getMessage());
+            return $this->json([
+                'success' => false,
+                'ok'      => false,
+                'message' => 'Error guardando nota: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /* =====================================================
+      GET /confirmacion/detalles/{id}
+      ✅ Devuelve order_key + order_note (objeto) para el JS nuevo
+    ===================================================== */
     public function detalles($id = null)
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No autenticado']);
+            return $this->json(['success' => false, 'message' => 'No autenticado'], 401);
         }
         if (!$id) {
-            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'ID inválido']);
+            return $this->json(['success' => false, 'message' => 'ID inválido'], 400);
         }
 
         try {
             $idNorm = $this->normalizeShopifyOrderId($id);
 
-            $db = \Config\Database::connect();
+            $db = Database::connect();
             $pFields = $db->getFieldNames('pedidos') ?? [];
             $hasPedidoJson = in_array('pedido_json', $pFields, true);
             $hasImgLocales = in_array('imagenes_locales', $pFields, true);
             $hasProdImages = in_array('product_images', $pFields, true);
 
-            $pedido = $db->table('pedidos')
-                ->groupStart()
-                    ->where('id', $idNorm)
-                    ->orWhere('shopify_order_id', $idNorm)
-                    ->orWhere('shopify_order_id', (string)$id)
-                ->groupEnd()
-                ->get()
-                ->getRowArray();
+            $pedido = $this->findPedidoByAny($idNorm) ?: $this->findPedidoByAny((string)$id);
 
             if (!$pedido) {
-                return $this->response->setStatusCode(404)->setJSON(['success' => false, 'message' => 'Pedido no encontrado']);
+                return $this->json(['success' => false, 'message' => 'Pedido no encontrado'], 404);
             }
 
             $shopifyId = $pedido['shopify_order_id'] ?? null;
@@ -323,7 +603,7 @@ class ConfirmacionController extends BaseController
             if (!$orderJson || (empty($orderJson['line_items']) && empty($orderJson['lineItems']))) {
                 $orderJson = [
                     'id' => $shopifyId ?: ($pedido['id'] ?? null),
-                    'name' => $pedido['numero'] ?? ('#'.($shopifyId ?: $pedido['id'])),
+                    'name' => $pedido['numero'] ?? ('#' . ($shopifyId ?: ($pedido['id'] ?? ''))),
                     'created_at' => $pedido['created_at'] ?? null,
                     'customer' => ['first_name' => $pedido['cliente'] ?? '', 'last_name' => ''],
                     'line_items' => [],
@@ -333,18 +613,37 @@ class ConfirmacionController extends BaseController
             $imagenesLocales = $hasImgLocales ? json_decode($pedido['imagenes_locales'] ?? '{}', true) : [];
             if (!is_array($imagenesLocales)) $imagenesLocales = [];
 
-            $productImages   = $hasProdImages ? json_decode($pedido['product_images'] ?? '{}', true) : [];
+            $productImages = $hasProdImages ? json_decode($pedido['product_images'] ?? '{}', true) : [];
             if (!is_array($productImages)) $productImages = [];
 
-            return $this->response->setJSON([
-                'success' => true,
-                'order' => $orderJson,
-                'imagenes_locales' => $imagenesLocales,
-                'product_images' => $productImages,
-            ]);
+            // ✅ nota "tiempo real"
+            $orderKey = $this->canonicalOrderKey($pedido);
+            if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $idNorm);
+
+            $orderNote = $this->getOrderNoteByKey($orderKey);
+
+
+                return $this->json([
+                    'success'         => true,
+                    'order'           => $orderJson,
+                    'imagenes_locales'=> $imagenesLocales,
+                    'product_images'  => $productImages,
+                    'order_key'       => $orderKey,
+
+                    // ✅ lo que tu JS base espera
+                    'order_note'      => (string)($orderNote['note'] ?? ''),
+                    'order_note_audit'=> [
+                        'modified_by' => (string)($orderNote['modified_by'] ?? ''),
+                        'modified_at' => (string)($orderNote['modified_at'] ?? ''),
+                    ],
+
+                    // (opcional) mantener también el objeto completo por si lo quieres usar luego
+                    'order_note_obj'  => $orderNote,
+                ]);
+
         } catch (\Throwable $e) {
-            log_message('error', 'detalles() error: '.$e->getMessage());
-            return $this->response->setStatusCode(500)->setJSON(['success' => false, 'message' => $e->getMessage()]);
+            log_message('error', 'ConfirmacionController detalles() error: ' . $e->getMessage());
+            return $this->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
@@ -353,154 +652,154 @@ class ConfirmacionController extends BaseController
     {
         return $this->subirImagen();
     }
-
-    // ✅ opcional: devuelve imagenes_locales de un pedido por query ?order_id=
+    
     public function listFiles()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No auth']);
+            return $this->json(['success' => false, 'message' => 'No auth'], 401);
         }
 
         $orderIdRaw = (string)($this->request->getGet('order_id') ?? '');
         $orderId = $this->normalizeShopifyOrderId($orderIdRaw);
         if ($orderId === '') {
-            return $this->response->setStatusCode(400)->setJSON(['success' => false, 'message' => 'order_id requerido']);
+            return $this->json(['success' => false, 'message' => 'order_id requerido'], 400);
         }
 
-        $db = \Config\Database::connect();
-        $pedido = $db->table('pedidos')->where('shopify_order_id', $orderId)->get()->getRowArray();
-        if (!$pedido) $pedido = $db->table('pedidos')->where('id', $orderId)->get()->getRowArray();
-        if (!$pedido) return $this->response->setStatusCode(404)->setJSON(['success' => false, 'message' => 'Pedido no encontrado']);
+        $db = Database::connect();
+        $pedido = $this->findPedidoByAny($orderId);
+        if (!$pedido) return $this->json(['success' => false, 'message' => 'Pedido no encontrado'], 404);
 
         $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
         if (!is_array($imagenes)) $imagenes = [];
 
-        return $this->response->setJSON(['success' => true, 'data' => $imagenes]);
+        return $this->json(['success' => true, 'data' => $imagenes]);
     }
 
     /* =====================================================
       POST /confirmacion/subir-imagen
       ✅ guarda archivo público + persiste en DB + borra anterior del mismo index
+      ✅ devuelve {url, modified_by, modified_at, estado}
     ===================================================== */
     public function subirImagen()
     {
-        if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'message' => 'No auth']);
-        }
+        try {
+            if (!session()->get('logged_in')) {
+                return $this->json(['success' => false, 'message' => 'No auth'], 401);
+            }
 
-        $orderIdRaw = (string)$this->request->getPost('order_id');
-        $orderId    = $this->normalizeShopifyOrderId($orderIdRaw);
+            helper(['url']);
 
-        $index = (int)$this->request->getPost('line_index');
-        $file  = $this->request->getFile('file');
-        // ✅ Límite 20MB (en KB)
-        $maxKB = 20480;
+            $orderIdRaw = (string)($this->request->getPost('order_id') ?? '');
+            $orderId    = $this->normalizeShopifyOrderId($orderIdRaw);
 
-        $rules = [
-            'file' => [
-                'rules'  => 'uploaded[file]|max_size[file,' . $maxKB . ']|is_image[file]|mime_in[file,image/jpg,image/jpeg,image/png,image/webp,image/gif]',
-                'errors' => [
-                    'uploaded'  => 'Debes subir un archivo.',
-                    'max_size'  => 'La imagen no puede superar 20MB.',
-                    'is_image'  => 'El archivo debe ser una imagen válida.',
-                    'mime_in'   => 'Formato no permitido. Usa JPG, PNG, WEBP o GIF.',
+            $index = (int)($this->request->getPost('line_index') ?? 0);
+            $file  = $this->request->getFile('file');
+
+            $maxKB = 20480;
+
+            $rules = [
+                'file' => [
+                    'rules'  => 'uploaded[file]|max_size[file,' . $maxKB . ']|is_image[file]|ext_in[file,jpg,jpeg,png,webp,gif,svg]',
+                    'errors' => [
+                        'uploaded'  => 'Debes subir un archivo.',
+                        'max_size'  => 'La imagen no puede superar 20MB.',
+                        'is_image'  => 'El archivo debe ser una imagen válida.',
+                        'ext_in'    => 'Formato no permitido. Usa JPG, PNG, WEBP o GIF.',
+                    ],
                 ],
-            ],
-        ];
+            ];
 
-        if (!$this->validate($rules)) {
-            return $this->response->setJSON([
-                'success' => false,
-                'message' => $this->validator->getError('file') ?? 'Archivo inválido',
+            if (!$this->validate($rules)) {
+                $err = $this->validator->getError('file') ?? 'Archivo inválido';
+                log_message('error', 'Confirmacion subirImagen validate error: ' . $err);
+                return $this->json(['success' => false, 'message' => $err], 200);
+            }
+
+            if (!$file || !$file->isValid()) {
+                $msg = $file ? $file->getErrorString() : 'Archivo inválido';
+                log_message('error', 'Confirmacion subirImagen invalid file: ' . $msg);
+                return $this->json(['success' => false, 'message' => $msg], 200);
+            }
+
+            $modifiedBy = trim((string)$this->request->getPost('modified_by'));
+            $modifiedAt = trim((string)$this->request->getPost('modified_at'));
+            if ($modifiedBy === '') $modifiedBy = $this->getCurrentUserName();
+            if ($modifiedAt === '') $modifiedAt = date(DATE_ATOM);
+
+            if ($orderId === '') {
+                return $this->json(['success' => false, 'message' => 'order_id inválido'], 400);
+            }
+
+            $db = Database::connect();
+
+            $pedido = $this->findPedidoByAny($orderId);
+            if (!$pedido) return $this->json(['success' => false, 'message' => 'Pedido no encontrado'], 404);
+
+            $pFields = $db->getFieldNames('pedidos') ?? [];
+            if (!in_array('imagenes_locales', $pFields, true)) {
+                return $this->json(['success' => false, 'message' => 'Falta columna pedidos.imagenes_locales'], 500);
+            }
+
+            $orderKey = $this->orderKeyFromPedido($pedido);
+            if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $orderId);
+
+            $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
+            if (!is_array($imagenes)) $imagenes = [];
+
+            $prev = $imagenes[(string)$index] ?? $imagenes[$index] ?? null;
+            $prevUrl = '';
+            if (is_string($prev)) $prevUrl = $prev;
+            if (is_array($prev))  $prevUrl = (string)($prev['url'] ?? $prev['value'] ?? '');
+            if ($prevUrl) $this->tryDeleteLocalUploadByUrl($prevUrl);
+
+            $dir = rtrim(FCPATH, '/\\') . '/uploads/confirmacion/' . $orderKey;
+
+            if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
+                log_message('error', 'Confirmacion subirImagen: no se pudo crear directorio: ' . $dir);
+                return $this->json(['success' => false, 'message' => 'No se pudo crear el directorio. Revisa permisos.'], 500);
+            }
+
+            $name = $file->getRandomName();
+
+            if (!$file->hasMoved()) {
+                $file->move($dir, $name);
+            }
+
+            if (!is_file($dir . '/' . $name)) {
+                log_message('error', 'Confirmacion subirImagen: move() no generó archivo. Dir: ' . $dir . ' Name: ' . $name);
+                return $this->json(['success' => false, 'message' => 'No se pudo guardar el archivo en el servidor.'], 500);
+            }
+
+            $url = base_url('uploads/confirmacion/' . $orderKey . '/' . $name);
+
+            $imagenes[(string)$index] = [
+                'url'         => $url,
+                'modified_by' => $modifiedBy,
+                'modified_at' => $modifiedAt,
+            ];
+
+            $db->table('pedidos')
+                ->where('id', (int)$pedido['id'])
+                ->update(['imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES)]);
+
+            $nuevoEstado = $this->validarEstadoAutomatico((int)$pedido['id'], $orderKey);
+
+            return $this->json([
+                'success'     => true,
+                'url'         => $url,
+                'modified_by' => $modifiedBy,
+                'modified_at' => $modifiedAt,
+                'estado'      => $nuevoEstado,
             ]);
-        }
-
-        // Si por alguna razón PHP/servidor lo bloqueó antes
-        if (!$file || !$file->isValid()) {
-            return $this->response->setJSON([
+        } catch (\Throwable $e) {
+            log_message('error', 'Confirmacion subirImagen() error: ' . $e->getMessage());
+            return $this->json([
                 'success' => false,
-                'message' => $file ? $file->getErrorString() : 'Archivo inválido',
-            ]);
+                'message' => 'Error subiendo imagen: ' . $e->getMessage(),
+            ], 500);
         }
-
-
-        $modifiedBy = trim((string)$this->request->getPost('modified_by'));
-        $modifiedAt = trim((string)$this->request->getPost('modified_at'));
-        if ($modifiedBy === '') $modifiedBy = session('nombre') ?? 'Sistema';
-        if ($modifiedAt === '') $modifiedAt = date('c');
-        
-
-        if ($orderId === '' || !$file || !$file->isValid()) {
-            return $this->response->setJSON(['success' => false, 'message' => 'Archivo inválido']);
-        }
-
-        $db = \Config\Database::connect();
-
-        // pedido por shopify_order_id o id
-        $pedido = $db->table('pedidos')->where('shopify_order_id', $orderId)->get()->getRowArray();
-        if (!$pedido) $pedido = $db->table('pedidos')->where('id', $orderId)->get()->getRowArray();
-        if (!$pedido) return $this->response->setJSON(['success' => false, 'message' => 'Pedido no encontrado']);
-
-        // validar columna (en tu captura ya existe ✅)
-        $pFields = $db->getFieldNames('pedidos') ?? [];
-        if (!in_array('imagenes_locales', $pFields, true)) {
-            return $this->response->setStatusCode(500)->setJSON([
-                'success' => false,
-                'message' => 'Falta columna pedidos.imagenes_locales'
-            ]);
-        }
-
-        $orderKey = $this->orderKeyFromPedido($pedido);
-        if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $orderId);
-
-        // leer json actual
-        $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
-        if (!is_array($imagenes)) $imagenes = [];
-        
-
-        // borrar anterior del mismo index si existe y es local
-        $prev = $imagenes[(string)$index] ?? $imagenes[$index] ?? null;
-        $prevUrl = '';
-        if (is_string($prev)) $prevUrl = $prev;
-        if (is_array($prev))  $prevUrl = (string)($prev['url'] ?? $prev['value'] ?? '');
-        if ($prevUrl) $this->tryDeleteLocalUploadByUrl($prevUrl);
-
-        // guardar en PUBLIC: /public/uploads/confirmacion/{orderKey}/
-        $dir = FCPATH . 'uploads/confirmacion/' . $orderKey;
-        if (!is_dir($dir)) @mkdir($dir, 0775, true);
-
-        $name = $file->getRandomName();
-        $file->move($dir, $name);
-
-        $url = base_url('uploads/confirmacion/' . $orderKey . '/' . $name);
-
-        // persistir en DB
-        $imagenes[(string)$index] = [
-            'url'         => $url,
-            'modified_by' => $modifiedBy,
-            'modified_at' => $modifiedAt,
-        ];
-
-        $db->table('pedidos')
-            ->where('id', (int)$pedido['id'])
-            ->update(['imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES)]);
-
-        // auto-estado (confirmado / faltan)
-        $nuevoEstado = $this->validarEstadoAutomatico((int)$pedido['id'], $orderKey);
-
-        return $this->response->setJSON([
-            'success'     => true,
-            'url'         => $url,
-            'modified_by' => $modifiedBy,
-            'modified_at' => $modifiedAt,
-            'estado'      => $nuevoEstado
-        ]);
     }
 
-    /**
-     * Borra archivo anterior si URL apunta a /uploads/confirmacion/...
-     * (evita llenar disco con versiones viejas)
-     */
     private function tryDeleteLocalUploadByUrl(string $url): void
     {
         $url = trim($url);
@@ -509,12 +808,11 @@ class ConfirmacionController extends BaseController
         $path = (string)parse_url($url, PHP_URL_PATH);
         if ($path === '') return;
 
-        // Permite subcarpetas (por ejemplo si tu app está en /algo/)
         $needle = '/uploads/confirmacion/';
         $pos = strpos($path, $needle);
         if ($pos === false) return;
 
-        $rel = substr($path, $pos); // desde /uploads/confirmacion/...
+        $rel  = substr($path, $pos);
         $full = rtrim(FCPATH, '/\\') . $rel;
 
         if (is_file($full)) {
@@ -525,84 +823,85 @@ class ConfirmacionController extends BaseController
     public function guardarEstado()
     {
         if (!session()->get('logged_in')) {
-            return $this->response->setStatusCode(401)->setJSON(['success' => false, 'ok' => false, 'message' => 'No auth']);
+            return $this->json(['success' => false, 'ok' => false, 'message' => 'No auth'], 401);
         }
 
         try {
-            $db = \Config\Database::connect();
-            $payload = $this->request->getJSON(true) ?? [];
+            $db = Database::connect();
+
+            $payload = $this->request->getJSON(true);
+            if (!is_array($payload)) $payload = [];
 
             $orderIdRaw = (string)($payload['order_id'] ?? $payload['id'] ?? '');
-            $orderId = $this->normalizeShopifyOrderId($orderIdRaw);
+            $orderId    = $this->normalizeShopifyOrderId($orderIdRaw);
 
             $estado   = (string)($payload['estado'] ?? '');
             $mantener = (bool)($payload['mantener_asignado'] ?? false);
 
-            if ($orderId === '' || $estado === '') {
-                return $this->response->setStatusCode(400)->setJSON(['success' => false, 'ok' => false, 'message' => 'Payload inválido']);
+            if ($orderId === '' || trim($estado) === '') {
+                return $this->json(['success' => false, 'ok' => false, 'message' => 'Payload inválido'], 400);
             }
 
-            $user = session('nombre') ?? 'Sistema';
+            $user = $this->getCurrentUserName();
             $now  = date('Y-m-d H:i:s');
 
-            $pedido = $db->table('pedidos')->where('shopify_order_id', $orderId)->get()->getRowArray();
-            if (!$pedido) $pedido = $db->table('pedidos')->where('id', $orderId)->get()->getRowArray();
+            $pedido = $this->findPedidoByAny($orderId);
             if (!$pedido) {
-                return $this->response->setStatusCode(404)->setJSON(['success' => false, 'ok' => false, 'message' => 'Pedido no encontrado']);
+                return $this->json(['success' => false, 'ok' => false, 'message' => 'Pedido no encontrado'], 404);
             }
 
             $orderKey = $this->orderKeyFromPedido($pedido);
+            if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $orderId);
 
             $existe = $db->table('pedidos_estado')->where('order_id', $orderKey)->countAllResults();
 
             if ($existe) {
                 $db->table('pedidos_estado')->where('order_id', $orderKey)->update([
-                    'estado' => $estado,
-                    'estado_updated_at' => $now,
+                    'estado'                 => $estado,
+                    'estado_updated_at'      => $now,
                     'estado_updated_by_name' => $user,
                 ]);
             } else {
                 $db->table('pedidos_estado')->insert([
-                    'order_id' => $orderKey,
-                    'estado' => $estado,
-                    'estado_updated_at' => $now,
+                    'order_id'               => $orderKey,
+                    'estado'                 => $estado,
+                    'estado_updated_at'      => $now,
                     'estado_updated_by_name' => $user,
                 ]);
             }
 
             $db->table('pedidos_estado_historial')->insert([
-                'order_id' => $orderKey,
-                'estado' => $estado,
-                'user_name' => $user,
+                'order_id'   => $orderKey,
+                'estado'     => $estado,
+                'user_name'  => $user,
                 'created_at' => $now
             ]);
 
             $estadoLower = mb_strtolower(trim($estado));
 
+            // si confirmado/cancelado -> desasignar
             if ($estadoLower === 'confirmado' || $estadoLower === 'cancelado') {
                 $db->table('pedidos')
                     ->where('id', (int)$pedido['id'])
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
             }
 
-            if ($estadoLower === 'faltan archivos' && $mantener === true) {
-                // no-op
-            }
+            // mantener_asignado: lo dejamos por compatibilidad (si lo usas luego)
 
-            return $this->response->setJSON(['success' => true, 'ok' => true]);
+            return $this->json(['success' => true, 'ok' => true]);
         } catch (\Throwable $e) {
-            log_message('error', 'guardarEstado() error: '.$e->getMessage());
-            return $this->response->setStatusCode(500)->setJSON([
+            log_message('error', 'Confirmacion guardarEstado() error: ' . $e->getMessage());
+            return $this->json([
                 'success' => false,
-                'ok' => false,
+                'ok'      => false,
                 'message' => $e->getMessage()
-            ]);
+            ], 500);
         }
     }
 
     private function validarEstadoAutomatico(int $pedidoId, string $orderKey): string
     {
-        $db = \Config\Database::connect();
+        $db = Database::connect();
         $pFields = $db->getFieldNames('pedidos') ?? [];
         $hasPedidoJson = in_array('pedido_json', $pFields, true);
         $hasImgLocales = in_array('imagenes_locales', $pFields, true);
@@ -635,30 +934,30 @@ class ConfirmacionController extends BaseController
 
         $nuevoEstado = ($requeridas > 0 && $requeridas === $cargadas) ? 'Confirmado' : 'Faltan archivos';
         $now  = date('Y-m-d H:i:s');
-        $user = session('nombre') ?? 'Sistema';
+        $user = $this->getCurrentUserName();
 
         $existe = $db->table('pedidos_estado')->where('order_id', $orderKey)->countAllResults();
         if ($existe) {
             $db->table('pedidos_estado')
                 ->where('order_id', $orderKey)
                 ->update([
-                    'estado' => $nuevoEstado,
-                    'estado_updated_at' => $now,
+                    'estado'                 => $nuevoEstado,
+                    'estado_updated_at'      => $now,
                     'estado_updated_by_name' => $user
                 ]);
         } else {
             $db->table('pedidos_estado')->insert([
-                'order_id' => $orderKey,
-                'estado' => $nuevoEstado,
-                'estado_updated_at' => $now,
+                'order_id'               => $orderKey,
+                'estado'                 => $nuevoEstado,
+                'estado_updated_at'      => $now,
                 'estado_updated_by_name' => $user
             ]);
         }
 
         $db->table('pedidos_estado_historial')->insert([
-            'order_id' => $orderKey,
-            'estado' => $nuevoEstado,
-            'user_name' => $user,
+            'order_id'   => $orderKey,
+            'estado'     => $nuevoEstado,
+            'user_name'  => $user,
             'created_at' => $now
         ]);
 
@@ -673,17 +972,28 @@ class ConfirmacionController extends BaseController
 
     private function requiereImagen(array $item): bool
     {
-        $title = strtolower($item['title'] ?? '');
-        $sku   = strtolower($item['sku'] ?? '');
+        $title = strtolower((string)($item['title'] ?? ''));
+        $sku   = strtolower((string)($item['sku'] ?? ''));
 
-        if (str_contains($title, 'llavero') || str_contains($sku, 'llav')) return true;
+        $keywords = ['llavero', 'lampara', 'lámpara'];
+
+        foreach ($keywords as $word) {
+            if (str_contains($title, $word)) return true;
+        }
+
+        if (str_contains($sku, 'llav')) return true;
 
         foreach (($item['properties'] ?? []) as $p) {
-            if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', (string)($p['value'] ?? ''))) return true;
+            $v = (string)($p['value'] ?? '');
+            if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', $v)) return true;
         }
 
         return false;
     }
+
+    /* =====================================================
+       Exclusiones por etiquetas / JSON
+    ===================================================== */
 
     private function applyEtiquetaExclusions($q, $db): void
     {
@@ -726,26 +1036,19 @@ class ConfirmacionController extends BaseController
         $needles = [
             '"cancelled_at":"', '"cancelled_at": "',
             '"canceled_at":"',  '"canceled_at": "',
-
             '"cancel_reason":"', '"cancel_reason": "',
             '"cancelreason":"',  '"cancelreason": "',
-
             '"financial_status":"refunded', '"financial_status": "refunded',
             '"financial_status":"voided',   '"financial_status": "voided',
             '"financial_status":"partially_refunded', '"financial_status": "partially_refunded',
             '"financial_status":"partially-refunded', '"financial_status": "partially-refunded',
-
             '"refunds":[{', '"refunds": [{', '"refunds":[ {', '"refunds": [ {',
-
             '"kind":"refund"', '"kind": "refund"',
-
             '"restock_type":"cancel', '"restock_type": "cancel',
-
             'cliente pide cancelar pedido',
             'devolucion 100', 'devolución 100',
             'devolucion', 'devolución',
             'devuelto', 'devuelta',
-
             'chargeback', 'contracargo',
             'dispute', 'disputa',
         ];
