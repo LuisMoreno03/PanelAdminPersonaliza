@@ -175,11 +175,14 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 |--------------------------------------------------------------------------
 */
 // ... tus rutas anteriores
+// ✅ Vista principal /placas
+$routes->get('placas', 'PlacasController::index');
+
+// ✅ API de archivos placas (ya la tenías)
 $routes->group('placas/archivos', function($routes) {
     $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
     $routes->get('stats', 'PlacasArchivosController::stats');
-
-    $routes->get('productos-por-producir', 'PlacasArchivosController::productosPorProducir'); // ✅ pedidos internos
+    $routes->get('productos-por-producir', 'PlacasArchivosController::productosPorProducir');
 
     $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
     $routes->post('renombrar', 'PlacasArchivosController::renombrar');
