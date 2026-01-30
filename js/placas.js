@@ -1,541 +1,449 @@
 /* global window, document, fetch */
 
 (() => {
-  // ----------------------------
-  // Helpers
-  // ----------------------------
-  const q = (id) => document.getElementById(id);
+  const API = {
+    listarPorDia: "/placas/archivos/listar-por-dia",
+    info: (id) => `/placas/archivos/info/${id}`,
+  };
 
-  function escapeHtml(str) {
-    return (str || "").replace(/[&<>"']/g, (s) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    }[s]));
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+  function esc(str) {
+    return String(str ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
   }
 
-  function formatFecha(fechaISO) {
-    if (!fechaISO) return "";
-    const d = new Date(String(fechaISO).replace(" ", "T"));
-    if (isNaN(d)) return String(fechaISO);
-    return d.toLocaleString("es-ES", {
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit"
-    });
+  function formatBytes(bytes) {
+    const b = Number(bytes || 0);
+    if (!b) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(b) / Math.log(k));
+    return `${(b / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`;
   }
 
-  function normalizeText(s) {
-    return String(s || "")
-      .toLowerCase()
-      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-      .trim();
+  function isImage(mime = "") {
+    return String(mime).startsWith("image/");
   }
 
-  function safeJsonParse(text) {
-    try { return JSON.parse(text); } catch (e) { return null; }
+  function isPdf(mime = "", name = "") {
+    return String(mime).includes("pdf") || String(name).toLowerCase().endsWith(".pdf");
   }
 
-  function csrfPair() {
-    const name = document.querySelector('meta[name="csrf-name"]')?.getAttribute("content");
-    const hash = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
-    return { name, hash };
+  function pickCoverItem(lote) {
+    if (!lote?.items?.length) return null;
+    // prefer image as cover
+    const img = lote.items.find((it) => isImage(it.mime));
+    return img || lote.items[0];
   }
 
-  function addCsrf(fd) {
-    const { name, hash } = csrfPair();
-    if (name && hash) fd.append(name, hash);
-    return fd;
+  function ensureRoot() {
+    let root = $("#placasRoot");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "placasRoot";
+      document.body.appendChild(root);
+    }
+    return root;
   }
 
-  function joinUrl(base, tail) {
-    if (!base) return "";
-    const b = String(base).replace(/\/+$/, "");
-    const t = String(tail).replace(/^\/+/, "");
-    return `${b}/${t}`;
-  }
-
-  function bytesToKb(size) {
-    const kb = Math.round((Number(size || 0)) / 1024);
-    return `${kb} KB`;
-  }
-
-  function isImageMime(mime) {
-    return String(mime || "").startsWith("image/");
-  }
-
-  function isPdfMime(mime) {
-    return String(mime || "").includes("pdf");
-  }
-
-  // ----------------------------
-  // API (desde el view)
-  // En tu vista PHP pon:
-  // window.PLACAS_API = { listar:'...', stats:'...', subir:'...', ver:'...', inline:'...', descargarBase:'...' }
-  // ----------------------------
-  const API = window.PLACAS_API || window.API || {};
-  if (!API.listar || !API.stats) {
-    console.warn("⚠️ Falta window.PLACAS_API con endpoints. Revisa tu view.");
-  }
-
-  // ----------------------------
-  // State
-  // ----------------------------
-  let placasMap = {};      // id -> item
-  let loteIndex = {};      // lote_id -> items[]
-  let searchTerm = "";
-  let modalItem = null;
-
-  // ----------------------------
-  // Modal "VER LOTE" (inyectado)
-  // ----------------------------
-  function ensureLoteModal() {
-    if (q("loteInfoBackdrop")) return;
-
-    const wrap = document.createElement("div");
-    wrap.id = "loteInfoBackdrop";
-    wrap.className = "fixed inset-0 bg-black/50 hidden z-[10050]";
-
-    wrap.innerHTML = `
-      <div class="w-full h-full flex items-start justify-center p-2 sm:p-4">
-        <div class="bg-white w-full max-w-6xl rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[95vh]">
-          <div class="px-4 sm:px-6 py-4 border-b flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="text-lg sm:text-xl font-black leading-tight" id="loteInfoTitle">Detalle del lote</div>
-              <div class="text-xs sm:text-sm text-gray-500 mt-1" id="loteInfoSub">—</div>
-            </div>
-            <button id="loteInfoClose"
-              class="shrink-0 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold bg-gray-100 hover:bg-gray-200">
-              Cerrar
-            </button>
+  function baseLayout() {
+    const root = ensureRoot();
+    root.innerHTML = `
+      <div class="w-full">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+          <div>
+            <h1 class="text-xl font-bold text-slate-900">PLACAS</h1>
+            <p id="placasSub" class="text-sm text-slate-500">Cargando...</p>
           </div>
 
-          <div class="p-4 sm:p-6 overflow-auto">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div class="lg:col-span-1">
-                <div class="border rounded-2xl p-4">
-                  <div class="font-extrabold text-sm mb-2">Información</div>
-                  <div class="text-sm text-gray-700 space-y-2">
-                    <div><span class="text-gray-500">Lote:</span> <span class="font-bold" id="loteInfoLote">—</span></div>
-                    <div><span class="text-gray-500">Nota/Número:</span> <span class="font-bold" id="loteInfoNota">—</span></div>
-                    <div><span class="text-gray-500">Fecha:</span> <span class="font-bold" id="loteInfoFecha">—</span></div>
-                    <div><span class="text-gray-500">Archivos:</span> <span class="font-bold" id="loteInfoTotal">0</span></div>
-                  </div>
+          <div class="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+            <div class="relative w-full md:w-[360px]">
+              <input id="placasSearch" type="text"
+                class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Buscar por lote, archivo o pedido..." />
+            </div>
+
+            <button id="placasReload"
+              class="rounded-lg bg-slate-900 text-white px-4 py-2 text-sm font-semibold hover:bg-slate-800">
+              Recargar
+            </button>
+          </div>
+        </div>
+
+        <div id="placasList" class="space-y-6"></div>
+      </div>
+
+      <!-- Modal (Ver) -->
+      <div id="placasModalWrap" class="fixed inset-0 z-[9999] hidden">
+        <div class="absolute inset-0 bg-black/40"></div>
+
+        <div class="absolute inset-0 p-2 md:p-6 flex items-center justify-center">
+          <div class="w-full max-w-6xl bg-white rounded-2xl shadow-xl overflow-hidden">
+            <div class="flex items-start justify-between gap-3 p-4 border-b">
+              <div>
+                <h2 id="placasModalTitle" class="text-lg font-bold text-slate-900">Detalle del lote</h2>
+                <p id="placasModalMeta" class="text-sm text-slate-500"></p>
+              </div>
+              <button id="placasModalClose"
+                class="rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+                Cerrar
+              </button>
+            </div>
+
+            <div class="p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div class="lg:col-span-1 space-y-4">
+                <div class="rounded-xl border border-slate-200 p-4">
+                  <h3 class="text-sm font-semibold text-slate-900 mb-2">Datos del lote</h3>
+                  <div id="placasModalLote" class="text-sm text-slate-700 space-y-1"></div>
                 </div>
 
-                <div class="border rounded-2xl p-4 mt-4">
-                  <div class="font-extrabold text-sm mb-2">Pedidos vinculados</div>
-                  <div class="text-xs text-gray-500 mb-2">Se guardan en <code class="px-2 py-0.5 bg-gray-100 rounded">pedidos_json</code></div>
-                  <div class="flex flex-wrap gap-2" id="loteInfoPedidos">
-                    <span class="text-sm text-gray-400">Sin pedidos</span>
-                  </div>
+                <div class="rounded-xl border border-slate-200 p-4">
+                  <h3 class="text-sm font-semibold text-slate-900 mb-2">Pedidos vinculados</h3>
+                  <div id="placasModalPedidos" class="text-sm text-slate-700 space-y-2"></div>
                 </div>
               </div>
 
               <div class="lg:col-span-2">
-                <div class="border rounded-2xl overflow-hidden">
-                  <div class="px-4 py-3 border-b flex items-center justify-between">
-                    <div class="font-extrabold text-sm">Archivos del lote</div>
-                    <div class="text-xs text-gray-500" id="loteInfoHint">Abrir o descargar fácilmente</div>
-                  </div>
-
-                  <div class="overflow-auto">
-                    <table class="w-full text-sm">
-                      <thead class="bg-gray-50 text-gray-600">
-                        <tr>
-                          <th class="text-left px-4 py-3">Archivo</th>
-                          <th class="text-left px-4 py-3 hidden sm:table-cell">Tipo</th>
-                          <th class="text-left px-4 py-3 hidden md:table-cell">Tamaño</th>
-                          <th class="text-right px-4 py-3">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody id="loteInfoFiles">
-                        <tr><td class="px-4 py-4 text-gray-400" colspan="4">Cargando…</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
+                <div class="flex items-center justify-between mb-3">
+                  <h3 class="text-sm font-semibold text-slate-900">Archivos del lote</h3>
+                  <span id="placasModalCount" class="text-xs text-slate-500"></span>
                 </div>
 
-                <div class="text-xs text-gray-500 mt-3">
-                  Tip: <b>Abrir</b> usa <code class="px-2 py-0.5 bg-gray-100 rounded">/inline</code> (preview) y <b>Descargar</b> usa <code class="px-2 py-0.5 bg-gray-100 rounded">/descargar</code>.
-                </div>
+                <div id="placasModalFiles" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
               </div>
             </div>
-          </div>
 
-          <div class="px-4 sm:px-6 py-4 border-t flex justify-end gap-2">
-            <button id="loteInfoCloseBottom"
-              class="rounded-xl px-4 py-2 text-sm font-bold bg-gray-100 hover:bg-gray-200">
-              Cerrar
-            </button>
+            <div class="p-4 border-t flex justify-end gap-2">
+              <button id="placasModalOk"
+                class="rounded-lg bg-blue-600 text-white px-4 py-2 text-sm font-semibold hover:bg-blue-700">
+                Listo
+              </button>
+            </div>
           </div>
         </div>
       </div>
     `;
+  }
 
-    document.body.appendChild(wrap);
+  function renderEmpty(msg) {
+    const list = $("#placasList");
+    if (!list) return;
+    list.innerHTML = `
+      <div class="rounded-xl border border-slate-200 bg-white p-6 text-center">
+        <p class="text-sm text-slate-600">${esc(msg)}</p>
+      </div>
+    `;
+  }
 
-    const close = () => wrap.classList.add("hidden");
-    q("loteInfoClose")?.addEventListener("click", close);
-    q("loteInfoCloseBottom")?.addEventListener("click", close);
-    wrap.addEventListener("click", (e) => {
-      if (e.target && e.target.id === "loteInfoBackdrop") close();
+  function renderDias(data, q = "") {
+    const list = $("#placasList");
+    const sub = $("#placasSub");
+    if (!list || !sub) return;
+
+    const placasHoy = Number(data?.placas_hoy || 0);
+    sub.textContent = `Placas hoy: ${placasHoy}`;
+
+    const dias = Array.isArray(data?.dias) ? data.dias : [];
+
+    const query = String(q || "").trim().toLowerCase();
+
+    // Filtrado simple
+    const filtered = dias
+      .map((d) => {
+        const lotes = Array.isArray(d.lotes) ? d.lotes : [];
+        const lotesFiltrados = lotes.filter((l) => {
+          const cover = pickCoverItem(l);
+          const inLote =
+            String(l.lote_nombre || "").toLowerCase().includes(query) ||
+            String(l.lote_id || "").toLowerCase().includes(query) ||
+            String(l.created_at || "").toLowerCase().includes(query);
+
+          const inFiles = (l.items || []).some((it) => {
+            return (
+              String(it.original || "").toLowerCase().includes(query) ||
+              String(it.nombre || "").toLowerCase().includes(query) ||
+              String(it.mime || "").toLowerCase().includes(query)
+            );
+          });
+
+          // pedidos_json viene string en items; pero en list puede venir en item
+          const pedidosText = String(cover?.pedidos_json || "");
+          const inPedidos = pedidosText.toLowerCase().includes(query);
+
+          if (!query) return true;
+          return inLote || inFiles || inPedidos;
+        });
+
+        return { ...d, lotes: lotesFiltrados };
+      })
+      .filter((d) => (d.lotes || []).length > 0);
+
+    if (!filtered.length) {
+      renderEmpty(query ? "No hay resultados para tu búsqueda." : "No hay placas para mostrar.");
+      return;
+    }
+
+    list.innerHTML = filtered
+      .map((dia) => {
+        const lotesHtml = (dia.lotes || [])
+          .map((l) => {
+            const cover = pickCoverItem(l);
+            const coverImg = cover && isImage(cover.mime)
+              ? `<img src="${esc(cover.url)}" alt="preview" class="h-14 w-14 rounded-lg object-cover border border-slate-200" />`
+              : `<div class="h-14 w-14 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center text-xs text-slate-500">
+                   ${cover ? esc((cover.original || "").split(".").pop() || "FILE").toUpperCase().slice(0,4) : "FILE"}
+                 </div>`;
+
+            const total = (l.items || []).length;
+            const created = esc(l.created_at || "");
+            const title = esc(l.lote_nombre || "Sin nombre");
+            const loteId = esc(l.lote_id || "");
+
+            // Usamos el ID del primer item para consultar info del lote (porque info se resuelve por lote_id internamente)
+            const infoId = cover ? Number(cover.id || 0) : 0;
+
+            return `
+              <div class="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  ${coverImg}
+                  <div class="min-w-0">
+                    <div class="font-semibold text-slate-900 truncate">${title}</div>
+                    <div class="text-xs text-slate-500 truncate">
+                      ${total} archivo(s) • ${created ? created : "sin fecha"} • ${loteId ? `ID: ${loteId}` : ""}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  class="placasVerBtn rounded-lg bg-slate-900 text-white px-3 py-2 text-sm font-semibold hover:bg-slate-800"
+                  data-id="${infoId}">
+                  Ver
+                </button>
+              </div>
+            `;
+          })
+          .join("");
+
+        return `
+          <section class="space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-sm font-semibold text-slate-900">${esc(dia.fecha)}</div>
+                <div class="text-xs text-slate-500">Total archivos: ${Number(dia.total_archivos || 0)}</div>
+              </div>
+            </div>
+            <div class="space-y-3">${lotesHtml}</div>
+          </section>
+        `;
+      })
+      .join("");
+
+    // bind botones Ver
+    $$(".placasVerBtn", list).forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = Number(btn.dataset.id || 0);
+        if (!id) return;
+        await openModal(id);
+      });
     });
   }
 
-  function openLoteModal() {
-    ensureLoteModal();
-    q("loteInfoBackdrop")?.classList.remove("hidden");
+  function modalOpen() {
+    const wrap = $("#placasModalWrap");
+    if (!wrap) return;
+    wrap.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
   }
 
-  function renderPedidosChips(pedidos) {
-    const box = q("loteInfoPedidos");
+  function modalClose() {
+    const wrap = $("#placasModalWrap");
+    if (!wrap) return;
+    wrap.classList.add("hidden");
+    document.body.classList.remove("overflow-hidden");
+  }
+
+  function renderPedidos(pedidos) {
+    const box = $("#placasModalPedidos");
     if (!box) return;
 
     const arr = Array.isArray(pedidos) ? pedidos : [];
     if (!arr.length) {
-      box.innerHTML = `<span class="text-sm text-gray-400">Sin pedidos vinculados</span>`;
+      box.innerHTML = `<div class="text-xs text-slate-500">Sin pedidos vinculados.</div>`;
       return;
     }
 
-    box.innerHTML = arr.map((p) => {
-      // soporta formatos: {number:"#PEDIDO001234", id:"..."} o strings
-      const label =
-        typeof p === "string"
-          ? p
-          : (p.number || p.numero || p.pedido || p.label || p.id || "");
-
-      return `
-        <span class="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-3 py-1 text-xs font-extrabold">
-          ${escapeHtml(label)}
-        </span>
-      `;
-    }).join("");
+    // Admite formatos distintos: string, {number, cliente}, etc.
+    box.innerHTML = `
+      <div class="flex flex-wrap gap-2">
+        ${arr.map((p) => {
+          if (typeof p === "string") {
+            return `<span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">${esc(p)}</span>`;
+          }
+          const num = p.number || p.numero || p.pedido || p.order_number || "";
+          const cliente = p.cliente || p.customer || "";
+          const label = `${num ? num : "Pedido"}${cliente ? " • " + cliente : ""}`;
+          return `<span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700">${esc(label)}</span>`;
+        }).join("")}
+      </div>
+    `;
   }
 
-  function renderFilesTable(files) {
-    const tbody = q("loteInfoFiles");
-    if (!tbody) return;
+  function fileCardHTML(f) {
+    const name = f.original || f.nombre || `archivo_${f.id}`;
+    const mime = f.mime || "";
+    const size = formatBytes(f.size || 0);
+    const created = f.created_at || "";
 
-    const arr = Array.isArray(files) ? files : [];
-    if (!arr.length) {
-      tbody.innerHTML = `<tr><td class="px-4 py-5 text-gray-400" colspan="4">No hay archivos en este lote.</td></tr>`;
-      return;
-    }
+    const preview = isImage(mime)
+      ? `<img src="${esc(f.url)}" alt="${esc(name)}" class="h-40 w-full object-cover rounded-lg border border-slate-200" />`
+      : isPdf(mime, name)
+        ? `<iframe src="${esc(f.url)}" class="h-40 w-full rounded-lg border border-slate-200 bg-white"></iframe>`
+        : `<div class="h-40 w-full rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center text-sm text-slate-500">
+             Vista previa no disponible
+           </div>`;
 
-    tbody.innerHTML = arr.map((f) => {
-      const name = (f.original || f.nombre || `archivo_${f.id}`) + "";
-      const mime = (f.mime || "") + "";
-      const size = bytesToKb(f.size || 0);
+    return `
+      <div class="rounded-xl border border-slate-200 bg-white p-3">
+        ${preview}
 
-      const inlineUrl = f.url || (API.inline ? joinUrl(API.inline, f.id) : "");
-      const downloadUrl = f.download_url || (API.descargarBase ? joinUrl(API.descargarBase, f.id) : "");
+        <div class="mt-3 flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <div class="text-sm font-semibold text-slate-900 truncate">${esc(name)}</div>
+            <div class="text-xs text-slate-500">
+              ${esc(mime || "application/octet-stream")} • ${esc(size)}${created ? ` • ${esc(created)}` : ""}
+            </div>
+          </div>
 
-      const thumb = isImageMime(mime) ? `
-        <img src="${escapeHtml(inlineUrl)}" class="w-10 h-10 rounded-lg object-cover border" alt="">
-      ` : `
-        <div class="w-10 h-10 rounded-lg border bg-gray-50 flex items-center justify-center text-xs font-black text-gray-500">
-          ${isPdfMime(mime) ? "PDF" : "FILE"}
+          <div class="flex gap-2 shrink-0">
+            <a href="${esc(f.url)}" target="_blank"
+              class="rounded-lg border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50">
+              Abrir
+            </a>
+            <a href="${esc(f.download_url)}"
+              class="rounded-lg bg-blue-600 text-white px-3 py-2 text-xs font-semibold hover:bg-blue-700">
+              Descargar
+            </a>
+          </div>
         </div>
-      `;
-
-      return `
-        <tr class="border-t">
-          <td class="px-4 py-3">
-            <div class="flex items-center gap-3 min-w-0">
-              ${thumb}
-              <div class="min-w-0">
-                <div class="font-extrabold truncate">${escapeHtml(name)}</div>
-                <div class="text-xs text-gray-500 truncate">#${escapeHtml(String(f.id))}</div>
-              </div>
-            </div>
-          </td>
-
-          <td class="px-4 py-3 hidden sm:table-cell">
-            <div class="text-xs text-gray-600">${escapeHtml(mime || "—")}</div>
-          </td>
-
-          <td class="px-4 py-3 hidden md:table-cell">
-            <div class="text-xs text-gray-600">${escapeHtml(size)}</div>
-          </td>
-
-          <td class="px-4 py-3 text-right">
-            <div class="inline-flex gap-2">
-              <button type="button"
-                class="rounded-xl px-3 py-2 text-xs font-extrabold bg-gray-100 hover:bg-gray-200"
-                onclick="window.open('${escapeHtml(inlineUrl)}','_blank')">
-                Abrir
-              </button>
-              <button type="button"
-                class="rounded-xl px-3 py-2 text-xs font-extrabold bg-blue-600 text-white hover:brightness-110"
-                onclick="window.open('${escapeHtml(downloadUrl)}','_blank')">
-                Descargar
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join("");
+      </div>
+    `;
   }
 
-  async function abrirDetalleLoteDesdeArchivoId(fileId) {
-    ensureLoteModal();
-    openLoteModal();
+  async function openModal(id) {
+    const title = $("#placasModalTitle");
+    const meta = $("#placasModalMeta");
+    const loteBox = $("#placasModalLote");
+    const filesBox = $("#placasModalFiles");
+    const count = $("#placasModalCount");
 
-    // placeholders
-    q("loteInfoTitle").textContent = "Cargando…";
-    q("loteInfoSub").textContent = "";
-    q("loteInfoLote").textContent = "—";
-    q("loteInfoNota").textContent = "—";
-    q("loteInfoFecha").textContent = "—";
-    q("loteInfoTotal").textContent = "0";
-    q("loteInfoFiles").innerHTML = `<tr><td class="px-4 py-4 text-gray-400" colspan="4">Cargando…</td></tr>`;
-    q("loteInfoPedidos").innerHTML = `<span class="text-sm text-gray-400">Cargando…</span>`;
+    if (title) title.textContent = "Cargando detalle...";
+    if (meta) meta.textContent = "";
+    if (loteBox) loteBox.innerHTML = "";
+    if (filesBox) filesBox.innerHTML = "";
+    if (count) count.textContent = "";
 
-    const url = API.ver ? joinUrl(API.ver, fileId) : (API.info ? joinUrl(API.info, fileId) : "");
-    if (!url) {
-      q("loteInfoTitle").textContent = "Error";
-      q("loteInfoFiles").innerHTML = `<tr><td class="px-4 py-4 text-red-500" colspan="4">Falta API.ver en window.PLACAS_API</td></tr>`;
-      return;
-    }
+    modalOpen();
 
     try {
-      const res = await fetch(url, { cache: "no-store" });
-      const text = await res.text();
-      const data = safeJsonParse(text);
+      const res = await fetch(API.info(id), { headers: { "Accept": "application/json" } });
+      const data = await res.json().catch(() => null);
 
       if (!res.ok || !data || !data.success) {
-        q("loteInfoTitle").textContent = "No se pudo cargar";
-        q("loteInfoFiles").innerHTML = `<tr><td class="px-4 py-4 text-red-500" colspan="4">
-          ${escapeHtml((data && data.message) ? data.message : text.slice(0, 180))}
-        </td></tr>`;
-        q("loteInfoPedidos").innerHTML = `<span class="text-sm text-gray-400">—</span>`;
-        return;
+        throw new Error((data && data.message) ? data.message : `Error HTTP ${res.status}`);
       }
 
       const lote = data.lote || {};
-      const files = data.files || [];
+      const files = Array.isArray(data.files) ? data.files : [];
 
-      const loteNombre = (lote.lote_nombre || "Lote").trim();
-      const loteId = lote.lote_id || "";
-      const nota = lote.numero_placa || "—";
-      const fecha = lote.created_at ? formatFecha(lote.created_at) : "—";
-      const total = lote.total_files ?? files.length ?? 0;
+      if (title) title.textContent = lote.lote_nombre ? `Lote: ${lote.lote_nombre}` : "Detalle del lote";
+      if (meta) meta.textContent = `${lote.lote_id ? "ID: " + lote.lote_id + " • " : ""}${lote.created_at ? lote.created_at + " • " : ""}${lote.total_files ? lote.total_files + " archivo(s)" : ""}`;
+      if (count) count.textContent = `${files.length} archivo(s)`;
 
-      q("loteInfoTitle").textContent = `📦 ${loteNombre}`;
-      q("loteInfoSub").textContent = loteId ? `ID: ${loteId}` : "";
-      q("loteInfoLote").textContent = loteNombre;
-      q("loteInfoNota").textContent = nota || "—";
-      q("loteInfoFecha").textContent = fecha;
-      q("loteInfoTotal").textContent = String(total);
-
-      renderPedidosChips(lote.pedidos || []);
-      renderFilesTable(files);
-
-    } catch (e) {
-      q("loteInfoTitle").textContent = "Error";
-      q("loteInfoFiles").innerHTML = `<tr><td class="px-4 py-4 text-red-500" colspan="4">
-        ${escapeHtml(String(e.message || e))}
-      </td></tr>`;
-    }
-  }
-
-  // ----------------------------
-  // Listado (vista agrupada por día)
-  // ----------------------------
-  function itemMatches(it, term) {
-    if (!term) return true;
-    const hay = normalizeText([
-      it.nombre, it.original, it.id, it.mime, it.lote_id, it.lote_nombre, it.numero_placa
-    ].join(" "));
-    return hay.includes(term);
-  }
-
-  async function cargarStats() {
-    if (!API.stats || !q("placasHoy")) return;
-    try {
-      const res = await fetch(API.stats, { cache: "no-store" });
-      const text = await res.text();
-      const data = safeJsonParse(text);
-      if (data?.success) q("placasHoy").textContent = data.data?.total ?? 0;
-    } catch (e) {}
-  }
-
-  async function cargarVistaAgrupada() {
-    if (!API.listar) return;
-
-    placasMap = {};
-    loteIndex = {};
-
-    const cont = q("contenedorDias");
-    if (!cont) return;
-
-    try {
-      const res = await fetch(API.listar, { cache: "no-store" });
-      const text = await res.text();
-      const data = safeJsonParse(text);
-
-      if (!res.ok || !data?.success || !Array.isArray(data.dias)) {
-        cont.innerHTML = `<div class="text-sm text-gray-500">No hay datos para mostrar.</div>`;
-        return;
-      }
-
-      if (q("placasHoy")) q("placasHoy").textContent = data.placas_hoy ?? 0;
-
-      const term = normalizeText(searchTerm);
-      const dias = term ? data.dias.map(d => ({
-        ...d,
-        lotes: (d.lotes || []).map(l => ({
-          ...l,
-          items: (l.items || []).filter(it => itemMatches(it, term))
-        })).filter(l => (l.items || []).length > 0)
-      })).filter(d => (d.lotes || []).length > 0) : data.dias;
-
-      if (term && !dias.length) {
-        cont.innerHTML = `<div class="text-sm text-gray-500">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
-        return;
-      }
-
-      cont.innerHTML = "";
-
-      for (const dia of dias) {
-        const diaBox = document.createElement("div");
-        diaBox.className = "bg-white border border-gray-200 rounded-2xl p-4";
-
-        diaBox.innerHTML = `
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <div class="text-lg font-black">${escapeHtml(dia.fecha)}</div>
-              <div class="text-sm text-gray-500">Total: ${escapeHtml(String(dia.total_archivos || 0))}</div>
-            </div>
-          </div>
-          <div class="mt-4 grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" data-dia-grid></div>
+      if (loteBox) {
+        loteBox.innerHTML = `
+          <div><span class="text-slate-500">Lote ID:</span> <span class="font-medium">${esc(lote.lote_id || "-")}</span></div>
+          <div><span class="text-slate-500">Nombre:</span> <span class="font-medium">${esc(lote.lote_nombre || "-")}</span></div>
+          <div><span class="text-slate-500">Número placa/nota:</span> <span class="font-medium">${esc(lote.numero_placa || "-")}</span></div>
+          <div><span class="text-slate-500">Fecha:</span> <span class="font-medium">${esc(lote.created_at || "-")}</span></div>
+          <div><span class="text-slate-500">Total archivos:</span> <span class="font-medium">${esc(lote.total_files ?? files.length)}</span></div>
         `;
-
-        const grid = diaBox.querySelector("[data-dia-grid]");
-        cont.appendChild(diaBox);
-
-        for (const lote of (dia.lotes || [])) {
-          const lid = String(lote.lote_id ?? "");
-          const lnombre = (lote.lote_nombre || "").trim() || "Sin nombre";
-          const items = lote.items || [];
-          const total = items.length;
-
-          loteIndex[lid] = items;
-          items.forEach(it => { placasMap[it.id] = it; });
-
-          const principal = items[0] || null;
-          const thumb = principal?.thumb_url || principal?.url || "";
-
-          const card = document.createElement("div");
-          card.className = "border border-gray-200 rounded-2xl p-4 hover:shadow-sm transition bg-white";
-
-          card.innerHTML = `
-            <div class="flex items-start gap-3">
-              <div class="w-14 h-14 rounded-xl border bg-gray-50 overflow-hidden shrink-0 flex items-center justify-center">
-                ${thumb ? `<img src="${escapeHtml(thumb)}" class="w-full h-full object-cover" />` : `<span class="text-xs text-gray-400 font-bold">LOTE</span>`}
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="font-black truncate">📦 ${escapeHtml(lnombre)}</div>
-                <div class="text-xs text-gray-500 mt-1">${escapeHtml(String(total))} archivo(s) • ${escapeHtml(String(lote.created_at || ""))}</div>
-                <div class="mt-3 flex flex-wrap gap-2">
-                  <button type="button"
-                    class="rounded-xl px-3 py-2 text-xs font-extrabold bg-gray-900 text-white hover:brightness-110"
-                    data-ver-lote>
-                    Ver
-                  </button>
-
-                  ${API.descargarPngLote ? `
-                    <a class="rounded-xl px-3 py-2 text-xs font-extrabold bg-emerald-600 text-white hover:brightness-110"
-                      href="${escapeHtml(joinUrl(API.descargarPngLote, encodeURIComponent(lid)))}"
-                      onclick="event.stopPropagation()">
-                      Descargar PNG
-                    </a>
-                  ` : ``}
-
-                  ${API.descargarJpgLote ? `
-                    <a class="rounded-xl px-3 py-2 text-xs font-extrabold bg-blue-600 text-white hover:brightness-110"
-                      href="${escapeHtml(joinUrl(API.descargarJpgLote, encodeURIComponent(lid)))}"
-                      onclick="event.stopPropagation()">
-                      Descargar JPG
-                    </a>
-                  ` : ``}
-                </div>
-              </div>
-            </div>
-          `;
-
-          // ✅ Ver => abre modal detalle lote desde el primer archivo (ver/{id} arma todo el lote)
-          card.querySelector("[data-ver-lote]")?.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const first = (loteIndex[lid] || [])[0];
-            if (!first?.id) return;
-            abrirDetalleLoteDesdeArchivoId(first.id);
-          });
-
-          // click card también abre detalle
-          card.addEventListener("click", () => {
-            const first = (loteIndex[lid] || [])[0];
-            if (!first?.id) return;
-            abrirDetalleLoteDesdeArchivoId(first.id);
-          });
-
-          grid.appendChild(card);
-        }
       }
 
-    } catch (e) {
-      cont.innerHTML = `<div class="text-sm text-gray-500">Error cargando archivos.</div>`;
+      renderPedidos(lote.pedidos);
+
+      if (filesBox) {
+        filesBox.innerHTML = files.length
+          ? files.map(fileCardHTML).join("")
+          : `<div class="text-sm text-slate-500">Este lote no tiene archivos.</div>`;
+      }
+
+    } catch (err) {
+      if (title) title.textContent = "No se pudo cargar el detalle";
+      if (meta) meta.textContent = "";
+      if (filesBox) filesBox.innerHTML = `<div class="text-sm text-red-600">${esc(err.message || "Error desconocido")}</div>`;
     }
   }
 
-  // ----------------------------
-  // Buscador principal (si existe)
-  // ----------------------------
-  function initSearch() {
-    const input = q("searchInput");
-    const clear = q("searchClear");
-    if (!input) return;
+  async function loadAndRender() {
+    try {
+      const sub = $("#placasSub");
+      if (sub) sub.textContent = "Cargando...";
 
-    let t = null;
+      const res = await fetch(API.listarPorDia, { headers: { "Accept": "application/json" } });
+      const data = await res.json().catch(() => null);
 
-    const apply = (v) => {
-      searchTerm = v || "";
-      if (clear) clear.classList.toggle("hidden", !searchTerm.trim());
-      cargarVistaAgrupada();
-    };
+      if (!res.ok || !data || !data.success) {
+        throw new Error((data && data.message) ? data.message : `Error HTTP ${res.status}`);
+      }
 
-    input.addEventListener("input", (e) => {
-      clearTimeout(t);
-      t = setTimeout(() => apply(e.target.value), 120);
+      window.__PLACAS_DATA__ = data;
+      renderDias(data, ($("#placasSearch")?.value || ""));
+
+    } catch (err) {
+      renderEmpty(`Error cargando placas: ${err.message || "desconocido"}`);
+    }
+  }
+
+  function bindEvents() {
+    const close = $("#placasModalClose");
+    const ok = $("#placasModalOk");
+    const wrap = $("#placasModalWrap");
+    const reload = $("#placasReload");
+    const search = $("#placasSearch");
+
+    close?.addEventListener("click", modalClose);
+    ok?.addEventListener("click", modalClose);
+
+    // click fuera
+    wrap?.addEventListener("click", (e) => {
+      if (e.target === wrap || e.target?.classList?.contains("bg-black/40")) modalClose();
     });
 
-    if (clear) {
-      clear.addEventListener("click", () => {
-        input.value = "";
-        apply("");
-        input.focus();
-      });
-    }
+    // ESC
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") modalClose();
+    });
+
+    reload?.addEventListener("click", loadAndRender);
+
+    let t = null;
+    search?.addEventListener("input", () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        renderDias(window.__PLACAS_DATA__ || {}, search.value || "");
+      }, 150);
+    });
   }
 
-  // ----------------------------
-  // Init
-  // ----------------------------
-  async function init() {
-    initSearch();
-    await cargarStats();
-    await cargarVistaAgrupada();
-
-    // refresco cada 10 min
-    setInterval(async () => {
-      await cargarStats();
-      await cargarVistaAgrupada();
-    }, 600000);
-  }
-
-  // Export para debug si quieres
-  window.__PLACAS = {
-    abrirDetalleLoteDesdeArchivoId,
-    recargar: async () => { await cargarStats(); await cargarVistaAgrupada(); }
-  };
-
-  init();
+  document.addEventListener("DOMContentLoaded", async () => {
+    baseLayout();
+    bindEvents();
+    await loadAndRender();
+  });
 })();
