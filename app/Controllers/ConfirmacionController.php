@@ -23,29 +23,29 @@ class ConfirmacionController extends BaseController
 
     private function normalizeShopifyOrderId($id): string
     {
-        $s = trim((string)$id);
+        $s = trim((string) $id);
         if ($s === '') return '';
-        if (preg_match('~/Order/(\d+)~i', $s, $m)) return (string)$m[1];
+        if (preg_match('~/Order/(\d+)~i', $s, $m)) return (string) $m[1];
         return $s;
     }
 
     private function orderKeyFromPedido(array $pedido): string
     {
-        $sid = trim((string)($pedido['shopify_order_id'] ?? ''));
+        $sid = trim((string) ($pedido['shopify_order_id'] ?? ''));
         if ($sid !== '' && $sid !== '0') return $sid;
-        return (string)($pedido['id'] ?? '');
+        return (string) ($pedido['id'] ?? '');
     }
 
     private function getCurrentUserName(): string
     {
-        $u = (string)(session('nombre') ?? session('user_name') ?? 'Sistema');
+        $u = (string) (session('nombre') ?? session('user_name') ?? 'Sistema');
         $u = trim($u);
         return $u !== '' ? $u : 'Sistema';
     }
 
     private function toDbDateTime(?string $value): ?string
     {
-        $value = trim((string)$value);
+        $value = trim((string) $value);
         if ($value === '') return null;
 
         // Si ya viene como "Y-m-d H:i:s"
@@ -53,6 +53,7 @@ class ConfirmacionController extends BaseController
             return $value;
         }
 
+        // ISO / otros formatos parseables
         try {
             $dt = new \DateTimeImmutable($value);
             return $dt->format('Y-m-d H:i:s');
@@ -63,12 +64,12 @@ class ConfirmacionController extends BaseController
 
     private function dbToIso(?string $dbDateTime): string
     {
-        $dbDateTime = trim((string)$dbDateTime);
+        $dbDateTime = trim((string) $dbDateTime);
         if ($dbDateTime === '') return '';
 
         try {
             $dt = new \DateTimeImmutable($dbDateTime);
-            return $dt->format(DATE_ATOM);
+            return $dt->format(DATE_ATOM); // ISO 8601
         } catch (\Throwable $e) {
             return $dbDateTime;
         }
@@ -104,38 +105,6 @@ class ConfirmacionController extends BaseController
         END";
     }
 
-    /**
-     * ✅ Lee la nota guardada en confirmacion_order_notes por orderKey
-     */
-    private function getOrderNoteByKey(string $orderKey): array
-    {
-        $orderKey = trim($orderKey);
-        if ($orderKey === '') {
-            return ['note' => '', 'modified_by' => '', 'modified_at' => ''];
-        }
-
-        $db = Database::connect();
-
-        if (!$db->tableExists('confirmacion_order_notes')) {
-            return ['note' => '', 'modified_by' => '', 'modified_at' => ''];
-        }
-
-        $row = $db->table('confirmacion_order_notes')
-            ->where('order_id', $orderKey)
-            ->get()
-            ->getRowArray();
-
-        if (!$row) {
-            return ['note' => '', 'modified_by' => '', 'modified_at' => ''];
-        }
-
-        return [
-            'note'        => (string)($row['note'] ?? ''),
-            'modified_by' => (string)($row['modified_by'] ?? ''),
-            'modified_at' => $this->dbToIso((string)($row['modified_at'] ?? '')),
-        ];
-    }
-
     /* =====================================================
       GET /confirmacion/my-queue
       ✅ Express primero
@@ -149,7 +118,7 @@ class ConfirmacionController extends BaseController
                 return $this->json(['ok' => false, 'success' => false, 'message' => 'No auth'], 401);
             }
 
-            $userId = (int)session('user_id');
+            $userId = (int) session('user_id');
             if ($userId <= 0) {
                 return $this->json(['ok' => false, 'success' => false, 'message' => 'User inválido'], 401);
             }
@@ -169,7 +138,7 @@ class ConfirmacionController extends BaseController
                 ? 'pe.estado_updated_by_name as estado_por'
                 : ($hasPeUserName ? 'pe.user_name as estado_por' : 'NULL as estado_por');
 
-            $driver = strtolower((string)($db->DBDriver ?? ''));
+            $driver = strtolower((string) ($db->DBDriver ?? ''));
 
             // orderKey SQL: usa shopify_order_id si existe y no es '' ni '0', si no usa p.id
             if ($hasShopifyId) {
@@ -233,12 +202,12 @@ class ConfirmacionController extends BaseController
             }
 
             $q->where('p.assigned_to_user_id', $userId)
-                ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por preparar','faltan archivos')", null, false)
-                ->groupStart()
-                    ->where('p.estado_envio IS NULL', null, false)
-                    ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
-                    ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
-                ->groupEnd();
+              ->where("LOWER(TRIM(COALESCE(pe.estado,'por preparar'))) IN ('por preparar','faltan archivos')", null, false)
+              ->groupStart()
+                  ->where('p.estado_envio IS NULL', null, false)
+                  ->orWhere("TRIM(COALESCE(p.estado_envio,'')) = ''", null, false)
+                  ->orWhere("LOWER(TRIM(p.estado_envio)) = 'unfulfilled'", null, false)
+              ->groupEnd();
 
             $this->applyEtiquetaExclusions($q, $db);
             $this->applyPedidoJsonExclusions($q, $db, $hasPedidoJson);
@@ -255,9 +224,7 @@ class ConfirmacionController extends BaseController
                 $rows = array_values(array_filter($rows, function ($r) {
                     return !$this->isCancelledFromPedidoJson($r['pedido_json'] ?? null);
                 }));
-                foreach ($rows as &$r) {
-                    unset($r['pedido_json']);
-                }
+                foreach ($rows as &$r) { unset($r['pedido_json']); }
                 unset($r);
             }
 
@@ -280,13 +247,13 @@ class ConfirmacionController extends BaseController
                 return $this->json(['ok' => false, 'message' => 'No auth'], 401);
             }
 
-            $userId = (int)session('user_id');
+            $userId = (int) session('user_id');
             $user   = $this->getCurrentUserName();
 
             $payload = $this->request->getJSON(true);
             if (!is_array($payload)) $payload = [];
 
-            $count = (int)($payload['count'] ?? 5);
+            $count = (int) ($payload['count'] ?? 5);
             $count = in_array($count, [5, 10], true) ? $count : 5;
 
             $db  = Database::connect();
@@ -355,8 +322,8 @@ class ConfirmacionController extends BaseController
                 ->update(['assigned_to_user_id' => $userId, 'assigned_at' => $now]);
 
             foreach ($candidatos as $c) {
-                $orderKey = trim((string)($c['shopify_order_id'] ?? ''));
-                if ($orderKey === '') $orderKey = (string)($c['id'] ?? '');
+                $orderKey = trim((string) ($c['shopify_order_id'] ?? ''));
+                if ($orderKey === '') $orderKey = (string) ($c['id'] ?? '');
                 if ($orderKey === '') continue;
 
                 $db->table('pedidos_estado_historial')->insert([
@@ -396,7 +363,7 @@ class ConfirmacionController extends BaseController
             return $this->json(['ok' => false], 401);
         }
 
-        $userId = (int)session('user_id');
+        $userId = (int) session('user_id');
         if ($userId <= 0) return $this->json(['ok' => false], 400);
 
         Database::connect()
@@ -409,33 +376,14 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
        POST /confirmacion/guardar-nota
-       ✅ Guarda nota con orderKey consistente
-       ✅ Devuelve lo guardado
-       ✅ Incluye alias guardarNotaPedido() por compatibilidad con JS
-       ✅ Para "tiempo real": detalles() devuelve order_note
+       ✅ FIX: incluye toDbDateTime() y dbToIso()
+       ✅ FIX: usa \Config\Database y no $this->respond()
     ===================================================== */
-
-    // ✅ alias por si tu JS llama a /confirmacion/guardar-nota-pedido o método guardarNotaPedido()
-    public function guardarNotaPedido()
-    {
-        return $this->guardarNota();
-    }
-
     public function guardarNota()
     {
         try {
             if (!session()->get('logged_in')) {
                 return $this->json(['success' => false, 'ok' => false, 'message' => 'No auth'], 401);
-            }
-
-            $db = Database::connect();
-
-            if (!$db->tableExists('confirmacion_order_notes')) {
-                return $this->json([
-                    'success' => false,
-                    'ok'      => false,
-                    'message' => 'Falta la tabla confirmacion_order_notes en la BD.'
-                ], 500);
             }
 
             // 1) Leer JSON o fallback a POST
@@ -444,33 +392,30 @@ class ConfirmacionController extends BaseController
                 $payload = $this->request->getPost() ?? [];
             }
 
-            $orderIdRaw = trim((string)($payload['order_id'] ?? $payload['id'] ?? ''));
+            $orderIdRaw = trim((string) ($payload['order_id'] ?? $payload['id'] ?? ''));
             if ($orderIdRaw === '') {
                 return $this->json(['success' => false, 'ok' => false, 'message' => 'order_id requerido'], 422);
             }
 
             $idNorm = $this->normalizeShopifyOrderId($orderIdRaw);
 
-            $note       = (string)($payload['note'] ?? '');
-            $modifiedBy = trim((string)($payload['modified_by'] ?? $payload['user'] ?? ''));
+            $note       = (string) ($payload['note'] ?? '');
+            $modifiedBy = trim((string) ($payload['modified_by'] ?? $payload['user'] ?? ''));
             if ($modifiedBy === '') $modifiedBy = $this->getCurrentUserName();
 
-            $modifiedAt = $this->toDbDateTime((string)($payload['modified_at'] ?? '')) ?? date('Y-m-d H:i:s');
+            $modifiedAt = $this->toDbDateTime((string) ($payload['modified_at'] ?? '')) ?? date('Y-m-d H:i:s');
             $now        = date('Y-m-d H:i:s');
 
-            // Resolver pedido y usar orderKey consistente (shopify_order_id si existe y no es 0)
+            $db = Database::connect();
+
+            // Resolver pedido y usar orderKey consistente (shopify_order_id si existe)
             $pedido = $this->findPedidoByAny($idNorm) ?: $this->findPedidoByAny($orderIdRaw);
-            if (!$pedido) {
-                // Si no existe pedido, guardamos con el id normalizado como fallback
-                $orderKey = $idNorm !== '' ? $idNorm : $orderIdRaw;
-            } else {
-                $orderKey = $this->orderKeyFromPedido($pedido);
-                if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? ($idNorm ?: $orderIdRaw));
-            }
+            $orderKey = $pedido ? $this->orderKeyFromPedido($pedido) : $idNorm;
+            if (trim($orderKey) === '') $orderKey = $orderIdRaw;
 
             $table = $db->table('confirmacion_order_notes');
 
-            // 2) Upsert manual por order_id
+            // 2) Ver si existe por order_id (upsert manual)
             $existing = $table->select('id')
                 ->where('order_id', $orderKey)
                 ->get()
@@ -498,9 +443,9 @@ class ConfirmacionController extends BaseController
                 'success'     => true,
                 'ok'          => true,
                 'order_id'    => $orderKey,
-                'note'        => (string)($saved['note'] ?? ''),
-                'modified_by' => (string)($saved['modified_by'] ?? ''),
-                'modified_at' => $this->dbToIso((string)($saved['modified_at'] ?? '')),
+                'note'        => (string) ($saved['note'] ?? ''),
+                'modified_by' => (string) ($saved['modified_by'] ?? ''),
+                'modified_at' => $this->dbToIso((string) ($saved['modified_at'] ?? '')),
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'ConfirmacionController guardarNota() error: ' . $e->getMessage());
@@ -512,10 +457,6 @@ class ConfirmacionController extends BaseController
         }
     }
 
-    /* =====================================================
-      GET /confirmacion/detalles/{id}
-      ✅ Ahora también devuelve order_note (para "tiempo real")
-    ===================================================== */
     public function detalles($id = null)
     {
         if (!session()->get('logged_in')) {
@@ -534,7 +475,7 @@ class ConfirmacionController extends BaseController
             $hasImgLocales = in_array('imagenes_locales', $pFields, true);
             $hasProdImages = in_array('product_images', $pFields, true);
 
-            $pedido = $this->findPedidoByAny($idNorm) ?: $this->findPedidoByAny((string)$id);
+            $pedido = $this->findPedidoByAny($idNorm) ?: $this->findPedidoByAny((string) $id);
 
             if (!$pedido) {
                 return $this->json(['success' => false, 'message' => 'Pedido no encontrado'], 404);
@@ -563,19 +504,11 @@ class ConfirmacionController extends BaseController
             $productImages = $hasProdImages ? json_decode($pedido['product_images'] ?? '{}', true) : [];
             if (!is_array($productImages)) $productImages = [];
 
-            // ✅ nota en "tiempo real"
-            $orderKey = $this->orderKeyFromPedido($pedido);
-            if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $idNorm);
-
-            $orderNote = $this->getOrderNoteByKey($orderKey);
-
             return $this->json([
                 'success' => true,
                 'order' => $orderJson,
                 'imagenes_locales' => $imagenesLocales,
                 'product_images' => $productImages,
-                'order_key' => $orderKey,
-                'order_note' => $orderNote, // ✅ IMPORTANTE para que se mantenga al recargar
             ]);
         } catch (\Throwable $e) {
             log_message('error', 'ConfirmacionController detalles() error: ' . $e->getMessage());
@@ -595,7 +528,7 @@ class ConfirmacionController extends BaseController
             return $this->json(['success' => false, 'message' => 'No auth'], 401);
         }
 
-        $orderIdRaw = (string)($this->request->getGet('order_id') ?? '');
+        $orderIdRaw = (string) ($this->request->getGet('order_id') ?? '');
         $orderId = $this->normalizeShopifyOrderId($orderIdRaw);
         if ($orderId === '') {
             return $this->json(['success' => false, 'message' => 'order_id requerido'], 400);
@@ -625,14 +558,16 @@ class ConfirmacionController extends BaseController
 
             helper(['url']);
 
-            $orderIdRaw = (string)($this->request->getPost('order_id') ?? '');
+            $orderIdRaw = (string) ($this->request->getPost('order_id') ?? '');
             $orderId    = $this->normalizeShopifyOrderId($orderIdRaw);
 
-            $index = (int)($this->request->getPost('line_index') ?? 0);
+            $index = (int) ($this->request->getPost('line_index') ?? 0);
             $file  = $this->request->getFile('file');
 
+            // ✅ Límite 20MB (en KB)
             $maxKB = 20480;
 
+            // ✅ VALIDACIÓN más robusta: ext_in en vez de mime_in
             $rules = [
                 'file' => [
                     'rules'  => 'uploaded[file]|max_size[file,' . $maxKB . ']|is_image[file]|ext_in[file,jpg,jpeg,png,webp,gif,svg]',
@@ -648,17 +583,19 @@ class ConfirmacionController extends BaseController
             if (!$this->validate($rules)) {
                 $err = $this->validator->getError('file') ?? 'Archivo inválido';
                 log_message('error', 'Confirmacion subirImagen validate error: ' . $err);
+
                 return $this->json(['success' => false, 'message' => $err], 200);
             }
 
             if (!$file || !$file->isValid()) {
                 $msg = $file ? $file->getErrorString() : 'Archivo inválido';
                 log_message('error', 'Confirmacion subirImagen invalid file: ' . $msg);
+
                 return $this->json(['success' => false, 'message' => $msg], 200);
             }
 
-            $modifiedBy = trim((string)$this->request->getPost('modified_by'));
-            $modifiedAt = trim((string)$this->request->getPost('modified_at'));
+            $modifiedBy = trim((string) $this->request->getPost('modified_by'));
+            $modifiedAt = trim((string) $this->request->getPost('modified_at'));
             if ($modifiedBy === '') $modifiedBy = $this->getCurrentUserName();
             if ($modifiedAt === '') $modifiedAt = date(DATE_ATOM);
 
@@ -677,17 +614,19 @@ class ConfirmacionController extends BaseController
             }
 
             $orderKey = $this->orderKeyFromPedido($pedido);
-            if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $orderId);
+            if (trim($orderKey) === '') $orderKey = (string) ($pedido['id'] ?? $orderId);
 
             $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
             if (!is_array($imagenes)) $imagenes = [];
 
-            $prev = $imagenes[(string)$index] ?? $imagenes[$index] ?? null;
+            // borrar anterior del mismo index si existe y es local
+            $prev = $imagenes[(string) $index] ?? $imagenes[$index] ?? null;
             $prevUrl = '';
             if (is_string($prev)) $prevUrl = $prev;
-            if (is_array($prev))  $prevUrl = (string)($prev['url'] ?? $prev['value'] ?? '');
+            if (is_array($prev))  $prevUrl = (string) ($prev['url'] ?? $prev['value'] ?? '');
             if ($prevUrl) $this->tryDeleteLocalUploadByUrl($prevUrl);
 
+            // guardar en PUBLIC: /public/uploads/confirmacion/{orderKey}/
             $dir = rtrim(FCPATH, '/\\') . '/uploads/confirmacion/' . $orderKey;
 
             if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
@@ -708,17 +647,17 @@ class ConfirmacionController extends BaseController
 
             $url = base_url('uploads/confirmacion/' . $orderKey . '/' . $name);
 
-            $imagenes[(string)$index] = [
+            $imagenes[(string) $index] = [
                 'url'         => $url,
                 'modified_by' => $modifiedBy,
                 'modified_at' => $modifiedAt,
             ];
 
             $db->table('pedidos')
-                ->where('id', (int)$pedido['id'])
+                ->where('id', (int) $pedido['id'])
                 ->update(['imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES)]);
 
-            $nuevoEstado = $this->validarEstadoAutomatico((int)$pedido['id'], $orderKey);
+            $nuevoEstado = $this->validarEstadoAutomatico((int) $pedido['id'], $orderKey);
 
             return $this->json([
                 'success'     => true,
@@ -741,14 +680,14 @@ class ConfirmacionController extends BaseController
         $url = trim($url);
         if ($url === '') return;
 
-        $path = (string)parse_url($url, PHP_URL_PATH);
+        $path = (string) parse_url($url, PHP_URL_PATH);
         if ($path === '') return;
 
         $needle = '/uploads/confirmacion/';
         $pos = strpos($path, $needle);
         if ($pos === false) return;
 
-        $rel  = substr($path, $pos);
+        $rel  = substr($path, $pos); // desde /uploads/confirmacion/...
         $full = rtrim(FCPATH, '/\\') . $rel;
 
         if (is_file($full)) {
@@ -768,11 +707,11 @@ class ConfirmacionController extends BaseController
             $payload = $this->request->getJSON(true);
             if (!is_array($payload)) $payload = [];
 
-            $orderIdRaw = (string)($payload['order_id'] ?? $payload['id'] ?? '');
+            $orderIdRaw = (string) ($payload['order_id'] ?? $payload['id'] ?? '');
             $orderId    = $this->normalizeShopifyOrderId($orderIdRaw);
 
-            $estado   = (string)($payload['estado'] ?? '');
-            $mantener = (bool)($payload['mantener_asignado'] ?? false);
+            $estado   = (string) ($payload['estado'] ?? '');
+            $mantener = (bool) ($payload['mantener_asignado'] ?? false);
 
             if ($orderId === '' || trim($estado) === '') {
                 return $this->json(['success' => false, 'ok' => false, 'message' => 'Payload inválido'], 400);
@@ -787,7 +726,7 @@ class ConfirmacionController extends BaseController
             }
 
             $orderKey = $this->orderKeyFromPedido($pedido);
-            if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $orderId);
+            if (trim($orderKey) === '') $orderKey = (string) ($pedido['id'] ?? $orderId);
 
             $existe = $db->table('pedidos_estado')->where('order_id', $orderKey)->countAllResults();
 
@@ -818,11 +757,12 @@ class ConfirmacionController extends BaseController
             // si confirmado/cancelado -> desasignar
             if ($estadoLower === 'confirmado' || $estadoLower === 'cancelado') {
                 $db->table('pedidos')
-                    ->where('id', (int)$pedido['id'])
+                    ->where('id', (int) $pedido['id'])
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
             }
 
-            // mantener_asignado: por ahora no afecta, lo dejamos por si lo usas luego.
+            // (mantener_asignado) lo dejas por si luego quieres evitar desasignar cuando faltan archivos
+            // ahora mismo tu JS manda mantener_asignado para "faltan archivos", pero aquí no se desasigna en ese caso.
 
             return $this->json(['success' => true, 'ok' => true]);
         } catch (\Throwable $e) {
@@ -858,11 +798,11 @@ class ConfirmacionController extends BaseController
             if ($this->requiereImagen($item)) {
                 $requeridas++;
 
-                $val = $imagenes[(string)$i] ?? $imagenes[$i] ?? null;
+                $val = $imagenes[(string) $i] ?? $imagenes[$i] ?? null;
                 $url = '';
 
                 if (is_string($val)) $url = $val;
-                elseif (is_array($val)) $url = (string)($val['url'] ?? $val['value'] ?? '');
+                elseif (is_array($val)) $url = (string) ($val['url'] ?? $val['value'] ?? '');
 
                 if (trim($url) !== '') $cargadas++;
             }
@@ -908,8 +848,8 @@ class ConfirmacionController extends BaseController
 
     private function requiereImagen(array $item): bool
     {
-        $title = strtolower((string)($item['title'] ?? ''));
-        $sku   = strtolower((string)($item['sku'] ?? ''));
+        $title = strtolower((string) ($item['title'] ?? ''));
+        $sku   = strtolower((string) ($item['sku'] ?? ''));
 
         $keywords = ['llavero', 'lampara', 'lámpara'];
 
@@ -920,7 +860,7 @@ class ConfirmacionController extends BaseController
         if (str_contains($sku, 'llav')) return true;
 
         foreach (($item['properties'] ?? []) as $p) {
-            $v = (string)($p['value'] ?? '');
+            $v = (string) ($p['value'] ?? '');
             if (preg_match('/\.(jpg|jpeg|png|webp|gif|svg)/i', $v)) return true;
         }
 
@@ -1000,7 +940,7 @@ class ConfirmacionController extends BaseController
 
     private function isCancelledFromPedidoJson(?string $pedidoJson): bool
     {
-        $pedidoJson = (string)$pedidoJson;
+        $pedidoJson = (string) $pedidoJson;
         if (trim($pedidoJson) === '') return false;
 
         $o = json_decode($pedidoJson, true);
@@ -1026,7 +966,7 @@ class ConfirmacionController extends BaseController
 
         $notEmpty = static function ($v): bool {
             if ($v === null) return false;
-            $s = trim((string)$v);
+            $s = trim((string) $v);
             return $s !== '' && mb_strtolower($s) !== 'null';
         };
 
@@ -1042,7 +982,7 @@ class ConfirmacionController extends BaseController
         if (is_array($financialRaw)) {
             $financialRaw = $financialRaw['displayName'] ?? $financialRaw['name'] ?? $financialRaw['value'] ?? '';
         }
-        $financial = mb_strtolower(trim((string)$financialRaw));
+        $financial = mb_strtolower(trim((string) $financialRaw));
 
         if ($financial !== '') {
             if (in_array($financial, ['refunded', 'voided', 'partially_refunded', 'partially-refunded'], true)) return true;
@@ -1050,7 +990,7 @@ class ConfirmacionController extends BaseController
         }
 
         $tagsRaw = $o['tags'] ?? '';
-        $tags = is_array($tagsRaw) ? implode(',', $tagsRaw) : (string)$tagsRaw;
+        $tags = is_array($tagsRaw) ? implode(',', $tagsRaw) : (string) $tagsRaw;
         $tags = mb_strtolower(trim($tags));
 
         if ($tags !== '' && preg_match('/(cliente\s+pide\s+cancelar\s+pedido|cancel|devolu|devuel|devuelt|reemb|refund|returned|chargeback|contracargo|disput)/i', $tags)) {
@@ -1068,7 +1008,7 @@ class ConfirmacionController extends BaseController
 
                 foreach ($rli as $x) {
                     if (!is_array($x)) continue;
-                    $rt = mb_strtolower(trim((string)($x['restock_type'] ?? '')));
+                    $rt = mb_strtolower(trim((string) ($x['restock_type'] ?? '')));
                     if ($rt === 'cancel') return true;
                 }
             }
