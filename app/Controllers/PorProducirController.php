@@ -13,9 +13,9 @@ class PorProducirController extends Controller
     }
 
     /**
-     * GET /porproducir/pull?limit=5|10
-     * Ahora: trae TODOS los pedidos en estado "Por producir"
-     * (si mandas limit, lo respeta, si no, trae todos)
+     * GET /porproducir/pull
+     * Trae TODOS los pedidos en estado "Por producir" (sin importar mayúsculas/espacios)
+     * Si mandas ?limit=5|10 lo aplica, si no, trae todos.
      */
     public function pull(): ResponseInterface
     {
@@ -31,7 +31,7 @@ class PorProducirController extends Controller
                 return null;
             };
 
-            // Estado real (detecta el nombre correcto)
+            // Columna de estado (la real en tu BD)
             $colEstado = $pick(['fulfillment_status', 'fulfillmen_status', 'fulfilment_status', 'status']);
             if (!$colEstado) {
                 return $this->response->setStatusCode(500)->setJSON([
@@ -42,28 +42,27 @@ class PorProducirController extends Controller
                 ]);
             }
 
-            // Columnas reales
-            $colNumero   = $pick(['numero']);
-            $colCliente  = $pick(['cliente']);
-            $colTotal    = $pick(['total']);
-            $colMetodo   = $pick(['forma_envio']);
-            $colEntrega  = $pick(['estado_envio']);
-            $colEtiquetas= $pick(['etiquetas']);
-            $colArticulos= $pick(['articulos']);
-            $colCreated  = $pick(['created_at']);
-            $colUpdated  = $pick(['last_change_at', 'updated_at', 'synced_at']);
+            // Columnas reales de tu tabla
+            $colNumero    = $pick(['numero']);
+            $colCliente   = $pick(['cliente']);
+            $colTotal     = $pick(['total']);
+            $colMetodo    = $pick(['forma_envio']);
+            $colEntrega   = $pick(['estado_envio']);
+            $colEtiquetas = $pick(['etiquetas']);
+            $colArticulos = $pick(['articulos']);
+            $colCreated   = $pick(['created_at']);
+            $colUpdated   = $pick(['last_change_at', 'updated_at', 'synced_at']);
 
-            // Si viene limit (5/10) lo aplicamos, si no, traemos todos
+            // Limit opcional
             $limitParam = $this->request->getGet('limit');
             $useLimit = false;
             $limit = 0;
-
             if ($limitParam !== null && $limitParam !== '') {
                 $limit = (int) $limitParam;
                 if ($limit > 0) $useLimit = true;
             }
 
-            // SELECT con alias estándar para el JS
+            // SELECT con alias para tu JS
             $select = [
                 'id',
                 ($colNumero ? "$colNumero AS numero_pedido" : "'' AS numero_pedido"),
@@ -78,17 +77,30 @@ class PorProducirController extends Controller
                 ($colUpdated ? "$colUpdated AS updated_at" : "NULL AS updated_at"),
             ];
 
-            $builder = $db->table($table)
-                ->select(implode(', ', $select), false)
-                ->where($colEstado, 'Por producir');
+            $builder = $db->table($table)->select(implode(', ', $select), false);
+
+            /**
+             * ✅ FILTRO ROBUSTO:
+             * - ignora mayúsculas/minúsculas
+             * - ignora espacios al inicio/fin
+             * - soporta POR_PRODUCIR / porproducir
+             */
+            $builder->where(
+                "(
+                    LOWER(TRIM(`$colEstado`)) = 'por producir'
+                    OR LOWER(TRIM(`$colEstado`)) = 'por_producir'
+                    OR LOWER(REPLACE(TRIM(`$colEstado`), ' ', '')) = 'porproducir'
+                    OR LOWER(REPLACE(TRIM(`$colEstado`), '_', ' ')) = 'por producir'
+                )",
+                null,
+                false
+            );
 
             // Orden
             if ($colUpdated) $builder->orderBy($colUpdated, 'ASC');
             else $builder->orderBy('id', 'ASC');
 
-            if ($useLimit) {
-                $builder->limit($limit);
-            }
+            if ($useLimit) $builder->limit($limit);
 
             $rows = $builder->get()->getResultArray();
 
@@ -98,6 +110,7 @@ class PorProducirController extends Controller
                 'data' => $rows,
                 'csrf' => $this->freshCsrf(),
             ]);
+
         } catch (\Throwable $e) {
             return $this->response->setStatusCode(500)->setJSON([
                 'ok' => false,
@@ -112,8 +125,8 @@ class PorProducirController extends Controller
      * Body: { id, metodo_entrega }
      *
      * Si metodo_entrega == "Enviado":
-     *  - estado_envio = "Enviado"
-     *  - fulfillment_status = "Enviado"
+     *  - estado_envio = "Enviado" (si existe)
+     *  - estado fulfillment = "Enviado"
      *  - remove_from_list = true
      */
     public function updateMetodo(): ResponseInterface
@@ -157,7 +170,6 @@ class PorProducirController extends Controller
                 ]);
             }
 
-            // Buscar pedido
             $pedido = $db->table($table)
                 ->select("id, `$colEstado` AS estado", false)
                 ->where('id', $id)
@@ -176,11 +188,9 @@ class PorProducirController extends Controller
             $metodoLower = mb_strtolower($metodo);
 
             $update = [];
-
-            // Siempre actualizamos método si existe columna
             if ($colMetodo) $update[$colMetodo] = $metodo;
+            if ($colUpdated) $update[$colUpdated] = $now;
 
-            // Si pasa a enviado => cambia estado y sale de la lista
             $nuevoEstado = $pedido['estado'];
             $nuevoEstadoEnvio = null;
             $remove = false;
@@ -196,8 +206,6 @@ class PorProducirController extends Controller
                 }
             }
 
-            if ($colUpdated) $update[$colUpdated] = $now;
-
             $db->table($table)->where('id', $id)->update($update);
 
             return $this->response->setJSON([
@@ -209,6 +217,7 @@ class PorProducirController extends Controller
                 'remove_from_list' => $remove,
                 'csrf' => $this->freshCsrf(),
             ]);
+
         } catch (\Throwable $e) {
             return $this->response->setStatusCode(500)->setJSON([
                 'ok' => false,
