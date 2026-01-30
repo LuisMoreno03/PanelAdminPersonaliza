@@ -11,7 +11,6 @@
   <script src="https://unpkg.com/alpinejs" defer></script>
 </head>
 
-<<<<<<< HEAD
 <body class="flex">
 
 
@@ -642,18 +641,6 @@ function renderModalArchivos(list, activeId) {
           <div class="font-extrabold truncate">${escapeHtml(title)}</div>
           <div class="text-xs text-gray-500 mt-1">
             ${escapeHtml(it.mime || '')} • ${kb} KB
-=======
-<body class="bg-gray-100 flex">
-  <?= view('layouts/menu') ?>
-
-  <div class="flex-1 md:ml-64 p-6">
-    <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 class="text-2xl font-black text-gray-900">PLACAS</h1>
-          <div class="mt-1 text-sm text-gray-500">
-            Placas hoy: <span id="placasHoy" class="font-black text-gray-900">0</span>
->>>>>>> 0ad5572a9672f029e86d929b58d9339b92c1daee
           </div>
         </div>
 
@@ -672,7 +659,6 @@ function renderModalArchivos(list, activeId) {
             Cargar placa
           </button>
         </div>
-<<<<<<< HEAD
       </button>
     `;
   }).join('');
@@ -1006,27 +992,18 @@ q('btnDescargarJpgSel').addEventListener('click', () => {
             </div>
           `;
         }).join('')}
-=======
->>>>>>> 0ad5572a9672f029e86d929b58d9339b92c1daee
       </div>
 
       <div id="msg" class="mt-2 text-sm text-gray-500"></div>
 
-<<<<<<< HEAD
  q('btnGuardarCarga').addEventListener('click', () => {
   const producto = q('cargaProducto')?.value?.trim() || '';
   const numero   = q('cargaNumero').value.trim();
   const loteNombreManual = q('cargaLoteNombre')?.value.trim();
-=======
-      <div id="contenedorDias" class="mt-4 space-y-6"></div>
-    </div>
-  </div>
->>>>>>> 0ad5572a9672f029e86d929b58d9339b92c1daee
 
   <!-- ✅ MODAL CARGA FULL -->
   <?= view('placas_modal_carga') ?>
 
-<<<<<<< HEAD
   const wrap = q('uploadProgressWrap');
   const bar  = q('uploadProgressBar');
   const txt  = q('uploadProgressText');
@@ -1158,16 +1135,6 @@ refresco = setInterval(refrescarTodo, 600000);
 
 
 </script>
-=======
-  <script>
-    window.PLACAS_API = {
-      listarPorDia: <?= json_encode(site_url('placas/archivos/listar-por-dia')) ?>,
-      stats: <?= json_encode(site_url('placas/archivos/stats')) ?>,
-      subirLote: <?= json_encode(site_url('placas/archivos/subir-lote')) ?>,
-      pedidosPorProducir: <?= json_encode(site_url('placas/pedidos/por-producir')) ?>,
-    };
-  </script>
->>>>>>> 0ad5572a9672f029e86d929b58d9339b92c1daee
 
   <script src="<?= base_url('js/placas.js?v=' . time()) ?>" defer></script>
 </body>
