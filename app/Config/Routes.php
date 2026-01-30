@@ -180,25 +180,22 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 // ✅ Vista principal /placas
 $routes->get('placas', 'PlacasController::index');
 
-// ✅ API de archivos placas (ya la tenías)
-$routes->group('placas/archivos', function($routes) {
+// ✅ PLACAS API
+$routes->group('placas/archivos', static function($routes) {
     $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
     $routes->get('stats', 'PlacasArchivosController::stats');
-    $routes->get('productos-por-producir', 'PlacasArchivosController::productosPorProducir');
 
     $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
-    $routes->post('renombrar', 'PlacasArchivosController::renombrar');
-    $routes->post('eliminar', 'PlacasArchivosController::eliminar');
-
-    $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
-    $routes->get('descargar-png/(:num)', 'PlacasArchivosController::descargarPng/$1');
-    $routes->get('descargar-jpg/(:num)', 'PlacasArchivosController::descargarJpg/$1');
-
-    $routes->get('descargar-png-lote/(:any)', 'PlacasArchivosController::descargarPngLote/$1');
-    $routes->get('descargar-jpg-lote/(:any)', 'PlacasArchivosController::descargarJpgLote/$1');
-
+    $routes->post('renombrar', 'PlacasArchivosController::renombrarArchivo');
+    $routes->post('eliminar', 'PlacasArchivosController::eliminarArchivo');
     $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
+
+    $routes->get('ver/(:num)', 'PlacasArchivosController::ver/$1');
+    $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
 });
+
+// ✅ Pedidos por producir (BD interna)
+$routes->get('placas/pedidos/por-producir', 'PedidosController::porProducir');
 
 /*
 |--------------------------------------------------------------------------

@@ -6,6 +6,6 @@ class PlacasController extends BaseController
 {
     public function index()
     {
-         return view('placas');
+        return view('placas');
     }
 }
