@@ -1,10 +1,12 @@
 /**
- * produccion.js (CI4) — FIXED
- * ✅ Arreglos principales:
+ * produccion.js (CI4) — FIXED + FULL
+ * ✅ Incluye:
  * - Fallback REAL para endpoints (con y sin /index.php) en: my-queue, pull, return-all, upload-general, list-general
  * - Normalización de order_id (evita enviar "", "undefined", "null", "0")
  * - Upload GENERAL: garantiza order_id válido y muestra debug si el backend responde HTML/no-JSON
  * - TABLE mode: ahora renderiza <tr> dentro de <tbody> (antes metía <div> y rompía la tabla)
+ * - ✅ DETALLES: muestra la descripción COMPLETA de cada artículo + no trunca el título
+ * - ✅ PROPS: respeta saltos de línea en properties (whitespace-pre-wrap)
  */
 
 const API_BASE = String(window.API_BASE || "").replace(/\/$/, "");
@@ -68,6 +70,13 @@ function normalizeOrderId(v) {
   // por si en algún punto llega "#1234"
   if (s.startsWith("#")) s = s.slice(1).trim();
   return s;
+}
+
+// ✅ HTML -> texto (para descripciones que vengan con HTML)
+function stripTags(html) {
+  const div = document.createElement("div");
+  div.innerHTML = String(html ?? "");
+  return (div.textContent || div.innerText || "").trim();
 }
 
 // ✅ Detalles como link/botón
@@ -1064,6 +1073,7 @@ async function abrirDetallesPedido(orderId) {
          </a>`
       : `<div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">🧾</div>`;
 
+    // ✅ PROPS TEXTO: ahora respeta saltos de línea y no “corta” visualmente
     const propsTxtHtml = propsTxt.length ? `
       <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
         <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
@@ -1071,7 +1081,7 @@ async function abrirDetallesPedido(orderId) {
           ${propsTxt.map(({ name, value }) => `
             <div class="flex gap-2">
               <div class="min-w-[130px] text-slate-500 font-bold">${escapeHtml(name)}:</div>
-              <div class="flex-1 font-semibold text-slate-900 break-words">${escapeHtml(value || "—")}</div>
+              <div class="flex-1 font-semibold text-slate-900 whitespace-pre-wrap break-words">${escapeHtml(value || "—")}</div>
             </div>
           `).join("")}
         </div>
@@ -1121,15 +1131,39 @@ async function abrirDetallesPedido(orderId) {
       </div>
     ` : "";
 
+    // ✅ DESCRIPCIÓN COMPLETA del artículo (varios fallbacks)
+    const rawDesc =
+      item.description ??
+      item.product_description ??
+      item.body_html ??
+      item.bodyHtml ??
+      item.product?.body_html ??
+      item.product?.description ??
+      "";
+
+    const desc = stripTags(rawDesc);
+
+    const descHtml = desc ? `
+      <div class="mt-2 text-sm text-slate-700 whitespace-pre-wrap break-words">
+        ${escapeHtml(desc)}
+      </div>
+    ` : "";
+
     return `
       <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
         <div class="flex items-start gap-4">
           ${productImgHtml}
           <div class="min-w-0 flex-1">
-            <div class="font-extrabold text-slate-900 truncate">${escapeHtml(title)}</div>
-            <div class="text-sm text-slate-600 mt-1">
+            <!-- ✅ SIN truncate: se ve completo -->
+            <div class="font-extrabold text-slate-900 whitespace-normal break-words">
+              ${escapeHtml(title)}
+            </div>
+
+            <div class="text-sm text-slate-600 mt-1 whitespace-normal break-words">
               Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price)}</b> · Total: <b>${escapeHtml(totTxt)}</b>
             </div>
+
+            ${descHtml}
             ${propsTxtHtml}
             ${propsImgsHtml}
             ${modificadaHtml}
@@ -1158,7 +1192,7 @@ async function cargarArchivosGenerales(orderId, opts = {}) {
     if (!k) return null;
 
     try {
-      const { res, data, raw, url } = await apiGetPath(`/produccion/list-general?order_id=${encodeURIComponent(k)}`);
+      const { res, data } = await apiGetPath(`/produccion/list-general?order_id=${encodeURIComponent(k)}`);
       if (!res.ok || !data || data.success !== true) return null;
       return data;
     } catch (e) {
@@ -1262,13 +1296,13 @@ async function subirArchivosGenerales(orderId, fileList) {
   }
 
   if (!data) {
-    console.error("upload-general non-json:", raw);
+    console.error("upload-general non-json:", url, raw);
     if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">Respuesta inválida del servidor.</span>`;
     return false;
   }
 
   if (!res.ok || data.success !== true) {
-    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">${data.message}</span>`;
+    if (msg) msg.innerHTML = `<span class="text-rose-600 font-extrabold">${escapeHtml(data.message || "Error subiendo archivos")}</span>`;
     return false;
   }
 
