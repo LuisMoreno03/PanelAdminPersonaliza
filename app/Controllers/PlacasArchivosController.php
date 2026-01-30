@@ -332,6 +332,29 @@ class PlacasArchivosController extends BaseController
             ->setBody(file_get_contents($path));
     }
 
+    
+public function ver($id)
+{
+    $row = $this->archivosModel->find($id);
+    if (!$row) {
+        return $this->response->setStatusCode(404);
+    }
+
+    // Ajusta esta ruta a donde guardas tus archivos
+    $path = WRITEPATH . 'uploads/placas/' . $row['archivo'];
+
+    if (!is_file($path)) {
+        return $this->response->setStatusCode(404);
+    }
+
+    $mime = $row['mime'] ?? 'application/octet-stream';
+
+    return $this->response
+        ->setHeader('Content-Disposition', 'inline; filename="' . ($row['original'] ?? ('archivo_'.$id)) . '"')
+        ->setContentType($mime)
+        ->setBody(file_get_contents($path));
+}
+
     // ✅ GET /placas/archivos/descargar/{id} (attachment)
     public function descargar(int $id)
     {
