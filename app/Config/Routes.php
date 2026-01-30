@@ -175,33 +175,26 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 |--------------------------------------------------------------------------
 */
 // ... tus rutas anteriores
-$routes->get('placas', 'PlacasController::index');
-
-// API placas (todo JSON/descargas)
-$routes->group('placas/archivos', static function ($routes) {
-    // JSON
-    $routes->get('stats', 'PlacasArchivosController::stats');
+$routes->group('placas/archivos', function($routes) {
     $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
+    $routes->get('stats', 'PlacasArchivosController::stats');
 
-    // uploads / acciones
+    $routes->get('productos-por-producir', 'PlacasArchivosController::productosPorProducir'); // ✅ pedidos internos
+
     $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
-    $routes->post('renombrar', 'PlacasArchivosController::renombrarArchivo');
-    $routes->post('eliminar', 'PlacasArchivosController::eliminarArchivo');
-    $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
+    $routes->post('renombrar', 'PlacasArchivosController::renombrar');
+    $routes->post('eliminar', 'PlacasArchivosController::eliminar');
 
-    // descargas
     $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
     $routes->get('descargar-png/(:num)', 'PlacasArchivosController::descargarPng/$1');
     $routes->get('descargar-jpg/(:num)', 'PlacasArchivosController::descargarJpg/$1');
+
     $routes->get('descargar-png-lote/(:any)', 'PlacasArchivosController::descargarPngLote/$1');
     $routes->get('descargar-jpg-lote/(:any)', 'PlacasArchivosController::descargarJpgLote/$1');
 
-    // ✅ NUEVO: lista de productos "Por producir" para el modal
-    $routes->get('productos-por-producir', 'PlacasArchivosController::productosPorProducir');
-
-    // opcional (si lo usas)
-    $routes->get('pedidos/productos', 'PlacasArchivosController::productosDePedidos');
+    $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
 });
+
 /*
 |--------------------------------------------------------------------------
 | PEDIDOS A REPETIR (PROTEGIDO)

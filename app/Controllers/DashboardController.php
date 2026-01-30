@@ -1826,7 +1826,7 @@ class DashboardController extends Controller
         }
 
         $imagenes[(string)$key] = [
-            'url' => $url,
+            'url' => $url,                  
             'updated_at' => date('c'),
         ];
 
@@ -1835,7 +1835,7 @@ class DashboardController extends Controller
             ->update([
                 'imagenes_locales' => json_encode($imagenes, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
             ]);
-    }
+    }                                                                                                                                                                                   
 
 
 

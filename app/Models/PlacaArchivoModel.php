@@ -24,25 +24,19 @@ class PlacaArchivoModel extends Model
      * - productos_json y pedidos_json: se guardan como JSON string
      * - productos y pedidos: el JS los manda así, y aquí los convertimos a *_json
      */
-    protected $allowedFields = [
+     protected $allowedFields = [
         'lote_id',
         'lote_nombre',
         'numero_placa',
-
-        'ruta',
+        'producto',
+        'nombre',
+        'original',
         'mime',
         'size',
-
-        'original',
-        'nombre',
+        'ruta',
         'is_primary',
-
-        'productos_json',
-        'pedidos_json',
-
-        // por si tu tabla los tiene explícitos
         'created_at',
-        'updated_at',
+        'pedidos_json', // ✅ NUEVO
     ];
 
     // ✅ Convierte productos/pedidos en productos_json/pedidos_json automáticamente

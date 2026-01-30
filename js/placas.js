@@ -1,11 +1,11 @@
-/* public/js/placas.js */
-(function () {
+(() => {
+  const CFG = window.PLACAS_CONFIG;
   const q = (id) => document.getElementById(id);
 
-  // ===================== CSRF =====================
+  // ---------------- CSRF ----------------
   function csrfPair() {
-    const name = document.querySelector('meta[name="csrf-name"]')?.getAttribute('content');
-    const hash = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    const name = document.querySelector('meta[name="csrf-name"]')?.getAttribute('content') || CFG?.csrf?.name;
+    const hash = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || CFG?.csrf?.hash;
     return { name, hash };
   }
   function addCsrf(fd) {
@@ -14,273 +14,56 @@
     return fd;
   }
 
-  // ===================== API =====================
-  const API = window.PLACAS_API || {};
-  if (!API.listar) console.warn("PLACAS_API no está definido. Revisa placas.php");
-
-  // ===================== STATE =====================
-  let placasMap = {};     // id => item
-  let loteIndex = {};     // loteId => items[]
-  let loteMeta = {};      // loteId => { pedidos, productos, lote_nombre }
-  let searchTerm = '';
-  let modalItem = null;
-  let modalSelectedId = null;
-  let refresco = null;
-
-  // === Productos por producir (modal carga) ===
-  let productosPool = [];              // items del endpoint
-  let productosSelected = new Map();   // id => item
-  let productosSearch = '';
-
-  // ===================== UTILS =====================
+  // --------------- Helpers ---------------
   function escapeHtml(str) {
-    return (str || '').replace(/[&<>"']/g, s => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    return String(str || '').replace(/[&<>"']/g, s => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
     }[s]));
   }
-
   function normalizeText(s) {
-    return String(s || '')
-      .toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .trim();
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
   }
-
-  function formatFecha(fechaISO) {
+  function formatFecha(fechaISO){
     if (!fechaISO) return '';
     const d = new Date(String(fechaISO).replace(' ', 'T'));
     if (isNaN(d)) return String(fechaISO);
-    return d.toLocaleString('es-ES', {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit'
-    });
+    return d.toLocaleString('es-ES', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
   }
 
-  function toArrayList(v) {
-    if (!v) return [];
-    if (Array.isArray(v)) return v.map(x => String(x).trim()).filter(Boolean);
+  // ----------------- State -----------------
+  let searchTerm = '';
+  let placasMap = {};
+  let loteIndex = {};
+  let modalItem = null;
+  let modalSelectedId = null;
 
-    const raw = String(v).trim();
-    if (!raw) return [];
+  // pedidos
+  let pedidosData = [];
+  const selectedPedidos = new Set();
 
-    try {
-      const j = JSON.parse(raw);
-      if (Array.isArray(j)) return j.map(x => String(x).trim()).filter(Boolean);
-    } catch (e) {}
+  // ----------------- API -----------------
+  const API = CFG.api;
 
-    return raw.split(/[\n,]+/g).map(s => s.trim()).filter(Boolean);
+  async function cargarStats(){
+    try{
+      const res = await fetch(API.stats, { cache:'no-store' });
+      const data = await res.json();
+      if (data?.success) q('placasHoy').textContent = data.data?.total ?? 0;
+    }catch(e){}
   }
 
-  async function fetchJsonSafe(url, options = {}) {
-    const res = await fetch(url, { cache: 'no-store', ...options });
-    const text = await res.text();
-    let data = null;
-    try { data = JSON.parse(text); } catch (e) {}
-    if (!res.ok || !data) {
-      const snippet = (text || '').slice(0, 300);
-      throw new Error(`HTTP ${res.status} en ${url}. Respuesta: ${snippet}`);
-    }
-    return data;
-  }
-
-  function itemMatches(it, term) {
-    if (!term) return true;
-
-    const pedidos = toArrayList(it?.pedidos || loteMeta[it?.lote_id]?.pedidos || []);
-    const productos = toArrayList(it?.productos || loteMeta[it?.lote_id]?.productos || []);
-
-    const hay = normalizeText([
-      it.nombre,
-      it.original,
-      it.id,
-      it.mime,
-      it.url,
-      it.lote_id,
-      it.lote_nombre,
-      pedidos.join(' '),
-      productos.join(' ')
-    ].join(' '));
-
-    return hay.includes(term);
-  }
-
-  function getDownloadUrl(it) {
-    return it.download_url || `${API.descargarBase}/${it.id}`;
-  }
-
-  // ===================== MODAL selection =====================
-  function getSelectedItem() {
-    if (!modalSelectedId) return modalItem;
-    return placasMap[modalSelectedId] || modalItem;
-  }
-
-  function setSelectedItem(id) {
-    modalSelectedId = Number(id);
-    const it = placasMap[modalSelectedId];
-    if (!it) return;
-
-    // preview grande
-    const mime = it.mime || '';
-    const isImg = mime.startsWith('image/');
-    const isPdf = mime.includes('pdf');
-
-    q('modalPreview').innerHTML = isImg
-      ? `<img src="${it.url}" style="width:100%;height:100%;object-fit:contain;">`
-      : isPdf
-        ? `<iframe src="${it.url}" style="width:100%;height:100%;border:0;"></iframe>`
-        : `<div style="height:100%;display:flex;align-items:center;justify-content:center;">
-             <div class="muted" style="padding:10px;text-align:center;">${escapeHtml(it.original || 'Archivo')}</div>
-           </div>`;
-
-    q('modalNombre').value = it.nombre || (it.original ? String(it.original).replace(/\.[^.]+$/, '') : '');
-    q('modalFecha').textContent = formatFecha(it.created_at);
-
-    document.querySelectorAll('[data-modal-file]').forEach(el => {
-      const active = Number(el.dataset.modalFile) === modalSelectedId;
-      el.classList.toggle('ring-2', active);
-      el.classList.toggle('ring-blue-300', active);
-    });
-
-    updateModalMetaByLote(it);
-  }
-
-  function renderBadges(containerId, items, emptyText) {
-    const el = q(containerId);
-    if (!el) return;
-
-    if (!items.length) {
-      el.innerHTML = `<span class="text-xs text-gray-400">${escapeHtml(emptyText)}</span>`;
-      return;
-    }
-
-    el.innerHTML = items.map(t => `
-      <span class="px-3 py-1 rounded-full bg-gray-100 border border-gray-200 text-xs font-black text-gray-700">
-        ${escapeHtml(t)}
-      </span>
-    `).join('');
-  }
-
-  function updateModalMetaByLote(item) {
-    const lid = item?.lote_id ? String(item.lote_id) : '';
-    const meta = lid ? (loteMeta[lid] || {}) : {};
-
-    const pedidos = toArrayList(meta.pedidos || item.pedidos);
-    const productos = toArrayList(meta.productos || item.productos);
-
-    renderBadges('modalPedidos', pedidos, 'Sin pedidos vinculados');
-    renderBadges('modalProductos', productos, 'Sin productos');
-
-    const loteNombre = (item.lote_nombre || meta.lote_nombre || '').trim();
-    if (q('modalLoteInfo')) q('modalLoteInfo').textContent = loteNombre ? `Lote: ${loteNombre}` : `Lote: ${lid}`;
-  }
-
-  function getLoteItemsFor(item) {
-    const lid = item?.lote_id ?? '';
-    if (!lid) return [item];
-    return loteIndex[lid] || [item];
-  }
-
-  // ===================== Render archivos lista (modal) =====================
-  function renderModalArchivos(list, activeId) {
-    const box = q('modalArchivos');
-    if (!box) return;
-
-    if (!Array.isArray(list) || !list.length) {
-      box.innerHTML = `<div class="muted">No hay archivos en este conjunto.</div>`;
-      return;
-    }
-
-    if (!modalSelectedId) modalSelectedId = Number(activeId);
-
-    box.innerHTML = `
-      <div class="mt-2 max-h-[260px] overflow-auto grid gap-2">
-        ${list.map(it => {
-          const kb = Math.round((it.size || 0) / 1024);
-          const isActive = Number(it.id) === Number(modalSelectedId);
-          const mime = it.mime || '';
-          const isImg = mime.startsWith('image/');
-          const originalUrl = getDownloadUrl(it);
-          const pngUrl = `${API.descargarPng}/${it.id}`;
-          const jpgUrl = `${API.descargarJpg}/${it.id}`;
-
-          return `
-            <button type="button"
-              data-modal-file="${it.id}"
-              onclick="window.__PLACAS_setSelected(${it.id})"
-              class="w-full text-left bg-white border border-gray-200 rounded-xl p-3 flex items-center justify-between gap-3 hover:bg-gray-50 ${isActive ? 'ring-2 ring-blue-300' : ''}">
-              
-              <div class="min-w-0">
-                <div class="font-extrabold truncate">${escapeHtml(it.nombre || it.original || ('Archivo #' + it.id))}</div>
-                <div class="text-xs text-gray-500 mt-1">${escapeHtml(mime)} • ${kb} KB</div>
-              </div>
-
-              <div class="flex items-center gap-2 shrink-0">
-                <a href="${originalUrl}" target="_blank" download
-                   onclick="event.stopPropagation()"
-                   class="px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-black hover:opacity-90">
-                  ⬇ Descargar
-                </a>
-
-                ${isImg ? `
-                  <a href="${pngUrl}" target="_blank"
-                     onclick="event.stopPropagation()"
-                     class="px-2 py-2 rounded-xl bg-emerald-500 text-white text-xs font-black hover:opacity-90">PNG</a>
-                  <a href="${jpgUrl}" target="_blank"
-                     onclick="event.stopPropagation()"
-                     class="px-2 py-2 rounded-xl bg-sky-500 text-white text-xs font-black hover:opacity-90">JPG</a>
-                ` : ''}
-              </div>
-            </button>
-          `;
-        }).join('')}
-      </div>
-    `;
-  }
-
-  // ===================== MODAL OPEN/CLOSE =====================
-  function openModal(id) {
-    const item = placasMap[id];
-    if (!item) return;
-
-    modalItem = item;
-    modalSelectedId = Number(item.id);
-
-    const list = getLoteItemsFor(item);
-    renderModalArchivos(list, item.id);
-    setSelectedItem(item.id);
-
-    q('modalBackdrop').style.display = 'block';
-  }
-
-  function closeModal() {
-    q('modalBackdrop').style.display = 'none';
-    modalItem = null;
-    modalSelectedId = null;
-  }
-
-  // Exponer algunas funciones al HTML dinámico
-  window.__PLACAS_openModal = openModal;
-  window.__PLACAS_setSelected = setSelectedItem;
-
-  window.openLote = function (loteId) {
-    const list = loteIndex[String(loteId)] || [];
-    if (!list.length) return;
-    const principal = list.find(x => Number(x.is_primary) === 1) || list[0];
-    openModal(principal.id);
-  };
-
-  // ===================== LISTA POR DÍA/LOTE =====================
+  // ----------------- Render: Vista por días -----------------
   async function cargarVistaAgrupada() {
     placasMap = {};
     loteIndex = {};
-    loteMeta = {};
 
-    const data = await fetchJsonSafe(API.listar);
+    const res = await fetch(API.listar, { cache: "no-store" });
+    const data = await res.json();
 
-    if (data?.success) q('placasHoy').textContent = data.placas_hoy ?? 0;
+    if (data?.success) q("placasHoy").textContent = data.placas_hoy ?? 0;
 
-    const cont = q('contenedorDias');
-    cont.innerHTML = '';
+    const cont = q("contenedorDias");
+    cont.innerHTML = "";
 
     if (!data.success || !Array.isArray(data.dias)) {
       cont.innerHTML = `<div class="muted">No hay datos para mostrar.</div>`;
@@ -289,42 +72,19 @@
 
     const term = normalizeText(searchTerm);
 
-    let dias = data.dias;
+    // filtra por buscador (fecha / lote / archivos / pedidos)
+    const dias = data.dias
+      .map(dia => {
+        const lotes = (dia.lotes || []).map(lote => {
+          const items = (lote.items || []).filter(it => itemMatches(it, term));
+          const okLote = normalizeText([lote.lote_id, lote.lote_nombre, lote.created_at].join(" ")).includes(term);
+          return okLote ? lote : { ...lote, items };
+        }).filter(l => (l.items || []).length > 0);
 
-    if (term) {
-      dias = data.dias
-        .map(dia => {
-          const lotes = (dia.lotes || [])
-            .map(lote => {
-              const lid = String(lote.lote_id || '');
-              const lnombre = (lote.lote_nombre || '').trim();
-
-              const pedidos = toArrayList(lote.pedidos);
-              const productos = toArrayList(lote.productos);
-
-              const items = (lote.items || []).filter(it => itemMatches({
-                ...it,
-                lote_id: lid,
-                lote_nombre: lnombre,
-                pedidos,
-                productos
-              }, term));
-
-              const loteHay = normalizeText([
-                lid, lnombre, lote.created_at,
-                pedidos.join(' '),
-                productos.join(' ')
-              ].join(' ')).includes(term);
-
-              return loteHay ? lote : { ...lote, items };
-            })
-            .filter(l => (l.items || []).length > 0);
-
-          const okDia = normalizeText(dia.fecha).includes(term);
-          return okDia ? dia : { ...dia, lotes };
-        })
-        .filter(d => (d.lotes || []).length > 0);
-    }
+        const okDia = normalizeText(dia.fecha).includes(term);
+        return okDia ? dia : { ...dia, lotes, total_archivos: lotes.reduce((a,l)=>a+(l.items?.length||0),0) };
+      })
+      .filter(d => (d.lotes || []).length > 0);
 
     if (term && !dias.length) {
       cont.innerHTML = `<div class="muted">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
@@ -332,33 +92,29 @@
     }
 
     for (const dia of dias) {
-      const diaBox = document.createElement('div');
-      diaBox.className = 'card';
+      const diaBox = document.createElement("div");
+      diaBox.className = "card";
 
       diaBox.innerHTML = `
         <div class="flex items-center justify-between">
           <div>
             <div class="text-lg font-extrabold">${escapeHtml(dia.fecha)}</div>
-            <div class="text-sm text-gray-500">Total: ${dia.total_archivos ?? 0}</div>
+            <div class="text-sm text-gray-500">Total: ${dia.total_archivos}</div>
           </div>
         </div>
         <div class="mt-3 lotes-grid"></div>
       `;
 
-      const lotesCont = diaBox.querySelector('.lotes-grid');
+      const lotesCont = diaBox.querySelector(".lotes-grid");
       cont.appendChild(diaBox);
 
       for (const lote of (dia.lotes || [])) {
-        const lid = String(lote.lote_id ?? '');
+        const lid = String(lote.lote_id ?? "");
         const lnombre = (lote.lote_nombre || '').trim() || 'Sin nombre';
+        const total = (lote.items || []).length;
 
+        // index para modal
         loteIndex[lid] = lote.items || [];
-        loteMeta[lid] = {
-          lote_nombre: lnombre,
-          pedidos: Array.isArray(lote.pedidos) ? lote.pedidos : (lote.pedidos || ''),
-          productos: Array.isArray(lote.productos) ? lote.productos : (lote.productos || ''),
-        };
-
         (lote.items || []).forEach(it => {
           it.lote_id = it.lote_id ?? lid;
           it.lote_nombre = it.lote_nombre ?? lnombre;
@@ -366,44 +122,32 @@
         });
 
         const principal = (lote.items || []).find(x => Number(x.is_primary) === 1) || (lote.items || [])[0];
-        const thumb = principal?.thumb_url || (principal?.url && (principal.mime || '').startsWith('image/') ? principal.url : null);
+        const thumb = principal?.thumb_url || (principal?.url && (principal.mime || "").startsWith("image/") ? principal.url : null);
 
-        const pedidosArr = toArrayList(loteMeta[lid].pedidos);
-        const productosArr = toArrayList(loteMeta[lid].productos);
+        // contar pedidos asignados (si existen)
+        const pedidosCount = (principal?.pedidos && Array.isArray(principal.pedidos)) ? principal.pedidos.length : 0;
 
-        const chipPedidos = pedidosArr.length
-          ? `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-700">🧾 ${pedidosArr.length} pedido(s)</span>`
-          : `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-400">🧾 sin pedidos</span>`;
-
-        const chipProductos = productosArr.length
-          ? `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-700">🧩 ${productosArr.length} producto(s)</span>`
-          : `<span class="px-2 py-1 rounded-full bg-white border text-xs font-black text-gray-400">🧩 sin productos</span>`;
-
-        const loteBox = document.createElement('div');
-        loteBox.className = 'lote-card';
+        const loteBox = document.createElement("div");
+        loteBox.className = "lote-card";
 
         loteBox.innerHTML = `
-          <div class="lote-left cursor-pointer" onclick="openLote('${escapeHtml(lid)}')">
+          <div class="lote-left cursor-pointer">
             <div class="lote-thumb">
               ${thumb ? `<img src="${thumb}">` : `<div class="text-gray-400 text-xs">Carpeta</div>`}
             </div>
 
             <div class="min-w-0">
               <div class="lote-title">📦 ${escapeHtml(lnombre)}</div>
-              <div class="lote-meta">${(lote.items || []).length} archivo(s) • ${escapeHtml(lote.created_at ?? '')}</div>
-
-              <div class="mt-2 flex flex-wrap gap-2">
-                ${chipPedidos}
-                ${chipProductos}
+              <div class="lote-meta">
+                ${total} archivo(s)
+                ${pedidosCount ? `• <b>${pedidosCount}</b> pedido(s)` : ''}
+                • ${escapeHtml(lote.created_at ?? "")}
               </div>
             </div>
           </div>
 
           <div class="lote-actions">
-            <button class="btn-blue" style="background:#111827; padding:8px 12px;"
-                    onclick="event.stopPropagation(); openLote('${escapeHtml(lid)}')">
-              Ver archivos
-            </button>
+            <button class="btn-blue" style="background:#111827; padding:8px 12px;">Ver</button>
 
             <a class="btn-blue" style="background:#10b981; padding:8px 12px;"
                href="${API.descargarPngLote}/${encodeURIComponent(lid)}"
@@ -419,371 +163,311 @@
           </div>
         `;
 
-        loteBox.onclick = () => openLote(lid);
+        loteBox.addEventListener('click', () => openLote(lid));
+        loteBox.querySelector('button')?.addEventListener('click', (e)=>{ e.stopPropagation(); openLote(lid); });
+
         lotesCont.appendChild(loteBox);
       }
     }
   }
 
-  // ===================== Stats =====================
-  async function cargarStats() {
-    try {
-      const data = await fetchJsonSafe(API.stats);
-      if (data.success) q('placasHoy').textContent = data.data?.total ?? 0;
-    } catch (e) {
-      // no romper UI
-    }
+  function itemMatches(it, term) {
+    if (!term) return true;
+    const pedidosTxt = Array.isArray(it.pedidos) ? it.pedidos.map(p => p.numero || p.pedido_display || p.label || '').join(' ') : '';
+    const hay = normalizeText([it.nombre, it.original, it.id, it.mime, it.url, it.lote_id, it.lote_nombre, pedidosTxt].join(' '));
+    return hay.includes(term);
   }
 
-  // ===================== Renombrar lote (modal) =====================
-  async function renombrarLoteDesdeModal() {
-    const sel = getSelectedItem();
-    if (!sel) return;
+  // ----------------- Modal Editar -----------------
+  function getLoteItemsFor(item) {
+    const lid = item?.lote_id ?? '';
+    if (!lid) return [item];
+    return loteIndex[lid] || [item];
+  }
 
-    const loteId = sel.lote_id;
-    if (!loteId) { q('modalMsg').textContent = 'Este archivo no tiene lote.'; return; }
+  function getSelectedItem() {
+    if (!modalSelectedId) return modalItem;
+    return placasMap[modalSelectedId] || modalItem;
+  }
 
-    const actual = (sel.lote_nombre || loteMeta[loteId]?.lote_nombre || '').trim();
-    const nuevo = prompt('Nuevo nombre del lote:', actual);
+  function setSelectedItem(id) {
+    modalSelectedId = Number(id);
+    const it = placasMap[modalSelectedId];
+    if (!it) return;
 
-    if (nuevo === null) return;
-    const nombre = nuevo.trim();
-    if (!nombre) { q('modalMsg').textContent = 'El nombre no puede estar vacío.'; return; }
+    // preview
+    const mime = it.mime || '';
+    const isImg = mime.startsWith('image/');
+    const isPdf = mime.includes('pdf');
 
-    const fd = addCsrf(new FormData());
-    fd.append('lote_id', String(loteId));
-    fd.append('lote_nombre', nombre);
+    q('modalPreview').innerHTML = isImg
+      ? `<img src="${it.url}" style="width:100%;height:100%;object-fit:contain;">`
+      : isPdf
+        ? `<iframe src="${it.url}" style="width:100%;height:100%;border:0;"></iframe>`
+        : `<div style="height:100%;display:flex;align-items:center;justify-content:center;">
+             <div class="muted" style="padding:10px;text-align:center;">${escapeHtml(it.original || 'Archivo')}</div>
+           </div>`;
 
-    const data = await fetchJsonSafe(API.renombrarLote, {
-      method: 'POST',
-      body: fd,
-      credentials: 'same-origin'
+    q('modalNombre').value = it.nombre || (it.original ? String(it.original).replace(/\.[^.]+$/, '') : '');
+    q('modalFecha').textContent = formatFecha(it.created_at);
+
+    // marcar activo
+    document.querySelectorAll('[data-modal-file]').forEach(el => {
+      const ok = Number(el.dataset.modalFile) === modalSelectedId;
+      el.classList.toggle('ring-2', ok);
+      el.classList.toggle('ring-blue-300', ok);
     });
 
-    if (!data?.success) { q('modalMsg').textContent = data?.message || 'Error renombrando el lote'; return; }
-
-    q('modalMsg').textContent = '✅ Lote renombrado';
-    const keepId = sel.id;
-    await cargarVistaAgrupada();
-    openModal(keepId);
+    // render pedidos (desde este item)
+    renderModalPedidos(it.pedidos || []);
   }
 
-  // ===================== Guardar nombre archivo =====================
-  async function guardarNombreArchivo() {
-    const sel = getSelectedItem();
-    if (!sel) return;
-
-    const nuevo = q('modalNombre').value.trim();
-    if (!nuevo) { q('modalMsg').textContent = 'El nombre no puede estar vacío.'; return; }
-
-    const fd = addCsrf(new FormData());
-    fd.append('id', sel.id);
-    fd.append('nombre', nuevo);
-
-    const data = await fetchJsonSafe(API.renombrar, {
-      method: 'POST',
-      body: fd,
-      credentials: 'same-origin'
-    });
-
-    if (!data?.success) { q('modalMsg').textContent = data?.message || 'Error renombrando'; return; }
-
-    q('modalMsg').textContent = '✅ Nombre actualizado';
-    const keepId = sel.id;
-    await cargarVistaAgrupada();
-    openModal(keepId);
-  }
-
-  // ===================== Eliminar archivo =====================
-  async function eliminarArchivo() {
-    const sel = getSelectedItem();
-    if (!sel) return;
-
-    if (!confirm(`¿Eliminar el archivo #${sel.id}?`)) return;
-
-    const fd = addCsrf(new FormData());
-    fd.append('id', sel.id);
-
-    const data = await fetchJsonSafe(API.eliminar, {
-      method: 'POST',
-      body: fd,
-      credentials: 'same-origin'
-    });
-
-    if (!data?.success) { q('modalMsg').textContent = data?.message || 'Error eliminando'; return; }
-
-    q('modalMsg').textContent = '✅ Eliminado';
-    closeModal();
-    await cargarVistaAgrupada();
-    await cargarStats();
-  }
-
-  // ===================== Descargas modal (seleccionado) =====================
-  function descargarSelPng() {
-    const sel = getSelectedItem();
-    if (!sel?.id) return;
-    window.open(`${API.descargarPng}/${sel.id}`, '_blank');
-  }
-  function descargarSelJpg() {
-    const sel = getSelectedItem();
-    if (!sel?.id) return;
-    window.open(`${API.descargarJpg}/${sel.id}`, '_blank');
-  }
-  function formatPedidoDisplay(raw) {
-    const v = String(raw || '').trim();
-    if (!v) return '';
-
-    // ya viene pedido0001 / #pedido0001
-    if (/^#?pedido\d+$/i.test(v)) return v.startsWith('#') ? v : `#${v}`;
-
-    // numérico => #pedido + 4 dígitos
-    if (/^\d+$/.test(v)) return `#pedido${v.padStart(4, '0')}`;
-
-    if (v.startsWith('#')) return v;
-    return `#${v}`;
-    }
-
-    function renderProductosLista(items, selectedSet, filterTerm = '') {
-    const box = q('ppList'); // ✅ tu contenedor de lista
+  function renderModalPedidos(pedidos) {
+    const box = q('modalPedidos');
     if (!box) return;
 
-    const term = normalizeText(filterTerm);
+    if (!Array.isArray(pedidos) || !pedidos.length) {
+      box.innerHTML = `<div class="muted">No hay pedidos asignados.</div>`;
+      return;
+    }
 
-    const filtered = (items || []).filter(it => {
-        if (!term) return true;
-        const hay = normalizeText([
-        it.pedido_display, it.pedido_codigo, it.pedido_numero,
-        it.producto, it.label
-        ].join(' '));
-        return hay.includes(term);
+    box.innerHTML = pedidos.map(p => {
+      const n = p.numero || p.pedido_display || p.label || '';
+      const c = p.cliente || '';
+      const f = p.fecha || '';
+      return `
+        <div class="bg-white border rounded-xl p-3 flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-black truncate">${escapeHtml(n)}</div>
+            <div class="text-xs text-gray-500 mt-1 truncate">
+              ${escapeHtml(c)} ${f ? '• ' + escapeHtml(f) : ''}
+            </div>
+          </div>
+          <span class="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 font-black">Por producir</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderModalArchivos(list, activeId) {
+    const box = q('modalArchivos');
+    if (!box) return;
+
+    if (!Array.isArray(list) || !list.length) {
+      box.innerHTML = `<div class="muted">No hay archivos en este lote.</div>`;
+      return;
+    }
+
+    if (!modalSelectedId) modalSelectedId = Number(activeId);
+
+    box.innerHTML = list.map(it => {
+      const kb = Math.round((it.size || 0) / 1024);
+      const isActive = Number(it.id) === Number(modalSelectedId);
+      const title = it.nombre || it.original || ('Archivo #' + it.id);
+
+      return `
+        <div class="bg-white border rounded-xl p-3 flex items-center justify-between gap-3 ${isActive ? 'ring-2 ring-blue-300' : ''}"
+             data-modal-file="${it.id}">
+          <button type="button" class="text-left flex-1 min-w-0"
+              onclick="window.__setSelectedModalFile(${it.id})">
+            <div class="font-extrabold truncate">${escapeHtml(title)}</div>
+            <div class="text-xs text-gray-500 mt-1">${escapeHtml(it.mime || '')} • ${kb} KB • #${it.id}</div>
+          </button>
+
+          <div class="flex items-center gap-2 shrink-0">
+            <a class="btn-blue" style="background:#0ea5e9;padding:8px 10px;"
+               href="${API.descargarJpg}/${it.id}" target="_blank" onclick="event.stopPropagation()">
+              JPG
+            </a>
+            <a class="btn-blue" style="background:#10b981;padding:8px 10px;"
+               href="${API.descargarPng}/${it.id}" target="_blank" onclick="event.stopPropagation()">
+              PNG
+            </a>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  window.__setSelectedModalFile = (id) => setSelectedItem(id);
+
+  function openModal(id){
+    const item = placasMap[id];
+    if (!item) return;
+
+    modalItem = item;
+    modalSelectedId = Number(item.id);
+
+    const list = getLoteItemsFor(item);
+    renderModalArchivos(list, item.id);
+    setSelectedItem(item.id);
+
+    const loteNombre = (item.lote_nombre || '').trim();
+    q('modalLoteInfo').textContent = loteNombre ? `Lote: ${loteNombre}` : '';
+
+    q('modalBackdrop').style.display = 'block';
+  }
+
+  function closeModal(){
+    q('modalBackdrop').style.display = 'none';
+    modalItem = null;
+    modalSelectedId = null;
+  }
+
+  function openLote(loteId){
+    const list = loteIndex[String(loteId)] || [];
+    if (!list.length) return;
+
+    const principal = list.find(x => Number(x.is_primary) === 1) || list[0];
+    openModal(principal.id);
+  }
+
+  // ----------------- Modal Carga: Pedidos -----------------
+  async function cargarPedidosPorProducir() {
+    q('ppMsg').textContent = 'Cargando pedidos...';
+    try {
+      const res = await fetch(API.pedidos, { cache:'no-store' });
+      const data = await res.json();
+
+      if (!data?.success) {
+        q('ppMsg').textContent = data?.message || 'Error cargando pedidos';
+        pedidosData = [];
+        renderPedidos();
+        return;
+      }
+
+      pedidosData = Array.isArray(data.items) ? data.items : [];
+      q('ppMsg').textContent = pedidosData.length ? `${pedidosData.length} pedido(s) encontrados.` : 'No hay pedidos en Por producir.';
+      renderPedidos();
+    } catch(e) {
+      q('ppMsg').textContent = 'Error de red cargando pedidos.';
+      pedidosData = [];
+      renderPedidos();
+    }
+  }
+
+  function renderPedidos() {
+    const listBox = q('ppList');
+    const selBox  = q('ppSelected');
+    const linkBox = q('ppLinked');
+    const term = normalizeText(q('ppSearch')?.value || '');
+
+    const filtered = pedidosData.filter(p => {
+      if (!term) return true;
+      const hay = normalizeText([p.pedido_display, p.numero, p.cliente, p.fecha, p.label].join(' '));
+      return hay.includes(term);
     });
 
     if (!filtered.length) {
-        box.innerHTML = `<div class="muted" style="padding:10px;">No hay resultados.</div>`;
-        return;
-    }
-
-    box.innerHTML = filtered.map(it => {
-        const pedidoDisplay = it.pedido_display ? String(it.pedido_display) : formatPedidoDisplay(it.pedido_codigo || it.pedido_numero || it.id);
-        const producto = (it.producto || '').trim();
-        const cantidad = (it.cantidad || '').toString().trim();
-
-        const isChecked = selectedSet.has(String(it.id));
+      listBox.innerHTML = `<div class="muted">No hay resultados.</div>`;
+    } else {
+      listBox.innerHTML = filtered.map(p => {
+        const id = String(p.id);
+        const checked = selectedPedidos.has(id);
+        const num = p.pedido_display || p.numero || p.label || ('Pedido ' + id);
+        const cliente = p.cliente || '';
+        const fecha = p.fecha || '';
+        const arts = (p.articulos != null) ? `• ${escapeHtml(p.articulos)} art.` : '';
 
         return `
-        <label class="pp-card" style="
-            display:flex; gap:10px; align-items:flex-start;
-            border:1px solid #e5e7eb; border-radius:12px; padding:10px;
-            background:#fff; cursor:pointer;
-        ">
-            <input type="checkbox" data-pp-id="${escapeHtml(it.id)}" ${isChecked ? 'checked' : ''}
-            style="margin-top:4px; width:16px; height:16px;">
-
-            <div style="flex:1; min-width:0;">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-                <div style="font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                ${escapeHtml(pedidoDisplay)}
-                </div>
-                <span style="
-                font-size:12px; padding:3px 8px; border-radius:999px;
-                background:#EEF2FF; color:#3730A3; font-weight:800;
-                flex:0 0 auto;
-                ">Por producir</span>
+          <label class="bg-white border rounded-xl p-3 flex items-start gap-3 cursor-pointer hover:bg-gray-50">
+            <input type="checkbox" ${checked ? 'checked' : ''} data-pedido-id="${escapeHtml(id)}" style="margin-top:4px;width:16px;height:16px;">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-2">
+                <div class="font-black truncate">${escapeHtml(num)}</div>
+                <span class="text-xs px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 font-black">Por producir</span>
+              </div>
+              <div class="text-xs text-gray-500 mt-1 truncate">${escapeHtml(cliente)} ${fecha ? '• '+escapeHtml(fecha) : ''} ${arts}</div>
             </div>
-
-            ${producto ? `
-                <div style="margin-top:6px; font-weight:800; color:#111827;">
-                ${escapeHtml(producto)} ${cantidad ? `<span class="muted" style="font-weight:900;">x${escapeHtml(cantidad)}</span>` : ''}
-                </div>
-            ` : `
-                <div class="muted" style="margin-top:6px;">Selecciona para vincular este pedido.</div>
-            `}
-
-            <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
-                ${it.pedido_numero ? `<span style="font-size:11px; background:#F3F4F6; padding:2px 8px; border-radius:999px;">ID: ${escapeHtml(it.pedido_numero)}</span>` : ''}
-                ${it.id ? `<span style="font-size:11px; background:#F3F4F6; padding:2px 8px; border-radius:999px;">Ref: ${escapeHtml(it.id)}</span>` : ''}
-            </div>
-            </div>
-        </label>
+          </label>
         `;
-    }).join('');
+      }).join('');
 
-    // Hook change
-    box.querySelectorAll('input[type="checkbox"][data-pp-id]').forEach(chk => {
+      listBox.querySelectorAll('input[type="checkbox"][data-pedido-id]').forEach(chk => {
         chk.addEventListener('change', () => {
-        const id = String(chk.dataset.ppId);
-        if (chk.checked) selectedSet.add(id);
-        else selectedSet.delete(id);
-
-        // ✅ después de seleccionar, refresca paneles
-        renderSeleccionadosYVinculados();
+          const id = String(chk.dataset.pedidoId);
+          if (chk.checked) selectedPedidos.add(id);
+          else selectedPedidos.delete(id);
+          renderSeleccionados();
         });
-    });
+      });
     }
 
-  // ============================================================
-  // ✅ PRODUCTOS "POR PRODUCIR" (Modal carga)
-  // ============================================================
-  function resetProductosSelector() {
-    productosPool = [];
-    productosSelected = new Map();
-    productosSearch = '';
-    if (q('cargaProductosBuscar')) q('cargaProductosBuscar').value = '';
-    renderProductosSelector();
-  }
+    renderSeleccionados();
 
-  async function loadProductosPorProducir() {
-    if (!API.productosPorProducir) {
-      console.warn("Falta API.productosPorProducir en PLACAS_API");
-      return;
+    function renderSeleccionados(){
+      const selectedArr = Array.from(selectedPedidos);
+      if (!selectedArr.length) {
+        selBox.innerHTML = `<div class="muted">Selecciona pedidos “Por producir”.</div>`;
+        linkBox.innerHTML = `<div class="muted">Al seleccionar, aquí se muestran vinculados.</div>`;
+        return;
+      }
+
+      const items = selectedArr.map(id => pedidosData.find(x => String(x.id) === id)).filter(Boolean);
+
+      selBox.innerHTML = items.map(p => {
+        const num = p.pedido_display || p.numero || p.label || '';
+        return `
+          <div class="bg-white border rounded-xl p-3 flex items-center justify-between gap-2">
+            <div class="font-black truncate">${escapeHtml(num)}</div>
+            <button type="button" class="text-xs font-black text-red-600 hover:underline"
+              data-remove="${escapeHtml(p.id)}">Quitar</button>
+          </div>
+        `;
+      }).join('');
+
+      selBox.querySelectorAll('button[data-remove]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectedPedidos.delete(String(btn.dataset.remove));
+          renderPedidos();
+        });
+      });
+
+      linkBox.innerHTML = items.map(p => {
+        const num = p.pedido_display || p.numero || p.label || '';
+        const cliente = p.cliente || '';
+        return `
+          <div class="bg-white border rounded-xl p-3">
+            <div class="font-black truncate">${escapeHtml(num)}</div>
+            <div class="text-xs text-gray-500 mt-1 truncate">${escapeHtml(cliente)}</div>
+          </div>
+        `;
+      }).join('');
     }
-    try {
-      const data = await fetchJsonSafe(API.productosPorProducir);
-      productosPool = Array.isArray(data.items) ? data.items : [];
-      renderProductosSelector();
-    } catch (e) {
-      const box = q('cargaProductosLista');
-      if (box) box.innerHTML = `<div class="text-sm text-red-500">Error cargando productos: ${escapeHtml(e.message)}</div>`;
-    }
   }
 
-  function toggleProducto(item) {
-    const id = String(item.id);
-    if (productosSelected.has(id)) productosSelected.delete(id);
-    else productosSelected.set(id, item);
-    renderProductosSelector();
-  }
-
-  function getSelectedLabels() {
-    return Array.from(productosSelected.values()).map(x => x.label || x.producto || String(x.id));
-  }
-
-  function getSelectedPedidos() {
-    const set = new Set();
-    for (const it of productosSelected.values()) {
-      const pn = it.pedido_numero ?? it.pedido ?? it.pedido_id;
-      if (pn != null && String(pn).trim() !== '') set.add(String(pn).trim());
-    }
-    return Array.from(set.values());
-  }
-
-  function renderProductosSelector() {
-    const listBox = q('cargaProductosLista');
-    const chipsBox = q('cargaProductosChips');
-    const pedidosBox = q('cargaPedidosChips');
-
-    if (!listBox || !chipsBox || !pedidosBox) return;
-
-    const term = normalizeText(productosSearch);
-
-    const filtered = term
-      ? productosPool.filter(it => normalizeText([it.label, it.producto, it.pedido_numero].join(' ')).includes(term))
-      : productosPool;
-
-    if (!productosPool.length) {
-      listBox.innerHTML = `<div class="text-sm text-gray-400">No hay productos en “Por producir”.</div>`;
-    } else if (!filtered.length) {
-      listBox.innerHTML = `<div class="text-sm text-gray-400">Sin resultados para "${escapeHtml(productosSearch)}".</div>`;
-    } else {
-      listBox.innerHTML = `
-        <div class="grid gap-2">
-          ${filtered.map(it => {
-            const id = String(it.id);
-            const checked = productosSelected.has(id);
-            const pedido = it.pedido_numero ? `Pedido #${it.pedido_numero}` : '';
-            const producto = it.producto ? it.producto : '';
-            const cant = it.cantidad ? `x${it.cantidad}` : '';
-            const label = it.label || `${pedido}${pedido && producto ? ' — ' : ''}${producto} ${cant}`.trim();
-
-            return `
-              <label class="flex items-start gap-3 p-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 cursor-pointer">
-                <input type="checkbox" ${checked ? 'checked' : ''} class="mt-1"
-                  onchange="window.__PLACAS_toggleProducto('${escapeHtml(id)}')">
-                <div class="min-w-0">
-                  <div class="font-extrabold text-sm truncate">${escapeHtml(label)}</div>
-                  <div class="text-xs text-gray-500 mt-1 flex flex-wrap gap-2">
-                    ${pedido ? `<span class="px-2 py-1 rounded-full bg-gray-100 border">${escapeHtml(pedido)}</span>` : ''}
-                    ${producto ? `<span class="px-2 py-1 rounded-full bg-gray-100 border">${escapeHtml(producto)}</span>` : ''}
-                    ${cant ? `<span class="px-2 py-1 rounded-full bg-gray-100 border">${escapeHtml(cant)}</span>` : ''}
-                  </div>
-                </div>
-              </label>
-            `;
-          }).join('')}
-        </div>
-      `;
-    }
-
-    // chips seleccionados
-    const labels = getSelectedLabels();
-    chipsBox.innerHTML = labels.length
-      ? labels.map((t, i) => `
-          <span class="px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-xs font-black text-blue-800 inline-flex items-center gap-2">
-            ${escapeHtml(t)}
-            <button type="button" class="text-blue-700 hover:text-blue-900"
-              onclick="window.__PLACAS_removeSelectedByIndex(${i})">✕</button>
-          </span>
-        `).join('')
-      : `<span class="text-xs text-gray-400">Selecciona productos de “Por producir”.</span>`;
-
-    // chips pedidos auto
-    const pedidos = getSelectedPedidos();
-    pedidosBox.innerHTML = pedidos.length
-      ? pedidos.map(p => `
-          <span class="px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-black text-emerald-800">
-            🧾 Pedido #${escapeHtml(p)}
-          </span>
-        `).join('')
-      : `<span class="text-xs text-gray-400">Al seleccionar productos, aquí aparecen los pedidos vinculados.</span>`;
-  }
-
-  // helpers globales para UI
-  window.__PLACAS_toggleProducto = function (id) {
-    const it = productosPool.find(x => String(x.id) === String(id));
-    if (!it) return;
-    toggleProducto(it);
-  };
-
-  window.__PLACAS_removeSelectedByIndex = function (idx) {
-    const arr = Array.from(productosSelected.entries());
-    const kv = arr[idx];
-    if (!kv) return;
-    productosSelected.delete(kv[0]);
-    renderProductosSelector();
-  };
-
-  // ===================== MODAL CARGA (SUBIR LOTE) =====================
+  // ----------------- Modal Carga: Files preview -----------------
   const modalCarga = q('modalCargaBackdrop');
   let filesSeleccionados = [];
 
-  function abrirModalCarga() {
-    if (!modalCarga) return;
+  function resetCargaModal(){
+    q('cargaLoteNombre').value = '';
+    q('cargaNumero').value = '';
+    q('cargaArchivo').value = '';
+    filesSeleccionados = [];
+    q('cargaPreview').innerHTML = 'Vista previa';
+    q('cargaMsg').textContent = '';
+    selectedPedidos.clear();
+    q('ppSearch').value = '';
+    renderPedidos();
+  }
+
+  q('btnAbrirModalCarga').addEventListener('click', async () => {
     modalCarga.classList.remove('hidden');
     q('cargaMsg').textContent = '';
+    await cargarPedidosPorProducir();
+  });
 
-    // reset y carga productos por producir cada vez que abres
-    resetProductosSelector();
-    loadProductosPorProducir();
-  }
-
-  function cerrarModalCarga() {
-    if (!modalCarga) return;
+  q('btnCerrarCarga').addEventListener('click', () => {
     modalCarga.classList.add('hidden');
-    if (q('cargaArchivo')) q('cargaArchivo').value = '';
-    filesSeleccionados = [];
-    if (q('cargaPreview')) q('cargaPreview').innerHTML = 'Vista previa';
-    if (q('cargaMsg')) q('cargaMsg').textContent = '';
+    resetCargaModal();
+  });
 
-    if (q('uploadProgressWrap')) q('uploadProgressWrap').classList.add('hidden');
-    if (q('uploadProgressBar')) q('uploadProgressBar').style.width = '0%';
-    if (q('uploadProgressText')) q('uploadProgressText').textContent = '0%';
+  q('ppSearch')?.addEventListener('input', () => renderPedidos());
 
-    resetProductosSelector();
-  }
-
-  function renderPreviewSeleccion() {
+  q('cargaArchivo').addEventListener('change', (e) => {
+    filesSeleccionados = Array.from(e.target.files || []);
     const box = q('cargaPreview');
-    if (!box) return;
 
     if (!filesSeleccionados.length) {
       box.innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
@@ -792,24 +476,18 @@
 
     box.innerHTML = `
       <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; padding:8px;">
-        ${filesSeleccionados.map((f, i) => {
+        ${filesSeleccionados.map((f) => {
           const isImg = f.type.startsWith('image/');
           const isPdf = (f.type || '').includes('pdf');
           const url = (isImg || isPdf) ? URL.createObjectURL(f) : '';
 
           return `
-            <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; background:#f9fafb; height:72px; display:flex; align-items:center; justify-content:center; position:relative;">
-              ${isImg
-                ? `<img src="${url}" style="width:100%; height:100%; object-fit:cover;">`
-                : isPdf
-                  ? `<div style="font-size:12px;color:#6b7280;padding:6px;text-align:center;">PDF</div>`
-                  : `<div style="font-size:11px;color:#6b7280;padding:6px;text-align:center;word-break:break-word;">${escapeHtml(f.name)}</div>`
+            <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; background:#f9fafb; height:92px; display:flex; align-items:center; justify-content:center;">
+              ${
+                isImg ? `<img src="${url}" style="width:100%; height:100%; object-fit:cover;">`
+                : isPdf ? `<div style="font-size:12px;color:#6b7280;">PDF</div>`
+                : `<div style="font-size:11px;color:#6b7280;padding:6px;text-align:center;word-break:break-word;">${escapeHtml(f.name)}</div>`
               }
-              <button type="button"
-                onclick="window.__PLACAS_quitarArchivo(${i})"
-                style="position:absolute; top:6px; right:6px; background:rgba(0,0,0,.6); color:#fff; border:0; width:22px; height:22px; border-radius:999px; cursor:pointer;">
-                ×
-              </button>
             </div>
           `;
         }).join('')}
@@ -818,35 +496,24 @@
         ${filesSeleccionados.length} archivo(s) seleccionado(s)
       </div>
     `;
-  }
+  });
 
-  window.__PLACAS_quitarArchivo = (idx) => {
-    filesSeleccionados.splice(idx, 1);
-    const dt = new DataTransfer();
-    filesSeleccionados.forEach(f => dt.items.add(f));
-    if (q('cargaArchivo')) q('cargaArchivo').files = dt.files;
-    renderPreviewSeleccion();
-  };
-
-  async function subirLote() {
-    const loteNombre = (q('cargaLoteNombre')?.value || '').trim();
-    const numeroPlaca = (q('cargaNumero')?.value || '').trim();
+  // ----------------- Guardar carga -----------------
+  q('btnGuardarCarga').addEventListener('click', () => {
+    const loteNombre = q('cargaLoteNombre')?.value.trim();
+    const numeroPlaca = q('cargaNumero')?.value.trim();
 
     if (!loteNombre) { q('cargaMsg').textContent = 'El nombre del lote es obligatorio.'; return; }
     if (!filesSeleccionados.length) { q('cargaMsg').textContent = 'Selecciona uno o más archivos.'; return; }
+    if (!selectedPedidos.size) { q('cargaMsg').textContent = 'Selecciona al menos 1 pedido en Por producir.'; return; }
 
-    // ✅ productos seleccionados => labels + pedidos
-    const productosLabels = getSelectedLabels();
-    const pedidosAuto = getSelectedPedidos();
-
-    // progreso
     const wrap = q('uploadProgressWrap');
     const bar  = q('uploadProgressBar');
     const txt  = q('uploadProgressText');
 
-    if (wrap) wrap.classList.remove('hidden');
-    if (bar) bar.style.width = '0%';
-    if (txt) txt.textContent = '0%';
+    wrap.classList.remove('hidden');
+    bar.style.width = '0%';
+    txt.textContent = '0%';
 
     q('btnGuardarCarga').disabled = true;
     q('cargaMsg').textContent = `Subiendo ${filesSeleccionados.length} archivo(s)...`;
@@ -855,22 +522,30 @@
     fd.append('lote_nombre', loteNombre);
     fd.append('numero_placa', numeroPlaca);
 
-    // ✅ Guardar en el lote
-    // Se guardan como JSON strings (tu backend parsea JSON arrays)
-    fd.append('productos', JSON.stringify(productosLabels));
-    fd.append('pedidos', JSON.stringify(pedidosAuto));
+    // ✅ pedidos_json (asignación)
+    const payloadPedidos = Array.from(selectedPedidos).map(id => {
+      const it = pedidosData.find(x => String(x.id) === String(id));
+      return {
+        id: String(id),
+        numero: it?.pedido_display || it?.numero || it?.label || '',
+        cliente: it?.cliente || '',
+        fecha: it?.fecha || '',
+        articulos: it?.articulos ?? null,
+        estado: it?.estado || 'Por producir'
+      };
+    });
+    fd.append('pedidos_json', JSON.stringify(payloadPedidos));
 
     filesSeleccionados.forEach(file => fd.append('archivos[]', file));
 
-    // xhr con progreso
     const xhr = new XMLHttpRequest();
     xhr.open('POST', API.subir, true);
 
     xhr.upload.onprogress = (e) => {
       if (!e.lengthComputable) return;
       const percent = Math.round((e.loaded / e.total) * 100);
-      if (bar) bar.style.width = percent + '%';
-      if (txt) txt.textContent = percent + '%';
+      bar.style.width = percent + '%';
+      txt.textContent = percent + '%';
     };
 
     xhr.onload = async () => {
@@ -884,15 +559,17 @@
         return;
       }
 
-      if (bar) bar.style.width = '100%';
-      if (txt) txt.textContent = '100%';
+      bar.style.width = '100%';
+      txt.textContent = '100%';
       q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
 
       setTimeout(async () => {
-        cerrarModalCarga();
+        modalCarga.classList.add('hidden');
+        wrap.classList.add('hidden');
+        resetCargaModal();
         await cargarStats();
         await cargarVistaAgrupada();
-      }, 500);
+      }, 450);
     };
 
     xhr.onerror = () => {
@@ -900,99 +577,130 @@
       q('cargaMsg').textContent = 'Error de red al subir.';
     };
 
-    // selectedPedidos debe ser un Set con los IDs seleccionados
-    // y productosData la lista devuelta por el endpoint (items)
-
-    const pedidosSeleccionados = Array.from(window.selectedPedidos || []);
-    const payloadPedidos = pedidosSeleccionados.map(id => {
-    const it = (window.productosData || []).find(x => String(x.id) === String(id));
-    return {
-        id: String(id),
-        numero: it?.pedido_display || it?.numero || it?.label || '',
-        cliente: it?.cliente || '',
-        fecha: it?.fecha || '',
-        articulos: it?.articulos ?? null,
-        estado: it?.estado || 'Por producir'
-    };
-    });
-
-    fd.append('pedidos_json', JSON.stringify(payloadPedidos));
-
     xhr.send(fd);
+  });
+
+  // ----------------- Edit modal listeners -----------------
+  q('modalClose').addEventListener('click', closeModal);
+  q('modalBackdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'modalBackdrop') closeModal();
+  });
+
+  async function renombrarLoteDesdeModal() {
+    const sel = getSelectedItem();
+    if (!sel) return;
+
+    const loteId = sel.lote_id;
+    const actual = (sel.lote_nombre || '').trim();
+    const nuevo = prompt('Nuevo nombre del lote:', actual);
+    if (nuevo === null) return;
+
+    const nombre = nuevo.trim();
+    if (!nombre) { q('modalMsg').textContent = 'El nombre no puede estar vacío.'; return; }
+
+    const fd = addCsrf(new FormData());
+    fd.append('lote_id', String(loteId));
+    fd.append('lote_nombre', nombre);
+
+    const res = await fetch(API.renombrarLote, { method:'POST', body: fd, credentials:'same-origin' });
+    const data = await res.json().catch(()=>null);
+    if (!data?.success) { q('modalMsg').textContent = data?.message || 'Error renombrando'; return; }
+
+    q('modalMsg').textContent = '✅ Lote renombrado';
+    const keepId = sel.id;
+    await cargarVistaAgrupada();
+    openModal(keepId);
   }
 
-  // ===================== BUSCADOR principal =====================
+  q('btnRenombrarLote').addEventListener('click', renombrarLoteDesdeModal);
+
+  q('btnGuardarNombre').addEventListener('click', async () => {
+    const sel = getSelectedItem();
+    if (!sel) return;
+
+    const nuevo = q('modalNombre').value.trim();
+    if (!nuevo) { q('modalMsg').textContent = 'El nombre no puede estar vacío.'; return; }
+
+    const fd = addCsrf(new FormData());
+    fd.append('id', sel.id);
+    fd.append('nombre', nuevo);
+
+    const res = await fetch(API.renombrar, { method:'POST', body: fd, credentials:'same-origin' });
+    const data = await res.json().catch(()=>null);
+
+    if (!data?.success) { q('modalMsg').textContent = data?.message || 'Error renombrando'; return; }
+    q('modalMsg').textContent = '✅ Nombre actualizado';
+
+    await cargarVistaAgrupada();
+    openModal(sel.id);
+  });
+
+  q('btnEliminarArchivo').addEventListener('click', async () => {
+    const sel = getSelectedItem();
+    if (!sel) return;
+    if (!confirm(`¿Eliminar el archivo #${sel.id}?`)) return;
+
+    const fd = addCsrf(new FormData());
+    fd.append('id', sel.id);
+
+    const res = await fetch(API.eliminar, { method:'POST', body: fd, credentials:'same-origin' });
+    const data = await res.json().catch(()=>null);
+
+    if (!data?.success) { q('modalMsg').textContent = data?.message || 'Error eliminando'; return; }
+
+    q('modalMsg').textContent = '✅ Eliminado';
+    closeModal();
+    await cargarStats();
+    await cargarVistaAgrupada();
+  });
+
+  q('btnDescargarPngSel').addEventListener('click', () => {
+    const sel = getSelectedItem();
+    if (!sel?.id) return;
+    window.open(`${API.descargarPng}/${sel.id}`, '_blank');
+  });
+
+  q('btnDescargarJpgSel').addEventListener('click', () => {
+    const sel = getSelectedItem();
+    if (!sel?.id) return;
+    window.open(`${API.descargarJpg}/${sel.id}`, '_blank');
+  });
+
+  // ----------------- Buscador principal -----------------
+  const searchInput = q('searchInput');
+  const searchClear = q('searchClear');
+
+  let searchT = null;
   function applySearch(v) {
     searchTerm = v || '';
-    if (q('searchClear')) q('searchClear').classList.toggle('hidden', !searchTerm.trim());
+    if (searchClear) searchClear.classList.toggle('hidden', !searchTerm.trim());
     cargarVistaAgrupada();
   }
 
-  // ===================== INIT EVENTS =====================
-  function bindEvents() {
-    // modal editar
-    q('modalClose')?.addEventListener('click', closeModal);
-    q('modalBackdrop')?.addEventListener('click', (e) => {
-      if (e.target.id === 'modalBackdrop') closeModal();
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      const v = e.target.value;
+      clearTimeout(searchT);
+      searchT = setTimeout(() => applySearch(v), 120);
     });
+  }
 
-    q('btnRenombrarLote')?.addEventListener('click', renombrarLoteDesdeModal);
-    q('btnGuardarNombre')?.addEventListener('click', guardarNombreArchivo);
-    q('btnEliminarArchivo')?.addEventListener('click', eliminarArchivo);
-    q('btnDescargarPngSel')?.addEventListener('click', descargarSelPng);
-    q('btnDescargarJpgSel')?.addEventListener('click', descargarSelJpg);
-
-    // modal carga
-    q('btnAbrirModalCarga')?.addEventListener('click', abrirModalCarga);
-    q('btnCerrarCarga')?.addEventListener('click', cerrarModalCarga);
-    q('btnGuardarCarga')?.addEventListener('click', subirLote);
-
-    q('cargaArchivo')?.addEventListener('change', (e) => {
-      filesSeleccionados = Array.from(e.target.files || []);
-      renderPreviewSeleccion();
-    });
-
-    // buscador productos por producir (modal carga)
-    q('cargaProductosBuscar')?.addEventListener('input', (e) => {
-      productosSearch = e.target.value || '';
-      renderProductosSelector();
-    });
-
-    // buscador principal
-    const searchInput = q('searchInput');
-    const searchClear = q('searchClear');
-
-    let t = null;
-    searchInput?.addEventListener('input', (e) => {
-      clearTimeout(t);
-      t = setTimeout(() => applySearch(e.target.value), 120);
-    });
-
-    searchClear?.addEventListener('click', () => {
-      if (!searchInput) return;
+  if (searchClear) {
+    searchClear.addEventListener('click', () => {
       searchInput.value = '';
       applySearch('');
       searchInput.focus();
     });
   }
 
-  // ===================== REFRESH =====================
-  async function refrescarTodo() {
-    try {
-      await cargarStats();
-      await cargarVistaAgrupada();
-    } catch (e) {
-      console.log("Refresco detenido por error", e);
-      if (refresco) clearInterval(refresco);
-      refresco = null;
-    }
+  // ----------------- Init -----------------
+  async function init(){
+    await cargarStats();
+    await cargarVistaAgrupada();
   }
+  init();
 
-  // ===================== START =====================
-  document.addEventListener('DOMContentLoaded', async () => {
-    bindEvents();
-    await refrescarTodo();
-    refresco = setInterval(refrescarTodo, 600000); // 10 min
-  });
-
+  // expose openModal/openLote for click usage if needed
+  window.openModal = openModal;
+  window.openLote = openLote;
 })();
