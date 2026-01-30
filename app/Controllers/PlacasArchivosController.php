@@ -300,4 +300,3 @@ class PlacasArchivosController extends BaseController
             ->setBody(file_get_contents($path));
     }
 }
- 
