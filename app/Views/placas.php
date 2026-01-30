@@ -119,11 +119,9 @@
 <!-- MODAL CARGA -->
 <!-- ✅ MODAL CARGA (TAILWIND, RESPONSIVE) -->
 <div id="modalCargaBackdrop"
-     class="fixed inset-0 z-[10000] hidden items-center justify-center bg-black/50 p-3 sm:p-6">
+     class="fixed inset-0 z-[10000] hidden bg-black/50 p-2 sm:p-6">
 
-  <!-- Caja modal -->
-  <div class="w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-    
+  <div class="mx-auto flex h-[96vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
     <!-- Header -->
     <div class="flex items-start justify-between gap-4 border-b px-5 py-4 sm:px-7">
       <div>
@@ -134,127 +132,93 @@
       </div>
 
       <button id="btnCerrarCarga"
-        class="rounded-xl bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200 active:scale-[0.99]">
+        class="rounded-xl bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200">
         Cerrar
       </button>
     </div>
 
-    <!-- Body -->
-    <div class="px-5 py-5 sm:px-7">
-      
-      <!-- ✅ Campos arriba -->
+    <!-- Body scroll -->
+    <div class="flex-1 overflow-auto px-5 py-5 sm:px-7">
+      <!-- Campos -->
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label class="mb-1 block text-xs font-semibold text-gray-700">Nombre del lote</label>
           <input id="cargaLoteNombre" type="text" placeholder="Ej: Lote-01"
-            class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
+            class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
         </div>
-
         <div>
           <label class="mb-1 block text-xs font-semibold text-gray-700">Número de placa / nota</label>
           <input id="cargaNumero" type="text" placeholder="Ej: 01 / Observación"
-            class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
+            class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
         </div>
       </div>
 
-      <!-- ✅ Contenido principal -->
+      <!-- Contenido principal -->
       <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        
-        <!-- ✅ Pedidos -->
+
+        <!-- Pedidos -->
         <section class="rounded-2xl border border-gray-200 bg-white p-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2">
-              <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-                ✓
-              </span>
+              <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">✓</span>
               <h3 class="font-extrabold text-gray-900">
                 Pedidos <span class="text-gray-500 font-bold">(estado interno: Por producir)</span>
               </h3>
             </div>
-
             <div class="w-full sm:w-72">
               <input id="cargaBuscarPedido" type="text" placeholder="Buscar #PEDIDO, cliente..."
-                class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
+                class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
             </div>
           </div>
 
-          <!-- 3 paneles: lista / seleccionados / vinculados -->
           <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            
-            <!-- Lista -->
-            <div class="sm:col-span-1">
+            <div>
               <div class="text-xs font-bold text-gray-700">Lista</div>
-              <div id="cargaPedidosLista"
-                   class="mt-2 h-60 sm:h-[340px] overflow-auto rounded-xl border border-gray-200 bg-gray-50 p-2">
-                <!-- JS renderiza aquí -->
-                <div class="text-xs text-gray-500 p-3">Cargando pedidos…</div>
+              <div id="cargaPedidosLista" class="mt-2 h-72 overflow-auto rounded-xl border border-gray-200 bg-gray-50 p-2">
+                <div class="p-3 text-xs text-gray-500">Cargando pedidos…</div>
               </div>
-
-              <div id="cargaPedidosFooter" class="mt-2 text-xs text-gray-500">
-                <!-- JS puede actualizar: “X pedidos encontrados” -->
-              </div>
+              <div id="cargaPedidosFooter" class="mt-2 text-xs text-gray-500"></div>
             </div>
 
-            <!-- Seleccionados -->
-            <div class="sm:col-span-1">
+            <div>
               <div class="text-xs font-bold text-gray-700">Seleccionados</div>
-              <div id="cargaPedidosSeleccionados"
-                   class="mt-2 h-60 sm:h-[340px] overflow-auto rounded-xl border border-gray-200 bg-white p-2">
-                <div class="text-xs text-gray-500 p-3">
-                  Selecciona pedidos de “Por producir”.
-                </div>
+              <div id="cargaPedidosSeleccionados" class="mt-2 h-72 overflow-auto rounded-xl border border-gray-200 bg-white p-2">
+                <div class="p-3 text-xs text-gray-500">Selecciona pedidos de “Por producir”.</div>
               </div>
             </div>
 
-            <!-- Vinculados -->
-            <div class="sm:col-span-1">
-              <div class="text-xs font-bold text-gray-700">Pedidos vinculados (auto)</div>
-              <div id="cargaPedidosVinculados"
-                   class="mt-2 h-60 sm:h-[340px] overflow-auto rounded-xl border border-gray-200 bg-white p-2">
-                <div class="text-xs text-gray-500 p-3">
-                  Al seleccionar pedidos, aquí se mostrarán los vinculados.
-                </div>
+            <div>
+              <div class="text-xs font-bold text-gray-700">Vinculados (auto)</div>
+              <div id="cargaPedidosVinculados" class="mt-2 h-72 overflow-auto rounded-xl border border-gray-200 bg-white p-2">
+                <div class="p-3 text-xs text-gray-500">Al seleccionar pedidos, aquí aparecen vinculados.</div>
               </div>
             </div>
-
           </div>
         </section>
 
-        <!-- ✅ Archivos -->
+        <!-- Archivos -->
         <section class="rounded-2xl border border-gray-200 bg-white p-4">
-          <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
-                ⬆
-              </span>
+              <span class="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-blue-50 text-blue-700">⬆</span>
               <h3 class="font-extrabold text-gray-900">Archivos</h3>
             </div>
-            <div id="cargaArchivosCount" class="text-xs font-semibold text-gray-500">
-              0 archivo(s)
-            </div>
+            <div id="cargaArchivosCount" class="text-xs font-semibold text-gray-500">0 archivo(s)</div>
           </div>
 
-          <!-- input file -->
           <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <input id="cargaArchivo" type="file" multiple class="w-full text-sm"
-                   accept="*/*">
-            <div class="text-xs text-gray-500">
-              Puedes subir imágenes, PDFs y otros archivos.
-            </div>
+            <input id="cargaArchivo" type="file" multiple class="w-full text-sm" accept="*/*">
+            <div class="text-xs text-gray-500">Cualquier formato.</div>
           </div>
 
-          <!-- preview -->
           <div id="cargaPreview"
-               class="mt-3 flex h-64 sm:h-[360px] items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 text-sm text-gray-400">
+               class="mt-3 flex h-[360px] items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 text-sm text-gray-400">
             Vista previa
           </div>
 
-          <!-- progreso -->
           <div id="uploadProgressWrap" class="mt-3 hidden">
             <div class="h-3 w-full overflow-hidden rounded-full border border-gray-200 bg-gray-100">
-              <div id="uploadProgressBar"
-                   class="h-3 rounded-full bg-blue-600 transition-[width] duration-150"
-                   style="width:0%"></div>
+              <div id="uploadProgressBar" class="h-3 rounded-full bg-blue-600 transition-[width] duration-150" style="width:0%"></div>
             </div>
             <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
               <span id="uploadProgressLabel">Subiendo…</span>
@@ -268,7 +232,7 @@
       </div>
     </div>
 
-    <!-- Footer -->
+    <!-- Footer fijo -->
     <div class="flex items-center justify-end gap-2 border-t bg-white px-5 py-4 sm:px-7">
       <button id="btnCancelarCarga"
         class="rounded-xl bg-gray-100 px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-200">
@@ -276,12 +240,13 @@
       </button>
 
       <button id="btnGuardarCarga"
-        class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-blue-700 active:scale-[0.99]">
+        class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-blue-700">
         Guardar
       </button>
     </div>
   </div>
 </div>
+
 
 
 <script>
@@ -305,6 +270,14 @@ window.PLACAS_CONFIG = {
   }
 };
 </script>
+<script>
+  window.PLACAS_API = {
+    subir: <?= json_encode(site_url('placas/archivos/subir-lote')) ?>,
+    pedidosPorProducir: <?= json_encode(site_url('pedidos?page=1&estado=Por%20producir')) ?>
+  };
+</script>
+
+<script src="<?= base_url('js/placas.js?v=' . time()) ?>" defer></script>
 
 <script src="<?= base_url('js/placas.js?v=' . time()) ?>"></script>
 </body>

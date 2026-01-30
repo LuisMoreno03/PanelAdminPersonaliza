@@ -236,85 +236,130 @@ class PlacasArchivosController extends BaseController
     // ----------------------------
     // ✅ SUBIR LOTE (guarda pedidos_json en cada archivo)
     // ----------------------------
-    public function subirLote(): ResponseInterface
-    {
-        try {
-            $loteNombre = trim((string)$this->request->getPost('lote_nombre'));
-            $numeroPlaca = trim((string)$this->request->getPost('numero_placa'));
+    public function subirLote()
+{
+    helper(['url']);
 
-            if ($loteNombre === '') {
-                return $this->response->setStatusCode(400)->setJSON(['success'=>false,'message'=>'El nombre del lote es obligatorio.']);
-            }
+    try {
+        $m = new \App\Models\PlacaArchivoModel();
 
-            $pedidosJson = $this->request->getPost('pedidos_json');
-            if (!is_string($pedidosJson) || trim($pedidosJson) === '') $pedidosJson = '[]';
+        $loteNombre = trim((string) $this->request->getPost('lote_nombre'));
+        $numeroPlaca = trim((string) $this->request->getPost('numero_placa'));
 
-            $tmp = json_decode($pedidosJson, true);
-            if (!is_array($tmp)) $tmp = [];
-            $pedidosJson = json_encode($tmp, JSON_UNESCAPED_UNICODE);
+        // pedidos seleccionados (puede venir como JSON string o array)
+        $pedidosJson = $this->request->getPost('pedidos_json');
+        if (is_array($pedidosJson)) {
+            $pedidosJson = json_encode($pedidosJson, JSON_UNESCAPED_UNICODE);
+        } else {
+            $pedidosJson = (string) $pedidosJson;
+        }
 
-            $files = $this->request->getFiles();
-            $archivos = $files['archivos'] ?? null;
+        if ($loteNombre === '') {
+            return $this->response->setStatusCode(400)->setJSON([
+                'success' => false,
+                'message' => 'El nombre del lote es obligatorio.'
+            ]);
+        }
 
-            if (!$archivos) {
-                return $this->response->setStatusCode(400)->setJSON(['success'=>false,'message'=>'Selecciona uno o más archivos.']);
-            }
+        // ✅ lote_id único
+        $loteId = 'L' . date('Ymd_His') . '_' . bin2hex(random_bytes(3));
 
-            // lote_id único
-            $loteId = 'L' . date('Ymd_His') . '_' . bin2hex(random_bytes(4));
+        $files = $this->request->getFiles();
+        $archivos = $files['archivos'] ?? null;
 
-            $baseDir = WRITEPATH . 'uploads/placas';
-            if (!is_dir($baseDir)) mkdir($baseDir, 0775, true);
+        if (!$archivos) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'success' => false,
+                'message' => 'No se recibieron archivos.'
+            ]);
+        }
 
-            $inserted = 0;
-            $isPrimarySet = false;
+        // normaliza a array
+        if (!is_array($archivos)) $archivos = [$archivos];
 
-            foreach ($archivos as $file) {
-                if (!$file || !$file->isValid()) continue;
+        $guardados = [];
+        $baseDir = WRITEPATH . 'uploads/placas/' . $loteId . '/';
 
-                $original = $file->getClientName();
-                $mime = $file->getClientMimeType() ?: $file->getMimeType();
-                $size = (int)$file->getSize();
+        if (!is_dir($baseDir)) {
+            mkdir($baseDir, 0775, true);
+        }
 
-                $safeName = preg_replace('/[^a-zA-Z0-9\._-]+/', '_', $original);
-                $newName = time().'_'.bin2hex(random_bytes(3)).'_'.$safeName;
+        foreach ($archivos as $idx => $file) {
+            if (!$file || !$file->isValid()) continue;
 
-                $file->move($baseDir, $newName);
+            // ✅ permite cualquier formato
+            // (no validamos mime ni extensión)
+            $originalName = $file->getClientName() ?: ('archivo_' . $idx);
+            $mime         = $file->getClientMimeType() ?: 'application/octet-stream';
+            $size         = (int) ($file->getSize() ?? 0);
 
-                // ruta pública (si tu public/index.php apunta a /public, ajusta según tu config)
-                // Aquí asumimos que expones WRITEPATH/uploads vía base_url con symlink o config.
-                // Si ya lo tienes funcionando, déjalo.
-                $rutaRel = 'writable/uploads/placas/'.$newName;
+            // ✅ nombre seguro
+            $ext = $file->getClientExtension();
+            $safeBase = preg_replace('/[^a-zA-Z0-9_\-]/', '_', pathinfo($originalName, PATHINFO_FILENAME));
+            if ($safeBase === '') $safeBase = 'archivo_' . $idx;
 
-                $this->m->insert([
-                    'lote_id' => $loteId,
-                    'lote_nombre' => $loteNombre,
-                    'numero_placa' => $numeroPlaca,
-                    'nombre' => pathinfo($original, PATHINFO_FILENAME),
-                    'original' => $original,
-                    'mime' => $mime,
-                    'size' => $size,
-                    'ruta' => $rutaRel,
-                    'is_primary' => $isPrimarySet ? 0 : 1,
-                    'created_at' => date('Y-m-d H:i:s'),
-                    'pedidos_json' => $pedidosJson, // ✅ asignación
-                ]);
+            $finalName = $safeBase . '_' . time() . '_' . bin2hex(random_bytes(2));
+            if ($ext) $finalName .= '.' . $ext;
 
-                $isPrimarySet = true;
-                $inserted++;
-            }
+            $file->move($baseDir, $finalName);
 
-            return $this->response->setJSON([
-                'success' => true,
-                'message' => "✅ Subidos correctamente ({$inserted})",
-                'lote_id' => $loteId,
+            $rutaRel = 'uploads/placas/' . $loteId . '/' . $finalName;
+
+            // ✅ inserta en BD
+            $rowId = $m->insert([
+                'lote_id'      => $loteId,
+                'lote_nombre'  => $loteNombre,
+                'numero_placa' => $numeroPlaca,
+
+                // ✅ guardar pedidos asociados al lote
+                'pedidos_json' => $pedidosJson,
+                'pedidos_text' => null,
+
+                'ruta'         => $rutaRel,
+                'original'     => $originalName,
+                'mime'         => $mime,
+                'size'         => $size,
+                'nombre'       => $safeBase,
+
+                // si tu tabla no tiene created_at, el model lo ignorará por el filtro
+                'created_at'   => date('Y-m-d H:i:s'),
             ]);
 
-        } catch (\Throwable $e) {
-            log_message('error', 'subirLote ERROR: {m}', ['m'=>$e->getMessage()]);
-            return $this->response->setStatusCode(500)->setJSON(['success'=>false,'message'=>$e->getMessage()]);
+            $guardados[] = [
+                'id'       => (int) $rowId,
+                'original' => $originalName,
+                'ruta'     => $rutaRel
+            ];
         }
+
+        if (!$guardados) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'success' => false,
+                'message' => 'No se pudo guardar ningún archivo.'
+            ]);
+        }
+
+        return $this->response->setJSON([
+            'success' => true,
+            'message' => '✅ Archivos subidos correctamente',
+            'lote_id' => $loteId,
+            'items'   => $guardados
+        ]);
+
+    } catch (\Throwable $e) {
+        log_message('error', 'subirLote ERROR: {msg} | {file}:{line}', [
+            'msg'  => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return $this->response->setStatusCode(500)->setJSON([
+            'success' => false,
+            'message' => $e->getMessage(),
+        ]);
     }
+}
+
 
     // ----------------------------
     // ✅ RENOMBRAR ARCHIVO
