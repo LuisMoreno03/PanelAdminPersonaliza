@@ -410,28 +410,52 @@ function setSelectedItem(id) {
     });
   }
 
-  function renderCard(item){
-    const mime = item.mime || '';
-    const isImg = mime.startsWith('image/');
-    const isPdf = mime.includes('pdf');
+function previewHtml(it, mode = 'card') {
+  const mime = it.mime || '';
+  const isImg = mime.startsWith('image/');
+  const isPdf = mime.includes('pdf');
 
-    const preview = isImg
-      ? `<div class="preview"><img src="${item.url}"></div>`
-      : isPdf
-        ? `<div class="preview"><iframe src="${item.url}"></iframe></div>`
-        : `<div class="preview flex items-center justify-center"><div class="muted" style="padding:8px;text-align:center;">${escapeHtml(item.original || 'Archivo')}</div></div>`;
+  // usa thumb si existe (mejor performance)
+  const imgSrc = it.thumb_url || it.url;
 
-    const kb = Math.round((item.size || 0) / 1024);
-
-    return `
-      <div class="item" onclick="openModal(${item.id})">
-        ${preview}
-        <div class="item-title">${escapeHtml(item.nombre || 'Sin nombre')}</div>
-        <div class="muted">${escapeHtml(item.original || '')} • ${kb} KB</div>
-        <div class="muted"><b>Subido:</b> ${escapeHtml(formatFecha(item.created_at))}</div>
-      </div>
-    `;
+  if (isImg) {
+    return mode === 'mini'
+      ? `<img src="${imgSrc}" style="width:44px;height:44px;object-fit:cover;border-radius:10px;">`
+      : `<div class="preview"><img src="${imgSrc}"></div>`;
   }
+
+  if (isPdf) {
+    // si tu backend genera thumb de PDF úsalo; si no, mostramos etiqueta PDF
+    if (it.thumb_url) {
+      return mode === 'mini'
+        ? `<img src="${it.thumb_url}" style="width:44px;height:44px;object-fit:cover;border-radius:10px;">`
+        : `<div class="preview"><img src="${it.thumb_url}" style="width:100%;height:100%;object-fit:cover;"></div>`;
+    }
+    return mode === 'mini'
+      ? `<div style="width:44px;height:44px;border-radius:10px;border:1px solid #e5e7eb;background:#f9fafb;display:flex;align-items:center;justify-content:center;font-size:11px;color:#6b7280;">PDF</div>`
+      : `<div class="preview flex items-center justify-center"><div class="muted">PDF</div></div>`;
+  }
+
+  // otros archivos
+  return mode === 'mini'
+    ? `<div style="width:44px;height:44px;border-radius:10px;border:1px solid #e5e7eb;background:#f9fafb;display:flex;align-items:center;justify-content:center;font-size:11px;color:#6b7280;">FILE</div>`
+    : `<div class="preview flex items-center justify-center"><div class="muted" style="padding:8px;text-align:center;">${escapeHtml(it.original || 'Archivo')}</div></div>`;
+}
+
+function renderCard(item){
+  const preview = previewHtml(item, 'card');
+  const kb = Math.round((item.size || 0) / 1024);
+
+  return `
+    <div class="item" onclick="openModal(${item.id})">
+      ${preview}
+      <div class="item-title">${escapeHtml(item.nombre || 'Sin nombre')}</div>
+      <div class="muted">${escapeHtml(item.original || '')} • ${kb} KB</div>
+      <div class="muted"><b>Subido:</b> ${escapeHtml(formatFecha(item.created_at))}</div>
+    </div>
+  `;
+}
+
 
   async function cargarStats(){
     try{
@@ -735,23 +759,24 @@ function renderModalArchivos(list, activeId) {
     return;
   }
 
-  // si no hay seleccionado aún, usa el activeId
   if (!modalSelectedId) modalSelectedId = Number(activeId);
 
   box.innerHTML = list.map(it => {
-
     const kb = Math.round((it.size || 0) / 1024);
     const isActive = Number(it.id) === Number(modalSelectedId);
-
     const title = it.nombre || it.original || ('Archivo #' + it.id);
 
     return `
       <button type="button"
         data-modal-file="${it.id}"
         onclick="setSelectedItem(${it.id})"
-        class="w-full text-left bg-white border rounded-xl p-3 flex items-center justify-between gap-3 hover:bg-gray-50 ${isActive ? 'ring-2 ring-blue-300' : ''}">
+        class="w-full text-left bg-white border rounded-xl p-3 flex items-center gap-3 hover:bg-gray-50 ${isActive ? 'ring-2 ring-blue-300' : ''}">
         
-        <div class="min-w-0">
+        <div style="flex:0 0 auto;">
+          ${previewHtml(it, 'mini')}
+        </div>
+
+        <div class="min-w-0 flex-1">
           <div class="font-extrabold truncate">${escapeHtml(title)}</div>
           <div class="text-xs text-gray-500 mt-1">
             ${escapeHtml(it.mime || '')} • ${kb} KB
@@ -765,6 +790,8 @@ function renderModalArchivos(list, activeId) {
     `;
   }).join('');
 }
+
+
 
 
 function getLoteItemsFor(item) {
@@ -972,6 +999,11 @@ async function renombrarLoteDesdeModal() {
     return;
   }
 
+q('btnRenombrarLote').addEventListener('click', renombrarLoteDesdeModal);
+
+q('modalBackdrop').addEventListener('click', (e) => {
+  if (e.target.id === 'modalBackdrop') closeModal();
+});
 
 
   const fd = addCsrf(new FormData());
@@ -1103,7 +1135,7 @@ q('btnDescargarJpgSel').addEventListener('click', () => {
   };
 
  q('btnGuardarCarga').addEventListener('click', () => {
-  const producto = q('cargaProducto').value.trim();
+  const producto = q('cargaProducto')?.value?.trim() || '';
   const numero   = q('cargaNumero').value.trim();
   const loteNombreManual = q('cargaLoteNombre')?.value.trim();
 
@@ -1152,17 +1184,34 @@ q('btnDescargarJpgSel').addEventListener('click', () => {
     txt.textContent = '100%';
    q('cargaMsg').textContent = data.message || '✅ Subidos correctamente';
 
-    setTimeout(() => {
-      modalCarga.classList.add('hidden');
-      wrap.classList.add('hidden');
+   setTimeout(async () => {
+  modalCarga.classList.add('hidden');
+  wrap.classList.add('hidden');
 
-      q('cargaArchivo').value = '';
-      filesSeleccionados = [];
-      q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
+  q('cargaArchivo').value = '';
+  filesSeleccionados = [];
+  q('cargaPreview').innerHTML = '<div class="text-sm text-gray-500">Vista previa</div>';
 
-      cargarStats();
-      cargarLista();
-    }, 600);
+  await cargarStats();
+  await cargarVistaAgrupada(); // importante para reconstruir loteIndex/placasMap
+
+  // intenta abrir el lote nuevo (si el backend lo devuelve)
+  const newLoteId = data.lote_id || data.data?.lote_id || null;
+
+  if (newLoteId) {
+    openLote(String(newLoteId));
+  } else {
+    // fallback: buscar por nombre del lote que se escribió
+    const buscado = (q('cargaLoteNombre')?.value || '').trim();
+    const found = Object.keys(loteIndex).find(lid => {
+      const list = loteIndex[lid] || [];
+      const name = (list[0]?.lote_nombre || '').trim();
+      return name && buscado && name === buscado;
+    });
+    if (found) openLote(found);
+  }
+}, 200);
+
   };
 
   xhr.onerror = () => {
