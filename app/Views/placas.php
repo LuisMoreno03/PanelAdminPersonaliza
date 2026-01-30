@@ -52,12 +52,15 @@
 
   <script>
     window.PLACAS_API = {
-      listarPorDia: <?= json_encode(site_url('placas/archivos/listar-por-dia')) ?>,
-      stats: <?= json_encode(site_url('placas/archivos/stats')) ?>,
-      subirLote: <?= json_encode(site_url('placas/archivos/subir-lote')) ?>,
-      pedidosPorProducir: <?= json_encode(site_url('placas/pedidos/por-producir')) ?>,
-    };
-  </script>
+    listar: <?= json_encode(site_url('placas/archivos/listar-por-dia')) ?>,
+    stats:  <?= json_encode(site_url('placas/archivos/stats')) ?>,
+    subir:  <?= json_encode(site_url('placas/archivos/subir-lote')) ?>,
+    ver:    <?= json_encode(site_url('placas/archivos/info')) ?>,     // 👈 JSON del lote
+    inline: <?= json_encode(site_url('placas/archivos/inline')) ?>,   // 👈 preview
+    descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
+};
+</script>
+
 
   <script src="<?= base_url('js/placas.js?v=' . time()) ?>" defer></script>
 </body>
