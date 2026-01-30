@@ -31,3 +31,4 @@ class PlacaArchivoModel extends Model
         'nombre',
     ];
 }
+ 

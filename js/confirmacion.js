@@ -1,18 +1,13 @@
 /**
- * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (STABLE) + NOTA GLOBAL PEDIDO + ORDER_KEY CONSISTENTE
+ * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (STABLE)
+ * + NOTA GLOBAL PEDIDO (persistente + visible tras recargar)
+ *
  * - Lista: /confirmacion/my-queue
  * - Pull:  /confirmacion/pull
  * - Detalles: /confirmacion/detalles/{id}
  * - Subir: /confirmacion/subir-imagen
  * - Guardar estado: /confirmacion/guardar-estado
  * - Guardar nota: /confirmacion/guardar-nota
- *
- * ✅ Compatible con tu controller actual:
- *   - detalles() devuelve:
- *       order_key (string)
- *       order_note (objeto: {note, modified_by, modified_at})
- *   - guardarNota() devuelve:
- *       note, modified_by, modified_at (y order_id)
  *
  * Editor (Cropper.js) opcional:
  * <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
@@ -34,10 +29,10 @@ const ENDPOINT_GUARDAR_NOTA    = (API.guardarNota   || "/confirmacion/guardar-no
 let DET_ORDER_NOTE = "";
 let DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
 
-// ✅ orderKey real (devuelto por backend) para que TODO sea consistente
+// orderKey real (devuelto por backend) para que TODO sea consistente
 let DET_ORDER_KEY = "";
 
-// ✅ autosave
+// autosave
 let ORDER_NOTE_LAST_SAVED = "";
 let __orderNoteDebounce = null;
 let __orderNoteSaving = false;
@@ -89,9 +84,6 @@ const setLoader   = (v) => $("globalLoader")?.classList.toggle("hidden", !v);
 const setTextSafe = (id, v) => $(id) && ($(id).textContent = v ?? "");
 const setHtmlSafe = (id, h) => $(id) && ($(id).innerHTML = h ?? "");
 
-/* =====================================================
-   USER / FECHA
-===================================================== */
 function getCurrentUserLabel() {
   const metaUser = document.querySelector('meta[name="current-user"]')?.content?.trim();
   if (metaUser) return metaUser;
@@ -134,6 +126,57 @@ function getCsrfHeaders() {
   const t = document.querySelector('meta[name="csrf-token"]')?.content;
   const h = document.querySelector('meta[name="csrf-header"]')?.content || "X-CSRF-TOKEN";
   return t ? { [h]: t } : {};
+}
+
+/* =====================================================
+   NOTA — UI Helpers (✅ bloque “Nota guardada”)
+===================================================== */
+function ensureNoteReadOnlyBox() {
+  // si ya existe, no hacemos nada
+  if (document.getElementById("orderNoteSavedWrap")) return;
+
+  const noteCard = document.getElementById("orderNoteCard");
+  if (!noteCard) return;
+
+  const ro = document.createElement("div");
+  ro.id = "orderNoteSavedWrap";
+  ro.className = "mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3";
+
+  ro.innerHTML = `
+    <div class="flex items-start justify-between gap-3">
+      <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Nota guardada</div>
+      <div id="orderNoteSavedAudit" class="text-xs text-slate-500 text-right"></div>
+    </div>
+    <div id="orderNoteSavedText" class="mt-2 text-sm font-semibold text-slate-900 whitespace-pre-wrap break-words">—</div>
+  `;
+
+  noteCard.appendChild(ro);
+}
+
+function paintNoteUI(noteText, audit = {}) {
+  const ta = document.getElementById("orderNoteText");
+  if (ta) ta.value = String(noteText ?? "");
+
+  const savedText = document.getElementById("orderNoteSavedText");
+  if (savedText) {
+    const txt = String(noteText ?? "").trim();
+    savedText.textContent = txt !== "" ? txt : "—";
+  }
+
+  const auditEl = document.getElementById("orderNoteAudit");
+  const savedAudit = document.getElementById("orderNoteSavedAudit");
+
+  const by = String(audit?.modified_by || "").trim();
+  const at = String(audit?.modified_at || "").trim();
+
+  const auditHtml = by
+    ? `Última nota: <b class="text-slate-900">${escapeHtml(by)}</b>${at ? ` · ${escapeHtml(formatFechaLocal(at))}` : ""}`
+    : "";
+
+  if (auditEl) auditEl.innerHTML = auditHtml;
+  if (savedAudit) savedAudit.innerHTML = auditHtml;
+
+  ORDER_NOTE_LAST_SAVED = String(noteText ?? "");
 }
 
 /* =====================================================
@@ -192,12 +235,10 @@ function isLlaveroItem(item) {
 
 function requiereImagenModificada(item) {
   const props = Array.isArray(item?.properties) ? item.properties : [];
-
   const tieneImagenCliente = props.some((p) => esImagenUrl(p?.value));
-  const tieneNombreArchivoImagen = props.some((p) =>
+  const tieneNombreArchivoImagen = props.some((p) => 
     /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(String(p?.value || "").trim())
   );
-
   return isLlaveroItem(item) || tieneImagenCliente || tieneNombreArchivoImagen;
 }
 
@@ -368,15 +409,14 @@ function cerrarModalDetalles() {
 window.cerrarModalDetalles = cerrarModalDetalles;
 
 /* =====================================================
-   NOTA GLOBAL — GUARDAR (✅ soporta controller actual)
+   NOTA GLOBAL — GUARDAR
 ===================================================== */
 async function guardarNotaPedido(orderId, note) {
   const modified_by = getCurrentUserLabel();
   const modified_at = new Date().toISOString();
 
-  // ✅ usa DET_ORDER_KEY si existe (ID consistente backend)
-  const finalOrderId = String(DET_ORDER_KEY || orderId || "").trim();
-
+  // usa DET_ORDER_KEY si existe (ID consistente que usa el backend)
+  const finalOrderId = normalizeOrderId(DET_ORDER_KEY || orderId);
 
   const endpoints = [
     ENDPOINT_GUARDAR_NOTA,
@@ -404,7 +444,6 @@ async function guardarNotaPedido(orderId, note) {
       const d = await r.json().catch(() => null);
       if (!r.ok || !(d?.success || d?.ok)) throw new Error(d?.message || `HTTP ${r.status}`);
 
-      // controller responde: note, modified_by, modified_at
       const finalNote = String(d?.note ?? note ?? "");
       DET_ORDER_NOTE = finalNote;
 
@@ -414,6 +453,9 @@ async function guardarNotaPedido(orderId, note) {
       };
 
       ORDER_NOTE_LAST_SAVED = DET_ORDER_NOTE;
+
+      // ✅ pinta “nota guardada” SIEMPRE
+      paintNoteUI(DET_ORDER_NOTE, DET_ORDER_NOTE_AUDIT);
 
       return { ok: true, note: DET_ORDER_NOTE, ...DET_ORDER_NOTE_AUDIT };
     } catch (e) {
@@ -438,12 +480,12 @@ function setupOrderNoteDelegation() {
     const oid = normalizeOrderId(DET_ORDER_KEY || pedidoActualId);
     const ta = document.getElementById("orderNoteText");
     const status = document.getElementById("orderNoteStatus");
-    const audit = document.getElementById("orderNoteAudit");
     if (!oid || !ta) return;
 
     if (btnClear) {
       ta.value = "";
       if (status) status.textContent = "Nota vaciada (sin guardar).";
+      // NO tocamos la “nota guardada” hasta guardar
       return;
     }
 
@@ -459,12 +501,6 @@ function setupOrderNoteDelegation() {
     }
 
     if (status) status.textContent = "✅ Nota guardada";
-    if (audit) {
-      audit.innerHTML = `Última nota: <b class="text-slate-900">${escapeHtml(res.modified_by || "—")}</b>${
-        res.modified_at ? ` · ${escapeHtml(formatFechaLocal(res.modified_at))}` : ""
-      }`;
-    }
-
     btnSave.disabled = false;
   });
 
@@ -495,13 +531,6 @@ function setupOrderNoteDelegation() {
         if (!res.ok) {
           if (status) status.textContent = "Error guardando: " + (res.error || "Error");
           return;
-        }
-
-        const audit = document.getElementById("orderNoteAudit");
-        if (audit) {
-          audit.innerHTML = `Última nota: <b class="text-slate-900">${escapeHtml(res.modified_by || "—")}</b>${
-            res.modified_at ? ` · ${escapeHtml(formatFechaLocal(res.modified_at))}` : ""
-          }`;
         }
 
         if (status) status.textContent = "✅ Guardado automáticamente";
@@ -542,11 +571,9 @@ window.verDetalles = async function (orderId) {
   PREVIEW_URLS = {};
 
   try {
-    const urlDet = `${ENDPOINT_DETALLES}/${encodeURIComponent(pedidoActualId)}?_ts=${Date.now()}`;
-    const r = await fetch(urlDet, {
+    const r = await fetch(`${ENDPOINT_DETALLES}/${encodeURIComponent(pedidoActualId)}`, {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
-      cache: "no-store",
     });
 
     const d = await r.json().catch(() => null);
@@ -556,17 +583,16 @@ window.verDetalles = async function (orderId) {
     DET_IMAGENES_LOCALES = d.imagenes_locales || {};
     DET_PRODUCT_IMAGES = d.product_images || {};
 
-    // ✅ order_key consistente (backend) — NO lo normalizamos a número, puede ser id interno/externo
-    DET_ORDER_KEY = String(d.order_key || d.order?.id || pedidoActualId || "").trim();
+    // ✅ order_key consistente (backend)
+    DET_ORDER_KEY = normalizeOrderId(d.order_key || d.order?.id || pedidoActualId || "");
 
     // ✅ nota viene como OBJETO {note, modified_by, modified_at}
-    const noteObj = d.order_note ?? d.nota_pedido ?? null;
-
+    const noteObj = d.order_note ?? {};
     if (noteObj && typeof noteObj === "object") {
       DET_ORDER_NOTE = String(noteObj.note ?? "").trim();
       DET_ORDER_NOTE_AUDIT = {
-        modified_by: String(noteObj.modified_by || noteObj.user || ""),
-        modified_at: String(noteObj.modified_at || noteObj.date || ""),
+        modified_by: String(noteObj.modified_by || ""),
+        modified_at: String(noteObj.modified_at || ""),
       };
     } else {
       DET_ORDER_NOTE = String(noteObj ?? "").trim();
@@ -575,7 +601,6 @@ window.verDetalles = async function (orderId) {
 
     ORDER_NOTE_LAST_SAVED = DET_ORDER_NOTE;
 
-    // pedidoActualId: si viene id en order, lo actualizamos (solo para UI)
     if (d?.order?.id) pedidoActualId = normalizeOrderId(d.order.id);
 
     renderDetalles(DET_ORDER, DET_IMAGENES_LOCALES, DET_PRODUCT_IMAGES, DET_ORDER_NOTE, DET_ORDER_NOTE_AUDIT);
@@ -591,11 +616,7 @@ window.verDetalles = async function (orderId) {
       if (pedido?.shopify_order_id) pedidoActualId = normalizeOrderId(pedido.shopify_order_id);
       else if (pedido?.id) pedidoActualId = normalizeOrderId(pedido.id);
 
-      DET_ORDER_KEY = String(pedido?.shopify_order_id || pedido?.id || pedidoActualId || "").trim();
-
-      DET_ORDER_NOTE = "";
-      DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
-      ORDER_NOTE_LAST_SAVED = "";
+      DET_ORDER_KEY = pedidoActualId;
 
       renderDetalles(pedido, {}, {}, "", {});
     } else {
@@ -626,10 +647,7 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
   setTextSafe("detCliente", clienteNombre);
 
   if (!items.length) {
-    setHtmlSafe(
-      "detProductos",
-      `<div class="p-6 text-center text-slate-500">Este pedido no tiene productos en detalles.</div>`
-    );
+    setHtmlSafe("detProductos", `<div class="p-6 text-center text-slate-500">Este pedido no tiene productos en detalles.</div>`);
     setHtmlSafe("detResumen", "");
     return;
   }
@@ -670,10 +688,8 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
     return { imgs, txt };
   }
 
-  // ✅ el orderKey de UI debe coincidir con las keys de imagenes_locales
-  // el backend guarda imagenes_locales con $orderKey = shopify_order_id si existe, si no p.id
-  // d.order_key viene de orderKeyFromPedido, que coincide con esa misma regla.
-  const orderKey = String(DET_ORDER_KEY || order?.id || pedidoActualId || "order").trim();
+  // ✅ usa DET_ORDER_KEY cuando exista
+  const orderKey = String(normalizeOrderId(DET_ORDER_KEY || order?.id || pedidoActualId || "order") || "").trim();
 
   // ===== Nota global =====
   const noteAuditText = orderNoteAudit?.modified_by
@@ -682,8 +698,9 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
       }`
     : "";
 
+  // ✅ IMPORTANTE: envolvemos la card con un id para poder insertar “Nota guardada”
   const noteHtml = `
-    <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+    <div id="orderNoteCard" class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
       <div class="flex items-start justify-between gap-3">
         <div>
           <div class="font-extrabold text-slate-900">Nota del pedido</div>
@@ -713,181 +730,176 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
     </div>
   `;
 
-  const cardsHtml = items
-    .map((item, i) => {
-      const qty = toNum(item.quantity || 1);
-      const price = toNum(item.price || 0);
-      const total = price * qty;
+  const cardsHtml = items.map((item, i) => {
+    const qty = toNum(item.quantity || 1);
+    const price = toNum(item.price || 0);
+    const total = price * qty;
 
-      const requiere = requiereImagenModificada(item);
+    const requiere = requiereImagenModificada(item);
 
-      const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[String(i)] ?? imagenesLocales?.[i]);
-      const imgMod = imgLocalObj.url || "";
-      const imgModBust = imgMod ? withBust(imgMod, imgLocalObj.modified_at || Date.now()) : "";
+    const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[String(i)] ?? imagenesLocales?.[i]);
+    const imgMod = imgLocalObj.url || "";
+    const imgModBust = imgMod ? withBust(imgMod, imgLocalObj.modified_at || Date.now()) : "";
 
-      imagenesRequeridas[i] = !!requiere;
-      imagenesCargadas[i] = !!imgMod;
+    imagenesRequeridas[i] = !!requiere;
+    imagenesCargadas[i] = !!imgMod;
 
-      const { imgs: propsImg, txt: propsTxt } = separarProps(item.properties);
-      const imgCliente = propsImg.length ? String(propsImg[0].value || "") : "";
-      const imgClienteBust = imgCliente ? withBust(imgCliente, Date.now()) : "";
+    const { imgs: propsImg, txt: propsTxt } = separarProps(item.properties);
+    const imgCliente = propsImg.length ? String(propsImg[0].value || "") : "";
+    const imgClienteBust = imgCliente ? withBust(imgCliente, Date.now()) : "";
 
-      const imgProducto = getProductImg(item);
-      const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
-      const pid = item.product_id != null ? String(item.product_id) : "";
-      const vid = item.variant_id != null ? String(item.variant_id) : "";
-      const sku = item.sku ? String(item.sku) : "";
+    const imgProducto = getProductImg(item);
+    const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
+    const pid = item.product_id != null ? String(item.product_id) : "";
+    const vid = item.variant_id != null ? String(item.variant_id) : "";
+    const sku = item.sku ? String(item.sku) : "";
 
-      const badgeHtml = requiere
-        ? imgMod
-          ? `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`
-          : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-50 border border-amber-200 text-amber-900">Falta imagen</span>`
-        : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-slate-50 border border-slate-200 text-slate-700">Sin imagen</span>`;
+    const badgeHtml = requiere
+      ? imgMod
+        ? `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`
+        : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-50 border border-amber-200 text-amber-900">Falta imagen</span>`
+      : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-slate-50 border border-slate-200 text-slate-700">Sin imagen</span>`;
 
-      const propsTxtHtml = propsTxt.length
-        ? `
-          <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-            <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
-            <div class="space-y-1 text-sm">
-              ${propsTxt
-                .map(({ name, value }) => {
-                  const safeName = escapeHtml(name);
-                  const safeV = escapeHtml(value || "—");
-                  const val = esUrl(value)
-                    ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
-                    : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
-
-                  return `
-                    <div class="flex gap-2">
-                      <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
-                      <div class="flex-1">${val}</div>
-                    </div>
-                  `;
-                })
-                .join("")}
-            </div>
-          </div>
-        `
-        : "";
-
-      const imgClienteHtml = imgCliente
-        ? `
-          <div class="mt-3">
-            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
-            <a href="${escapeHtml(imgCliente)}" target="_blank"
-              class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-              <img src="${escapeHtml(imgClienteBust)}" class="h-40 w-40 object-cover">
-            </a>
-          </div>
-        `
-        : "";
-
-      const imgModHtml = `
-        <div id="imgModWrap_${orderKey}_${i}">
-          ${
-            imgMod
-              ? `
-                <div class="mt-3">
-                  <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
-                  <a href="${escapeHtml(imgMod)}" target="_blank"
-                    class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-                    <img src="${escapeHtml(imgModBust)}" class="h-40 w-40 object-cover">
-                  </a>
+    const propsTxtHtml = propsTxt.length
+      ? `
+        <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
+          <div class="space-y-1 text-sm">
+            ${propsTxt.map(({ name, value }) => {
+              const safeName = escapeHtml(name);
+              const safeV = escapeHtml(value || "—");
+              const val = esUrl(value)
+                ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
+              return `
+                <div class="flex gap-2">
+                  <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
+                  <div class="flex-1">${val}</div>
                 </div>
-              `
-              : requiere
-              ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
-              : ``
-          }
-        </div>
-      `;
-
-      const uploadHtml = requiere
-        ? `
-          <div class="mt-4">
-            <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada (puedes reemplazarla)</div>
-
-            <div
-              id="dz_${orderKey}_${i}"
-              data-dropzone="1"
-              data-order="${escapeHtml(orderKey)}"
-              data-index="${i}"
-              class="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 cursor-pointer hover:bg-slate-100 transition"
-            >
-              <div class="font-extrabold text-slate-700">Arrastra y suelta aquí</div>
-              <div class="text-xs text-slate-500 mt-1">o haz clic para elegir un archivo</div>
-
-              <input id="file_${orderKey}_${i}" type="file" accept="image/*" class="hidden" />
-
-              <div class="mt-3 flex flex-wrap gap-2">
-                <button type="button" data-action="edit"
-                  class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide disabled:opacity-40"
-                  disabled>Editar</button>
-
-                <button type="button" data-action="upload"
-                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition disabled:opacity-40"
-                  disabled>Subir</button>
-
-                <button type="button" data-action="clear"
-                  class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-300 transition disabled:opacity-40"
-                  disabled>Quitar</button>
-              </div>
-
-              <div id="preview_${orderKey}_${i}" class="mt-3"></div>
-              <div id="audit_${orderKey}_${i}" class="mt-2 text-xs text-slate-500"></div>
-            </div>
+              `;
+            }).join("")}
           </div>
-        `
-        : "";
-
-      const datosIdsHtml = `
-        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-          ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
-          ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
-          ${pid ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(pid)}</span></div>` : ""}
-          ${vid ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(vid)}</span></div>` : ""}
         </div>
-      `;
+      `
+      : "";
 
-      const productThumbHtml = imgProducto
-        ? `
-          <a href="${escapeHtml(imgProducto)}" target="_blank"
-            class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
-            <img src="${escapeHtml(imgProducto)}" class="h-full w-full object-cover">
+    const imgClienteHtml = imgCliente
+      ? `
+        <div class="mt-3">
+          <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
+          <a href="${escapeHtml(imgCliente)}" target="_blank"
+            class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+            <img src="${escapeHtml(imgClienteBust)}" class="h-40 w-40 object-cover">
           </a>
-        `
-        : `
-          <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
-            🧾
-          </div>
-        `;
+        </div>
+      `
+      : "";
 
-      return `
-        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
-          <div class="flex items-start gap-4">
-            ${productThumbHtml}
-            <div class="min-w-0 flex-1">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title)}</div>
-                  <div class="text-sm text-slate-600 mt-1">
-                    Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price.toFixed(2))} €</b> · Total: <b>${escapeHtml(total.toFixed(2))} €</b>
-                  </div>
-                </div>
-                <div id="badge_item_${orderKey}_${i}">${badgeHtml}</div>
+    const imgModHtml = `
+      <div id="imgModWrap_${orderKey}_${i}">
+        ${
+          imgMod
+            ? `
+              <div class="mt-3">
+                <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
+                <a href="${escapeHtml(imgMod)}" target="_blank"
+                  class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                  <img src="${escapeHtml(imgModBust)}" class="h-40 w-40 object-cover">
+                </a>
               </div>
+            `
+            : requiere
+            ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+            : ``
+        }
+      </div>
+    `;
 
-              ${datosIdsHtml}
-              ${propsTxtHtml}
-              ${imgClienteHtml}
-              ${imgModHtml}
-              ${uploadHtml}
+    const uploadHtml = requiere
+      ? `
+        <div class="mt-4">
+          <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada (puedes reemplazarla)</div>
+
+          <div
+            id="dz_${orderKey}_${i}"
+            data-dropzone="1"
+            data-order="${escapeHtml(orderKey)}"
+            data-index="${i}"
+            class="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 cursor-pointer hover:bg-slate-100 transition"
+          >
+            <div class="font-extrabold text-slate-700">Arrastra y suelta aquí</div>
+            <div class="text-xs text-slate-500 mt-1">o haz clic para elegir un archivo</div>
+
+            <input id="file_${orderKey}_${i}" type="file" accept="image/*" class="hidden" />
+
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button type="button" data-action="edit"
+                class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide disabled:opacity-40"
+                disabled>Editar</button>
+
+              <button type="button" data-action="upload"
+                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition disabled:opacity-40"
+                disabled>Subir</button>
+
+              <button type="button" data-action="clear"
+                class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-300 transition disabled:opacity-40"
+                disabled>Quitar</button>
             </div>
+
+            <div id="preview_${orderKey}_${i}" class="mt-3"></div>
+            <div id="audit_${orderKey}_${i}" class="mt-2 text-xs text-slate-500"></div>
           </div>
         </div>
+      `
+      : "";
+
+    const datosIdsHtml = `
+      <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+        ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
+        ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
+        ${pid ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(pid)}</span></div>` : ""}
+        ${vid ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(vid)}</span></div>` : ""}
+      </div>
+    `;
+
+    const productThumbHtml = imgProducto
+      ? `
+        <a href="${escapeHtml(imgProducto)}" target="_blank"
+          class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
+          <img src="${escapeHtml(imgProducto)}" class="h-full w-full object-cover">
+        </a>
+      `
+      : `
+        <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
+          🧾
+        </div>
       `;
-    })
-    .join("");
+
+    return `
+      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+        <div class="flex items-start gap-4">
+          ${productThumbHtml}
+          <div class="min-w-0 flex-1">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title)}</div>
+                <div class="text-sm text-slate-600 mt-1">
+                  Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price.toFixed(2))} €</b> · Total: <b>${escapeHtml(total.toFixed(2))} €</b>
+                </div>
+              </div>
+              <div id="badge_item_${orderKey}_${i}">${badgeHtml}</div>
+            </div>
+
+            ${datosIdsHtml}
+            ${propsTxtHtml}
+            ${imgClienteHtml}
+            ${imgModHtml}
+            ${uploadHtml}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
 
   setHtmlSafe(
     "detProductos",
@@ -904,6 +916,10 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
       </div>
     `
   );
+
+  // ✅ inyecta bloque “Nota guardada” + pinta desde backend
+  ensureNoteReadOnlyBox();
+  paintNoteUI(orderNote, orderNoteAudit);
 
   actualizarResumenAuto();
   hydrateAuditsFromExisting(orderKey, items.length, imagenesLocales);
@@ -988,7 +1004,7 @@ async function subirImagenProductoFile(orderId, index, file, meta = {}) {
   for (const url of endpoints) {
     try {
       const fd = new FormData();
-      fd.append("order_id", String(orderId)); // 👈 mantener tal cual, controller normaliza
+      fd.append("order_id", String(normalizeOrderId(orderId)));
       fd.append("line_index", String(index));
       fd.append("file", file, file.name || `img_${index}.png`);
       fd.append("modified_by", modified_by);
@@ -1340,7 +1356,7 @@ async function saveImageEditor() {
 }
 
 /* =====================================================
-   DROPZONES — EVENT DELEGATION (FIX PERMANENTE)
+   DROPZONES — EVENT DELEGATION
 ===================================================== */
 function zoneInfoFromEl(zone) {
   const orderId = String(zone?.getAttribute("data-order") || "").trim();
@@ -1515,7 +1531,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btnDevolver")?.addEventListener("click", devolverPedidos);
 
   setupDropzoneDelegation();
-  setupOrderNoteDelegation(); // ✅ Nota global (incluye autosave)
+  setupOrderNoteDelegation(); // nota global + autosave
 
   cargarMiCola();
 });

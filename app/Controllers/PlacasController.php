@@ -9,3 +9,4 @@ class PlacasController extends BaseController
         return view('placas');
     }
 }
+ 

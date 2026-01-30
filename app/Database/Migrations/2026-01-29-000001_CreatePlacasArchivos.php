@@ -107,3 +107,4 @@ class CreatePlacasArchivos extends Migration
         $this->forge->dropTable('placas_archivos', true);
     }
 }
+ 
