@@ -1,558 +1,541 @@
+/* global window, document, fetch */
+
 (() => {
+  // ----------------------------
+  // Helpers
+  // ----------------------------
   const q = (id) => document.getElementById(id);
 
-  const setText = (id, val) => { const el = q(id); if (el) el.textContent = val ?? ''; };
-  const setHTML = (id, val) => { const el = q(id); if (el) el.innerHTML = val ?? ''; };
-  const setVal  = (id, val) => { const el = q(id); if (el) el.value = val ?? ''; };
-  const show    = (id) => { const el = q(id); if (el) el.classList.remove('hidden'); };
-  const hide    = (id) => { const el = q(id); if (el) el.classList.add('hidden'); };
+  function escapeHtml(str) {
+    return (str || "").replace(/[&<>"']/g, (s) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[s]));
+  }
 
-  const API = window.PLACAS_API || {};
+  function formatFecha(fechaISO) {
+    if (!fechaISO) return "";
+    const d = new Date(String(fechaISO).replace(" ", "T"));
+    if (isNaN(d)) return String(fechaISO);
+    return d.toLocaleString("es-ES", {
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit"
+    });
+  }
+
+  function normalizeText(s) {
+    return String(s || "")
+      .toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  }
+
+  function safeJsonParse(text) {
+    try { return JSON.parse(text); } catch (e) { return null; }
+  }
 
   function csrfPair() {
-    const name = document.querySelector('meta[name="csrf-name"]')?.getAttribute('content');
-    const hash = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    const name = document.querySelector('meta[name="csrf-name"]')?.getAttribute("content");
+    const hash = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
     return { name, hash };
   }
+
   function addCsrf(fd) {
     const { name, hash } = csrfPair();
     if (name && hash) fd.append(name, hash);
     return fd;
   }
 
-  function escapeHtml(str) {
-    return (str || '').replace(/[&<>"']/g, s => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[s]));
+  function joinUrl(base, tail) {
+    if (!base) return "";
+    const b = String(base).replace(/\/+$/, "");
+    const t = String(tail).replace(/^\/+/, "");
+    return `${b}/${t}`;
   }
 
-  function normalize(s) {
-    return String(s || '')
-      .toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .trim();
+  function bytesToKb(size) {
+    const kb = Math.round((Number(size || 0)) / 1024);
+    return `${kb} KB`;
   }
 
-  // =========================
-  // LISTADO POR DÍAS
-  // =========================
-  let allDiasData = null;
-  let searchTerm = '';
+  function isImageMime(mime) {
+    return String(mime || "").startsWith("image/");
+  }
 
+  function isPdfMime(mime) {
+    return String(mime || "").includes("pdf");
+  }
+
+  // ----------------------------
+  // API (desde el view)
+  // En tu vista PHP pon:
+  // window.PLACAS_API = { listar:'...', stats:'...', subir:'...', ver:'...', inline:'...', descargarBase:'...' }
+  // ----------------------------
+  const API = window.PLACAS_API || window.API || {};
+  if (!API.listar || !API.stats) {
+    console.warn("⚠️ Falta window.PLACAS_API con endpoints. Revisa tu view.");
+  }
+
+  // ----------------------------
+  // State
+  // ----------------------------
+  let placasMap = {};      // id -> item
+  let loteIndex = {};      // lote_id -> items[]
+  let searchTerm = "";
+  let modalItem = null;
+
+  // ----------------------------
+  // Modal "VER LOTE" (inyectado)
+  // ----------------------------
+  function ensureLoteModal() {
+    if (q("loteInfoBackdrop")) return;
+
+    const wrap = document.createElement("div");
+    wrap.id = "loteInfoBackdrop";
+    wrap.className = "fixed inset-0 bg-black/50 hidden z-[10050]";
+
+    wrap.innerHTML = `
+      <div class="w-full h-full flex items-start justify-center p-2 sm:p-4">
+        <div class="bg-white w-full max-w-6xl rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[95vh]">
+          <div class="px-4 sm:px-6 py-4 border-b flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-lg sm:text-xl font-black leading-tight" id="loteInfoTitle">Detalle del lote</div>
+              <div class="text-xs sm:text-sm text-gray-500 mt-1" id="loteInfoSub">—</div>
+            </div>
+            <button id="loteInfoClose"
+              class="shrink-0 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold bg-gray-100 hover:bg-gray-200">
+              Cerrar
+            </button>
+          </div>
+
+          <div class="p-4 sm:p-6 overflow-auto">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div class="lg:col-span-1">
+                <div class="border rounded-2xl p-4">
+                  <div class="font-extrabold text-sm mb-2">Información</div>
+                  <div class="text-sm text-gray-700 space-y-2">
+                    <div><span class="text-gray-500">Lote:</span> <span class="font-bold" id="loteInfoLote">—</span></div>
+                    <div><span class="text-gray-500">Nota/Número:</span> <span class="font-bold" id="loteInfoNota">—</span></div>
+                    <div><span class="text-gray-500">Fecha:</span> <span class="font-bold" id="loteInfoFecha">—</span></div>
+                    <div><span class="text-gray-500">Archivos:</span> <span class="font-bold" id="loteInfoTotal">0</span></div>
+                  </div>
+                </div>
+
+                <div class="border rounded-2xl p-4 mt-4">
+                  <div class="font-extrabold text-sm mb-2">Pedidos vinculados</div>
+                  <div class="text-xs text-gray-500 mb-2">Se guardan en <code class="px-2 py-0.5 bg-gray-100 rounded">pedidos_json</code></div>
+                  <div class="flex flex-wrap gap-2" id="loteInfoPedidos">
+                    <span class="text-sm text-gray-400">Sin pedidos</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="lg:col-span-2">
+                <div class="border rounded-2xl overflow-hidden">
+                  <div class="px-4 py-3 border-b flex items-center justify-between">
+                    <div class="font-extrabold text-sm">Archivos del lote</div>
+                    <div class="text-xs text-gray-500" id="loteInfoHint">Abrir o descargar fácilmente</div>
+                  </div>
+
+                  <div class="overflow-auto">
+                    <table class="w-full text-sm">
+                      <thead class="bg-gray-50 text-gray-600">
+                        <tr>
+                          <th class="text-left px-4 py-3">Archivo</th>
+                          <th class="text-left px-4 py-3 hidden sm:table-cell">Tipo</th>
+                          <th class="text-left px-4 py-3 hidden md:table-cell">Tamaño</th>
+                          <th class="text-right px-4 py-3">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody id="loteInfoFiles">
+                        <tr><td class="px-4 py-4 text-gray-400" colspan="4">Cargando…</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div class="text-xs text-gray-500 mt-3">
+                  Tip: <b>Abrir</b> usa <code class="px-2 py-0.5 bg-gray-100 rounded">/inline</code> (preview) y <b>Descargar</b> usa <code class="px-2 py-0.5 bg-gray-100 rounded">/descargar</code>.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="px-4 sm:px-6 py-4 border-t flex justify-end gap-2">
+            <button id="loteInfoCloseBottom"
+              class="rounded-xl px-4 py-2 text-sm font-bold bg-gray-100 hover:bg-gray-200">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(wrap);
+
+    const close = () => wrap.classList.add("hidden");
+    q("loteInfoClose")?.addEventListener("click", close);
+    q("loteInfoCloseBottom")?.addEventListener("click", close);
+    wrap.addEventListener("click", (e) => {
+      if (e.target && e.target.id === "loteInfoBackdrop") close();
+    });
+  }
+
+  function openLoteModal() {
+    ensureLoteModal();
+    q("loteInfoBackdrop")?.classList.remove("hidden");
+  }
+
+  function renderPedidosChips(pedidos) {
+    const box = q("loteInfoPedidos");
+    if (!box) return;
+
+    const arr = Array.isArray(pedidos) ? pedidos : [];
+    if (!arr.length) {
+      box.innerHTML = `<span class="text-sm text-gray-400">Sin pedidos vinculados</span>`;
+      return;
+    }
+
+    box.innerHTML = arr.map((p) => {
+      // soporta formatos: {number:"#PEDIDO001234", id:"..."} o strings
+      const label =
+        typeof p === "string"
+          ? p
+          : (p.number || p.numero || p.pedido || p.label || p.id || "");
+
+      return `
+        <span class="inline-flex items-center rounded-full bg-blue-50 text-blue-700 px-3 py-1 text-xs font-extrabold">
+          ${escapeHtml(label)}
+        </span>
+      `;
+    }).join("");
+  }
+
+  function renderFilesTable(files) {
+    const tbody = q("loteInfoFiles");
+    if (!tbody) return;
+
+    const arr = Array.isArray(files) ? files : [];
+    if (!arr.length) {
+      tbody.innerHTML = `<tr><td class="px-4 py-5 text-gray-400" colspan="4">No hay archivos en este lote.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = arr.map((f) => {
+      const name = (f.original || f.nombre || `archivo_${f.id}`) + "";
+      const mime = (f.mime || "") + "";
+      const size = bytesToKb(f.size || 0);
+
+      const inlineUrl = f.url || (API.inline ? joinUrl(API.inline, f.id) : "");
+      const downloadUrl = f.download_url || (API.descargarBase ? joinUrl(API.descargarBase, f.id) : "");
+
+      const thumb = isImageMime(mime) ? `
+        <img src="${escapeHtml(inlineUrl)}" class="w-10 h-10 rounded-lg object-cover border" alt="">
+      ` : `
+        <div class="w-10 h-10 rounded-lg border bg-gray-50 flex items-center justify-center text-xs font-black text-gray-500">
+          ${isPdfMime(mime) ? "PDF" : "FILE"}
+        </div>
+      `;
+
+      return `
+        <tr class="border-t">
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-3 min-w-0">
+              ${thumb}
+              <div class="min-w-0">
+                <div class="font-extrabold truncate">${escapeHtml(name)}</div>
+                <div class="text-xs text-gray-500 truncate">#${escapeHtml(String(f.id))}</div>
+              </div>
+            </div>
+          </td>
+
+          <td class="px-4 py-3 hidden sm:table-cell">
+            <div class="text-xs text-gray-600">${escapeHtml(mime || "—")}</div>
+          </td>
+
+          <td class="px-4 py-3 hidden md:table-cell">
+            <div class="text-xs text-gray-600">${escapeHtml(size)}</div>
+          </td>
+
+          <td class="px-4 py-3 text-right">
+            <div class="inline-flex gap-2">
+              <button type="button"
+                class="rounded-xl px-3 py-2 text-xs font-extrabold bg-gray-100 hover:bg-gray-200"
+                onclick="window.open('${escapeHtml(inlineUrl)}','_blank')">
+                Abrir
+              </button>
+              <button type="button"
+                class="rounded-xl px-3 py-2 text-xs font-extrabold bg-blue-600 text-white hover:brightness-110"
+                onclick="window.open('${escapeHtml(downloadUrl)}','_blank')">
+                Descargar
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  async function abrirDetalleLoteDesdeArchivoId(fileId) {
+    ensureLoteModal();
+    openLoteModal();
+
+    // placeholders
+    q("loteInfoTitle").textContent = "Cargando…";
+    q("loteInfoSub").textContent = "";
+    q("loteInfoLote").textContent = "—";
+    q("loteInfoNota").textContent = "—";
+    q("loteInfoFecha").textContent = "—";
+    q("loteInfoTotal").textContent = "0";
+    q("loteInfoFiles").innerHTML = `<tr><td class="px-4 py-4 text-gray-400" colspan="4">Cargando…</td></tr>`;
+    q("loteInfoPedidos").innerHTML = `<span class="text-sm text-gray-400">Cargando…</span>`;
+
+    const url = API.ver ? joinUrl(API.ver, fileId) : (API.info ? joinUrl(API.info, fileId) : "");
+    if (!url) {
+      q("loteInfoTitle").textContent = "Error";
+      q("loteInfoFiles").innerHTML = `<tr><td class="px-4 py-4 text-red-500" colspan="4">Falta API.ver en window.PLACAS_API</td></tr>`;
+      return;
+    }
+
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      const text = await res.text();
+      const data = safeJsonParse(text);
+
+      if (!res.ok || !data || !data.success) {
+        q("loteInfoTitle").textContent = "No se pudo cargar";
+        q("loteInfoFiles").innerHTML = `<tr><td class="px-4 py-4 text-red-500" colspan="4">
+          ${escapeHtml((data && data.message) ? data.message : text.slice(0, 180))}
+        </td></tr>`;
+        q("loteInfoPedidos").innerHTML = `<span class="text-sm text-gray-400">—</span>`;
+        return;
+      }
+
+      const lote = data.lote || {};
+      const files = data.files || [];
+
+      const loteNombre = (lote.lote_nombre || "Lote").trim();
+      const loteId = lote.lote_id || "";
+      const nota = lote.numero_placa || "—";
+      const fecha = lote.created_at ? formatFecha(lote.created_at) : "—";
+      const total = lote.total_files ?? files.length ?? 0;
+
+      q("loteInfoTitle").textContent = `📦 ${loteNombre}`;
+      q("loteInfoSub").textContent = loteId ? `ID: ${loteId}` : "";
+      q("loteInfoLote").textContent = loteNombre;
+      q("loteInfoNota").textContent = nota || "—";
+      q("loteInfoFecha").textContent = fecha;
+      q("loteInfoTotal").textContent = String(total);
+
+      renderPedidosChips(lote.pedidos || []);
+      renderFilesTable(files);
+
+    } catch (e) {
+      q("loteInfoTitle").textContent = "Error";
+      q("loteInfoFiles").innerHTML = `<tr><td class="px-4 py-4 text-red-500" colspan="4">
+        ${escapeHtml(String(e.message || e))}
+      </td></tr>`;
+    }
+  }
+
+  // ----------------------------
+  // Listado (vista agrupada por día)
+  // ----------------------------
   function itemMatches(it, term) {
     if (!term) return true;
-    const hay = normalize([
-      it.nombre,
-      it.original,
-      it.numero_placa,
-      it.id,
-      it.lote_id,
-      it.lote_nombre
-    ].join(' '));
+    const hay = normalizeText([
+      it.nombre, it.original, it.id, it.mime, it.lote_id, it.lote_nombre, it.numero_placa
+    ].join(" "));
     return hay.includes(term);
   }
 
   async function cargarStats() {
-    if (!API.stats) return;
-    const res = await fetch(API.stats, { cache: 'no-store' });
-    const data = await res.json().catch(() => null);
-    if (data?.success) setText('placasHoy', data.data?.total ?? 0);
+    if (!API.stats || !q("placasHoy")) return;
+    try {
+      const res = await fetch(API.stats, { cache: "no-store" });
+      const text = await res.text();
+      const data = safeJsonParse(text);
+      if (data?.success) q("placasHoy").textContent = data.data?.total ?? 0;
+    } catch (e) {}
   }
 
-  async function cargarListaPorDia() {
-    if (!API.listarPorDia) return;
+  async function cargarVistaAgrupada() {
+    if (!API.listar) return;
 
-    const res = await fetch(API.listarPorDia, { cache: 'no-store' });
-    const data = await res.json().catch(() => null);
+    placasMap = {};
+    loteIndex = {};
 
-    allDiasData = data;
+    const cont = q("contenedorDias");
+    if (!cont) return;
 
-    if (!data?.success || !Array.isArray(data.dias)) {
-      setHTML('contenedorDias', `<div class="text-sm text-gray-500">No hay datos para mostrar.</div>`);
-      return;
-    }
+    try {
+      const res = await fetch(API.listar, { cache: "no-store" });
+      const text = await res.text();
+      const data = safeJsonParse(text);
 
-    setText('placasHoy', data.placas_hoy ?? 0);
-
-    const term = normalize(searchTerm);
-
-    const dias = data.dias.map(d => {
-      const lotes = (d.lotes || []).map(l => {
-        const items = (l.items || []).filter(it => itemMatches(it, term));
-        const okLote = normalize(`${l.lote_id} ${l.lote_nombre} ${l.created_at}`).includes(term);
-        return okLote ? l : { ...l, items };
-      }).filter(l => (l.items || []).length > 0);
-
-      const okDia = normalize(d.fecha).includes(term);
-      const total = lotes.reduce((a, l) => a + (l.items?.length || 0), 0);
-      return okDia ? d : { ...d, lotes, total_archivos: total };
-    }).filter(d => (d.lotes || []).length > 0);
-
-    if (term && !dias.length) {
-      setHTML('contenedorDias', `<div class="text-sm text-gray-500">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`);
-      return;
-    }
-
-    setHTML('contenedorDias', dias.map(renderDia).join(''));
-  }
-
-  function renderDia(dia) {
-    const lotesHtml = (dia.lotes || []).map(renderLoteCard).join('');
-
-    return `
-      <div class="rounded-2xl border border-gray-200 bg-white p-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <div class="text-lg font-extrabold text-gray-900">${escapeHtml(dia.fecha)}</div>
-            <div class="text-sm text-gray-500">Total: ${dia.total_archivos ?? 0}</div>
-          </div>
-        </div>
-
-        <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          ${lotesHtml || `<div class="text-sm text-gray-500">Sin lotes.</div>`}
-        </div>
-      </div>
-    `;
-  }
-
-  function renderLoteCard(lote) {
-    const lid = escapeHtml(String(lote.lote_id || ''));
-    const name = escapeHtml(String(lote.lote_nombre || 'Sin nombre'));
-    const total = (lote.items || []).length;
-    const created = escapeHtml(String(lote.created_at || ''));
-
-    // tomamos primer item para mini-preview (si es imagen)
-    const first = (lote.items || [])[0];
-    const thumb = first?.view_url && (first.mime || '').startsWith('image/')
-      ? `<img src="${first.view_url}" class="h-full w-full object-cover" />`
-      : `<div class="text-xs text-gray-400">Carpeta</div>`;
-
-    return `
-      <div class="rounded-2xl border border-gray-200 bg-white p-4 hover:shadow-sm transition">
-        <div class="flex items-center gap-3">
-          <div class="h-14 w-14 overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 grid place-items-center">
-            ${thumb}
-          </div>
-          <div class="min-w-0">
-            <div class="truncate font-black text-gray-900">📦 ${name}</div>
-            <div class="text-xs text-gray-500">${total} archivo(s) • ${created}</div>
-          </div>
-        </div>
-
-        <div class="mt-3 flex gap-2">
-          <button class="w-full rounded-xl bg-gray-900 px-3 py-2 text-sm font-extrabold text-white hover:bg-black"
-            data-open-lote="${lid}">
-            Ver
-          </button>
-        </div>
-      </div>
-    `;
-  }
-
-  // =========================
-  // MODAL CARGA
-  // =========================
-  let filesSeleccionados = [];
-  let allOrders = [];
-  let selectedMap = new Map(); // key -> order
-  let searchOrderTerm = '';
-
-  function openCargaModal() {
-    const back = q('modalCargaBackdrop');
-    if (!back) return;
-    back.classList.remove('hidden');
-    resetCargaModal(false);
-    cargarPedidosPorProducir().catch(() => {});
-  }
-
-  function closeCargaModal() {
-    const back = q('modalCargaBackdrop');
-    if (!back) return;
-    back.classList.add('hidden');
-    resetCargaModal(true);
-  }
-
-  function resetCargaModal(clearInputs) {
-    if (clearInputs) {
-      setVal('cargaLoteNombre', '');
-      setVal('cargaNumero', '');
-    }
-    setVal('cargaBuscarPedido', '');
-    setText('cargaMsg', '');
-    hide('uploadProgressWrap');
-    setText('uploadProgressText', '0%');
-    const bar = q('uploadProgressBar');
-    if (bar) bar.style.width = '0%';
-
-    allOrders = [];
-    selectedMap.clear();
-    searchOrderTerm = '';
-
-    setHTML('cargaPedidosLista', `<div class="p-3 text-xs text-gray-500">Cargando pedidos…</div>`);
-    setHTML('cargaPedidosSeleccionados', `<div class="p-3 text-xs text-gray-500">Selecciona pedidos de “Por producir”.</div>`);
-    setHTML('cargaPedidosVinculados', `<div class="p-3 text-xs text-gray-500">Al seleccionar pedidos, aquí aparecen vinculados.</div>`);
-    setText('cargaPedidosFooter', '');
-
-    const input = q('cargaArchivo');
-    if (input) input.value = '';
-    filesSeleccionados = [];
-    renderFilePreview();
-  }
-
-  function orderLabel(o) {
-    const numero = o.numero || o.number || o.pedido || o.id || '';
-    const cliente = o.cliente || o.customer || '';
-    return { numero, cliente };
-  }
-
-  async function cargarPedidosPorProducir() {
-    if (!API.pedidosPorProducir) {
-      setHTML('cargaPedidosLista', `<div class="p-3 text-xs text-red-600">Falta endpoint pedidosPorProducir</div>`);
-      return;
-    }
-
-    const url = API.pedidosPorProducir + (searchOrderTerm ? `?q=${encodeURIComponent(searchOrderTerm)}` : '');
-    const res = await fetch(url, { cache: 'no-store' });
-    const data = await res.json().catch(() => null);
-
-    if (!data || !data.success) {
-      setHTML('cargaPedidosLista', `<div class="p-3 text-xs text-red-600">No se pudieron cargar pedidos.</div>`);
-      setText('cargaPedidosFooter', data?.message || '');
-      return;
-    }
-
-    allOrders = Array.isArray(data.orders) ? data.orders : [];
-    renderOrders();
-  }
-
-  function renderOrders() {
-    const term = normalize(searchOrderTerm);
-
-    let list = allOrders.slice();
-    if (term) {
-      list = list.filter(o => {
-        const { numero, cliente } = orderLabel(o);
-        return normalize(`${numero} ${cliente}`).includes(term);
-      });
-    }
-
-    setText('cargaPedidosFooter', `${list.length} pedido(s) encontrado(s).`);
-
-    if (!list.length) {
-      setHTML('cargaPedidosLista', `<div class="p-3 text-xs text-gray-500">No hay pedidos en “Por producir”.</div>`);
-      return;
-    }
-
-    const rows = list.map(o => {
-      const { numero, cliente } = orderLabel(o);
-      const oid = String(o.id ?? numero);
-      const checked = selectedMap.has(oid) ? 'checked' : '';
-
-      return `
-        <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 bg-white p-3 hover:bg-gray-50">
-          <input type="checkbox" class="mt-1" data-order-id="${escapeHtml(oid)}" ${checked}>
-          <div class="min-w-0">
-            <div class="truncate text-sm font-extrabold text-gray-900">${escapeHtml(numero || oid)}</div>
-            <div class="truncate text-xs text-gray-500">${escapeHtml(cliente)}</div>
-          </div>
-        </label>
-      `;
-    }).join('');
-
-    setHTML('cargaPedidosLista', `<div class="space-y-2">${rows}</div>`);
-
-    const box = q('cargaPedidosLista');
-    if (box) {
-      box.onchange = (ev) => {
-        const cb = ev.target.closest('input[type="checkbox"][data-order-id]');
-        if (!cb) return;
-
-        const oid = cb.getAttribute('data-order-id');
-        const order = allOrders.find(x => String(x.id ?? (x.numero || '')) === String(oid))
-                  || allOrders.find(x => String(x.id) === String(oid));
-
-        if (cb.checked) selectedMap.set(String(oid), order || { id: oid, numero: oid });
-        else selectedMap.delete(String(oid));
-
-        renderSelected();
-      };
-    }
-
-    renderSelected();
-  }
-
-  function renderSelected() {
-    const selected = Array.from(selectedMap.values());
-
-    if (!selected.length) {
-      setHTML('cargaPedidosSeleccionados', `<div class="p-3 text-xs text-gray-500">Selecciona pedidos de “Por producir”.</div>`);
-      setHTML('cargaPedidosVinculados', `<div class="p-3 text-xs text-gray-500">Al seleccionar pedidos, aquí aparecen vinculados.</div>`);
-      return;
-    }
-
-    const chips = selected.map(o => {
-      const { numero, cliente } = orderLabel(o);
-      const oid = String(o.id ?? numero);
-
-      return `
-        <div class="flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-white p-3">
-          <div class="min-w-0">
-            <div class="truncate text-sm font-extrabold text-gray-900">${escapeHtml(numero || oid)}</div>
-            <div class="truncate text-xs text-gray-500">${escapeHtml(cliente || '')}</div>
-          </div>
-          <button type="button" data-remove-order="${escapeHtml(oid)}"
-            class="rounded-lg bg-red-50 px-2 py-1 text-xs font-bold text-red-600 hover:bg-red-100">
-            Quitar
-          </button>
-        </div>
-      `;
-    }).join('');
-
-    setHTML('cargaPedidosSeleccionados', `<div class="space-y-2">${chips}</div>`);
-
-    const linked = selected.map(o => {
-      const { numero, cliente } = orderLabel(o);
-      return `
-        <div class="rounded-xl border border-gray-200 bg-gray-50 p-3">
-          <div class="text-xs font-black text-gray-900">${escapeHtml(numero || '')}</div>
-          <div class="text-xs text-gray-600">${escapeHtml(cliente || '')}</div>
-        </div>
-      `;
-    }).join('');
-
-    setHTML('cargaPedidosVinculados', `<div class="space-y-2">${linked}</div>`);
-
-    const selBox = q('cargaPedidosSeleccionados');
-    if (selBox) {
-      selBox.onclick = (ev) => {
-        const btn = ev.target.closest('[data-remove-order]');
-        if (!btn) return;
-        const oid = btn.getAttribute('data-remove-order');
-        selectedMap.delete(String(oid));
-        renderOrders();
-      };
-    }
-  }
-
-  function renderFilePreview() {
-    const count = filesSeleccionados.length;
-    setText('cargaArchivosCount', `${count} archivo(s)`);
-
-    if (!count) {
-      setHTML('cargaPreview', 'Vista previa');
-      return;
-    }
-
-    const items = filesSeleccionados.map((f, i) => {
-      const isImg = (f.type || '').startsWith('image/');
-      const isPdf = (f.type || '').includes('pdf');
-      const url = (isImg || isPdf) ? URL.createObjectURL(f) : null;
-
-      const name = (f.name || 'archivo').slice(0, 22);
-      const ext = (f.name || '').split('.').pop()?.toUpperCase() || 'FILE';
-
-      const thumb = isImg
-        ? `<img src="${url}" class="h-full w-full object-cover" />`
-        : isPdf
-          ? `<div class="flex h-full w-full items-center justify-center text-xs font-black text-gray-600">PDF</div>`
-          : `<div class="flex h-full w-full flex-col items-center justify-center text-[11px] font-semibold text-gray-600">
-               <div class="rounded-full bg-gray-200 px-2 py-1 text-[10px] font-black">${ext}</div>
-               <div class="mt-2 px-2 text-center break-words">${escapeHtml(name)}</div>
-             </div>`;
-
-      return `
-        <div class="relative h-20 overflow-hidden rounded-xl border border-gray-200 bg-white">
-          ${thumb}
-          <button type="button" data-remove-file="${i}"
-            class="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white hover:bg-black">
-            ×
-          </button>
-        </div>
-      `;
-    }).join('');
-
-    setHTML('cargaPreview', `
-      <div class="grid grid-cols-4 gap-2 p-3">${items}</div>
-      <div class="px-3 pb-3 text-xs text-gray-500">${count} archivo(s) seleccionado(s)</div>
-    `);
-
-    const preview = q('cargaPreview');
-    if (preview) {
-      preview.onclick = (ev) => {
-        const btn = ev.target.closest('[data-remove-file]');
-        if (!btn) return;
-        const idx = Number(btn.getAttribute('data-remove-file'));
-        filesSeleccionados.splice(idx, 1);
-        syncFileInput();
-        renderFilePreview();
-      };
-    }
-  }
-
-  function syncFileInput() {
-    const input = q('cargaArchivo');
-    if (!input) return;
-    const dt = new DataTransfer();
-    filesSeleccionados.forEach(f => dt.items.add(f));
-    input.files = dt.files;
-  }
-
-  function uploadLote() {
-    const loteNombre = (q('cargaLoteNombre')?.value || '').trim();
-    const numeroPlaca = (q('cargaNumero')?.value || '').trim();
-
-    if (!loteNombre) { setText('cargaMsg', 'El nombre del lote es obligatorio.'); return; }
-    if (!filesSeleccionados.length) { setText('cargaMsg', 'Selecciona uno o más archivos.'); return; }
-    if (!API.subirLote) { setText('cargaMsg', 'Falta endpoint subirLote.'); return; }
-
-    const selected = Array.from(selectedMap.values()).map(o => ({
-      id: o.id ?? null,
-      numero: o.numero || o.number || o.pedido || null,
-      cliente: o.cliente || o.customer || null,
-      fecha: o.fecha || null
-    }));
-
-    show('uploadProgressWrap');
-    const bar = q('uploadProgressBar');
-    const txt = q('uploadProgressText');
-    if (bar) bar.style.width = '0%';
-    if (txt) txt.textContent = '0%';
-
-    const btn = q('btnGuardarCarga');
-    if (btn) btn.disabled = true;
-
-    setText('cargaMsg', `Subiendo ${filesSeleccionados.length} archivo(s)...`);
-
-    const fd = addCsrf(new FormData());
-    fd.append('lote_nombre', loteNombre);
-    fd.append('numero_placa', numeroPlaca);
-    fd.append('pedidos_json', JSON.stringify(selected));
-    filesSeleccionados.forEach(f => fd.append('archivos[]', f));
-
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', API.subirLote, true);
-
-    xhr.upload.onprogress = (e) => {
-      if (!e.lengthComputable) return;
-      const percent = Math.round((e.loaded / e.total) * 100);
-      if (bar) bar.style.width = percent + '%';
-      if (txt) txt.textContent = percent + '%';
-    };
-
-    xhr.onload = async () => {
-      if (btn) btn.disabled = false;
-
-      let data = null;
-      try { data = JSON.parse(xhr.responseText); } catch (e) {}
-
-      if (xhr.status !== 200 || !data || !data.success) {
-        setText('cargaMsg', data?.message || 'Error al subir');
+      if (!res.ok || !data?.success || !Array.isArray(data.dias)) {
+        cont.innerHTML = `<div class="text-sm text-gray-500">No hay datos para mostrar.</div>`;
         return;
       }
 
-      if (bar) bar.style.width = '100%';
-      if (txt) txt.textContent = '100%';
-      setText('cargaMsg', data.message || '✅ Subidos correctamente');
+      if (q("placasHoy")) q("placasHoy").textContent = data.placas_hoy ?? 0;
 
-      setTimeout(async () => {
-        closeCargaModal();
-        await refrescarTodo();
-      }, 450);
-    };
+      const term = normalizeText(searchTerm);
+      const dias = term ? data.dias.map(d => ({
+        ...d,
+        lotes: (d.lotes || []).map(l => ({
+          ...l,
+          items: (l.items || []).filter(it => itemMatches(it, term))
+        })).filter(l => (l.items || []).length > 0)
+      })).filter(d => (d.lotes || []).length > 0) : data.dias;
 
-    xhr.onerror = () => {
-      if (btn) btn.disabled = false;
-      setText('cargaMsg', 'Error de red al subir.');
-    };
-
-    xhr.send(fd);
-  }
-
-  // =========================
-  // REFRESH + SEARCH + EVENTS
-  // =========================
-  async function refrescarTodo() {
-    try {
-      await cargarStats();
-      await cargarListaPorDia();
-
-      // bind botones "Ver" (delegación)
-      const cont = q('contenedorDias');
-      if (cont) {
-        cont.onclick = (ev) => {
-          const btn = ev.target.closest('[data-open-lote]');
-          if (!btn) return;
-          // Si luego quieres modal editar por lote, aquí lo hacemos.
-          // Por ahora, solo mensaje:
-          setText('msg', '✅ Lote seleccionado: ' + btn.getAttribute('data-open-lote'));
-        };
+      if (term && !dias.length) {
+        cont.innerHTML = `<div class="text-sm text-gray-500">No hay resultados para "<b>${escapeHtml(searchTerm)}</b>".</div>`;
+        return;
       }
+
+      cont.innerHTML = "";
+
+      for (const dia of dias) {
+        const diaBox = document.createElement("div");
+        diaBox.className = "bg-white border border-gray-200 rounded-2xl p-4";
+
+        diaBox.innerHTML = `
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-lg font-black">${escapeHtml(dia.fecha)}</div>
+              <div class="text-sm text-gray-500">Total: ${escapeHtml(String(dia.total_archivos || 0))}</div>
+            </div>
+          </div>
+          <div class="mt-4 grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" data-dia-grid></div>
+        `;
+
+        const grid = diaBox.querySelector("[data-dia-grid]");
+        cont.appendChild(diaBox);
+
+        for (const lote of (dia.lotes || [])) {
+          const lid = String(lote.lote_id ?? "");
+          const lnombre = (lote.lote_nombre || "").trim() || "Sin nombre";
+          const items = lote.items || [];
+          const total = items.length;
+
+          loteIndex[lid] = items;
+          items.forEach(it => { placasMap[it.id] = it; });
+
+          const principal = items[0] || null;
+          const thumb = principal?.thumb_url || principal?.url || "";
+
+          const card = document.createElement("div");
+          card.className = "border border-gray-200 rounded-2xl p-4 hover:shadow-sm transition bg-white";
+
+          card.innerHTML = `
+            <div class="flex items-start gap-3">
+              <div class="w-14 h-14 rounded-xl border bg-gray-50 overflow-hidden shrink-0 flex items-center justify-center">
+                ${thumb ? `<img src="${escapeHtml(thumb)}" class="w-full h-full object-cover" />` : `<span class="text-xs text-gray-400 font-bold">LOTE</span>`}
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="font-black truncate">📦 ${escapeHtml(lnombre)}</div>
+                <div class="text-xs text-gray-500 mt-1">${escapeHtml(String(total))} archivo(s) • ${escapeHtml(String(lote.created_at || ""))}</div>
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <button type="button"
+                    class="rounded-xl px-3 py-2 text-xs font-extrabold bg-gray-900 text-white hover:brightness-110"
+                    data-ver-lote>
+                    Ver
+                  </button>
+
+                  ${API.descargarPngLote ? `
+                    <a class="rounded-xl px-3 py-2 text-xs font-extrabold bg-emerald-600 text-white hover:brightness-110"
+                      href="${escapeHtml(joinUrl(API.descargarPngLote, encodeURIComponent(lid)))}"
+                      onclick="event.stopPropagation()">
+                      Descargar PNG
+                    </a>
+                  ` : ``}
+
+                  ${API.descargarJpgLote ? `
+                    <a class="rounded-xl px-3 py-2 text-xs font-extrabold bg-blue-600 text-white hover:brightness-110"
+                      href="${escapeHtml(joinUrl(API.descargarJpgLote, encodeURIComponent(lid)))}"
+                      onclick="event.stopPropagation()">
+                      Descargar JPG
+                    </a>
+                  ` : ``}
+                </div>
+              </div>
+            </div>
+          `;
+
+          // ✅ Ver => abre modal detalle lote desde el primer archivo (ver/{id} arma todo el lote)
+          card.querySelector("[data-ver-lote]")?.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const first = (loteIndex[lid] || [])[0];
+            if (!first?.id) return;
+            abrirDetalleLoteDesdeArchivoId(first.id);
+          });
+
+          // click card también abre detalle
+          card.addEventListener("click", () => {
+            const first = (loteIndex[lid] || [])[0];
+            if (!first?.id) return;
+            abrirDetalleLoteDesdeArchivoId(first.id);
+          });
+
+          grid.appendChild(card);
+        }
+      }
+
     } catch (e) {
-      console.error(e);
+      cont.innerHTML = `<div class="text-sm text-gray-500">Error cargando archivos.</div>`;
     }
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    // Abrir modal
-    q('btnAbrirModalCarga')?.addEventListener('click', openCargaModal);
+  // ----------------------------
+  // Buscador principal (si existe)
+  // ----------------------------
+  function initSearch() {
+    const input = q("searchInput");
+    const clear = q("searchClear");
+    if (!input) return;
 
-    // Cerrar modal
-    q('btnCerrarCarga')?.addEventListener('click', closeCargaModal);
-    q('btnCancelarCarga')?.addEventListener('click', closeCargaModal);
-
-    // ESC cerrar
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !q('modalCargaBackdrop')?.classList.contains('hidden')) closeCargaModal();
-    });
-
-    // Buscar pedidos (filtra en servidor)
-    q('cargaBuscarPedido')?.addEventListener('input', async (e) => {
-      searchOrderTerm = e.target.value || '';
-      await cargarPedidosPorProducir();
-    });
-
-    // Archivos change
-    q('cargaArchivo')?.addEventListener('change', (e) => {
-      filesSeleccionados = Array.from(e.target.files || []);
-      renderFilePreview();
-    });
-
-    // Guardar
-    q('btnGuardarCarga')?.addEventListener('click', uploadLote);
-
-    // Buscador principal
-    const searchInput = q('searchInput');
-    const searchClear = q('searchClear');
     let t = null;
 
-    function applySearch(v) {
-      searchTerm = v || '';
-      if (searchClear) searchClear.classList.toggle('hidden', !searchTerm.trim());
-      cargarListaPorDia();
-    }
+    const apply = (v) => {
+      searchTerm = v || "";
+      if (clear) clear.classList.toggle("hidden", !searchTerm.trim());
+      cargarVistaAgrupada();
+    };
 
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        clearTimeout(t);
-        t = setTimeout(() => applySearch(e.target.value), 120);
+    input.addEventListener("input", (e) => {
+      clearTimeout(t);
+      t = setTimeout(() => apply(e.target.value), 120);
+    });
+
+    if (clear) {
+      clear.addEventListener("click", () => {
+        input.value = "";
+        apply("");
+        input.focus();
       });
     }
+  }
 
-    if (searchClear) {
-      searchClear.addEventListener('click', () => {
-        if (searchInput) searchInput.value = '';
-        applySearch('');
-      });
-    }
-
-    // Primera carga
-    refrescarTodo();
+  // ----------------------------
+  // Init
+  // ----------------------------
+  async function init() {
+    initSearch();
+    await cargarStats();
+    await cargarVistaAgrupada();
 
     // refresco cada 10 min
-    setInterval(refrescarTodo, 600000);
-  });
+    setInterval(async () => {
+      await cargarStats();
+      await cargarVistaAgrupada();
+    }, 600000);
+  }
 
-  // expone por si lo necesitas
-  window.refrescarTodo = refrescarTodo;
+  // Export para debug si quieres
+  window.__PLACAS = {
+    abrirDetalleLoteDesdeArchivoId,
+    recargar: async () => { await cargarStats(); await cargarVistaAgrupada(); }
+  };
+
+  init();
 })();
- 

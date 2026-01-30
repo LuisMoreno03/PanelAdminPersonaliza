@@ -190,9 +190,12 @@ $routes->group('placas/archivos', static function($routes) {
     $routes->post('eliminar', 'PlacasArchivosController::eliminarArchivo');
     $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
 
-    $routes->get('placas/archivos/ver/(:num)', 'PlacasArchivos::ver/$1');
-    $routes->get('ver/(:num)', 'PlacasArchivosController::ver/$1');
+    
+    
     $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
+    $routes->get('ver/(:num)', 'PlacasArchivosController::ver/$1');
+    $routes->get('inline/(:num)', 'PlacasArchivosController::inline/$1');
+
 
     
 });
