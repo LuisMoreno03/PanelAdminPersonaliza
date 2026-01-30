@@ -29,15 +29,19 @@ class PlacaArchivoModel extends Model
         'lote_nombre',
         'numero_placa',
         'producto',
-        'nombre',
+        'pedidos_json',
+        'pedidos_text',
+        'ruta',
         'original',
         'mime',
         'size',
-        'ruta',
-        'is_primary',
+        'nombre',
         'created_at',
-        'pedidos_json', // ✅ NUEVO
+        'updated_at',
+        'thumb_ruta',
+        'is_primary', // ✅ si no existe en BD, se eliminará automáticamente
     ];
+
 
     // ✅ Convierte productos/pedidos en productos_json/pedidos_json automáticamente
     protected $beforeInsert = ['normalizeMeta'];

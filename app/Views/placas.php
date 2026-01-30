@@ -8,6 +8,7 @@
   <title>Placas - Panel</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/alpinejs" defer></script>
 
   <style>
     body { background:#f3f4f6; }
