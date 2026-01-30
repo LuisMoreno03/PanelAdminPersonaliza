@@ -874,7 +874,10 @@ async function devolverPedidosRestantes() {
 // =========================
 // ✅ Devolver pedido INDIVIDUAL
 // =========================
-async function devolverPedidoIndividual(internalId, shopifyId = "") {
+// =========================
+// ✅ Devolver pedido INDIVIDUAL (FIX: sin recursión)
+// =========================
+const devolverPedidoIndividual = async (internalId, shopifyId = "") => {
   const iid = normalizeOrderId(internalId);
   const sid = normalizeOrderId(shopifyId);
 
@@ -911,13 +914,13 @@ async function devolverPedidoIndividual(internalId, shopifyId = "") {
         const { res, data, raw, url } = await apiPostJsonPath(path, payload);
 
         if (!res.ok || !data) {
-          last = { path, res, data, raw, url };
+          last = { path, resStatus: res?.status, raw, url };
           continue;
         }
 
         const ok2 = (data.ok === true || data.success === true);
         if (!ok2) {
-          last = { path, res, data, raw, url };
+          last = { path, data, url };
           continue;
         }
 
@@ -938,11 +941,25 @@ async function devolverPedidoIndividual(internalId, shopifyId = "") {
   } finally {
     setLoader(false);
   }
-}
-
-window.devolverPedidoIndividual = function (internalId, shopifyId) {
-  devolverPedidoIndividual(String(internalId || ""), String(shopifyId || ""));
 };
+
+// ✅ Exponer para onclick HTML
+window.devolverPedidoIndividual = (internalId, shopifyId) => {
+  return devolverPedidoIndividual(String(internalId || ""), String(shopifyId || ""));
+};
+
+// ✅ Botón reutilizable
+function devolverBtnHtml(internalId, shopifyId, extraClass = "") {
+  return `
+    <button type="button"
+      onclick="window.devolverPedidoIndividual('${escapeJsString(internalId)}','${escapeJsString(shopifyId)}')"
+      class="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-slate-200
+             text-slate-900 font-extrabold text-xs hover:bg-rose-50 hover:border-rose-300 transition ${extraClass}"
+      title="Devolver este pedido">
+      ↩️ Devolver
+    </button>
+  `;
+}
 
 // =========================
 // DETALLES FULL (modalDetallesFull)
