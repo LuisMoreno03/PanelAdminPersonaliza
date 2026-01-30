@@ -1,24 +1,19 @@
 // public/js/montaje.js
-// ✅ Versión robusta: normaliza API_BASE (evita "undefined/montaje/..."), fallback a rutas relativas,
-// y mejora el manejo de errores (para que no quede como "Failed to fetch" sin pista).
+// ✅ Versión robusta: normaliza API_BASE, fallback rutas relativas,
+// ✅ CSRF robusto (header + body) + refresco token si viene en response
 
 // =====================================================
 // API_BASE (robusto)
 // =====================================================
 let API_BASE = (window.API_BASE ?? "").toString().trim();
 
-// si viene "null" o "undefined" como string, lo anulamos
 if (API_BASE === "null" || API_BASE === "undefined") API_BASE = "";
-
-// quita slash final
 API_BASE = API_BASE.replace(/\/$/, "");
 
-// si viene sin protocolo (ej: panel...com), fuerza https
 if (API_BASE && !/^https?:\/\//i.test(API_BASE) && API_BASE[0] !== "/") {
   API_BASE = "https://" + API_BASE;
 }
 
-// helper para armar endpoint sin dobles slashes raros
 function joinUrl(base, path) {
   const p = String(path || "");
   if (!base) return p.startsWith("/") ? p : "/" + p;
@@ -32,12 +27,12 @@ const ENDPOINT_RETURN_ALL = joinUrl(API_BASE, "/montaje/return-all");
 const ENDPOINT_REALIZADO = joinUrl(API_BASE, "/montaje/realizado");
 const ENDPOINT_CARGADO_FALLBACK = joinUrl(API_BASE, "/montaje/cargado");
 const ENDPOINT_ENVIAR = joinUrl(API_BASE, "/montaje/enviar");
-const ENDPOINT_DETAILS = joinUrl(API_BASE, "/montaje/details"); // ✅ nuevo
+const ENDPOINT_DETAILS = joinUrl(API_BASE, "/montaje/details");
 
-// Debug opcional (déjalo activo 1 día y luego lo quitas)
+// Debug 1 día
 console.log("[MONTAJE] API_BASE =", API_BASE);
-console.log("[MONTAJE] ENDPOINT_PULL =", ENDPOINT_PULL);
 console.log("[MONTAJE] ENDPOINT_QUEUE =", ENDPOINT_QUEUE);
+console.log("[MONTAJE] ENDPOINT_PULL  =", ENDPOINT_PULL);
 console.log("[MONTAJE] ENDPOINT_RETURN_ALL =", ENDPOINT_RETURN_ALL);
 
 let pedidosCache = [];
@@ -58,13 +53,64 @@ function showLoader(on) {
 }
 
 // =====================================================
-// CSRF
+// CSRF (CodeIgniter) — header + body
 // =====================================================
+function getCsrfMeta() {
+  const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || "";
+  const header = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content") || "";
+  const param  = document.querySelector('meta[name="csrf-param"]')?.getAttribute("content") || "";
+  return {
+    token: token.trim(),
+    header: header.trim(),
+    param: param.trim(),
+  };
+}
+
+function setCsrfToken(newToken) {
+  if (!newToken) return;
+  const m = document.querySelector('meta[name="csrf-token"]');
+  if (m) m.setAttribute("content", String(newToken));
+}
+
+function updateCsrfFromResponse(res, data) {
+  const { header } = getCsrfMeta();
+
+  // 1) Si el server devuelve token nuevo en header
+  if (header && res?.headers) {
+    const h = res.headers.get(header);
+    if (h) setCsrfToken(h);
+  }
+
+  // 2) Si lo devuelve en JSON con alguna key común
+  if (data && typeof data === "object") {
+    const possible =
+      data.csrf ||
+      data.csrf_token ||
+      data.csrfHash ||
+      data.csrf_hash ||
+      data.token ||
+      data.newCsrf ||
+      null;
+
+    if (possible) setCsrfToken(possible);
+  }
+}
+
 function getCsrfHeaders() {
-  const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
-  const header = document.querySelector('meta[name="csrf-header"]')?.getAttribute("content");
+  const { token, header } = getCsrfMeta();
   if (!token || !header) return {};
   return { [header]: token };
+}
+
+function withCsrfBody(payload) {
+  const { token, param } = getCsrfMeta();
+  const out = { ...(payload ?? {}) };
+
+  // ✅ agrega también en body (CI a veces lo exige)
+  if (token && param) {
+    out[param] = token;
+  }
+  return out;
 }
 
 // =====================================================
@@ -75,8 +121,6 @@ function isAbsoluteUrl(u) {
 }
 
 function getFetchCredentials(url) {
-  // Si es absoluto y cambia de dominio => include (para que mande cookies)
-  // Si es relativo o mismo origen => same-origin
   try {
     if (!isAbsoluteUrl(url)) return "same-origin";
     const u = new URL(url);
@@ -97,13 +141,13 @@ async function apiGet(url) {
       credentials,
     });
   } catch (e) {
-    // Error de red real (CORS, DNS, offline, URL inválida...)
     return { res: null, data: null, raw: "", networkError: e };
   }
 
   const text = await res.text();
   let data = null;
   try { data = JSON.parse(text); } catch {}
+  updateCsrfFromResponse(res, data);
   return { res, data, raw: text, networkError: null };
 }
 
@@ -120,7 +164,7 @@ async function apiPost(url, payload) {
         ...getCsrfHeaders(),
       },
       credentials,
-      body: JSON.stringify(payload ?? {}),
+      body: JSON.stringify(withCsrfBody(payload)),
     });
   } catch (e) {
     return { res: null, data: null, raw: "", networkError: e };
@@ -129,6 +173,7 @@ async function apiPost(url, payload) {
   const text = await res.text();
   let data = null;
   try { data = JSON.parse(text); } catch {}
+  updateCsrfFromResponse(res, data);
   return { res, data, raw: text, networkError: null };
 }
 
@@ -198,7 +243,6 @@ function extractUrlsDeep(any) {
         walk(asJson);
         return;
       }
-
       const parts = x.split(/[\s,]+/).map(t => t.trim()).filter(Boolean);
       parts.forEach(push);
       return;
@@ -259,13 +303,11 @@ function getPedidoAssetsFrom(pedido, historial = []) {
     pedido?.archivo_confirmacion, pedido?.archivos_confirmacion, pedido?.confirmacion_url, pedido?.confirmacion_urls,
 
     pedido?.imagenes_locales,
-
     pedido?.product_images,
     pedido?.product_image,
   ];
 
   directFields.forEach(v => urls.push(...extractUrlsDeep(v)));
-
   urls.push(...extractUrlsDeep(pedido?.pedido_json));
 
   for (const h of (historial || [])) {
@@ -292,7 +334,7 @@ function filenameFromUrl(u) {
 }
 
 // =====================================================
-// ✅ Archivos de Producción (físicos) que vienen en details()
+// ✅ Archivos de Producción (details())
 // =====================================================
 function buildProduccionFilesHtml(files = []) {
   if (!Array.isArray(files) || !files.length) {
@@ -321,9 +363,7 @@ function buildProduccionFilesHtml(files = []) {
         const preview = (isImg && url !== "#")
           ? `
             <a href="${url}" target="_blank" rel="noopener" class="block">
-              <img src="${url}"
-                   class="w-full h-44 object-cover rounded-2xl border border-slate-200 bg-slate-50"
-                   alt="${originalName}" />
+              <img src="${url}" class="w-full h-44 object-cover rounded-2xl border border-slate-200 bg-slate-50" alt="${originalName}" />
             </a>
           `
           : `
@@ -340,9 +380,7 @@ function buildProduccionFilesHtml(files = []) {
               ${filename ? `<div class="text-[11px] text-slate-400 mt-1 truncate">${filename}</div>` : ``}
             </div>
 
-            <div class="px-3 pb-3">
-              ${preview}
-            </div>
+            <div class="px-3 pb-3">${preview}</div>
 
             <div class="px-3 pb-3 flex items-center gap-2">
               <a href="${url}" target="_blank" rel="noopener"
@@ -435,9 +473,7 @@ function ensureDetailsModal() {
 }
 
 function buildHistorialHtml(historial = []) {
-  if (!historial.length) {
-    return `<div class="text-sm text-slate-500">—</div>`;
-  }
+  if (!historial.length) return `<div class="text-sm text-slate-500">—</div>`;
 
   return `
     <div class="space-y-2">
@@ -468,7 +504,6 @@ function buildDetailsHtml(pedido, historial, produccionFiles = []) {
   const etiquetas = escapeHtml(pedido?.etiquetas ?? "");
 
   const assets = getPedidoAssetsFrom(pedido, historial);
-
   const imgs = assets.imgs || [];
   const diseno = assets.diseno || [];
   const confirm = assets.confirm || [];
@@ -651,8 +686,7 @@ function rowHtml(p) {
     <div data-order-id="${escapeHtml(key)}"
          class="prod-grid-cols px-4 py-3 border-b border-slate-100 hover:bg-slate-50 text-sm">
       <div class="font-extrabold text-slate-900 truncate">
-        <button type="button"
-          class="text-left hover:underline"
+        <button type="button" class="text-left hover:underline"
           onclick="window.openPedidoDetails('${escapeHtml(key)}')">
           ${numero}
         </button>
@@ -661,8 +695,7 @@ function rowHtml(p) {
       <div class="text-slate-600 truncate">${fecha}</div>
 
       <div class="min-w-0">
-        <button type="button"
-          class="font-extrabold truncate text-left hover:underline"
+        <button type="button" class="font-extrabold truncate text-left hover:underline"
           onclick="window.openPedidoDetails('${escapeHtml(key)}')">
           ${cliente}
         </button>
@@ -722,8 +755,7 @@ function cardHtml(p) {
 
           <div class="text-sm text-slate-700 mt-2 truncate">
             <b>Cliente:</b>
-            <button type="button"
-              class="font-extrabold hover:underline"
+            <button type="button" class="font-extrabold hover:underline"
               onclick="window.openPedidoDetails('${escapeHtml(key)}')">
               ${cliente}
             </button>
@@ -883,11 +915,10 @@ async function traerPedidos(count) {
   }
 }
 
-// ✅ NUEVO: devolver todos los pedidos asignados de la cola del usuario
+// ✅ NUEVO: devolver todos
 async function devolverListaPedidos() {
   showLoader(true);
   try {
-    // Enviamos ids por si el backend los usa (pero si no los necesita, no pasa nada)
     const order_ids = (pedidosCache || []).map(pedidoKey).filter(Boolean);
 
     const { res, data, raw, networkError } = await apiPost(ENDPOINT_RETURN_ALL, { order_ids });
@@ -916,9 +947,7 @@ async function devolverListaPedidos() {
       return;
     }
 
-    // ✅ refrescar cola (debería quedar vacía)
     await cargarMiCola();
-
   } finally {
     showLoader(false);
   }
@@ -932,7 +961,6 @@ function removePedidoFromUI(orderKey) {
 
 async function enviarPedido(orderKey) {
   const before = [...pedidosCache];
-
   removePedidoFromUI(orderKey);
 
   const payload = { order_id: String(orderKey) };
@@ -956,11 +984,9 @@ async function enviarPedido(orderKey) {
 
 async function marcarRealizado(orderKey) {
   const before = [...pedidosCache];
-
   removePedidoFromUI(orderKey);
 
   const payload = { order_id: String(orderKey) };
-
   let resp = await apiPost(ENDPOINT_REALIZADO, payload);
 
   if (resp.networkError) {
@@ -991,37 +1017,21 @@ async function marcarRealizado(orderKey) {
   }
 }
 
-// Exponer global para onclick
+// Exponer global
 window.marcarRealizado = marcarRealizado;
 window.enviarPedido = enviarPedido;
 window.openPedidoDetails = openPedidoDetails;
-
-// ✅ nuevo
 window.devolverListaPedidos = devolverListaPedidos;
 
-// Para tu botón "Actualizar" del HTML
+// refresh
 window.__montajeRefresh = cargarMiCola;
 
 document.addEventListener("DOMContentLoaded", () => {
   $("btnTraer5")?.addEventListener("click", () => traerPedidos(5));
   $("btnTraer10")?.addEventListener("click", () => traerPedidos(10));
 
-  // ✅ Botón devolver lista (probamos varios ids por si tu HTML usa otro)
-  const RETURN_BUTTON_IDS = [
-    "btnDevolverLista",
-    "btnDevolverPedidos",
-    "btnReturnAll",
-    "btnReturnAllPedidos",
-    "btnDevolverTodo",
-  ];
-  for (const id of RETURN_BUTTON_IDS) {
-    const el = $(id);
-    if (el) {
-      el.addEventListener("click", devolverListaPedidos);
-      console.log("[MONTAJE] return-all enlazado a botón:", id);
-      break;
-    }
-  }
+  // ✅ Tu botón real es este:
+  $("btnReturnAll")?.addEventListener("click", devolverListaPedidos);
 
   $("inputBuscar")?.addEventListener("input", aplicarFiltro);
   $("btnLimpiarBusqueda")?.addEventListener("click", () => {

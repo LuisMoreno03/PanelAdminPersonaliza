@@ -7,6 +7,7 @@
 
   <!-- CSRF para CodeIgniter -->
   <meta name="csrf-token" content="<?= csrf_hash() ?>">
+  <meta name="csrf-param" content="<?= function_exists('csrf_token') ? csrf_token() : 'csrf_test_name' ?>">
   <meta name="csrf-header" content="<?= function_exists('csrf_header') ? csrf_header() : 'X-CSRF-TOKEN' ?>">
 
   <script src="https://cdn.tailwindcss.com"></script>
@@ -100,6 +101,7 @@
             class="h-11 px-4 rounded-2xl bg-slate-900 text-white font-extrabold text-sm shadow-sm hover:bg-slate-800 transition">
             Traer 10
           </button>
+
           <button type="button" id="btnReturnAll"
             class="h-11 px-4 rounded-2xl bg-white border border-slate-200 text-slate-900 font-extrabold text-sm shadow-sm hover:bg-slate-100 transition">
             Devolver todos
@@ -115,8 +117,7 @@
 
     <!-- Listado -->
     <section class="mt-6">
-
-      <!-- Vista XL (grid tipo tabla) -->
+      <!-- Vista XL -->
       <div class="hidden xl:block 2xl:hidden rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div class="prod-grid-cols px-4 py-3 bg-slate-50 border-b border-slate-200 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
           <div>Número</div>
@@ -130,12 +131,10 @@
           <div>Método</div>
           <div class="text-right">Acciones</div>
         </div>
-
-        <!-- Aquí el JS pinta filas (DIVs) -->
         <div id="tablaPedidosTable"></div>
       </div>
 
-      <!-- Vista 2XL (grid tipo tabla) -->
+      <!-- Vista 2XL -->
       <div class="hidden 2xl:block rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div class="prod-grid-cols px-4 py-3 bg-slate-50 border-b border-slate-200 text-[12px] font-extrabold uppercase tracking-wide text-slate-600">
           <div>Número</div>
@@ -149,12 +148,10 @@
           <div>Método</div>
           <div class="text-right">Acciones</div>
         </div>
-
-        <!-- Aquí el JS pinta filas (DIVs) -->
         <div id="tablaPedidos"></div>
       </div>
 
-      <!-- Mobile cards -->
+      <!-- Mobile -->
       <div id="cardsPedidos" class="xl:hidden"></div>
     </section>
   </main>
