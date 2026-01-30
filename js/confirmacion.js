@@ -544,15 +544,6 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
     setHtmlSafe("detResumen", "");
     return;
   }
-// después de recibir d:
-const note = d.order_note?.note ?? "";
-document.getElementById("orderNoteTextarea").value = note; // usa tu ID real
-
-// opcional: auditoría
-document.getElementById("orderNoteAudit").textContent =
-  d.order_note?.modified_by
-    ? `Última modificación: ${d.order_note.modified_by} · ${new Date(d.order_note.modified_at).toLocaleString()}`
-    : "";
 
   const toNum = (v) => {
     const n = Number(v);
