@@ -176,26 +176,32 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 | PLACAS (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-// ... tus rutas anteriores
-// ✅ Vista principal /placas
+
 $routes->get('placas', 'PlacasController::index');
 
 // ✅ PLACAS API
 $routes->group('placas/archivos', static function($routes) {
+
+    // Listados / stats
     $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
-    $routes->get('stats', 'PlacasArchivosController::stats');
+    $routes->get('stats',          'PlacasArchivosController::stats');
 
-    $routes->post('subir-lote', 'PlacasArchivosController::subirLote');
-    $routes->post('renombrar', 'PlacasArchivosController::renombrarArchivo');
-    $routes->post('eliminar', 'PlacasArchivosController::eliminarArchivo');
-    $routes->post('lote/renombrar', 'PlacasArchivosController::renombrarLote');
+    // ✅ Detalle del lote (JSON para el modal "Ver")
+    $routes->get('info/(:num)',    'PlacasArchivosController::info/$1');
 
-    $routes->get('placas/archivos/ver/(:num)', 'PlacasArchivos::ver/$1');
-    $routes->get('ver/(:num)', 'PlacasArchivosController::ver/$1');
-    $routes->get('descargar/(:num)', 'PlacasArchivosController::descargar/$1');
+    // ✅ Archivo inline (preview)
+    $routes->get('inline/(:num)',  'PlacasArchivosController::inline/$1');
 
-    
+    // Descargar archivo
+    $routes->get('descargar/(:num)','PlacasArchivosController::descargar/$1');
+
+    // Acciones
+    $routes->post('subir-lote',    'PlacasArchivosController::subirLote');
+    $routes->post('renombrar',     'PlacasArchivosController::renombrarArchivo');
+    $routes->post('eliminar',      'PlacasArchivosController::eliminarArchivo');
+    $routes->post('lote/renombrar','PlacasArchivosController::renombrarLote');
 });
+
 
 // ✅ Pedidos por producir (BD interna)
 $routes->get('placas/pedidos/por-producir', 'PedidosController::porProducir');
