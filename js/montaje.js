@@ -38,6 +38,7 @@ const ENDPOINT_DETAILS = joinUrl(API_BASE, "/montaje/details"); // ✅ nuevo
 console.log("[MONTAJE] API_BASE =", API_BASE);
 console.log("[MONTAJE] ENDPOINT_PULL =", ENDPOINT_PULL);
 console.log("[MONTAJE] ENDPOINT_QUEUE =", ENDPOINT_QUEUE);
+console.log("[MONTAJE] ENDPOINT_RETURN_ALL =", ENDPOINT_RETURN_ALL);
 
 let pedidosCache = [];
 let pedidosFiltrados = [];
@@ -882,6 +883,47 @@ async function traerPedidos(count) {
   }
 }
 
+// ✅ NUEVO: devolver todos los pedidos asignados de la cola del usuario
+async function devolverListaPedidos() {
+  showLoader(true);
+  try {
+    // Enviamos ids por si el backend los usa (pero si no los necesita, no pasa nada)
+    const order_ids = (pedidosCache || []).map(pedidoKey).filter(Boolean);
+
+    const { res, data, raw, networkError } = await apiPost(ENDPOINT_RETURN_ALL, { order_ids });
+
+    if (networkError) {
+      console.error("RETURN-ALL network error:", networkError);
+      alert("No se pudo devolver la lista (error de red / CORS / URL inválida).");
+      return;
+    }
+
+    if (!res) {
+      console.error("RETURN-ALL no response:", raw);
+      alert("No se pudo devolver la lista (sin respuesta del servidor).");
+      return;
+    }
+
+    if (!res.ok) {
+      console.error("RETURN-ALL FAIL:", res.status, raw);
+      alert(data?.error || data?.message || `Error devolviendo lista (${res.status})`);
+      return;
+    }
+
+    if (data && data.ok !== true && data.success !== true) {
+      console.error("RETURN-ALL payload no-ok:", data);
+      alert(data?.error || data?.message || "El servidor no confirmó la devolución.");
+      return;
+    }
+
+    // ✅ refrescar cola (debería quedar vacía)
+    await cargarMiCola();
+
+  } finally {
+    showLoader(false);
+  }
+}
+
 function removePedidoFromUI(orderKey) {
   pedidosCache = pedidosCache.filter(p => String(pedidoKey(p)) !== String(orderKey));
   aplicarFiltro();
@@ -954,12 +996,32 @@ window.marcarRealizado = marcarRealizado;
 window.enviarPedido = enviarPedido;
 window.openPedidoDetails = openPedidoDetails;
 
+// ✅ nuevo
+window.devolverListaPedidos = devolverListaPedidos;
+
 // Para tu botón "Actualizar" del HTML
 window.__montajeRefresh = cargarMiCola;
 
 document.addEventListener("DOMContentLoaded", () => {
   $("btnTraer5")?.addEventListener("click", () => traerPedidos(5));
   $("btnTraer10")?.addEventListener("click", () => traerPedidos(10));
+
+  // ✅ Botón devolver lista (probamos varios ids por si tu HTML usa otro)
+  const RETURN_BUTTON_IDS = [
+    "btnDevolverLista",
+    "btnDevolverPedidos",
+    "btnReturnAll",
+    "btnReturnAllPedidos",
+    "btnDevolverTodo",
+  ];
+  for (const id of RETURN_BUTTON_IDS) {
+    const el = $(id);
+    if (el) {
+      el.addEventListener("click", devolverListaPedidos);
+      console.log("[MONTAJE] return-all enlazado a botón:", id);
+      break;
+    }
+  }
 
   $("inputBuscar")?.addEventListener("input", aplicarFiltro);
   $("btnLimpiarBusqueda")?.addEventListener("click", () => {
