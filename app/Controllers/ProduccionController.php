@@ -563,7 +563,71 @@ class ProduccionController extends BaseController
         'ok' => true,
         'message' => 'Pedido devuelto correctamente.',
     ]);
-}
+}   public function guardarNota()
+    {
+        // 1) Leer JSON o fallback a POST
+        $payload = $this->request->getJSON(true);
+        if (!is_array($payload)) {
+            $payload = $this->request->getPost();
+        }
+
+        $orderId = trim((string)($payload['order_id'] ?? $payload['id'] ?? ''));
+        if ($orderId === '') {
+            return $this->respond([
+                'success' => false,
+                'message' => 'order_id requerido',
+            ], 422);
+        }
+
+        $note       = (string)($payload['note'] ?? '');
+        $modifiedBy = trim((string)($payload['modified_by'] ?? $payload['user'] ?? ''));
+        $modifiedAt = $this->toDbDateTime((string)($payload['modified_at'] ?? '')) ?? date('Y-m-d H:i:s');
+
+        $now = date('Y-m-d H:i:s');
+
+        $db = Database::connect();
+        $table = $db->table('confirmacion_order_notes');
+
+        try {
+            // 2) Ver si existe por order_id (upsert manual)
+            $existing = $table->select('id')
+                ->where('order_id', $orderId)
+                ->get()
+                ->getRowArray();
+
+            $data = [
+                'order_id'     => $orderId,
+                'note'         => $note,
+                'modified_by'  => $modifiedBy !== '' ? $modifiedBy : null,
+                'modified_at'  => $modifiedAt,
+                'updated_at'   => $now,
+            ];
+
+            if ($existing && isset($existing['id'])) {
+                $table->where('order_id', $orderId)->update($data);
+            } else {
+                $data['created_at'] = $now;
+                $table->insert($data);
+            }
+
+            // 3) Leer lo guardado y responder consistente
+            $saved = $table->where('order_id', $orderId)->get()->getRowArray();
+
+            return $this->respond([
+                'success'     => true,
+                'note'        => (string)($saved['note'] ?? ''),
+                'modified_by' => (string)($saved['modified_by'] ?? ''),
+                'modified_at' => $this->dbToIso((string)($saved['modified_at'] ?? '')),
+            ]);
+
+        } catch (\Throwable $e) {
+            return $this->respond([
+                'success' => false,
+                'message' => 'Error guardando nota: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
 
     // =========================
     // POST /produccion/upload-general

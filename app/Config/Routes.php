@@ -118,6 +118,7 @@ $routes->group('confirmacion', ['filter' => 'auth'], static function (RouteColle
     $routes->get('my-queue', 'ConfirmacionController::myQueue');
     $routes->post('pull', 'ConfirmacionController::pull');
     $routes->post('return-all', 'ConfirmacionController::returnAll');
+    $routes->post('guardar-nota', 'ConfirmacionController::guardarNota');
 
     // ✅ endpoint real que usa confirmacion.js
     $routes->post('subir-imagen', 'ConfirmacionController::subirImagen');
