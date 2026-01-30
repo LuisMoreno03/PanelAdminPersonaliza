@@ -11,107 +11,78 @@ class PlacaArchivoModel extends Model
 
     protected $returnType = 'array';
 
-    protected $useAutoIncrement = true;
-    protected $useSoftDeletes   = false;
-
-    // ✅ timestamps
+    /**
+     * ✅ Si tu tabla tiene columnas created_at y updated_at, déjalo en true.
+     * Si NO las tiene, cámbialo a false.
+     */
     protected $useTimestamps = true;
     protected $createdField  = 'created_at';
     protected $updatedField  = 'updated_at';
 
     /**
-     * ✅ Campos permitidos en INSERT/UPDATE
-     * - productos_json y pedidos_json: se guardan como JSON string
-     * - productos y pedidos: el JS los manda así, y aquí los convertimos a *_json
+     * ✅ Formato datetime estándar (ej: 2026-01-29 09:50:13)
      */
-     protected $allowedFields = [
+    protected $dateFormat = 'datetime';
+
+    /**
+     * ✅ Lista de campos que tu app puede manejar.
+     * OJO: Aunque pongas campos que aún no existen en BD, NO se romperá
+     * porque stripUnknownColumns los elimina antes del INSERT/UPDATE.
+     */
+    protected $allowedFields = [
         'lote_id',
         'lote_nombre',
+
         'numero_placa',
         'producto',
+
+        // ✅ pedidos/productos asociados
         'pedidos_json',
         'pedidos_text',
+
+        // ✅ archivo
         'ruta',
+        'thumb_ruta',
         'original',
         'mime',
         'size',
         'nombre',
+
+        // ✅ flags opcionales
+        'is_primary',
+
+        // timestamps
         'created_at',
         'updated_at',
-        'thumb_ruta',
-        'is_primary', // ✅ si no existe en BD, se eliminará automáticamente
     ];
 
+    /**
+     * ✅ Evita errores "Unknown column X" al insertar/actualizar
+     * eliminando automáticamente claves que NO existen en la tabla real.
+     */
+    protected $beforeInsert = ['stripUnknownColumns'];
+    protected $beforeUpdate = ['stripUnknownColumns'];
 
-    // ✅ Convierte productos/pedidos en productos_json/pedidos_json automáticamente
-    protected $beforeInsert = ['normalizeMeta'];
-    protected $beforeUpdate = ['normalizeMeta'];
-
-    protected function normalizeMeta(array $data): array
+    protected function stripUnknownColumns(array $data): array
     {
         if (!isset($data['data']) || !is_array($data['data'])) {
             return $data;
         }
 
-        $row = &$data['data'];
+        $db = db_connect();
 
-        // Normaliza lote_id siempre a string si llega
-        if (isset($row['lote_id'])) {
-            $row['lote_id'] = (string) $row['lote_id'];
-        }
+        // cachea las columnas reales de la tabla para no consultarlas siempre
+        static $colsByTable = [];
 
-        // ✅ productos => productos_json
-        if (array_key_exists('productos', $row)) {
-            $row['productos_json'] = $this->toJsonString($row['productos']);
-            unset($row['productos']);
-        }
-        if (isset($row['productos_json']) && is_array($row['productos_json'])) {
-            $row['productos_json'] = $this->toJsonString($row['productos_json']);
+        if (!isset($colsByTable[$this->table])) {
+            $colsByTable[$this->table] = array_flip($db->getFieldNames($this->table));
         }
 
-        // ✅ pedidos => pedidos_json
-        if (array_key_exists('pedidos', $row)) {
-            $row['pedidos_json'] = $this->toJsonString($row['pedidos']);
-            unset($row['pedidos']);
-        }
-        if (isset($row['pedidos_json']) && is_array($row['pedidos_json'])) {
-            $row['pedidos_json'] = $this->toJsonString($row['pedidos_json']);
-        }
+        $validCols = $colsByTable[$this->table];
 
-        // defaults seguros
-        if (!isset($row['is_primary']) || $row['is_primary'] === '') {
-            $row['is_primary'] = 0;
-        }
+        // deja solo columnas que existan realmente
+        $data['data'] = array_intersect_key($data['data'], $validCols);
 
         return $data;
-    }
-
-    private function toJsonString($val): ?string
-    {
-        if ($val === null) return null;
-
-        // ya viene JSON string
-        if (is_string($val)) {
-            $s = trim($val);
-            if ($s === '') return '[]';
-
-            // si ya es JSON válido, lo dejamos
-            $decoded = json_decode($s, true);
-            if (json_last_error() === JSON_ERROR_NONE) {
-                return json_encode($decoded, JSON_UNESCAPED_UNICODE);
-            }
-
-            // si viene "a,b,c" => array
-            $arr = array_values(array_filter(array_map('trim', preg_split('/[\n,]+/', $s))));
-            return json_encode($arr, JSON_UNESCAPED_UNICODE);
-        }
-
-        // array => JSON
-        if (is_array($val)) {
-            return json_encode(array_values($val), JSON_UNESCAPED_UNICODE);
-        }
-
-        // cualquier otro tipo => string
-        return json_encode([(string) $val], JSON_UNESCAPED_UNICODE);
     }
 }
