@@ -112,24 +112,25 @@ $routes->group('shopify', ['filter' => 'auth'], static function ($routes) {
 | CONFIRMACIÓN (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-$routes->group('confirmacion', ['filter' => 'auth'], static function (RouteCollection $routes) {
-
-    $routes->get('/', 'ConfirmacionController::index');
+$routes->group('confirmacion', function($routes) {
+    $routes->get('', 'ConfirmacionController::index');
     $routes->get('my-queue', 'ConfirmacionController::myQueue');
     $routes->post('pull', 'ConfirmacionController::pull');
     $routes->post('return-all', 'ConfirmacionController::returnAll');
+
+    $routes->get('detalles/(:any)', 'ConfirmacionController::detalles/$1');
+
     $routes->post('guardar-nota', 'ConfirmacionController::guardarNota');
+    $routes->post('guardar-nota-pedido', 'ConfirmacionController::guardarNotaPedido');
 
-    // ✅ endpoint real que usa confirmacion.js
     $routes->post('subir-imagen', 'ConfirmacionController::subirImagen');
-
-    // ✅ alias opcional para mantener /confirmacion/upload
     $routes->post('upload', 'ConfirmacionController::uploadConfirmacion');
 
-    $routes->get('list', 'ConfirmacionController::listFiles');
-    $routes->get('detalles/(:segment)', 'ConfirmacionController::detalles/$1');
     $routes->post('guardar-estado', 'ConfirmacionController::guardarEstado');
+
+    $routes->get('list-files', 'ConfirmacionController::listFiles');
 });
+
 
 
 

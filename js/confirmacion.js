@@ -1,17 +1,11 @@
 /**
- * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (STABLE)
- * + NOTA GLOBAL PEDIDO (persistente + visible tras recargar)
- *
+ * confirmacion.js — FULL + DRAG&DROP + EDITOR + AUDITORÍA (STABLE) + NOTA GLOBAL PEDIDO (PERSISTENTE)
  * - Lista: /confirmacion/my-queue
  * - Pull:  /confirmacion/pull
  * - Detalles: /confirmacion/detalles/{id}
  * - Subir: /confirmacion/subir-imagen
  * - Guardar estado: /confirmacion/guardar-estado
  * - Guardar nota: /confirmacion/guardar-nota
- *
- * Editor (Cropper.js) opcional:
- * <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
- * <script src="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.js"></script>
  */
 
 const API = window.API || {};
@@ -28,8 +22,6 @@ const ENDPOINT_GUARDAR_NOTA    = (API.guardarNota   || "/confirmacion/guardar-no
 // Nota del pedido (global)
 let DET_ORDER_NOTE = "";
 let DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
-
-// orderKey real (devuelto por backend) para que TODO sea consistente
 let DET_ORDER_KEY = "";
 
 // autosave
@@ -76,7 +68,6 @@ const escapeHtml = (str) =>
     .replaceAll("'", "&#039;");
 
 const esUrl = (u) => /^https?:\/\//i.test(String(u || "").trim());
-
 const esImagenUrl = (url) =>
   /https?:\/\/.*\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i.test(String(url || "").trim());
 
@@ -126,57 +117,6 @@ function getCsrfHeaders() {
   const t = document.querySelector('meta[name="csrf-token"]')?.content;
   const h = document.querySelector('meta[name="csrf-header"]')?.content || "X-CSRF-TOKEN";
   return t ? { [h]: t } : {};
-}
-
-/* =====================================================
-   NOTA — UI Helpers (✅ bloque “Nota guardada”)
-===================================================== */
-function ensureNoteReadOnlyBox() {
-  // si ya existe, no hacemos nada
-  if (document.getElementById("orderNoteSavedWrap")) return;
-
-  const noteCard = document.getElementById("orderNoteCard");
-  if (!noteCard) return;
-
-  const ro = document.createElement("div");
-  ro.id = "orderNoteSavedWrap";
-  ro.className = "mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3";
-
-  ro.innerHTML = `
-    <div class="flex items-start justify-between gap-3">
-      <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Nota guardada</div>
-      <div id="orderNoteSavedAudit" class="text-xs text-slate-500 text-right"></div>
-    </div>
-    <div id="orderNoteSavedText" class="mt-2 text-sm font-semibold text-slate-900 whitespace-pre-wrap break-words">—</div>
-  `;
-
-  noteCard.appendChild(ro);
-}
-
-function paintNoteUI(noteText, audit = {}) {
-  const ta = document.getElementById("orderNoteText");
-  if (ta) ta.value = String(noteText ?? "");
-
-  const savedText = document.getElementById("orderNoteSavedText");
-  if (savedText) {
-    const txt = String(noteText ?? "").trim();
-    savedText.textContent = txt !== "" ? txt : "—";
-  }
-
-  const auditEl = document.getElementById("orderNoteAudit");
-  const savedAudit = document.getElementById("orderNoteSavedAudit");
-
-  const by = String(audit?.modified_by || "").trim();
-  const at = String(audit?.modified_at || "").trim();
-
-  const auditHtml = by
-    ? `Última nota: <b class="text-slate-900">${escapeHtml(by)}</b>${at ? ` · ${escapeHtml(formatFechaLocal(at))}` : ""}`
-    : "";
-
-  if (auditEl) auditEl.innerHTML = auditHtml;
-  if (savedAudit) savedAudit.innerHTML = auditHtml;
-
-  ORDER_NOTE_LAST_SAVED = String(noteText ?? "");
 }
 
 /* =====================================================
@@ -235,10 +175,12 @@ function isLlaveroItem(item) {
 
 function requiereImagenModificada(item) {
   const props = Array.isArray(item?.properties) ? item.properties : [];
+
   const tieneImagenCliente = props.some((p) => esImagenUrl(p?.value));
-  const tieneNombreArchivoImagen = props.some((p) => 
+  const tieneNombreArchivoImagen = props.some((p) =>
     /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(String(p?.value || "").trim())
   );
+
   return isLlaveroItem(item) || tieneImagenCliente || tieneNombreArchivoImagen;
 }
 
@@ -337,7 +279,7 @@ async function cargarMiCola() {
   setLoader(true);
 
   try {
-    const r = await fetch(ENDPOINT_QUEUE, { credentials: "same-origin" });
+    const r = await fetch(ENDPOINT_QUEUE, { credentials: "same-origin", cache: "no-store" });
     const d = await r.json().catch(() => null);
 
     pedidosCache = r.ok && (d?.ok === true || d?.success === true) ? (d.data || []) : [];
@@ -415,7 +357,6 @@ async function guardarNotaPedido(orderId, note) {
   const modified_by = getCurrentUserLabel();
   const modified_at = new Date().toISOString();
 
-  // usa DET_ORDER_KEY si existe (ID consistente que usa el backend)
   const finalOrderId = normalizeOrderId(DET_ORDER_KEY || orderId);
 
   const endpoints = [
@@ -445,17 +386,29 @@ async function guardarNotaPedido(orderId, note) {
       if (!r.ok || !(d?.success || d?.ok)) throw new Error(d?.message || `HTTP ${r.status}`);
 
       const finalNote = String(d?.note ?? note ?? "");
-      DET_ORDER_NOTE = finalNote;
 
+      DET_ORDER_NOTE = finalNote;
       DET_ORDER_NOTE_AUDIT = {
         modified_by: String(d?.modified_by || modified_by || ""),
         modified_at: String(d?.modified_at || modified_at || ""),
       };
-
       ORDER_NOTE_LAST_SAVED = DET_ORDER_NOTE;
 
-      // ✅ pinta “nota guardada” SIEMPRE
-      paintNoteUI(DET_ORDER_NOTE, DET_ORDER_NOTE_AUDIT);
+      // ✅ actualizar “Nota guardada” (solo lectura)
+      const savedText = document.getElementById("orderNoteSavedText");
+      if (savedText) savedText.textContent = finalNote.trim() ? finalNote : "—";
+
+      const auditHtml = DET_ORDER_NOTE_AUDIT.modified_by
+        ? `Última nota: <b class="text-slate-900">${escapeHtml(DET_ORDER_NOTE_AUDIT.modified_by || "—")}</b>${
+            DET_ORDER_NOTE_AUDIT.modified_at ? ` · ${escapeHtml(formatFechaLocal(DET_ORDER_NOTE_AUDIT.modified_at))}` : ""
+          }`
+        : "";
+
+      const savedAudit = document.getElementById("orderNoteSavedAudit");
+      if (savedAudit) savedAudit.innerHTML = auditHtml;
+
+      const audit = document.getElementById("orderNoteAudit");
+      if (audit) audit.innerHTML = auditHtml;
 
       return { ok: true, note: DET_ORDER_NOTE, ...DET_ORDER_NOTE_AUDIT };
     } catch (e) {
@@ -468,7 +421,6 @@ async function guardarNotaPedido(orderId, note) {
 }
 
 function setupOrderNoteDelegation() {
-  // CLICK: Guardar / Limpiar
   document.addEventListener("click", async (e) => {
     const btnSave  = e.target?.closest?.("#btnOrderNoteSave");
     const btnClear = e.target?.closest?.("#btnOrderNoteClear");
@@ -485,7 +437,6 @@ function setupOrderNoteDelegation() {
     if (btnClear) {
       ta.value = "";
       if (status) status.textContent = "Nota vaciada (sin guardar).";
-      // NO tocamos la “nota guardada” hasta guardar
       return;
     }
 
@@ -504,7 +455,6 @@ function setupOrderNoteDelegation() {
     btnSave.disabled = false;
   });
 
-  // INPUT: Autosave (debounce)
   document.addEventListener("input", (e) => {
     const ta = e.target;
     if (!(ta instanceof HTMLTextAreaElement)) return;
@@ -574,6 +524,7 @@ window.verDetalles = async function (orderId) {
     const r = await fetch(`${ENDPOINT_DETALLES}/${encodeURIComponent(pedidoActualId)}`, {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
+      cache: "no-store",
     });
 
     const d = await r.json().catch(() => null);
@@ -586,19 +537,12 @@ window.verDetalles = async function (orderId) {
     // ✅ order_key consistente (backend)
     DET_ORDER_KEY = normalizeOrderId(d.order_key || d.order?.id || pedidoActualId || "");
 
-    // ✅ nota viene como OBJETO {note, modified_by, modified_at}
-    const noteObj = d.order_note ?? {};
-    if (noteObj && typeof noteObj === "object") {
-      DET_ORDER_NOTE = String(noteObj.note ?? "").trim();
-      DET_ORDER_NOTE_AUDIT = {
-        modified_by: String(noteObj.modified_by || ""),
-        modified_at: String(noteObj.modified_at || ""),
-      };
-    } else {
-      DET_ORDER_NOTE = String(noteObj ?? "").trim();
-      DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
-    }
-
+    // ✅ NOTA: tu controller devuelve STRING + audit separado
+    DET_ORDER_NOTE = String(d.order_note ?? "").trim();
+    DET_ORDER_NOTE_AUDIT = {
+      modified_by: String(d.order_note_audit?.modified_by ?? ""),
+      modified_at: String(d.order_note_audit?.modified_at ?? ""),
+    };
     ORDER_NOTE_LAST_SAVED = DET_ORDER_NOTE;
 
     if (d?.order?.id) pedidoActualId = normalizeOrderId(d.order.id);
@@ -617,6 +561,9 @@ window.verDetalles = async function (orderId) {
       else if (pedido?.id) pedidoActualId = normalizeOrderId(pedido.id);
 
       DET_ORDER_KEY = pedidoActualId;
+      DET_ORDER_NOTE = "";
+      DET_ORDER_NOTE_AUDIT = { modified_by: "", modified_at: "" };
+      ORDER_NOTE_LAST_SAVED = "";
 
       renderDetalles(pedido, {}, {}, "", {});
     } else {
@@ -647,7 +594,7 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
   setTextSafe("detCliente", clienteNombre);
 
   if (!items.length) {
-    setHtmlSafe("detProductos", `<div class="p-6 text-center text-slate-500">Este pedido no tiene productos en detalles.</div>`);
+    setHtmlSafe("detProductos", `<div class="p-6 text-center text-slate-500">Este pedido no tiene productos.</div>`);
     setHtmlSafe("detResumen", "");
     return;
   }
@@ -688,30 +635,39 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
     return { imgs, txt };
   }
 
-  // ✅ usa DET_ORDER_KEY cuando exista
   const orderKey = String(normalizeOrderId(DET_ORDER_KEY || order?.id || pedidoActualId || "order") || "").trim();
 
   // ===== Nota global =====
-  const noteAuditText = orderNoteAudit?.modified_by
+  const auditHtml = orderNoteAudit?.modified_by
     ? `Última nota: <b class="text-slate-900">${escapeHtml(orderNoteAudit.modified_by || "—")}</b>${
         orderNoteAudit.modified_at ? ` · ${escapeHtml(formatFechaLocal(orderNoteAudit.modified_at))}` : ""
       }`
     : "";
 
-  // ✅ IMPORTANTE: envolvemos la card con un id para poder insertar “Nota guardada”
   const noteHtml = `
-    <div id="orderNoteCard" class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+    <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
       <div class="flex items-start justify-between gap-3">
         <div>
           <div class="font-extrabold text-slate-900">Nota del pedido</div>
           <div class="text-xs text-slate-500">Información general que pidió el cliente (aplica a todo el pedido)</div>
         </div>
-        <div id="orderNoteAudit" class="text-xs text-slate-500 text-right">${noteAuditText}</div>
+        <div id="orderNoteAudit" class="text-xs text-slate-500 text-right">${auditHtml}</div>
       </div>
 
       <textarea id="orderNoteText"
         class="mt-3 w-full min-h-[110px] rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:bg-white"
         placeholder="Ej: Cambiar texto, color, enviar con X, preferencia de diseño, etc.">${escapeHtml(orderNote || "")}</textarea>
+
+      <!-- ✅ NOTA GUARDADA (solo lectura) -->
+      <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div class="flex items-start justify-between gap-3">
+          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500">Nota guardada</div>
+          <div id="orderNoteSavedAudit" class="text-xs text-slate-500 text-right">${auditHtml}</div>
+        </div>
+        <div id="orderNoteSavedText" class="mt-2 text-sm font-semibold text-slate-900 whitespace-pre-wrap break-words">${
+          escapeHtml(showSavedNote(orderNote))
+        }</div>
+      </div>
 
       <div class="mt-3 flex flex-wrap gap-2">
         <button type="button" id="btnOrderNoteSave"
@@ -730,176 +686,186 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
     </div>
   `;
 
-  const cardsHtml = items.map((item, i) => {
-    const qty = toNum(item.quantity || 1);
-    const price = toNum(item.price || 0);
-    const total = price * qty;
+  function showSavedNote(n) {
+    const s = String(n ?? "").trim();
+    return s ? s : "—";
+  }
 
-    const requiere = requiereImagenModificada(item);
+  const cardsHtml = items
+    .map((item, i) => {
+      const qty = toNum(item.quantity || 1);
+      const price = toNum(item.price || 0);
+      const total = price * qty;
 
-    const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[String(i)] ?? imagenesLocales?.[i]);
-    const imgMod = imgLocalObj.url || "";
-    const imgModBust = imgMod ? withBust(imgMod, imgLocalObj.modified_at || Date.now()) : "";
+      const requiere = requiereImagenModificada(item);
 
-    imagenesRequeridas[i] = !!requiere;
-    imagenesCargadas[i] = !!imgMod;
+      const imgLocalObj = normalizeImagenLocal(imagenesLocales?.[String(i)] ?? imagenesLocales?.[i]);
+      const imgMod = imgLocalObj.url || "";
+      const imgModBust = imgMod ? withBust(imgMod, imgLocalObj.modified_at || Date.now()) : "";
 
-    const { imgs: propsImg, txt: propsTxt } = separarProps(item.properties);
-    const imgCliente = propsImg.length ? String(propsImg[0].value || "") : "";
-    const imgClienteBust = imgCliente ? withBust(imgCliente, Date.now()) : "";
+      imagenesRequeridas[i] = !!requiere;
+      imagenesCargadas[i] = !!imgMod;
 
-    const imgProducto = getProductImg(item);
-    const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
-    const pid = item.product_id != null ? String(item.product_id) : "";
-    const vid = item.variant_id != null ? String(item.variant_id) : "";
-    const sku = item.sku ? String(item.sku) : "";
+      const { imgs: propsImg, txt: propsTxt } = separarProps(item.properties);
+      const imgCliente = propsImg.length ? String(propsImg[0].value || "") : "";
+      const imgClienteBust = imgCliente ? withBust(imgCliente, Date.now()) : "";
 
-    const badgeHtml = requiere
-      ? imgMod
-        ? `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`
-        : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-50 border border-amber-200 text-amber-900">Falta imagen</span>`
-      : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-slate-50 border border-slate-200 text-slate-700">Sin imagen</span>`;
+      const imgProducto = getProductImg(item);
+      const variant = item.variant_title && item.variant_title !== "Default Title" ? item.variant_title : "";
+      const pid = item.product_id != null ? String(item.product_id) : "";
+      const vid = item.variant_id != null ? String(item.variant_id) : "";
+      const sku = item.sku ? String(item.sku) : "";
 
-    const propsTxtHtml = propsTxt.length
-      ? `
-        <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
-          <div class="space-y-1 text-sm">
-            ${propsTxt.map(({ name, value }) => {
-              const safeName = escapeHtml(name);
-              const safeV = escapeHtml(value || "—");
-              const val = esUrl(value)
-                ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
-                : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
-              return `
-                <div class="flex gap-2">
-                  <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
-                  <div class="flex-1">${val}</div>
-                </div>
-              `;
-            }).join("")}
-          </div>
-        </div>
-      `
-      : "";
+      const badgeHtml = requiere
+        ? imgMod
+          ? `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-900">Listo</span>`
+          : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-50 border border-amber-200 text-amber-900">Falta imagen</span>`
+        : `<span class="px-3 py-1 rounded-full text-xs font-extrabold bg-slate-50 border border-slate-200 text-slate-700">Sin imagen</span>`;
 
-    const imgClienteHtml = imgCliente
-      ? `
-        <div class="mt-3">
-          <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
-          <a href="${escapeHtml(imgCliente)}" target="_blank"
-            class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-            <img src="${escapeHtml(imgClienteBust)}" class="h-40 w-40 object-cover">
-          </a>
-        </div>
-      `
-      : "";
+      const propsTxtHtml = propsTxt.length
+        ? `
+          <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div class="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-2">Personalización</div>
+            <div class="space-y-1 text-sm">
+              ${propsTxt
+                .map(({ name, value }) => {
+                  const safeName = escapeHtml(name);
+                  const safeV = escapeHtml(value || "—");
+                  const val = esUrl(value)
+                    ? `<a href="${escapeHtml(value)}" target="_blank" class="underline font-semibold text-slate-900">${safeV}</a>`
+                    : `<span class="font-semibold text-slate-900 break-words">${safeV}</span>`;
 
-    const imgModHtml = `
-      <div id="imgModWrap_${orderKey}_${i}">
-        ${
-          imgMod
-            ? `
-              <div class="mt-3">
-                <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
-                <a href="${escapeHtml(imgMod)}" target="_blank"
-                  class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-                  <img src="${escapeHtml(imgModBust)}" class="h-40 w-40 object-cover">
-                </a>
-              </div>
-            `
-            : requiere
-            ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
-            : ``
-        }
-      </div>
-    `;
-
-    const uploadHtml = requiere
-      ? `
-        <div class="mt-4">
-          <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada (puedes reemplazarla)</div>
-
-          <div
-            id="dz_${orderKey}_${i}"
-            data-dropzone="1"
-            data-order="${escapeHtml(orderKey)}"
-            data-index="${i}"
-            class="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 cursor-pointer hover:bg-slate-100 transition"
-          >
-            <div class="font-extrabold text-slate-700">Arrastra y suelta aquí</div>
-            <div class="text-xs text-slate-500 mt-1">o haz clic para elegir un archivo</div>
-
-            <input id="file_${orderKey}_${i}" type="file" accept="image/*" class="hidden" />
-
-            <div class="mt-3 flex flex-wrap gap-2">
-              <button type="button" data-action="edit"
-                class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide disabled:opacity-40"
-                disabled>Editar</button>
-
-              <button type="button" data-action="upload"
-                class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition disabled:opacity-40"
-                disabled>Subir</button>
-
-              <button type="button" data-action="clear"
-                class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-300 transition disabled:opacity-40"
-                disabled>Quitar</button>
+                  return `
+                    <div class="flex gap-2">
+                      <div class="min-w-[130px] text-slate-500 font-bold">${safeName}:</div>
+                      <div class="flex-1">${val}</div>
+                    </div>
+                  `;
+                })
+                .join("")}
             </div>
-
-            <div id="preview_${orderKey}_${i}" class="mt-3"></div>
-            <div id="audit_${orderKey}_${i}" class="mt-2 text-xs text-slate-500"></div>
           </div>
-        </div>
-      `
-      : "";
+        `
+        : "";
 
-    const datosIdsHtml = `
-      <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-        ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
-        ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
-        ${pid ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(pid)}</span></div>` : ""}
-        ${vid ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(vid)}</span></div>` : ""}
-      </div>
-    `;
+      const imgClienteHtml = imgCliente
+        ? `
+          <div class="mt-3">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen original (cliente)</div>
+            <a href="${escapeHtml(imgCliente)}" target="_blank"
+              class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+              <img src="${escapeHtml(imgClienteBust)}" class="h-40 w-40 object-cover">
+            </a>
+          </div>
+        `
+        : "";
 
-    const productThumbHtml = imgProducto
-      ? `
-        <a href="${escapeHtml(imgProducto)}" target="_blank"
-          class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
-          <img src="${escapeHtml(imgProducto)}" class="h-full w-full object-cover">
-        </a>
-      `
-      : `
-        <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
-          🧾
+      const imgModHtml = `
+        <div id="imgModWrap_${orderKey}_${i}">
+          ${
+            imgMod
+              ? `
+                <div class="mt-3">
+                  <div class="text-xs font-extrabold text-slate-500 mb-2">Imagen modificada (subida)</div>
+                  <a href="${escapeHtml(imgMod)}" target="_blank"
+                    class="inline-block rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
+                    <img src="${escapeHtml(imgModBust)}" class="h-40 w-40 object-cover">
+                  </a>
+                </div>
+              `
+              : requiere
+              ? `<div class="mt-3 text-rose-600 font-extrabold text-sm">Falta imagen modificada</div>`
+              : ``
+          }
         </div>
       `;
 
-    return `
-      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
-        <div class="flex items-start gap-4">
-          ${productThumbHtml}
-          <div class="min-w-0 flex-1">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title)}</div>
-                <div class="text-sm text-slate-600 mt-1">
-                  Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price.toFixed(2))} €</b> · Total: <b>${escapeHtml(total.toFixed(2))} €</b>
-                </div>
-              </div>
-              <div id="badge_item_${orderKey}_${i}">${badgeHtml}</div>
-            </div>
+      const uploadHtml = requiere
+        ? `
+          <div class="mt-4">
+            <div class="text-xs font-extrabold text-slate-500 mb-2">Subir imagen modificada (puedes reemplazarla)</div>
 
-            ${datosIdsHtml}
-            ${propsTxtHtml}
-            ${imgClienteHtml}
-            ${imgModHtml}
-            ${uploadHtml}
+            <div
+              id="dz_${orderKey}_${i}"
+              data-dropzone="1"
+              data-order="${escapeHtml(orderKey)}"
+              data-index="${i}"
+              class="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 cursor-pointer hover:bg-slate-100 transition"
+            >
+              <div class="font-extrabold text-slate-700">Arrastra y suelta aquí</div>
+              <div class="text-xs text-slate-500 mt-1">o haz clic para elegir un archivo</div>
+
+              <input id="file_${orderKey}_${i}" type="file" accept="image/*" class="hidden" />
+
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button type="button" data-action="edit"
+                  class="px-3 py-2 rounded-2xl bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wide disabled:opacity-40"
+                  disabled>Editar</button>
+
+                <button type="button" data-action="upload"
+                  class="px-3 py-2 rounded-2xl bg-blue-600 text-white text-[11px] font-extrabold uppercase tracking-wide hover:bg-blue-700 transition disabled:opacity-40"
+                  disabled>Subir</button>
+
+                <button type="button" data-action="clear"
+                  class="px-3 py-2 rounded-2xl bg-slate-200 text-slate-900 text-[11px] font-extrabold uppercase tracking-wide hover:bg-slate-300 transition disabled:opacity-40"
+                  disabled>Quitar</button>
+              </div>
+
+              <div id="preview_${orderKey}_${i}" class="mt-3"></div>
+              <div id="audit_${orderKey}_${i}" class="mt-2 text-xs text-slate-500"></div>
+            </div>
+          </div>
+        `
+        : "";
+
+      const datosIdsHtml = `
+        <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+          ${variant ? `<div><span class="text-slate-500 font-bold">Variante:</span> <span class="font-semibold">${escapeHtml(variant)}</span></div>` : ""}
+          ${sku ? `<div><span class="text-slate-500 font-bold">SKU:</span> <span class="font-semibold">${escapeHtml(sku)}</span></div>` : ""}
+          ${pid ? `<div><span class="text-slate-500 font-bold">Product ID:</span> <span class="font-semibold">${escapeHtml(pid)}</span></div>` : ""}
+          ${vid ? `<div><span class="text-slate-500 font-bold">Variant ID:</span> <span class="font-semibold">${escapeHtml(vid)}</span></div>` : ""}
+        </div>
+      `;
+
+      const productThumbHtml = imgProducto
+        ? `
+          <a href="${escapeHtml(imgProducto)}" target="_blank"
+            class="h-16 w-16 rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white flex-shrink-0">
+            <img src="${escapeHtml(imgProducto)}" class="h-full w-full object-cover">
+          </a>
+        `
+        : `
+          <div class="h-16 w-16 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 flex-shrink-0">
+            🧾
+          </div>
+        `;
+
+      return `
+        <div class="rounded-3xl border border-slate-200 bg-white shadow-sm p-4">
+          <div class="flex items-start gap-4">
+            ${productThumbHtml}
+            <div class="min-w-0 flex-1">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="font-extrabold text-slate-900 truncate">${escapeHtml(item.title)}</div>
+                  <div class="text-sm text-slate-600 mt-1">
+                    Cant: <b>${escapeHtml(qty)}</b> · Precio: <b>${escapeHtml(price.toFixed(2))} €</b> · Total: <b>${escapeHtml(total.toFixed(2))} €</b>
+                  </div>
+                </div>
+                <div id="badge_item_${orderKey}_${i}">${badgeHtml}</div>
+              </div>
+
+              ${datosIdsHtml}
+              ${propsTxtHtml}
+              ${imgClienteHtml}
+              ${imgModHtml}
+              ${uploadHtml}
+            </div>
           </div>
         </div>
-      </div>
-    `;
-  }).join("");
+      `;
+    })
+    .join("");
 
   setHtmlSafe(
     "detProductos",
@@ -916,10 +882,6 @@ function renderDetalles(order, imagenesLocales = {}, productImages = {}, orderNo
       </div>
     `
   );
-
-  // ✅ inyecta bloque “Nota guardada” + pinta desde backend
-  ensureNoteReadOnlyBox();
-  paintNoteUI(orderNote, orderNoteAudit);
 
   actualizarResumenAuto();
   hydrateAuditsFromExisting(orderKey, items.length, imagenesLocales);
@@ -1230,7 +1192,7 @@ window.validarEstadoAuto = async function (orderId) {
 };
 
 /* =====================================================
-   EDITOR (Cropper.js)
+   EDITOR (Cropper.js) - igual que tu base
 ===================================================== */
 let __editor = { modal: null, img: null, cropper: null, current: null };
 
@@ -1531,7 +1493,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btnDevolver")?.addEventListener("click", devolverPedidos);
 
   setupDropzoneDelegation();
-  setupOrderNoteDelegation(); // nota global + autosave
+  setupOrderNoteDelegation();
 
   cargarMiCola();
 });

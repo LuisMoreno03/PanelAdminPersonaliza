@@ -15,18 +15,6 @@ class ConfirmacionController extends BaseController
     /* =====================================================
        Helpers base
     ===================================================== */
-    private function canonicalOrderKey(array $pedido): string
-    {
-        $sid = trim((string)($pedido['shopify_order_id'] ?? ''));
-
-        // Si existe shopify_order_id, lo normalizamos (por si viene como gid://shopify/Order/123)
-        if ($sid !== '' && $sid !== '0') {
-            return $this->normalizeShopifyOrderId($sid);
-        }
-
-        // Si no, usamos el id interno
-        return (string)($pedido['id'] ?? '');
-    }
 
     private function json(array $data, int $status = 200)
     {
@@ -41,6 +29,24 @@ class ConfirmacionController extends BaseController
         return $s;
     }
 
+    /**
+     * ✅ Clave canónica (SIEMPRE normalizada) para notas / joins / etc.
+     */
+    private function canonicalOrderKey(array $pedido): string
+    {
+        $sid = trim((string)($pedido['shopify_order_id'] ?? ''));
+
+        if ($sid !== '' && $sid !== '0') {
+            return $this->normalizeShopifyOrderId($sid);
+        }
+
+        return (string)($pedido['id'] ?? '');
+    }
+
+    /**
+     * Para compatibilidad con tu código existente (subidas, etc.)
+     * (pero para NOTAS usa canonicalOrderKey)
+     */
     private function orderKeyFromPedido(array $pedido): string
     {
         $sid = trim((string)($pedido['shopify_order_id'] ?? ''));
@@ -60,7 +66,6 @@ class ConfirmacionController extends BaseController
         $value = trim((string)$value);
         if ($value === '') return null;
 
-        // Si ya viene como "Y-m-d H:i:s"
         if (preg_match('/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$/', $value)) {
             return $value;
         }
@@ -103,10 +108,7 @@ class ConfirmacionController extends BaseController
     }
 
     /**
-     * ✅ Expresión SQL para ordenar:
-     *  - Express primero (0)
-     *  - Normal después (1)
-     * Detecta "express" dentro de p.forma_envio (case-insensitive)
+     * ✅ Express primero (0) y normal después (1)
      */
     private function expressOrderExpr(): string
     {
@@ -117,7 +119,7 @@ class ConfirmacionController extends BaseController
     }
 
     /**
-     * ✅ Lee la nota guardada en confirmacion_order_notes por orderKey
+     * ✅ Lee nota por orderKey
      */
     private function getOrderNoteByKey(string $orderKey): array
     {
@@ -149,8 +151,7 @@ class ConfirmacionController extends BaseController
     }
 
     /**
-     * ✅ orderKey SQL: usa shopify_order_id si existe y no es '' ni '0', si no usa p.id
-     * (lo usamos en myQueue y pull para joins consistentes)
+     * orderKey SQL para joins consistentes
      */
     private function buildOrderKeySql($db, bool $hasShopifyId): string
     {
@@ -170,9 +171,6 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       GET /confirmacion/my-queue
-      ✅ Express primero
-      ✅ Dentro de cada grupo: más antiguos primero
-      ✅ over_24h = 1 si assigned_at tiene +24h
     ===================================================== */
     public function myQueue()
     {
@@ -202,7 +200,6 @@ class ConfirmacionController extends BaseController
                 : ($hasPeUserName ? 'pe.user_name as estado_por' : 'NULL as estado_por');
 
             $driver = strtolower((string)($db->DBDriver ?? ''));
-
             $orderKeySql = $this->buildOrderKeySql($db, $hasShopifyId);
 
             if (!$hasAssignedAt) {
@@ -236,7 +233,6 @@ class ConfirmacionController extends BaseController
                     false
                 );
 
-            // JOIN pedidos_estado: MySQL con COLLATE, otros sin COLLATE
             if (str_contains($driver, 'mysql')) {
                 $q->join(
                     'pedidos_estado pe',
@@ -271,7 +267,6 @@ class ConfirmacionController extends BaseController
                 ->get()
                 ->getResultArray();
 
-            // filtro final de cancelación por JSON (doble seguridad)
             if ($hasPedidoJson && $rows) {
                 $rows = array_values(array_filter($rows, function ($r) {
                     return !$this->isCancelledFromPedidoJson($r['pedido_json'] ?? null);
@@ -291,9 +286,6 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       POST /confirmacion/pull
-      ✅ Express primero
-      ✅ Si hay pocos express: completa con normales más antiguos
-      ✅ FIX: join pedidos_estado con COLLATE en MySQL + orderKeySql consistente
     ===================================================== */
     public function pull()
     {
@@ -331,10 +323,8 @@ class ConfirmacionController extends BaseController
             $limitFetch = max($count * 8, $count);
             $select = 'p.id, p.shopify_order_id, p.etiquetas' . ($hasPedidoJson ? ', p.pedido_json' : '');
 
-            $candQuery = $db->table('pedidos p')
-                ->select($select, false);
+            $candQuery = $db->table('pedidos p')->select($select, false);
 
-            // JOIN pedidos_estado: MySQL con COLLATE, otros sin COLLATE (igual que myQueue)
             if (str_contains($driver, 'mysql')) {
                 $candQuery->join(
                     'pedidos_estado pe',
@@ -343,12 +333,7 @@ class ConfirmacionController extends BaseController
                     false
                 );
             } else {
-                $candQuery->join(
-                    'pedidos_estado pe',
-                    "pe.order_id = ($orderKeySql)",
-                    'left',
-                    false
-                );
+                $candQuery->join('pedidos_estado pe', "pe.order_id = ($orderKeySql)", 'left', false);
             }
 
             $candQuery
@@ -384,7 +369,6 @@ class ConfirmacionController extends BaseController
                 }));
             }
 
-            // ✅ ya vienen ordenados por (express primero + antiguos)
             $candidatos = array_slice($candidatos, 0, $count);
 
             if (!$candidatos) {
@@ -394,7 +378,6 @@ class ConfirmacionController extends BaseController
 
             $ids = array_column($candidatos, 'id');
 
-            // ✅ asignar (concurrencia: sólo si sigue libre)
             $update = [
                 'assigned_to_user_id' => $userId,
                 ($hasAssignedAt ? 'assigned_at' : null) => ($hasAssignedAt ? $now : null),
@@ -464,9 +447,6 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
        POST /confirmacion/guardar-nota
-       ✅ Guarda nota con orderKey consistente
-       ✅ Devuelve lo guardado (para JS: {note, modified_by, modified_at})
-       ✅ Alias guardarNotaPedido() por compatibilidad
     ===================================================== */
 
     public function guardarNotaPedido()
@@ -491,7 +471,6 @@ class ConfirmacionController extends BaseController
                 ], 500);
             }
 
-            // 1) Leer JSON o fallback a POST
             $payload = $this->request->getJSON(true);
             if (!is_array($payload)) {
                 $payload = $this->request->getPost() ?? [];
@@ -511,19 +490,17 @@ class ConfirmacionController extends BaseController
             $modifiedAt = $this->toDbDateTime((string)($payload['modified_at'] ?? '')) ?? date('Y-m-d H:i:s');
             $now        = date('Y-m-d H:i:s');
 
-            // Resolver pedido y usar orderKey consistente (shopify_order_id si existe y no es 0)
             $pedido = $this->findPedidoByAny($idNorm) ?: $this->findPedidoByAny($orderIdRaw);
+
             if (!$pedido) {
                 $orderKey = $idNorm !== '' ? $idNorm : $orderIdRaw;
             } else {
                 $orderKey = $this->canonicalOrderKey($pedido);
                 if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? ($idNorm ?: $orderIdRaw));
-
             }
 
             $table = $db->table('confirmacion_order_notes');
 
-            // 2) Upsert manual por order_id
             $existing = $table->select('id')
                 ->where('order_id', $orderKey)
                 ->get()
@@ -544,7 +521,6 @@ class ConfirmacionController extends BaseController
                 $table->insert($data);
             }
 
-            // 3) Leer lo guardado y responder consistente
             $saved = $table->where('order_id', $orderKey)->get()->getRowArray();
 
             return $this->json([
@@ -567,7 +543,7 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       GET /confirmacion/detalles/{id}
-      ✅ Devuelve order_key + order_note (objeto) para el JS nuevo
+      ✅ Devuelve order_note (STRING) + audit
     ===================================================== */
     public function detalles($id = null)
     {
@@ -616,31 +592,25 @@ class ConfirmacionController extends BaseController
             $productImages = $hasProdImages ? json_decode($pedido['product_images'] ?? '{}', true) : [];
             if (!is_array($productImages)) $productImages = [];
 
-            // ✅ nota "tiempo real"
             $orderKey = $this->canonicalOrderKey($pedido);
             if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $idNorm);
 
             $orderNote = $this->getOrderNoteByKey($orderKey);
 
+            return $this->json([
+                'success'          => true,
+                'order'            => $orderJson,
+                'imagenes_locales' => $imagenesLocales,
+                'product_images'   => $productImages,
+                'order_key'        => $orderKey,
 
-                return $this->json([
-                    'success'         => true,
-                    'order'           => $orderJson,
-                    'imagenes_locales'=> $imagenesLocales,
-                    'product_images'  => $productImages,
-                    'order_key'       => $orderKey,
-
-                    // ✅ lo que tu JS base espera
-                    'order_note'      => (string)($orderNote['note'] ?? ''),
-                    'order_note_audit'=> [
-                        'modified_by' => (string)($orderNote['modified_by'] ?? ''),
-                        'modified_at' => (string)($orderNote['modified_at'] ?? ''),
-                    ],
-
-                    // (opcional) mantener también el objeto completo por si lo quieres usar luego
-                    'order_note_obj'  => $orderNote,
-                ]);
-
+                // ✅ lo que el JS va a leer
+                'order_note'       => (string)($orderNote['note'] ?? ''),
+                'order_note_audit' => [
+                    'modified_by' => (string)($orderNote['modified_by'] ?? ''),
+                    'modified_at' => (string)($orderNote['modified_at'] ?? ''),
+                ],
+            ]);
         } catch (\Throwable $e) {
             log_message('error', 'ConfirmacionController detalles() error: ' . $e->getMessage());
             return $this->json(['success' => false, 'message' => $e->getMessage()], 500);
@@ -652,7 +622,7 @@ class ConfirmacionController extends BaseController
     {
         return $this->subirImagen();
     }
-    
+
     public function listFiles()
     {
         if (!session()->get('logged_in')) {
@@ -677,8 +647,6 @@ class ConfirmacionController extends BaseController
 
     /* =====================================================
       POST /confirmacion/subir-imagen
-      ✅ guarda archivo público + persiste en DB + borra anterior del mismo index
-      ✅ devuelve {url, modified_by, modified_at, estado}
     ===================================================== */
     public function subirImagen()
     {
@@ -711,13 +679,11 @@ class ConfirmacionController extends BaseController
 
             if (!$this->validate($rules)) {
                 $err = $this->validator->getError('file') ?? 'Archivo inválido';
-                log_message('error', 'Confirmacion subirImagen validate error: ' . $err);
                 return $this->json(['success' => false, 'message' => $err], 200);
             }
 
             if (!$file || !$file->isValid()) {
                 $msg = $file ? $file->getErrorString() : 'Archivo inválido';
-                log_message('error', 'Confirmacion subirImagen invalid file: ' . $msg);
                 return $this->json(['success' => false, 'message' => $msg], 200);
             }
 
@@ -740,7 +706,7 @@ class ConfirmacionController extends BaseController
                 return $this->json(['success' => false, 'message' => 'Falta columna pedidos.imagenes_locales'], 500);
             }
 
-            $orderKey = $this->orderKeyFromPedido($pedido);
+            $orderKey = $this->canonicalOrderKey($pedido);
             if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $orderId);
 
             $imagenes = json_decode($pedido['imagenes_locales'] ?? '{}', true);
@@ -755,7 +721,6 @@ class ConfirmacionController extends BaseController
             $dir = rtrim(FCPATH, '/\\') . '/uploads/confirmacion/' . $orderKey;
 
             if (!is_dir($dir) && !@mkdir($dir, 0775, true)) {
-                log_message('error', 'Confirmacion subirImagen: no se pudo crear directorio: ' . $dir);
                 return $this->json(['success' => false, 'message' => 'No se pudo crear el directorio. Revisa permisos.'], 500);
             }
 
@@ -766,7 +731,6 @@ class ConfirmacionController extends BaseController
             }
 
             if (!is_file($dir . '/' . $name)) {
-                log_message('error', 'Confirmacion subirImagen: move() no generó archivo. Dir: ' . $dir . ' Name: ' . $name);
                 return $this->json(['success' => false, 'message' => 'No se pudo guardar el archivo en el servidor.'], 500);
             }
 
@@ -792,7 +756,6 @@ class ConfirmacionController extends BaseController
                 'estado'      => $nuevoEstado,
             ]);
         } catch (\Throwable $e) {
-            log_message('error', 'Confirmacion subirImagen() error: ' . $e->getMessage());
             return $this->json([
                 'success' => false,
                 'message' => 'Error subiendo imagen: ' . $e->getMessage(),
@@ -836,7 +799,7 @@ class ConfirmacionController extends BaseController
             $orderId    = $this->normalizeShopifyOrderId($orderIdRaw);
 
             $estado   = (string)($payload['estado'] ?? '');
-            $mantener = (bool)($payload['mantener_asignado'] ?? false);
+            $mant_attach = (bool)($payload['mantener_asignado'] ?? false);
 
             if ($orderId === '' || trim($estado) === '') {
                 return $this->json(['success' => false, 'ok' => false, 'message' => 'Payload inválido'], 400);
@@ -850,7 +813,7 @@ class ConfirmacionController extends BaseController
                 return $this->json(['success' => false, 'ok' => false, 'message' => 'Pedido no encontrado'], 404);
             }
 
-            $orderKey = $this->orderKeyFromPedido($pedido);
+            $orderKey = $this->canonicalOrderKey($pedido);
             if (trim($orderKey) === '') $orderKey = (string)($pedido['id'] ?? $orderId);
 
             $existe = $db->table('pedidos_estado')->where('order_id', $orderKey)->countAllResults();
@@ -879,18 +842,14 @@ class ConfirmacionController extends BaseController
 
             $estadoLower = mb_strtolower(trim($estado));
 
-            // si confirmado/cancelado -> desasignar
             if ($estadoLower === 'confirmado' || $estadoLower === 'cancelado') {
                 $db->table('pedidos')
                     ->where('id', (int)$pedido['id'])
                     ->update(['assigned_to_user_id' => null, 'assigned_at' => null]);
             }
 
-            // mantener_asignado: lo dejamos por compatibilidad (si lo usas luego)
-
             return $this->json(['success' => true, 'ok' => true]);
         } catch (\Throwable $e) {
-            log_message('error', 'Confirmacion guardarEstado() error: ' . $e->getMessage());
             return $this->json([
                 'success' => false,
                 'ok'      => false,
@@ -992,7 +951,7 @@ class ConfirmacionController extends BaseController
     }
 
     /* =====================================================
-       Exclusiones por etiquetas / JSON
+       Exclusiones
     ===================================================== */
 
     private function applyEtiquetaExclusions($q, $db): void
