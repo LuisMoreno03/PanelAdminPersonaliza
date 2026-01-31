@@ -68,7 +68,7 @@
   // ----------------------------
   // API (desde el view)
   // En tu vista PHP pon:
-  // window.PLACAS_API = { listar:'...', stats:'...', subir:'...', ver:'...', inline:'...', descargarBase:'...' }
+  // window.PLACAS_API = { listar:'...', stats:'...', subir:'...', ver:'...', inline:'...', descargarBase:'...', descargarPngLote:'...', descargarJpgLote:'...' }
   // ----------------------------
   const API = window.PLACAS_API || window.API || {};
   if (!API.listar || !API.stats) {
@@ -228,13 +228,19 @@
       const inlineUrl = f.url || (API.inline ? joinUrl(API.inline, f.id) : "");
       const downloadUrl = f.download_url || (API.descargarBase ? joinUrl(API.descargarBase, f.id) : "");
 
-      const thumb = isImageMime(mime) ? `
+      const canInline = !!inlineUrl;
+      const canDownload = !!downloadUrl;
+
+      const thumb = (isImageMime(mime) && canInline) ? `
         <img src="${escapeHtml(inlineUrl)}" class="w-10 h-10 rounded-lg object-cover border" alt="">
       ` : `
         <div class="w-10 h-10 rounded-lg border bg-gray-50 flex items-center justify-center text-xs font-black text-gray-500">
           ${isPdfMime(mime) ? "PDF" : "FILE"}
         </div>
       `;
+
+      const btnBase = "rounded-xl px-3 py-2 text-xs font-extrabold";
+      const disabled = "opacity-50 cursor-not-allowed pointer-events-none";
 
       return `
         <tr class="border-t">
@@ -259,13 +265,14 @@
           <td class="px-4 py-3 text-right">
             <div class="inline-flex gap-2">
               <button type="button"
-                class="rounded-xl px-3 py-2 text-xs font-extrabold bg-gray-100 hover:bg-gray-200"
-                onclick="window.open('${escapeHtml(inlineUrl)}','_blank')">
+                class="${btnBase} bg-gray-100 hover:bg-gray-200 ${canInline ? "" : disabled}"
+                ${canInline ? `onclick="window.open('${escapeHtml(inlineUrl)}','_blank')"` : ""}>
                 Abrir
               </button>
+
               <button type="button"
-                class="rounded-xl px-3 py-2 text-xs font-extrabold bg-blue-600 text-white hover:brightness-110"
-                onclick="window.open('${escapeHtml(downloadUrl)}','_blank')">
+                class="${btnBase} bg-blue-600 text-white hover:brightness-110 ${canDownload ? "" : disabled}"
+                ${canDownload ? `onclick="window.open('${escapeHtml(downloadUrl)}','_blank')"` : ""}>
                 Descargar
               </button>
             </div>
@@ -395,17 +402,25 @@
 
       cont.innerHTML = "";
 
+      // ✅ Render mejorado (ancho completo + cards más prolijas)
       for (const dia of dias) {
         const diaBox = document.createElement("div");
-        diaBox.className = "bg-white border border-gray-200 rounded-2xl p-4";
+        diaBox.className = "w-full bg-white border border-gray-200 rounded-2xl p-4 sm:p-5 shadow-sm";
 
         diaBox.innerHTML = `
           <div class="flex items-center justify-between gap-3">
-            <div>
-              <div class="text-lg font-black">${escapeHtml(dia.fecha)}</div>
-              <div class="text-sm text-gray-500">Total: ${escapeHtml(String(dia.total_archivos || 0))}</div>
+            <div class="min-w-0">
+              <div class="text-lg sm:text-xl font-black truncate">${escapeHtml(dia.fecha)}</div>
+              <div class="text-sm text-gray-500 mt-0.5">
+                Total: <span class="font-bold text-gray-700">${escapeHtml(String(dia.total_archivos || 0))}</span>
+              </div>
             </div>
+
+            <span class="shrink-0 inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-extrabold text-gray-700">
+              ${escapeHtml(String((dia.lotes || []).length))} lote(s)
+            </span>
           </div>
+
           <div class="mt-4 grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" data-dia-grid></div>
         `;
 
@@ -422,47 +437,90 @@
           items.forEach(it => { placasMap[it.id] = it; });
 
           const principal = items[0] || null;
-          const thumb = principal?.thumb_url || principal?.url || "";
+
+          // ✅ Thumb: prioriza inline si existe (evita 404 típicos de thumb_url)
+          const thumb =
+            (API.inline && principal?.id ? joinUrl(API.inline, principal.id) : "") ||
+            principal?.thumb_url ||
+            principal?.url ||
+            "";
+
+          const created = formatFecha(lote.created_at || principal?.created_at || "");
+          const nota = (lote.numero_placa || "").trim();
+          const pedidosCount = Array.isArray(lote.pedidos)
+            ? lote.pedidos.length
+            : (Number(lote.pedidos_count || 0) || 0);
 
           const card = document.createElement("div");
-          card.className = "border border-gray-200 rounded-2xl p-4 hover:shadow-sm transition bg-white";
+          card.className = "group border border-gray-200 rounded-2xl p-4 bg-white hover:shadow-md transition cursor-pointer";
 
           card.innerHTML = `
-            <div class="flex items-start gap-3">
-              <div class="w-14 h-14 rounded-xl border bg-gray-50 overflow-hidden shrink-0 flex items-center justify-center">
-                ${thumb ? `<img src="${escapeHtml(thumb)}" class="w-full h-full object-cover" />` : `<span class="text-xs text-gray-400 font-bold">LOTE</span>`}
+            <div class="flex items-start gap-4">
+              <!-- Thumb con placeholder detrás -->
+              <div class="relative w-16 h-16 rounded-2xl border bg-gray-50 overflow-hidden shrink-0 flex items-center justify-center">
+                <div class="text-[10px] font-black text-gray-400">LOTE</div>
+                ${thumb ? `<img src="${escapeHtml(thumb)}" class="absolute inset-0 w-full h-full object-cover"
+                  onerror="this.style.display='none';" />` : ``}
               </div>
+
               <div class="min-w-0 flex-1">
-                <div class="font-black truncate">📦 ${escapeHtml(lnombre)}</div>
-                <div class="text-xs text-gray-500 mt-1">${escapeHtml(String(total))} archivo(s) • ${escapeHtml(String(lote.created_at || ""))}</div>
-                <div class="mt-3 flex flex-wrap gap-2">
-                  <button type="button"
-                    class="rounded-xl px-3 py-2 text-xs font-extrabold bg-gray-900 text-white hover:brightness-110"
-                    data-ver-lote>
-                    Ver
-                  </button>
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="font-black truncate">📦 ${escapeHtml(lnombre)}</div>
 
-                  ${API.descargarPngLote ? `
-                    <a class="rounded-xl px-3 py-2 text-xs font-extrabold bg-emerald-600 text-white hover:brightness-110"
-                      href="${escapeHtml(joinUrl(API.descargarPngLote, encodeURIComponent(lid)))}"
-                      onclick="event.stopPropagation()">
-                      Descargar PNG
-                    </a>
-                  ` : ``}
+                    <div class="mt-1 flex flex-wrap gap-2 text-xs">
+                      <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 font-extrabold text-gray-700">
+                        ${escapeHtml(String(total))} archivo(s)
+                      </span>
 
-                  ${API.descargarJpgLote ? `
-                    <a class="rounded-xl px-3 py-2 text-xs font-extrabold bg-blue-600 text-white hover:brightness-110"
-                      href="${escapeHtml(joinUrl(API.descargarJpgLote, encodeURIComponent(lid)))}"
-                      onclick="event.stopPropagation()">
-                      Descargar JPG
-                    </a>
-                  ` : ``}
+                      ${pedidosCount ? `
+                        <span class="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 font-extrabold text-blue-700">
+                          ${escapeHtml(String(pedidosCount))} pedido(s)
+                        </span>
+                      ` : ``}
+
+                      ${nota ? `
+                        <span class="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 font-extrabold text-amber-700">
+                          Nota: ${escapeHtml(nota)}
+                        </span>
+                      ` : ``}
+                    </div>
+
+                    <div class="text-xs text-gray-500 mt-2 truncate">
+                      ${created ? escapeHtml(created) : "—"}
+                    </div>
+                  </div>
+
+                  <!-- Acciones -->
+                  <div class="shrink-0 flex items-center gap-2">
+                    <button type="button"
+                      class="rounded-xl px-3 py-2 text-xs font-extrabold bg-gray-900 text-white hover:brightness-110"
+                      data-ver-lote>
+                      Ver
+                    </button>
+
+                    ${API.descargarPngLote ? `
+                      <a class="rounded-xl px-3 py-2 text-xs font-extrabold bg-emerald-600 text-white hover:brightness-110"
+                        href="${escapeHtml(joinUrl(API.descargarPngLote, encodeURIComponent(lid)))}"
+                        onclick="event.stopPropagation()">
+                        PNG
+                      </a>
+                    ` : ``}
+
+                    ${API.descargarJpgLote ? `
+                      <a class="rounded-xl px-3 py-2 text-xs font-extrabold bg-blue-600 text-white hover:brightness-110"
+                        href="${escapeHtml(joinUrl(API.descargarJpgLote, encodeURIComponent(lid)))}"
+                        onclick="event.stopPropagation()">
+                        JPG
+                      </a>
+                    ` : ``}
+                  </div>
                 </div>
               </div>
             </div>
           `;
 
-          // ✅ Ver => abre modal detalle lote desde el primer archivo (ver/{id} arma todo el lote)
+          // ✅ Ver => abre modal detalle lote desde el primer archivo
           card.querySelector("[data-ver-lote]")?.addEventListener("click", (e) => {
             e.stopPropagation();
             const first = (loteIndex[lid] || [])[0];
