@@ -51,15 +51,24 @@
   <?= view('placas_modal_carga') ?>
 
   <script>
-    window.PLACAS_API = {
-    listar: <?= json_encode(site_url('placas/archivos/listar-por-dia')) ?>,
-    stats:  <?= json_encode(site_url('placas/archivos/stats')) ?>,
-    subir:  <?= json_encode(site_url('placas/archivos/subir-lote')) ?>,
-    ver:    <?= json_encode(site_url('placas/archivos/info')) ?>,     // 👈 JSON del lote
-    inline: <?= json_encode(site_url('placas/archivos/inline')) ?>,   // 👈 preview
-    descargarBase: <?= json_encode(site_url('placas/archivos/descargar')) ?>,
-};
+  window.PLACAS_API = {
+    // GET
+    listar: "<?= site_url('placas/archivos/listar-por-dia') ?>",
+    stats:  "<?= site_url('placas/archivos/stats') ?>",
+
+    // DETALLE (tu JS usa API.ver o API.info)
+    ver:   "<?= site_url('placas/archivos/ver') ?>",
+    info:  "<?= site_url('placas/archivos/info') ?>",
+
+    // INLINE / DESCARGA
+    inline:        "<?= site_url('placas/archivos/inline') ?>",
+    descargarBase: "<?= site_url('placas/archivos/descargar') ?>",
+
+    // POST (por si tu modal de subida lo usa)
+    subir: "<?= site_url('placas/archivos/subir-lote') ?>"
+  };
 </script>
+
 
 
   <script src="<?= base_url('js/placas.js?v=' . time()) ?>" defer></script>
