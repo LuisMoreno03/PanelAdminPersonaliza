@@ -181,32 +181,32 @@ $routes->get('placas', 'PlacasController::index');
 // ✅ PLACAS API
 $routes->group('placas/archivos', static function($routes) {
 
-    // Listados / stats
+    // ✅ Listados / stats (tu JS usa listar-por-dia)
     $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
-    $routes->get('listar',         'PlacasArchivosController::listarPorDia'); // ✅ alias (tu "Listar")
-
+    $routes->get('listar',         'PlacasArchivosController::listarPorDia'); // alias por si algo pide /listar
     $routes->get('stats',          'PlacasArchivosController::stats');
 
-    // ✅ Detalle (tu botón "Ver" / tu JSON ya usa /ver)
+    // ✅ Detalle lote JSON (tu JS pide /ver/:id)
     $routes->get('ver/(:num)',     'PlacasArchivosController::ver/$1');
-    $routes->get('info/(:num)',    'PlacasArchivosController::ver/$1'); // ✅ alias por si en algún lado quedó /info
+    $routes->get('info/(:num)',    'PlacasArchivosController::info/$1'); // extra (por si lo usas)
 
-    // ✅ Preview inline (tu card intenta cargar /inline)
+    // ✅ Preview inline (tu JS pide /inline/:id)
     $routes->get('inline/(:num)',  'PlacasArchivosController::inline/$1');
 
-    // Descargar
+    // ✅ Descargar
     $routes->get('descargar/(:num)','PlacasArchivosController::descargar/$1');
 
-    // Acciones
+    // ✅ Subir (por si el modal usa /subir o /subir-lote)
     $routes->post('subir-lote',    'PlacasArchivosController::subirLote');
-    $routes->post('subir',         'PlacasArchivosController::subirLote'); // ✅ alias por si tu botón usa /subir
+    $routes->post('subir',         'PlacasArchivosController::subirLote'); // alias
 
+    // Acciones
     $routes->post('renombrar',     'PlacasArchivosController::renombrarArchivo');
     $routes->post('eliminar',      'PlacasArchivosController::eliminarArchivo');
     $routes->post('lote/renombrar','PlacasArchivosController::renombrarLote');
 });
 
-// ✅ Pedidos por producir (BD interna)
+// ✅ Pedidos por producir
 $routes->get('placas/pedidos/por-producir', 'PedidosController::porProducir');
 
 
