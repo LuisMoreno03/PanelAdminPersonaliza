@@ -117,4 +117,4 @@
 
   </div>
 </div>
- 
+ Al darle al botón de "Guardar" no hace nada, necesito que me muestre la vista previa de los archivos que seleccioné
