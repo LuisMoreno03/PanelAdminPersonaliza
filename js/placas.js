@@ -577,23 +577,86 @@
   // ----------------------------
   // Init
   // ----------------------------
-  async function init() {
+    async function init() {
+    initModalCargaPlaca(); // ✅ AÑADE ESTA LÍNEA
     initSearch();
     await cargarStats();
     await cargarVistaAgrupada();
 
-    // refresco cada 10 min
     setInterval(async () => {
       await cargarStats();
       await cargarVistaAgrupada();
     }, 600000);
   }
 
+
   // Export para debug si quieres
   window.__PLACAS = {
     abrirDetalleLoteDesdeArchivoId,
     recargar: async () => { await cargarStats(); await cargarVistaAgrupada(); }
   };
+
+    // ----------------------------
+  // Modal "CARGAR PLACA" (bridge)
+  // ----------------------------
+  function initModalCargaPlaca() {
+    const openBtn =
+      q("btnAbrirModalCarga") ||
+      document.getElementById("btnSubirPlaca") ||
+      document.querySelector("[data-open-modal-carga]");
+
+    // Backdrop / contenedor del modal (ponle 1 de estos IDs en tu view del modal)
+    const backdrop =
+      document.getElementById("modalCargaPlacaBackdrop") ||
+      document.getElementById("modalCargaBackdrop") ||
+      document.getElementById("modalCargaPlaca") ||
+      document.querySelector("[data-placas-modal-carga]");
+
+    if (!openBtn) {
+      console.warn("⚠️ No existe el botón para abrir el modal (id btnAbrirModalCarga).");
+      return;
+    }
+    if (!backdrop) {
+      console.warn("⚠️ No se encontró el modal de carga. Pon id='modalCargaPlacaBackdrop' al contenedor del modal.");
+      return;
+    }
+
+    const show = () => {
+      backdrop.classList.remove("hidden");
+      document.body.classList.add("overflow-hidden");
+    };
+
+    const hide = () => {
+      backdrop.classList.add("hidden");
+      document.body.classList.remove("overflow-hidden");
+    };
+
+    openBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      show();
+    });
+
+    // Botones de cerrar dentro del modal (ponles alguno de estos IDs/data)
+    backdrop.querySelectorAll(
+      "#btnCerrarModalCarga, #btnCerrarModal, [data-cerrar-modal-carga], [data-modal-close]"
+    ).forEach((btn) => btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      hide();
+    }));
+
+    // Click fuera (en el backdrop)
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) hide();
+    });
+
+    // Escape
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !backdrop.classList.contains("hidden")) hide();
+    });
+
+    // Debug opcional
+    window.__PLACAS_CARGA_MODAL = { show, hide };
+  }
 
   init();
 })();
