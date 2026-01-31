@@ -59,7 +59,7 @@
           <div class="flex items-center gap-3">
             <div class="h-10 w-10 rounded-3xl bg-slate-900 text-white flex items-center justify-center font-black">M</div>
             <div class="min-w-0">
-              <h1 class="text-2xl font-extrabold tracking-tight truncate">Montaje</h1>
+              <h1 class="text-2xl font-extrabold tracking-tight truncate">Montaje 1</h1>
               <p class="text-sm text-slate-600 mt-0.5">
                 Pull de pedidos en estado <b>Diseñado</b> → marcar <b>Realizado</b> para pasar a <b>Por producir</b>.
               </p>
