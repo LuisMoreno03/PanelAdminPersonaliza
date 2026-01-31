@@ -51,23 +51,20 @@
   <?= view('placas_modal_carga') ?>
 
   <script>
-  window.PLACAS_API = {
-    // GET
-    listar: "<?= site_url('placas/archivos/listar-por-dia') ?>",
-    stats:  "<?= site_url('placas/archivos/stats') ?>",
+window.PLACAS_API = {
+  listar: "<?= site_url('placas/archivos/listar-por-dia') ?>",
+  stats:  "<?= site_url('placas/archivos/stats') ?>",
+  ver:    "<?= site_url('placas/archivos/ver') ?>",
+  info:   "<?= site_url('placas/archivos/info') ?>",
+  inline: "<?= site_url('placas/archivos/inline') ?>",
+  descargarBase: "<?= site_url('placas/archivos/descargar') ?>",
+  subir: "<?= site_url('placas/archivos/subir-lote') ?>",
 
-    // DETALLE (tu JS usa API.ver o API.info)
-    ver:   "<?= site_url('placas/archivos/ver') ?>",
-    info:  "<?= site_url('placas/archivos/info') ?>",
-
-    // INLINE / DESCARGA
-    inline:        "<?= site_url('placas/archivos/inline') ?>",
-    descargarBase: "<?= site_url('placas/archivos/descargar') ?>",
-
-    // POST (por si tu modal de subida lo usa)
-    subir: "<?= site_url('placas/archivos/subir-lote') ?>"
-  };
+  // ✅ AÑADE ESTO: debe devolver JSON de pedidos “Por producir”
+  pedidos: "<?= site_url('porproducir/pull') ?>"
+};
 </script>
+
 
 
 
