@@ -62,11 +62,11 @@
   }
 
   function isPdfMime(mime) {
-    return String(mime || "").includes("pdf");
+    return String(mime || "").toLowerCase().includes("pdf");
   }
 
   // ----------------------------
-  // API
+  // API (desde el view)
   // ----------------------------
   const API = window.PLACAS_API || window.API || {};
   if (!API.listar || !API.stats) {
@@ -74,11 +74,22 @@
   }
 
   // ----------------------------
-  // State
+  // State principal listado
   // ----------------------------
-  let placasMap = {};   // id -> item
-  let loteIndex = {};   // lote_id -> items[]
+  let placasMap = {};      // id -> item
+  let loteIndex = {};      // lote_id -> items[]
   let searchTerm = "";
+
+  // ----------------------------
+  // State modal carga
+  // ----------------------------
+  let pedidosAll = [];
+  let pedidosLoaded = false;
+  let pedidosLoading = false;
+
+  const pedidosSelected = new Map(); // key -> {id, number, cliente, raw}
+  let selectedFiles = [];
+  let objectUrls = [];
 
   // ----------------------------
   // Modal "VER LOTE" (inyectado)
@@ -282,6 +293,7 @@
     ensureLoteModal();
     openLoteModal();
 
+    // placeholders
     q("loteInfoTitle").textContent = "Cargando…";
     q("loteInfoSub").textContent = "";
     q("loteInfoLote").textContent = "—";
@@ -432,12 +444,15 @@
 
           const principal = items[0] || null;
 
-          // Thumb: prioriza inline para evitar thumb_url raros
-          const thumb =
-            (API.inline && principal?.id ? joinUrl(API.inline, principal.id) : "") ||
-            principal?.thumb_url ||
-            principal?.url ||
-            "";
+          // thumb SOLO si es imagen (evita pedir inline para archivos no imagen)
+          let thumb = "";
+          if (principal?.id && isImageMime(principal?.mime) && API.inline) {
+            thumb = joinUrl(API.inline, principal.id);
+          } else if (principal?.thumb_url && isImageMime(principal?.mime)) {
+            thumb = principal.thumb_url;
+          } else {
+            thumb = "";
+          }
 
           const created = formatFecha(lote.created_at || principal?.created_at || "");
           const nota = (lote.numero_placa || "").trim();
@@ -452,7 +467,8 @@
             <div class="flex items-start gap-4">
               <div class="relative w-16 h-16 rounded-2xl border bg-gray-50 overflow-hidden shrink-0 flex items-center justify-center">
                 <div class="text-[10px] font-black text-gray-400">LOTE</div>
-                ${thumb ? `<img src="${escapeHtml(thumb)}" class="absolute inset-0 w-full h-full object-cover" onerror="this.style.display='none';" />` : ``}
+                ${thumb ? `<img src="${escapeHtml(thumb)}" class="absolute inset-0 w-full h-full object-cover"
+                  onerror="this.style.display='none';" />` : ``}
               </div>
 
               <div class="min-w-0 flex-1">
@@ -547,289 +563,527 @@
     }
   }
 
-  // ----------------------------
-  // Modal "CARGAR PLACA" (open/close + upload real)
-  // ----------------------------
-  function initModalCargaPlaca() {
-    const openBtn = q("btnAbrirModalCarga");
-    const backdrop = q("modalCargaBackdrop");
-    if (!openBtn || !backdrop) return;
+  // ============================================================
+  // ✅ MODAL CARGA PLACA (pedidos + preview + upload)
+  // ============================================================
+  function getModalBackdrop() {
+    return (
+      document.getElementById("modalCargaBackdrop") ||
+      document.getElementById("modalCargaPlacaBackdrop") ||
+      document.getElementById("modalCargaPlaca") ||
+      document.querySelector("[data-placas-modal-carga]")
+    );
+  }
 
-    const btnCerrar = q("btnCerrarCarga");
-    const btnCancelar = q("btnCancelarCarga");
-    const btnGuardar = q("btnGuardarCarga");
+  function showModalCarga() {
+    const backdrop = getModalBackdrop();
+    if (!backdrop) return;
+    backdrop.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
+  }
 
-    const inputLote = q("cargaLoteNombre");
-    const inputNumero = q("cargaNumero");
-    const inputFiles = q("cargaArchivo");
+  function hideModalCarga() {
+    const backdrop = getModalBackdrop();
+    if (!backdrop) return;
+    backdrop.classList.add("hidden");
+    document.body.classList.remove("overflow-hidden");
+  }
 
-    const preview = q("cargaPreview");
-    const countEl = q("cargaArchivosCount");
-    const msg = q("cargaMsg");
+  function setCargaMsg(html, kind) {
+    const el = q("cargaMsg");
+    if (!el) return;
+    const cls = kind === "error" ? "text-red-600" : (kind === "ok" ? "text-emerald-700" : "text-gray-600");
+    el.className = `mt-2 text-sm ${cls}`;
+    el.innerHTML = html || "";
+  }
 
-    const progressWrap = q("uploadProgressWrap");
-    const progressBar = q("uploadProgressBar");
-    const progressText = q("uploadProgressText");
-    const progressLabel = q("uploadProgressLabel");
+  function setProgress(on, pct, label) {
+    const wrap = q("uploadProgressWrap");
+    const bar = q("uploadProgressBar");
+    const text = q("uploadProgressText");
+    const lab = q("uploadProgressLabel");
 
-    // fuerza "cualquier archivo" (por si alguien puso accept raro)
-    if (inputFiles) {
-      inputFiles.removeAttribute("accept");
-      inputFiles.setAttribute("multiple", "multiple");
+    if (!wrap || !bar || !text || !lab) return;
+
+    if (!on) {
+      wrap.classList.add("hidden");
+      bar.style.width = "0%";
+      text.textContent = "0%";
+      lab.textContent = "Subiendo…";
+      return;
     }
 
-    let objectUrls = [];
-    const revokePreviews = () => {
-      objectUrls.forEach((u) => URL.revokeObjectURL(u));
-      objectUrls = [];
-    };
+    wrap.classList.remove("hidden");
+    const p = Math.max(0, Math.min(100, Number(pct || 0)));
+    bar.style.width = `${p}%`;
+    text.textContent = `${p}%`;
+    lab.textContent = label || "Subiendo…";
+  }
 
-    const resetUI = () => {
-      revokePreviews();
-      if (msg) msg.textContent = "";
-      if (progressWrap) progressWrap.classList.add("hidden");
-      if (progressBar) progressBar.style.width = "0%";
-      if (progressText) progressText.textContent = "0%";
-      if (progressLabel) progressLabel.textContent = "Subiendo…";
-      if (countEl) countEl.textContent = "0 archivo(s)";
-      if (preview) preview.innerHTML = `Vista previa`;
-      if (inputFiles) inputFiles.value = "";
-      // NO reseteo lote/número automáticamente por si el usuario cierra y reabre
-    };
-
-    const show = () => {
-      backdrop.classList.remove("hidden");
-      backdrop.style.display = "block";
-      document.body.classList.add("overflow-hidden");
-    };
-
-    const hide = () => {
-      backdrop.classList.add("hidden");
-      backdrop.style.display = "none";
-      document.body.classList.remove("overflow-hidden");
-      resetUI();
-    };
-
-    openBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      show();
+  function clearObjectUrls() {
+    objectUrls.forEach((u) => {
+      try { URL.revokeObjectURL(u); } catch (e) {}
     });
+    objectUrls = [];
+  }
 
-    btnCerrar?.addEventListener("click", (e) => { e.preventDefault(); hide(); });
-    btnCancelar?.addEventListener("click", (e) => { e.preventDefault(); hide(); });
+  function updateArchivosCount() {
+    const el = q("cargaArchivosCount");
+    if (!el) return;
+    el.textContent = `${selectedFiles.length} archivo(s)`;
+  }
 
-    backdrop.addEventListener("click", (e) => {
-      if (e.target === backdrop) hide();
-    });
+  function renderPreviewArchivos() {
+    const box = q("cargaPreview");
+    if (!box) return;
 
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !backdrop.classList.contains("hidden")) hide();
-    });
+    clearObjectUrls();
+    updateArchivosCount();
 
-    function renderUploadPreview(files) {
-      revokePreviews();
+    if (!selectedFiles.length) {
+      box.className = "mt-3 flex h-[360px] items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 text-sm text-gray-400";
+      box.innerHTML = "Vista previa";
+      return;
+    }
 
-      const arr = Array.from(files || []);
-      if (countEl) countEl.textContent = `${arr.length} archivo(s)`;
+    box.className = "mt-3 h-[360px] overflow-auto rounded-2xl border border-gray-200 bg-white p-3";
+    box.innerHTML = `
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="__prevGrid"></div>
+    `;
 
-      if (!preview) return;
+    const grid = box.querySelector("#__prevGrid");
+    selectedFiles.forEach((file, idx) => {
+      const mime = file.type || "";
+      const size = bytesToKb(file.size || 0);
 
-      if (!arr.length) {
-        preview.innerHTML = `Vista previa`;
-        return;
+      let thumbHtml = `
+        <div class="w-12 h-12 rounded-xl border bg-gray-50 flex items-center justify-center text-[10px] font-black text-gray-500">
+          ${isPdfMime(mime) ? "PDF" : "FILE"}
+        </div>
+      `;
+
+      if (isImageMime(mime)) {
+        const url = URL.createObjectURL(file);
+        objectUrls.push(url);
+        thumbHtml = `<img src="${escapeHtml(url)}" class="w-12 h-12 rounded-xl border object-cover" alt="">`;
       }
 
-      // UI: lista + thumbs si son imágenes
-      const items = arr.slice(0, 30).map((f) => {
-        const mime = f.type || "";
-        const size = bytesToKb(f.size || 0);
+      const card = document.createElement("div");
+      card.className = "border rounded-2xl p-3 flex items-start gap-3";
 
-        let left = `
-          <div class="w-10 h-10 rounded-xl border bg-white flex items-center justify-center text-[10px] font-black text-gray-500">
-            FILE
-          </div>
-        `;
+      card.innerHTML = `
+        <div class="shrink-0">${thumbHtml}</div>
+        <div class="min-w-0 flex-1">
+          <div class="font-extrabold text-sm truncate" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+          <div class="text-xs text-gray-500 mt-0.5 truncate">${escapeHtml(mime || "—")}</div>
+          <div class="text-xs text-gray-500 mt-0.5">${escapeHtml(size)}</div>
+          <button type="button" data-remove-file="${idx}"
+            class="mt-2 inline-flex items-center rounded-xl bg-gray-100 px-3 py-1 text-xs font-extrabold hover:bg-gray-200">
+            Quitar
+          </button>
+        </div>
+      `;
 
-        if (isPdfMime(mime)) {
-          left = `
-            <div class="w-10 h-10 rounded-xl border bg-white flex items-center justify-center text-[10px] font-black text-gray-500">
-              PDF
-            </div>
-          `;
+      grid.appendChild(card);
+    });
+
+    // quitar archivo (reconstruye FileList con DataTransfer)
+    box.querySelectorAll("[data-remove-file]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const i = Number(btn.getAttribute("data-remove-file"));
+        if (Number.isNaN(i)) return;
+
+        selectedFiles.splice(i, 1);
+
+        const input = q("cargaArchivo");
+        if (input) {
+          const dt = new DataTransfer();
+          selectedFiles.forEach((f) => dt.items.add(f));
+          input.files = dt.files;
         }
 
-        if (isImageMime(mime)) {
-          const url = URL.createObjectURL(f);
-          objectUrls.push(url);
-          left = `<img src="${escapeHtml(url)}" class="w-10 h-10 rounded-xl border object-cover" alt="">`;
-        }
+        renderPreviewArchivos();
+      });
+    });
+  }
 
+  function normalizePedido(raw) {
+    // soporta múltiples formatos
+    const obj = (raw && typeof raw === "object") ? raw : { number: String(raw || "") };
+
+    const numberRaw =
+      obj.number ?? obj.numero ?? obj.pedido ?? obj.order_number ?? obj.orderNumber ??
+      obj.name ?? obj.numero_pedido ?? obj.num ?? obj.id ?? "";
+
+    let number = String(numberRaw || "").trim();
+    if (!number) number = "PEDIDO";
+    // si viene sin #, lo dejamos tal cual (por si es "PEDIDO00123"); si viene num puro, también.
+    // Pero si quieres forzar #, descomenta:
+    // if (!number.startsWith("#")) number = `#${number}`;
+
+    const cliente =
+      obj.cliente ?? obj.customer ?? obj.cliente_nombre ?? obj.nombre_cliente ?? obj.name_customer ?? obj.nombre ?? "";
+
+    const idRaw =
+      obj.id ?? obj.order_id ?? obj.orderId ?? obj.pedido_id ?? obj.pedidoId ?? number;
+
+    const id = String(idRaw || number).trim();
+
+    return { id, number, cliente: String(cliente || "").trim(), raw: obj };
+  }
+
+  function pedidoMatches(p, term) {
+    if (!term) return true;
+    const hay = normalizeText(`${p.number} ${p.id} ${p.cliente}`);
+    return hay.includes(term);
+  }
+
+  function renderPedidosUI() {
+    const lista = q("cargaPedidosLista");
+    const sel = q("cargaPedidosSeleccionados");
+    const vin = q("cargaPedidosVinculados");
+    const footer = q("cargaPedidosFooter");
+    const bus = q("cargaBuscarPedido");
+
+    if (!lista || !sel || !vin) return;
+
+    const term = normalizeText(bus?.value || "");
+
+    // LISTA
+    const shown = pedidosAll.filter((p) => pedidoMatches(p, term));
+    if (!pedidosAll.length) {
+      lista.innerHTML = `<div class="p-3 text-xs text-gray-500">No hay pedidos para mostrar.</div>`;
+    } else if (!shown.length) {
+      lista.innerHTML = `<div class="p-3 text-xs text-gray-500">Sin resultados.</div>`;
+    } else {
+      lista.innerHTML = shown.map((p) => {
+        const key = p.id || p.number;
+        const active = pedidosSelected.has(key);
         return `
-          <div class="flex items-center gap-3 p-2 rounded-xl bg-white border">
-            ${left}
-            <div class="min-w-0 flex-1">
-              <div class="text-sm font-extrabold truncate">${escapeHtml(f.name)}</div>
-              <div class="text-xs text-gray-500 truncate">${escapeHtml(mime || "application/octet-stream")} • ${escapeHtml(size)}</div>
+          <button type="button" data-pedido-key="${escapeHtml(key)}"
+            class="w-full text-left rounded-xl border px-3 py-2 mb-2 ${active ? "bg-blue-50 border-blue-200" : "bg-white border-gray-200 hover:bg-gray-50"}">
+            <div class="font-extrabold text-xs truncate">${escapeHtml(p.number)}</div>
+            <div class="text-[11px] text-gray-500 truncate">${escapeHtml(p.cliente || "—")}</div>
+          </button>
+        `;
+      }).join("");
+    }
+
+    // SELECCIONADOS
+    const selectedArr = Array.from(pedidosSelected.values());
+    if (!selectedArr.length) {
+      sel.innerHTML = `<div class="p-3 text-xs text-gray-500">Selecciona pedidos de “Por producir”.</div>`;
+      vin.innerHTML = `<div class="p-3 text-xs text-gray-500">Al seleccionar pedidos, aquí aparecen vinculados.</div>`;
+    } else {
+      const chips = selectedArr.map((p) => {
+        const key = p.id || p.number;
+        return `
+          <div class="flex items-center justify-between gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 mb-2">
+            <div class="min-w-0">
+              <div class="text-xs font-extrabold truncate">${escapeHtml(p.number)}</div>
+              <div class="text-[11px] text-gray-500 truncate">${escapeHtml(p.cliente || "—")}</div>
             </div>
+            <button type="button" data-remove-pedido="${escapeHtml(key)}"
+              class="shrink-0 rounded-lg bg-white border px-2 py-1 text-[11px] font-extrabold hover:bg-gray-100">
+              Quitar
+            </button>
           </div>
         `;
       }).join("");
 
-      const extra = arr.length > 30
-        ? `<div class="text-xs text-gray-500 mt-2">… y ${arr.length - 30} archivo(s) más</div>`
+      sel.innerHTML = chips;
+      vin.innerHTML = chips; // “Vinculados (auto)” = mismos seleccionados
+    }
+
+    if (footer) {
+      footer.textContent = pedidosAll.length
+        ? `Mostrando ${shown.length} de ${pedidosAll.length}. Seleccionados: ${pedidosSelected.size}.`
         : "";
-
-      preview.innerHTML = `
-        <div class="w-full h-full p-3 overflow-auto">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            ${items}
-          </div>
-          ${extra}
-        </div>
-      `;
     }
 
-    function getPedidosJsonSafe() {
-      // Si más adelante pones un input hidden con JSON, lo tomamos.
-      const hidden = q("cargaPedidosJson");
-      if (hidden && hidden.value) return String(hidden.value);
+    // listeners LISTA
+    lista.querySelectorAll("[data-pedido-key]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const key = btn.getAttribute("data-pedido-key");
+        if (!key) return;
+        const p = pedidosAll.find((x) => (x.id || x.number) === key);
+        if (!p) return;
 
-      // fallback: si alguien setea data-pedidos-json en el modal
-      const fromData = backdrop.getAttribute("data-pedidos-json");
-      if (fromData) return String(fromData);
+        if (pedidosSelected.has(key)) pedidosSelected.delete(key);
+        else pedidosSelected.set(key, p);
 
-      // por defecto vacío
-      return "[]";
-    }
-
-    function setUploadingState(isUploading) {
-      if (btnGuardar) {
-        btnGuardar.disabled = isUploading;
-        btnGuardar.classList.toggle("opacity-60", isUploading);
-        btnGuardar.classList.toggle("cursor-not-allowed", isUploading);
-      }
-      if (inputFiles) inputFiles.disabled = isUploading;
-      if (inputLote) inputLote.disabled = isUploading;
-      if (inputNumero) inputNumero.disabled = isUploading;
-      if (btnCancelar) btnCancelar.disabled = isUploading;
-      if (btnCerrar) btnCerrar.disabled = isUploading;
-    }
-
-    function uploadWithProgress(url, formData) {
-      return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", url, true);
-
-        xhr.upload.onprogress = (evt) => {
-          if (!evt.lengthComputable) return;
-          const pct = Math.round((evt.loaded / evt.total) * 100);
-          if (progressWrap) progressWrap.classList.remove("hidden");
-          if (progressBar) progressBar.style.width = `${pct}%`;
-          if (progressText) progressText.textContent = `${pct}%`;
-          if (progressLabel) progressLabel.textContent = "Subiendo…";
-        };
-
-        xhr.onload = () => {
-          const text = xhr.responseText || "";
-          const data = safeJsonParse(text) || null;
-
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve({ ok: true, status: xhr.status, text, data });
-            return;
-          }
-
-          resolve({ ok: false, status: xhr.status, text, data });
-        };
-
-        xhr.onerror = () => reject(new Error("Error de red al subir archivos."));
-        xhr.send(formData);
+        renderPedidosUI();
       });
-    }
-
-    // Al elegir archivos: solo previsualiza
-    inputFiles?.addEventListener("change", (e) => {
-      const files = e.target?.files;
-      renderUploadPreview(files);
-      if (msg) msg.textContent = "";
     });
 
-    // Guardar: sube de verdad
-    btnGuardar?.addEventListener("click", async (e) => {
+    // listeners remove
+    sel.querySelectorAll("[data-remove-pedido]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const key = btn.getAttribute("data-remove-pedido");
+        if (!key) return;
+        pedidosSelected.delete(key);
+        renderPedidosUI();
+      });
+    });
+  }
+
+  async function cargarPedidos() {
+    if (pedidosLoading || pedidosLoaded) return;
+    pedidosLoading = true;
+
+    const lista = q("cargaPedidosLista");
+    if (lista) lista.innerHTML = `<div class="p-3 text-xs text-gray-500">Cargando pedidos…</div>`;
+
+    // Endpoint recomendado: API.pedidos
+    // Si no existe, intentamos algunos fallbacks (por si ya tienes uno funcionando).
+    const candidates = [
+      API.pedidos,
+      joinUrl(window.location.origin, "porproducir/pull"),
+      joinUrl(window.location.origin, "produccion/my-queue"),
+      joinUrl(window.location.origin, "montaje/my-queue"),
+    ].filter(Boolean);
+
+    let data = null;
+
+    for (const url of candidates) {
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        const text = await res.text();
+        const json = safeJsonParse(text);
+        if (!json) continue;
+
+        // aceptamos formatos comunes:
+        // - array directo
+        // - {data:[...]} / {pedidos:[...]} / {orders:[...]}
+        let arr =
+          Array.isArray(json) ? json :
+          (Array.isArray(json.data) ? json.data :
+          (Array.isArray(json.pedidos) ? json.pedidos :
+          (Array.isArray(json.orders) ? json.orders : null)));
+
+        if (!arr) continue;
+
+        data = arr;
+        break;
+      } catch (e) {}
+    }
+
+    if (!data) {
+      pedidosAll = [];
+      pedidosLoaded = true;
+      pedidosLoading = false;
+      renderPedidosUI();
+      // mensaje suave
+      const footer = q("cargaPedidosFooter");
+      if (footer) {
+        footer.textContent = "⚠️ No se pudo cargar pedidos. Añade window.PLACAS_API.pedidos con un endpoint JSON.";
+      }
+      return;
+    }
+
+    pedidosAll = data.map(normalizePedido).filter((p) => p && (p.id || p.number));
+    pedidosLoaded = true;
+    pedidosLoading = false;
+
+    renderPedidosUI();
+  }
+
+  function resetModalCarga() {
+    // campos
+    if (q("cargaLoteNombre")) q("cargaLoteNombre").value = "";
+    if (q("cargaNumero")) q("cargaNumero").value = "";
+    if (q("cargaBuscarPedido")) q("cargaBuscarPedido").value = "";
+
+    // pedidos
+    pedidosSelected.clear();
+    renderPedidosUI();
+
+    // archivos
+    selectedFiles = [];
+    const input = q("cargaArchivo");
+    if (input) input.value = "";
+    renderPreviewArchivos();
+
+    // msg/progreso
+    setCargaMsg("", "");
+    setProgress(false, 0, "");
+  }
+
+  function initModalCargaPlaca() {
+    const openBtn =
+      q("btnAbrirModalCarga") ||
+      document.getElementById("btnSubirPlaca") ||
+      document.querySelector("[data-open-modal-carga]");
+
+    const backdrop = getModalBackdrop();
+
+    if (!openBtn) {
+      console.warn("⚠️ No existe el botón para abrir el modal (id btnAbrirModalCarga).");
+      return;
+    }
+    if (!backdrop) {
+      console.warn("⚠️ No se encontró el modal de carga. Asegura id='modalCargaBackdrop' en el contenedor.");
+      return;
+    }
+
+    // abrir
+    openBtn.addEventListener("click", (e) => {
       e.preventDefault();
+      setCargaMsg("", "");
+      setProgress(false, 0, "");
+      showModalCarga();
+      cargarPedidos(); // carga pedidos al abrir
+      renderPedidosUI();
+      renderPreviewArchivos();
+    });
 
-      if (!API.subir) {
-        if (msg) msg.innerHTML = `<span class="text-red-600 font-bold">Falta API.subir en window.PLACAS_API</span>`;
-        return;
-      }
+    // cerrar (tus IDs reales)
+    const closeBtns = [
+      q("btnCerrarCarga"),
+      q("btnCancelarCarga"),
+      q("btnCerrarModalCarga"),
+      q("btnCerrarModal"),
+    ].filter(Boolean);
 
-      const loteNombre = (inputLote?.value || "").trim();
-      const numeroPlaca = (inputNumero?.value || "").trim();
-      const files = inputFiles?.files ? Array.from(inputFiles.files) : [];
+    closeBtns.forEach((btn) => btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      hideModalCarga();
+    }));
 
-      if (!loteNombre) {
-        if (msg) msg.innerHTML = `<span class="text-red-600 font-bold">El nombre del lote es obligatorio.</span>`;
-        inputLote?.focus();
-        return;
-      }
+    // click fuera
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) hideModalCarga();
+    });
 
-      if (!files.length) {
-        if (msg) msg.innerHTML = `<span class="text-red-600 font-bold">Selecciona al menos 1 archivo.</span>`;
-        inputFiles?.click();
-        return;
-      }
+    // Escape
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !backdrop.classList.contains("hidden")) hideModalCarga();
+    });
 
-      // arma FormData
+    // buscar pedidos
+    q("cargaBuscarPedido")?.addEventListener("input", () => renderPedidosUI());
+
+    // input archivos -> preview
+    q("cargaArchivo")?.addEventListener("change", (e) => {
+      selectedFiles = Array.from(e.target.files || []);
+      renderPreviewArchivos();
+    });
+
+    // guardar -> upload
+    q("btnGuardarCarga")?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      await guardarLote();
+    });
+
+    // debug
+    window.__PLACAS_CARGA_MODAL = { show: showModalCarga, hide: hideModalCarga, reset: resetModalCarga };
+  }
+
+  function buildPedidosJsonForSave() {
+    // Guardamos un formato que tu modal “Ver” entiende perfecto:
+    // [{number:"#PEDIDO001234", id:"...", cliente:"..."}]
+    return Array.from(pedidosSelected.values()).map((p) => ({
+      number: p.number,
+      id: p.id,
+      cliente: p.cliente
+    }));
+  }
+
+  function xhrUpload(url, formData, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", url, true);
+      xhr.responseType = "text";
+
+      xhr.upload.onprogress = (evt) => {
+        if (!evt.lengthComputable) return;
+        const pct = Math.round((evt.loaded / evt.total) * 100);
+        onProgress?.(pct);
+      };
+
+      xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+      xhr.onerror = () => reject(new Error("Error de red al subir."));
+      xhr.send(formData);
+    });
+  }
+
+  async function guardarLote() {
+    if (!API.subir) {
+      setCargaMsg("❌ Falta <b>API.subir</b> en window.PLACAS_API", "error");
+      return;
+    }
+
+    const loteNombre = (q("cargaLoteNombre")?.value || "").trim();
+    const numeroPlaca = (q("cargaNumero")?.value || "").trim();
+
+    if (!loteNombre) {
+      setCargaMsg("❌ El <b>nombre del lote</b> es obligatorio.", "error");
+      return;
+    }
+
+    if (!selectedFiles.length) {
+      setCargaMsg("❌ Debes seleccionar al menos <b>1 archivo</b>.", "error");
+      return;
+    }
+
+    const btn = q("btnGuardarCarga");
+    if (btn) {
+      btn.disabled = true;
+      btn.classList.add("opacity-60", "cursor-not-allowed");
+    }
+
+    setCargaMsg("Subiendo…", "");
+    setProgress(true, 0, "Subiendo…");
+
+    try {
+      const pedidosJson = JSON.stringify(buildPedidosJsonForSave());
+
       const fd = new FormData();
       fd.append("lote_nombre", loteNombre);
       fd.append("numero_placa", numeroPlaca);
-      fd.append("pedidos_json", getPedidosJsonSafe());
+      fd.append("pedidos_json", pedidosJson);
 
-      // ✅ IMPORTANTE: enviar como "archivos[]"
-      files.forEach((f) => fd.append("archivos[]", f, f.name));
+      // ✅ IMPORTANTE: tu backend lee $files['archivos']
+      // usando "archivos[]" PHP lo convierte a "archivos" correctamente.
+      selectedFiles.forEach((f) => fd.append("archivos[]", f, f.name));
 
-      // CSRF
       addCsrf(fd);
 
-      try {
-        setUploadingState(true);
-        if (progressWrap) progressWrap.classList.remove("hidden");
-        if (progressBar) progressBar.style.width = "0%";
-        if (progressText) progressText.textContent = "0%";
-        if (msg) msg.textContent = "";
+      const result = await xhrUpload(API.subir, fd, (pct) => {
+        setProgress(true, pct, "Subiendo…");
+      });
 
-        const result = await uploadWithProgress(API.subir, fd);
+      const data = safeJsonParse(result.text);
 
-        if (!result.ok || !result.data?.success) {
-          const m = (result.data && result.data.message)
-            ? result.data.message
-            : (result.text ? result.text.slice(0, 200) : "No se pudo subir.");
-          if (msg) msg.innerHTML = `<span class="text-red-600 font-bold">${escapeHtml(m)}</span>`;
-          if (progressLabel) progressLabel.textContent = "Error";
-          return;
-        }
+      if (result.status >= 200 && result.status < 300 && data?.success) {
+        setProgress(true, 100, "Completado");
+        setCargaMsg(`✅ ${escapeHtml(data.message || "Archivos subidos correctamente")}`, "ok");
 
-        if (progressBar) progressBar.style.width = "100%";
-        if (progressText) progressText.textContent = "100%";
-        if (progressLabel) progressLabel.textContent = "Completado";
-
-        if (msg) msg.innerHTML = `<span class="text-emerald-700 font-black">✅ Archivos subidos correctamente</span>`;
-
-        // recarga lista y stats
+        // refrescar listado
         await cargarStats();
         await cargarVistaAgrupada();
 
-        // cierra modal después de un toque
-        setTimeout(() => hide(), 650);
+        // limpiar y cerrar
+        setTimeout(() => {
+          resetModalCarga();
+          hideModalCarga();
+        }, 450);
 
-      } catch (err) {
-        if (msg) msg.innerHTML = `<span class="text-red-600 font-bold">${escapeHtml(String(err.message || err))}</span>`;
-      } finally {
-        setUploadingState(false);
+      } else {
+        const msg = (data && (data.message || data.error)) ? (data.message || data.error) : result.text;
+        setCargaMsg(`❌ ${escapeHtml(String(msg || "No se pudo subir."))}`, "error");
+        setProgress(false, 0, "");
       }
-    });
 
-    window.__PLACAS_CARGA_MODAL = { show, hide };
+    } catch (err) {
+      setCargaMsg(`❌ ${escapeHtml(String(err.message || err))}`, "error");
+      setProgress(false, 0, "");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove("opacity-60", "cursor-not-allowed");
+      }
+    }
   }
 
   // ----------------------------
@@ -847,15 +1101,11 @@
     }, 600000);
   }
 
-  // Debug
+  // Export para debug si quieres
   window.__PLACAS = {
     abrirDetalleLoteDesdeArchivoId,
-    recargar: async () => { await cargarStats(); await cargarVistaAgrupada(); }
+    recargar: async () => { await cargarStats(); await cargarVistaAgrupada(); },
   };
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  init();
 })();
