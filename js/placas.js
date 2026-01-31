@@ -66,7 +66,7 @@
   }
 
   // ----------------------------
-  // API (desde el view)
+  // API
   // ----------------------------
   const API = window.PLACAS_API || window.API || {};
   if (!API.listar || !API.stats) {
@@ -76,8 +76,8 @@
   // ----------------------------
   // State
   // ----------------------------
-  let placasMap = {};      // id -> item
-  let loteIndex = {};      // lote_id -> items[]
+  let placasMap = {};   // id -> item
+  let loteIndex = {};   // lote_id -> items[]
   let searchTerm = "";
 
   // ----------------------------
@@ -432,6 +432,7 @@
 
           const principal = items[0] || null;
 
+          // Thumb: prioriza inline para evitar thumb_url raros
           const thumb =
             (API.inline && principal?.id ? joinUrl(API.inline, principal.id) : "") ||
             principal?.thumb_url ||
@@ -451,8 +452,7 @@
             <div class="flex items-start gap-4">
               <div class="relative w-16 h-16 rounded-2xl border bg-gray-50 overflow-hidden shrink-0 flex items-center justify-center">
                 <div class="text-[10px] font-black text-gray-400">LOTE</div>
-                ${thumb ? `<img src="${escapeHtml(thumb)}" class="absolute inset-0 w-full h-full object-cover"
-                  onerror="this.style.display='none';" />` : ``}
+                ${thumb ? `<img src="${escapeHtml(thumb)}" class="absolute inset-0 w-full h-full object-cover" onerror="this.style.display='none';" />` : ``}
               </div>
 
               <div class="min-w-0 flex-1">
@@ -489,22 +489,6 @@
                       data-ver-lote>
                       Ver
                     </button>
-
-                    ${API.descargarPngLote ? `
-                      <a class="rounded-xl px-3 py-2 text-xs font-extrabold bg-emerald-600 text-white hover:brightness-110"
-                        href="${escapeHtml(joinUrl(API.descargarPngLote, encodeURIComponent(lid)))}"
-                        onclick="event.stopPropagation()">
-                        PNG
-                      </a>
-                    ` : ``}
-
-                    ${API.descargarJpgLote ? `
-                      <a class="rounded-xl px-3 py-2 text-xs font-extrabold bg-blue-600 text-white hover:brightness-110"
-                        href="${escapeHtml(joinUrl(API.descargarJpgLote, encodeURIComponent(lid)))}"
-                        onclick="event.stopPropagation()">
-                        JPG
-                      </a>
-                    ` : ``}
                   </div>
                 </div>
               </div>
@@ -564,17 +548,58 @@
   }
 
   // ----------------------------
-  // Modal "CARGAR PLACA" (bridge EXACTO con tus IDs)
+  // Modal "CARGAR PLACA" (open/close + upload real)
   // ----------------------------
   function initModalCargaPlaca() {
-    const openBtn = document.getElementById("btnAbrirModalCarga");
-    const backdrop = document.getElementById("modalCargaBackdrop");
-
+    const openBtn = q("btnAbrirModalCarga");
+    const backdrop = q("modalCargaBackdrop");
     if (!openBtn || !backdrop) return;
+
+    const btnCerrar = q("btnCerrarCarga");
+    const btnCancelar = q("btnCancelarCarga");
+    const btnGuardar = q("btnGuardarCarga");
+
+    const inputLote = q("cargaLoteNombre");
+    const inputNumero = q("cargaNumero");
+    const inputFiles = q("cargaArchivo");
+
+    const preview = q("cargaPreview");
+    const countEl = q("cargaArchivosCount");
+    const msg = q("cargaMsg");
+
+    const progressWrap = q("uploadProgressWrap");
+    const progressBar = q("uploadProgressBar");
+    const progressText = q("uploadProgressText");
+    const progressLabel = q("uploadProgressLabel");
+
+    // fuerza "cualquier archivo" (por si alguien puso accept raro)
+    if (inputFiles) {
+      inputFiles.removeAttribute("accept");
+      inputFiles.setAttribute("multiple", "multiple");
+    }
+
+    let objectUrls = [];
+    const revokePreviews = () => {
+      objectUrls.forEach((u) => URL.revokeObjectURL(u));
+      objectUrls = [];
+    };
+
+    const resetUI = () => {
+      revokePreviews();
+      if (msg) msg.textContent = "";
+      if (progressWrap) progressWrap.classList.add("hidden");
+      if (progressBar) progressBar.style.width = "0%";
+      if (progressText) progressText.textContent = "0%";
+      if (progressLabel) progressLabel.textContent = "Subiendo…";
+      if (countEl) countEl.textContent = "0 archivo(s)";
+      if (preview) preview.innerHTML = `Vista previa`;
+      if (inputFiles) inputFiles.value = "";
+      // NO reseteo lote/número automáticamente por si el usuario cierra y reabre
+    };
 
     const show = () => {
       backdrop.classList.remove("hidden");
-      backdrop.style.display = "block"; // fuerza por si hay CSS extra
+      backdrop.style.display = "block";
       document.body.classList.add("overflow-hidden");
     };
 
@@ -582,6 +607,7 @@
       backdrop.classList.add("hidden");
       backdrop.style.display = "none";
       document.body.classList.remove("overflow-hidden");
+      resetUI();
     };
 
     openBtn.addEventListener("click", (e) => {
@@ -590,15 +616,8 @@
       show();
     });
 
-    document.getElementById("btnCerrarCarga")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      hide();
-    });
-
-    document.getElementById("btnCancelarCarga")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      hide();
-    });
+    btnCerrar?.addEventListener("click", (e) => { e.preventDefault(); hide(); });
+    btnCancelar?.addEventListener("click", (e) => { e.preventDefault(); hide(); });
 
     backdrop.addEventListener("click", (e) => {
       if (e.target === backdrop) hide();
@@ -608,14 +627,216 @@
       if (e.key === "Escape" && !backdrop.classList.contains("hidden")) hide();
     });
 
-    window.__PLACAS_CARGA_MODAL = { show, hide }; // debug
+    function renderUploadPreview(files) {
+      revokePreviews();
+
+      const arr = Array.from(files || []);
+      if (countEl) countEl.textContent = `${arr.length} archivo(s)`;
+
+      if (!preview) return;
+
+      if (!arr.length) {
+        preview.innerHTML = `Vista previa`;
+        return;
+      }
+
+      // UI: lista + thumbs si son imágenes
+      const items = arr.slice(0, 30).map((f) => {
+        const mime = f.type || "";
+        const size = bytesToKb(f.size || 0);
+
+        let left = `
+          <div class="w-10 h-10 rounded-xl border bg-white flex items-center justify-center text-[10px] font-black text-gray-500">
+            FILE
+          </div>
+        `;
+
+        if (isPdfMime(mime)) {
+          left = `
+            <div class="w-10 h-10 rounded-xl border bg-white flex items-center justify-center text-[10px] font-black text-gray-500">
+              PDF
+            </div>
+          `;
+        }
+
+        if (isImageMime(mime)) {
+          const url = URL.createObjectURL(f);
+          objectUrls.push(url);
+          left = `<img src="${escapeHtml(url)}" class="w-10 h-10 rounded-xl border object-cover" alt="">`;
+        }
+
+        return `
+          <div class="flex items-center gap-3 p-2 rounded-xl bg-white border">
+            ${left}
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-extrabold truncate">${escapeHtml(f.name)}</div>
+              <div class="text-xs text-gray-500 truncate">${escapeHtml(mime || "application/octet-stream")} • ${escapeHtml(size)}</div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      const extra = arr.length > 30
+        ? `<div class="text-xs text-gray-500 mt-2">… y ${arr.length - 30} archivo(s) más</div>`
+        : "";
+
+      preview.innerHTML = `
+        <div class="w-full h-full p-3 overflow-auto">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            ${items}
+          </div>
+          ${extra}
+        </div>
+      `;
+    }
+
+    function getPedidosJsonSafe() {
+      // Si más adelante pones un input hidden con JSON, lo tomamos.
+      const hidden = q("cargaPedidosJson");
+      if (hidden && hidden.value) return String(hidden.value);
+
+      // fallback: si alguien setea data-pedidos-json en el modal
+      const fromData = backdrop.getAttribute("data-pedidos-json");
+      if (fromData) return String(fromData);
+
+      // por defecto vacío
+      return "[]";
+    }
+
+    function setUploadingState(isUploading) {
+      if (btnGuardar) {
+        btnGuardar.disabled = isUploading;
+        btnGuardar.classList.toggle("opacity-60", isUploading);
+        btnGuardar.classList.toggle("cursor-not-allowed", isUploading);
+      }
+      if (inputFiles) inputFiles.disabled = isUploading;
+      if (inputLote) inputLote.disabled = isUploading;
+      if (inputNumero) inputNumero.disabled = isUploading;
+      if (btnCancelar) btnCancelar.disabled = isUploading;
+      if (btnCerrar) btnCerrar.disabled = isUploading;
+    }
+
+    function uploadWithProgress(url, formData) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", url, true);
+
+        xhr.upload.onprogress = (evt) => {
+          if (!evt.lengthComputable) return;
+          const pct = Math.round((evt.loaded / evt.total) * 100);
+          if (progressWrap) progressWrap.classList.remove("hidden");
+          if (progressBar) progressBar.style.width = `${pct}%`;
+          if (progressText) progressText.textContent = `${pct}%`;
+          if (progressLabel) progressLabel.textContent = "Subiendo…";
+        };
+
+        xhr.onload = () => {
+          const text = xhr.responseText || "";
+          const data = safeJsonParse(text) || null;
+
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve({ ok: true, status: xhr.status, text, data });
+            return;
+          }
+
+          resolve({ ok: false, status: xhr.status, text, data });
+        };
+
+        xhr.onerror = () => reject(new Error("Error de red al subir archivos."));
+        xhr.send(formData);
+      });
+    }
+
+    // Al elegir archivos: solo previsualiza
+    inputFiles?.addEventListener("change", (e) => {
+      const files = e.target?.files;
+      renderUploadPreview(files);
+      if (msg) msg.textContent = "";
+    });
+
+    // Guardar: sube de verdad
+    btnGuardar?.addEventListener("click", async (e) => {
+      e.preventDefault();
+
+      if (!API.subir) {
+        if (msg) msg.innerHTML = `<span class="text-red-600 font-bold">Falta API.subir en window.PLACAS_API</span>`;
+        return;
+      }
+
+      const loteNombre = (inputLote?.value || "").trim();
+      const numeroPlaca = (inputNumero?.value || "").trim();
+      const files = inputFiles?.files ? Array.from(inputFiles.files) : [];
+
+      if (!loteNombre) {
+        if (msg) msg.innerHTML = `<span class="text-red-600 font-bold">El nombre del lote es obligatorio.</span>`;
+        inputLote?.focus();
+        return;
+      }
+
+      if (!files.length) {
+        if (msg) msg.innerHTML = `<span class="text-red-600 font-bold">Selecciona al menos 1 archivo.</span>`;
+        inputFiles?.click();
+        return;
+      }
+
+      // arma FormData
+      const fd = new FormData();
+      fd.append("lote_nombre", loteNombre);
+      fd.append("numero_placa", numeroPlaca);
+      fd.append("pedidos_json", getPedidosJsonSafe());
+
+      // ✅ IMPORTANTE: enviar como "archivos[]"
+      files.forEach((f) => fd.append("archivos[]", f, f.name));
+
+      // CSRF
+      addCsrf(fd);
+
+      try {
+        setUploadingState(true);
+        if (progressWrap) progressWrap.classList.remove("hidden");
+        if (progressBar) progressBar.style.width = "0%";
+        if (progressText) progressText.textContent = "0%";
+        if (msg) msg.textContent = "";
+
+        const result = await uploadWithProgress(API.subir, fd);
+
+        if (!result.ok || !result.data?.success) {
+          const m = (result.data && result.data.message)
+            ? result.data.message
+            : (result.text ? result.text.slice(0, 200) : "No se pudo subir.");
+          if (msg) msg.innerHTML = `<span class="text-red-600 font-bold">${escapeHtml(m)}</span>`;
+          if (progressLabel) progressLabel.textContent = "Error";
+          return;
+        }
+
+        if (progressBar) progressBar.style.width = "100%";
+        if (progressText) progressText.textContent = "100%";
+        if (progressLabel) progressLabel.textContent = "Completado";
+
+        if (msg) msg.innerHTML = `<span class="text-emerald-700 font-black">✅ Archivos subidos correctamente</span>`;
+
+        // recarga lista y stats
+        await cargarStats();
+        await cargarVistaAgrupada();
+
+        // cierra modal después de un toque
+        setTimeout(() => hide(), 650);
+
+      } catch (err) {
+        if (msg) msg.innerHTML = `<span class="text-red-600 font-bold">${escapeHtml(String(err.message || err))}</span>`;
+      } finally {
+        setUploadingState(false);
+      }
+    });
+
+    window.__PLACAS_CARGA_MODAL = { show, hide };
   }
 
   // ----------------------------
   // Init
   // ----------------------------
   async function init() {
-    initModalCargaPlaca(); // ✅ ahora abre el modal
+    initModalCargaPlaca();
     initSearch();
     await cargarStats();
     await cargarVistaAgrupada();
@@ -626,13 +847,12 @@
     }, 600000);
   }
 
-  // Export para debug si quieres
+  // Debug
   window.__PLACAS = {
     abrirDetalleLoteDesdeArchivoId,
     recargar: async () => { await cargarStats(); await cargarVistaAgrupada(); }
   };
 
-  // ✅ Asegura que el DOM exista antes de buscar ids
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {
