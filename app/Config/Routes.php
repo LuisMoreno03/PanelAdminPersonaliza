@@ -176,7 +176,6 @@ $routes->group('produccion', ['filter' => 'auth'], static function (RouteCollect
 | PLACAS (PROTEGIDO)
 |--------------------------------------------------------------------------
 */
-
 $routes->get('placas', 'PlacasController::index');
 
 // ✅ PLACAS API
@@ -184,27 +183,32 @@ $routes->group('placas/archivos', static function($routes) {
 
     // Listados / stats
     $routes->get('listar-por-dia', 'PlacasArchivosController::listarPorDia');
+    $routes->get('listar',         'PlacasArchivosController::listarPorDia'); // ✅ alias (tu "Listar")
+
     $routes->get('stats',          'PlacasArchivosController::stats');
 
-    // ✅ Detalle del lote (JSON para el modal "Ver")
-    $routes->get('info/(:num)',    'PlacasArchivosController::info/$1');
+    // ✅ Detalle (tu botón "Ver" / tu JSON ya usa /ver)
+    $routes->get('ver/(:num)',     'PlacasArchivosController::ver/$1');
+    $routes->get('info/(:num)',    'PlacasArchivosController::ver/$1'); // ✅ alias por si en algún lado quedó /info
 
-    // ✅ Archivo inline (preview)
+    // ✅ Preview inline (tu card intenta cargar /inline)
     $routes->get('inline/(:num)',  'PlacasArchivosController::inline/$1');
 
-    // Descargar archivo
+    // Descargar
     $routes->get('descargar/(:num)','PlacasArchivosController::descargar/$1');
 
     // Acciones
     $routes->post('subir-lote',    'PlacasArchivosController::subirLote');
+    $routes->post('subir',         'PlacasArchivosController::subirLote'); // ✅ alias por si tu botón usa /subir
+
     $routes->post('renombrar',     'PlacasArchivosController::renombrarArchivo');
     $routes->post('eliminar',      'PlacasArchivosController::eliminarArchivo');
     $routes->post('lote/renombrar','PlacasArchivosController::renombrarLote');
 });
 
-
 // ✅ Pedidos por producir (BD interna)
 $routes->get('placas/pedidos/por-producir', 'PedidosController::porProducir');
+
 
 /*
 |--------------------------------------------------------------------------
