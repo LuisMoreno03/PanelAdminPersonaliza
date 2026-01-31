@@ -67,8 +67,6 @@
 
   // ----------------------------
   // API (desde el view)
-  // En tu vista PHP pon:
-  // window.PLACAS_API = { listar:'...', stats:'...', subir:'...', ver:'...', inline:'...', descargarBase:'...', descargarPngLote:'...', descargarJpgLote:'...' }
   // ----------------------------
   const API = window.PLACAS_API || window.API || {};
   if (!API.listar || !API.stats) {
@@ -81,7 +79,6 @@
   let placasMap = {};      // id -> item
   let loteIndex = {};      // lote_id -> items[]
   let searchTerm = "";
-  let modalItem = null;
 
   // ----------------------------
   // Modal "VER LOTE" (inyectado)
@@ -196,7 +193,6 @@
     }
 
     box.innerHTML = arr.map((p) => {
-      // soporta formatos: {number:"#PEDIDO001234", id:"..."} o strings
       const label =
         typeof p === "string"
           ? p
@@ -286,7 +282,6 @@
     ensureLoteModal();
     openLoteModal();
 
-    // placeholders
     q("loteInfoTitle").textContent = "Cargando…";
     q("loteInfoSub").textContent = "";
     q("loteInfoLote").textContent = "—";
@@ -402,7 +397,6 @@
 
       cont.innerHTML = "";
 
-      // ✅ Render mejorado (ancho completo + cards más prolijas)
       for (const dia of dias) {
         const diaBox = document.createElement("div");
         diaBox.className = "w-full bg-white border border-gray-200 rounded-2xl p-4 sm:p-5 shadow-sm";
@@ -438,7 +432,6 @@
 
           const principal = items[0] || null;
 
-          // ✅ Thumb: prioriza inline si existe (evita 404 típicos de thumb_url)
           const thumb =
             (API.inline && principal?.id ? joinUrl(API.inline, principal.id) : "") ||
             principal?.thumb_url ||
@@ -456,7 +449,6 @@
 
           card.innerHTML = `
             <div class="flex items-start gap-4">
-              <!-- Thumb con placeholder detrás -->
               <div class="relative w-16 h-16 rounded-2xl border bg-gray-50 overflow-hidden shrink-0 flex items-center justify-center">
                 <div class="text-[10px] font-black text-gray-400">LOTE</div>
                 ${thumb ? `<img src="${escapeHtml(thumb)}" class="absolute inset-0 w-full h-full object-cover"
@@ -491,7 +483,6 @@
                     </div>
                   </div>
 
-                  <!-- Acciones -->
                   <div class="shrink-0 flex items-center gap-2">
                     <button type="button"
                       class="rounded-xl px-3 py-2 text-xs font-extrabold bg-gray-900 text-white hover:brightness-110"
@@ -520,7 +511,6 @@
             </div>
           `;
 
-          // ✅ Ver => abre modal detalle lote desde el primer archivo
           card.querySelector("[data-ver-lote]")?.addEventListener("click", (e) => {
             e.stopPropagation();
             const first = (loteIndex[lid] || [])[0];
@@ -528,7 +518,6 @@
             abrirDetalleLoteDesdeArchivoId(first.id);
           });
 
-          // click card también abre detalle
           card.addEventListener("click", () => {
             const first = (loteIndex[lid] || [])[0];
             if (!first?.id) return;
@@ -545,7 +534,7 @@
   }
 
   // ----------------------------
-  // Buscador principal (si existe)
+  // Buscador principal
   // ----------------------------
   function initSearch() {
     const input = q("searchInput");
@@ -575,10 +564,58 @@
   }
 
   // ----------------------------
+  // Modal "CARGAR PLACA" (bridge EXACTO con tus IDs)
+  // ----------------------------
+  function initModalCargaPlaca() {
+    const openBtn = document.getElementById("btnAbrirModalCarga");
+    const backdrop = document.getElementById("modalCargaBackdrop");
+
+    if (!openBtn || !backdrop) return;
+
+    const show = () => {
+      backdrop.classList.remove("hidden");
+      backdrop.style.display = "block"; // fuerza por si hay CSS extra
+      document.body.classList.add("overflow-hidden");
+    };
+
+    const hide = () => {
+      backdrop.classList.add("hidden");
+      backdrop.style.display = "none";
+      document.body.classList.remove("overflow-hidden");
+    };
+
+    openBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      show();
+    });
+
+    document.getElementById("btnCerrarCarga")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      hide();
+    });
+
+    document.getElementById("btnCancelarCarga")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      hide();
+    });
+
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) hide();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !backdrop.classList.contains("hidden")) hide();
+    });
+
+    window.__PLACAS_CARGA_MODAL = { show, hide }; // debug
+  }
+
+  // ----------------------------
   // Init
   // ----------------------------
-    async function init() {
-    initModalCargaPlaca(); // ✅ AÑADE ESTA LÍNEA
+  async function init() {
+    initModalCargaPlaca(); // ✅ ahora abre el modal
     initSearch();
     await cargarStats();
     await cargarVistaAgrupada();
@@ -589,74 +626,16 @@
     }, 600000);
   }
 
-
   // Export para debug si quieres
   window.__PLACAS = {
     abrirDetalleLoteDesdeArchivoId,
     recargar: async () => { await cargarStats(); await cargarVistaAgrupada(); }
   };
 
-    // ----------------------------
-  // Modal "CARGAR PLACA" (bridge)
-  // ----------------------------
-  function initModalCargaPlaca() {
-    const openBtn =
-      q("btnAbrirModalCarga") ||
-      document.getElementById("btnSubirPlaca") ||
-      document.querySelector("[data-open-modal-carga]");
-
-    // Backdrop / contenedor del modal (ponle 1 de estos IDs en tu view del modal)
-    const backdrop =
-      document.getElementById("modalCargaPlacaBackdrop") ||
-      document.getElementById("modalCargaBackdrop") ||
-      document.getElementById("modalCargaPlaca") ||
-      document.querySelector("[data-placas-modal-carga]");
-
-    if (!openBtn) {
-      console.warn("⚠️ No existe el botón para abrir el modal (id btnAbrirModalCarga).");
-      return;
-    }
-    if (!backdrop) {
-      console.warn("⚠️ No se encontró el modal de carga. Pon id='modalCargaPlacaBackdrop' al contenedor del modal.");
-      return;
-    }
-
-    const show = () => {
-      backdrop.classList.remove("hidden");
-      document.body.classList.add("overflow-hidden");
-    };
-
-    const hide = () => {
-      backdrop.classList.add("hidden");
-      document.body.classList.remove("overflow-hidden");
-    };
-
-    openBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      show();
-    });
-
-    // Botones de cerrar dentro del modal (ponles alguno de estos IDs/data)
-    backdrop.querySelectorAll(
-      "#btnCerrarModalCarga, #btnCerrarModal, [data-cerrar-modal-carga], [data-modal-close]"
-    ).forEach((btn) => btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      hide();
-    }));
-
-    // Click fuera (en el backdrop)
-    backdrop.addEventListener("click", (e) => {
-      if (e.target === backdrop) hide();
-    });
-
-    // Escape
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !backdrop.classList.contains("hidden")) hide();
-    });
-
-    // Debug opcional
-    window.__PLACAS_CARGA_MODAL = { show, hide };
+  // ✅ Asegura que el DOM exista antes de buscar ids
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
   }
-
-  init();
 })();
